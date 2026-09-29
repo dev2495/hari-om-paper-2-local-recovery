@@ -104,7 +104,7 @@ export const MODULE_NAVIGATION: Record<string, ModuleLink[]> = {
       "href": "/system/machines"
     },
     {
-      "name": "Tolerance bands",
+      "name": "Stock variance limits",
       "href": "/system/tolerances"
     },
     {

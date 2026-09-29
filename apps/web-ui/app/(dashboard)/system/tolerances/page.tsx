@@ -213,9 +213,9 @@ function TolerancesPage() {
       </section>
 
       <ReportHero
-        eyebrow="System · per-plant tolerances"
-        title="Variance tolerances"
-        description="Set the per-item-type variance bands used by reconciliation. Saved values apply to the selected plant on the next math refresh. Leave a band blank to keep the global default."
+        eyebrow="System · stock variance limits"
+        title="Stock variance limits"
+        description="Set the per-item-type kg variance allowed in material reconciliation. Saved values apply to the selected plant on the next math refresh. Leave a band blank to keep the global default. These are not QC tolerances — incoming checks live in Quality → Material standards and process checks on each specification."
         accent="cyan"
         chips={[
           { label: scopeLabel, tone: currentRow?.scope === "plant" ? "ok" : "neutral" },

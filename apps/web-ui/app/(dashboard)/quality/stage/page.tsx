@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react"
 
 import { EmptyState, ExecutiveHero, Panel } from "@/components/erp/shell"
+import { InstrumentRegister, useQcInstruments } from "@/components/qc/InstrumentRegister"
 import { QualityDeskNav } from "@/components/qc/QualityDeskNav"
 import { StageQcFields } from "@/components/qc/StageQcFields"
 import { RoleGate } from "@/components/workspace/role-gate"
@@ -189,7 +190,8 @@ function numericReadings(stageType: DeskStage, draft: StageDraft) {
 
 export default function StageQualityPage() {
   const { showToast } = useApp()
-  const { activePlant } = useAuth()
+  const { activePlant, user } = useAuth()
+  const canEditInstruments = ["Owner", "Admin", "QC"].some((role) => role === user?.role || (user?.roles || []).includes(role))
   const [search, setSearch] = useState("")
   const [selectedJobId, setSelectedJobId] = useState("")
   const [stageType, setStageType] = useState<DeskStage>("WINDER")
@@ -229,6 +231,8 @@ export default function StageQualityPage() {
   const selectedJob = jobs.find((job: any) => String(job.id) === selectedJobId) || null
   const plantId = plantForJob(selectedJob) || (activePlant && activePlant.toUpperCase() !== "ALL" ? activePlant : undefined)
   const templateQuery = useJobQcTemplate(selectedJobId || undefined, stageType, plantId)
+  const instrumentsQuery = useQcInstruments(plantId)
+  const registeredInstruments = (instrumentsQuery.data || []).filter((row) => row.active)
   const snapshotProfile = selectedJob?.spec_snapshot?.qc_profile || templateQuery.data?.qc_profile
   const missingSetup = Boolean(
     selectedJob?.spec_snapshot?.missing_qc_setup
@@ -747,12 +751,39 @@ export default function StageQualityPage() {
                 </div>
                 <label className="block text-sm">
                   <span className="mb-1 block text-[12px] font-semibold text-muted-foreground">Instrument ID</span>
-                  <input
-                    data-testid="quality-stage-instrument-id"
-                    value={draft.instrumentId}
-                    onChange={(event) => updateDraft(stageType, { instrumentId: event.target.value })}
-                    className="h-10 w-full rounded-xl border border-foreground/80 px-3 text-sm text-foreground"
-                  />
+                  {registeredInstruments.length ? (
+                    <select
+                      data-testid="quality-stage-instrument-id"
+                      value={draft.instrumentId}
+                      onChange={(event) => {
+                        const picked = registeredInstruments.find((row) => row.code === event.target.value)
+                        updateDraft(stageType, {
+                          instrumentId: event.target.value,
+                          calibrationDue: picked?.calibration_due || "",
+                          calibrationStatus: picked ? (picked.calibration_status === "expired" ? "expired" : "valid") : "",
+                          instrumentEvidence: picked?.certificate_ref || "",
+                        })
+                      }}
+                      className="h-10 w-full rounded-xl border border-foreground/80 bg-card px-3 text-sm text-foreground"
+                    >
+                      <option value="">Select a registered instrument</option>
+                      {registeredInstruments.map((row) => (
+                        <option key={row.id} value={row.code}>
+                          {row.code} · {row.name} · {row.calibration_status === "expired" ? "CALIBRATION EXPIRED" : `due ${row.calibration_due || "—"}`}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      data-testid="quality-stage-instrument-id"
+                      value={draft.instrumentId}
+                      onChange={(event) => updateDraft(stageType, { instrumentId: event.target.value })}
+                      className="h-10 w-full rounded-xl border border-foreground/80 px-3 text-sm text-foreground"
+                    />
+                  )}
+                  {registeredInstruments.length ? (
+                    <span className="mt-1 block text-[11px] text-muted-foreground">Calibration comes from the instrument register; it cannot be typed here.</span>
+                  ) : null}
                 </label>
                 <label className="block text-sm">
                   <span className="mb-1 block text-[12px] font-semibold text-muted-foreground">Calibration due</span>
@@ -917,6 +948,9 @@ export default function StageQualityPage() {
               </button>
             </div>
           </form>
+        </Panel>
+        <Panel title="Instrument register" subtitle="Gauges, balances, C.S. tester and moisture meters with their calibration due dates. Expired instruments cannot back an instrument-required check.">
+          <InstrumentRegister plantId={plantId} canEdit={canEditInstruments} />
         </Panel>
       </div>
     </RoleGate>

@@ -18,7 +18,6 @@ import { cn } from "@/lib/utils"
 
 const REASONS = [
   { value: "REWORK", label: "Rework yield (re-introduce into stock)" },
-  { value: "RETURN", label: "Customer return" },
   { value: "ADJUSTMENT", label: "Manual adjustment (positive)" },
   { value: "OPENING", label: "Opening / go-live adjustment" },
   { value: "OTHER", label: "Other reason" },
@@ -238,8 +237,8 @@ export default function ManualFgInwardPage() {
             />
             <ReasonHelp
               icon={<ArrowRight className="h-4 w-4 rotate-180" />}
-              title="RETURN"
-              detail="Customer return. Reference the customer return memo or RMA number. Stock status usually QC_HOLD until inspection."
+              title="Customer returns"
+              detail="Not entered here. Use Quality → Results & holds → Inward rejected FG: the goods are held for QC and linked to the customer, invoice and dispatch."
             />
             <ReasonHelp
               icon={<FilePlus2 className="h-4 w-4" />}

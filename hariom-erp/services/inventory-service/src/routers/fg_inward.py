@@ -223,6 +223,11 @@ def create_manual_fg_inward(
     reason = (payload.reason_code or "REWORK").strip().upper()
     if reason not in VALID_MANUAL_REASONS:
         raise HTTPException(status_code=400, detail=f"Invalid reason_code; must be one of {sorted(VALID_MANUAL_REASONS)}")
+    if reason == "RETURN":
+        raise HTTPException(
+            status_code=400,
+            detail="Customer returns are received in Quality → Results & holds → Inward rejected FG, so they are held for QC and linked to the customer and dispatch.",
+        )
 
     if payload.qty <= 0:
         raise HTTPException(status_code=400, detail="qty must be greater than zero")

@@ -45,7 +45,7 @@ const workspaceGroups = [
       { href: "/system/users", title: "Users", description: "Role, plant, and permissions management for the recovered operator model." },
       { href: "/system/plants", title: "Plants", description: "Plant code, name, and activation state that feeds the top scope switcher." },
       { href: "/system/machines", title: "Machines", description: "Machine registry and capacity fields used by the planner and production handoff." },
-      { href: "/system/tolerances", title: "Tolerance Editor", description: "Per-plant variance bands used by reconciliation and period close controls." },
+      { href: "/system/tolerances", title: "Stock variance limits", description: "Per-plant kg variance allowed in reconciliation and period close. QC tolerances live in Quality → Material / Process standards." },
       { href: "/system/scheduler", title: "Scheduler", description: "Health of the daily owner-pack cron and the hourly heartbeat. Surfaces last-run / next-run / errors." },
     ],
   },

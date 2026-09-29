@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 import hashlib
 import json
@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..database import get_db
-from ..models import AuditEvent, Dispatch, JobCard, JobCardStage, PackingRecord, PLANT_A_UUID, PLANT_B_UUID, QualityHold, QualityInspection
+from ..models import AuditEvent, Dispatch, JobCard, JobCardStage, PackingRecord, PLANT_A_UUID, PLANT_B_UUID, QcInstrument, QualityHold, QualityInspection
 from ..quality_eval import (
     apply_qc_setup_marker,
     non_waivable_release_detail,
@@ -1242,6 +1242,7 @@ def record_stage_inspection(
             status_code=409,
             detail=missing_qc_setup_detail(job_card.spec_snapshot or {}, observations),
         )
+    sanitized_readings = _apply_instrument_register(db, plant_uuid, sanitized_readings)
     instrument_state = instrument_readiness_for_snapshot(
         job_card.spec_snapshot or {},
         stage_type,
@@ -1843,6 +1844,197 @@ def get_quality_summary(
         active_holds=hold_counts.get("HOLD", 0),
         released_holds=hold_counts.get("RELEASED", 0),
     )
+
+
+def _apply_instrument_register(db: Session, plant_uuid: uuid.UUID, readings: dict[str, Any]) -> dict[str, Any]:
+    """Calibration evidence for a named instrument comes from the register, not the form.
+
+    When the plant keeps a register, a registered instrument's due date and certificate
+    replace whatever was typed; an instrument missing from the register carries no
+    calibration evidence, so an instrument-required check stays blocked until it is
+    registered.
+    """
+    blob = readings.get("instrument") if isinstance(readings.get("instrument"), dict) else None
+    code = str((blob or {}).get("instrument_id") or readings.get("instrument_id") or "").strip()
+    if not code:
+        return readings
+    registered = db.query(QcInstrument).filter(QcInstrument.plant_id == plant_uuid, QcInstrument.active.is_(True))
+    if not registered.count():
+        return readings  # no register kept for this plant yet: typed evidence is judged as before
+    instrument = registered.filter(func.upper(QcInstrument.code) == code.upper()).first()
+    if instrument is None:
+        evidence = {"instrument_id": code, "calibration_status": "unregistered", "source": "register"}
+    else:
+        evidence = {
+            "instrument_id": instrument.code,
+            "calibration_due": instrument.calibration_due.isoformat() if instrument.calibration_due else None,
+            "calibration_status": "valid" if instrument.calibration_due and instrument.calibration_due >= date.today() else "expired",
+            "evidence_ref": instrument.certificate_ref,
+            "source": "register",
+        }
+    cleaned = {key: value for key, value in readings.items() if key not in {"instrument_id", "calibration_due", "calibration_status", "evidence_ref", "instrument_evidence"}}
+    return {**cleaned, "instrument": evidence}
+
+
+class InstrumentUpsert(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(min_length=1, max_length=80)
+    name: str = Field(min_length=1, max_length=200)
+    instrument_type: Optional[str] = Field(default=None, max_length=80)
+    calibration_due: Optional[date] = None
+    certificate_ref: Optional[str] = Field(default=None, max_length=200)
+    active: bool = True
+
+
+def _instrument_payload(row: QcInstrument) -> dict[str, Any]:
+    due = row.calibration_due
+    return {
+        "id": str(row.id),
+        "code": row.code,
+        "name": row.name,
+        "instrument_type": row.instrument_type,
+        "calibration_due": due.isoformat() if due else None,
+        "certificate_ref": row.certificate_ref,
+        "active": bool(row.active),
+        "calibration_status": "expired" if not due or due < date.today() else ("due_soon" if (due - date.today()).days <= 15 else "valid"),
+        "updated_by": row.updated_by,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
+
+
+@router.get("/instruments")
+def list_instruments(
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "SupervisorEntry", "Production"])),
+):
+    plant_uuid = _to_uuid(plant_id, field="plant_id")
+    rows = db.query(QcInstrument).filter(QcInstrument.plant_id == plant_uuid).order_by(QcInstrument.code.asc()).all()
+    return {"items": [_instrument_payload(row) for row in rows]}
+
+
+@router.post("/instruments")
+def upsert_instrument(
+    payload: InstrumentUpsert,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "QC"])),
+):
+    plant_uuid = _to_uuid(plant_id, field="plant_id")
+    code = payload.code.strip().upper()
+    row = db.query(QcInstrument).filter(QcInstrument.plant_id == plant_uuid, func.upper(QcInstrument.code) == code).first()
+    before = _instrument_payload(row) if row else None
+    if row is None:
+        row = QcInstrument(plant_id=plant_uuid, code=code)
+        db.add(row)
+    row.name = payload.name.strip()
+    row.instrument_type = (payload.instrument_type or "").strip() or None
+    row.calibration_due = payload.calibration_due
+    row.certificate_ref = (payload.certificate_ref or "").strip() or None
+    row.active = payload.active
+    row.updated_by = current_user.get("sub")
+    row.updated_at = datetime.utcnow()
+    db.flush()
+    _record_audit_event(
+        db=db,
+        plant_id=plant_uuid,
+        entity_type="qc_instrument",
+        entity_id=row.id,
+        action="updated" if before else "created",
+        current_user=current_user,
+        job_card_id=None,
+        payload=payload.model_dump(mode="json"),
+        before_payload=before or {},
+        after_payload=_instrument_payload(row),
+    )
+    db.commit()
+    db.refresh(row)
+    return _instrument_payload(row)
+
+
+@router.get("/analytics")
+def production_quality_analytics(
+    date_from: Optional[date] = Query(default=None),
+    date_to: Optional[date] = Query(default=None),
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "Planner", "Production", "Sales"])),
+):
+    """First-pass yield by stage (first check of each job card at each stage), top failing
+    parameters, and production holds opened / still open in the window."""
+    from collections import defaultdict
+
+    end = date_to or date.today()
+    start = date_from or (end - timedelta(days=90))
+    lo = datetime.combine(start, datetime.min.time())
+    hi = datetime.combine(end + timedelta(days=1), datetime.min.time())
+    query = db.query(QualityInspection).filter(QualityInspection.created_at >= lo, QualityInspection.created_at < hi)
+    hold_query = db.query(QualityHold).filter(QualityHold.created_at >= lo, QualityHold.created_at < hi)
+    if plant_scope.get("scope_all"):
+        allowed = [_to_uuid(value, field="plant_id") for value in (plant_scope.get("allowed_plants") or [])]
+        query = query.filter(QualityInspection.plant_id.in_(allowed))
+        hold_query = hold_query.filter(QualityHold.plant_id.in_(allowed))
+    else:
+        selected = plant_scope.get("selected_plant_id")
+        if not selected:
+            raise HTTPException(status_code=400, detail="Select one concrete plant.")
+        plant_uuid = _to_uuid(selected, field="plant_id")
+        query = query.filter(QualityInspection.plant_id == plant_uuid)
+        hold_query = hold_query.filter(QualityHold.plant_id == plant_uuid)
+    first: dict[tuple[str, str], QualityInspection] = {}
+    checks: dict[str, int] = defaultdict(int)
+    fails: dict[str, int] = defaultdict(int)
+    for row in query.order_by(QualityInspection.created_at.asc()).all():
+        if (row.evaluation or {}).get("workflow_status") == "SUPERSEDED":
+            continue
+        stage = str(row.stage_type or "").upper()
+        checks[stage] += 1
+        if str(row.status or "").upper() == "FAIL":
+            fails[stage] += 1
+        first.setdefault((str(row.job_card_id), stage), row)
+    stages: dict[str, dict[str, Any]] = defaultdict(lambda: {"job_cards": 0, "first_pass": 0})
+    parameters: dict[tuple[str, str], int] = defaultdict(int)
+    for (_, stage), row in first.items():
+        bucket = stages[stage]
+        bucket["job_cards"] += 1
+        if str(row.status or "").upper() == "PASS":
+            bucket["first_pass"] += 1
+        for failure in row.failures or []:
+            if isinstance(failure, dict):
+                parameters[(stage, str(failure.get("label") or failure.get("code") or failure.get("parameter") or "?"))] += 1
+    order = ["WINDER", "OVEN", "PROCESS", "QC"]
+    holds = hold_query.all()
+    open_holds = [row for row in holds if str(row.status or "").upper() == "HOLD"]
+    released = [row for row in holds if row.released_at and row.created_at]
+    return {
+        "date_from": start.isoformat(),
+        "date_to": end.isoformat(),
+        "by_stage": [
+            {
+                "stage": stage,
+                "job_cards": bucket["job_cards"],
+                "first_pass": bucket["first_pass"],
+                "first_pass_yield": round(bucket["first_pass"] / bucket["job_cards"] * 100.0, 1) if bucket["job_cards"] else None,
+                "checks": checks.get(stage, 0),
+                "failed_checks": fails.get(stage, 0),
+            }
+            for stage, bucket in sorted(stages.items(), key=lambda item: order.index(item[0]) if item[0] in order else 99)
+        ],
+        "failing_parameters": [
+            {"stage": stage, "parameter": name, "job_cards": count}
+            for (stage, name), count in sorted(parameters.items(), key=lambda item: -item[1])[:15]
+        ],
+        "holds": {
+            "opened": len(holds),
+            "still_open": len(open_holds),
+            "avg_hours_to_release": round(
+                sum((row.released_at - row.created_at).total_seconds() for row in released) / len(released) / 3600.0, 1
+            )
+            if released
+            else None,
+        },
+    }
 
 
 @router.post("/inspections", response_model=InspectionResponse)
@@ -2451,9 +2643,19 @@ def list_holds(
     ]
 
 
+class HoldReleasePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=3, max_length=1000)
+    # What was done to the held material before release.
+    disposition: str = Field(default="RELEASE_AS_IS", pattern="^(RELEASE_AS_IS|REWORKED|SORTED|PARTLY_SCRAPPED)$")
+    affected_qty: Optional[float] = Field(default=None, ge=0)
+
+
 @router.post("/holds/{hold_id}/release", response_model=HoldReleaseResponse)
 def release_hold(
     hold_id: uuid.UUID,
+    payload: Optional[HoldReleasePayload] = Body(default=None),
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "PlantManager", "QC"])),
@@ -2526,7 +2728,7 @@ def release_hold(
         action="released",
         current_user=current_user,
         job_card_id=hold.job_card_id,
-        payload={},
+        payload=payload.model_dump() if isinstance(payload, HoldReleasePayload) else {},
         before_payload=before_payload,
         after_payload={"status": hold.status, "released_at": hold.released_at.isoformat()},
     )

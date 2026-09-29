@@ -844,6 +844,17 @@ def create_adjustment_voucher(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Owner", "Admin", "Store"])),
 ):
+    # Returned goods must enter under QC hold with a customer-return record, never as a
+    # plain positive adjustment that lands sellable stock with no trace.
+    if (payload.source_type or "").strip().upper() != "CUSTOMER_REJECTION" and any(
+        float(line.qty_delta) > 0
+        and (line.reason_code or payload.reason_code or "").strip().upper() in {"CUSTOMER_REJECTION", "CUSTOMER_RETURN"}
+        for line in payload.lines
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Customer returns are received in Quality → Results & holds → Inward rejected FG, so they are held for QC and linked to the customer and dispatch.",
+        )
     effective_at = _effective_at_for_date(payload.effective_date, payload.effective_at)
     voucher_no = (payload.voucher_no or "").strip().upper() or _next_adjustment_no(db, plant_id, payload.effective_date)
     existing = db.query(StockAdjustmentVoucher).filter(

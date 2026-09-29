@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 import re
@@ -786,7 +787,7 @@ def _annotate_pending_rows(db: Session, rows: list[PendingQualityItem]) -> None:
     line_by_entity = {(allocation.batch_id or allocation.reel_id): allocation.receipt_line_id for allocation in allocations}
     lines = {
         line.id: line
-        for line in db.query(PurchaseReceiptLine).filter(PurchaseReceiptLine.id.in_(set(line_by_entity.values()))).all()
+        for line in db.query(PurchaseReceiptLine).filter(PurchaseReceiptLine.id.in_(list(set(line_by_entity.values())))).all()
     } if line_by_entity else {}
     invoice_nos: dict[uuid.UUID, str] = {}
     if lines:
@@ -1269,6 +1270,9 @@ def create_quality_inspection(
                 if payload.disposition
                 else "QC_HOLD"
             )
+        # The physical lot follows the record; otherwise a PASS shows released while the
+        # stock itself stays held (or WIP) and cannot be issued or dispatched.
+        _sync_rejection_batch(db, rejection, plant_id, rejection.status)
         stock_status = rejection.status
 
     if status in held_statuses:
@@ -1716,15 +1720,8 @@ def create_quality_concession(
                 released_stock_status = rejection.status
                 hold_released = True
                 released_entity_id = rejection.id
-                if rejection.batch_id:
-                    linked = (
-                        db.query(StockBatch)
-                        .filter(StockBatch.id == rejection.batch_id, StockBatch.plant_id == plant_id)
-                        .with_for_update()
-                        .first()
-                    )
-                    if linked and independent_qty <= 1e-9:
-                        linked.stock_status = "UNRESTRICTED"
+                if independent_qty <= 1e-9:
+                    _sync_rejection_batch(db, rejection, plant_id, "UNRESTRICTED")
             else:
                 raise HTTPException(
                     status_code=400,
@@ -1954,6 +1951,251 @@ def consume_destructive_sample(
     }
 
 
+@router.get("/analytics")
+def quality_analytics(
+    date_from: Optional[date] = Query(default=None),
+    date_to: Optional[date] = Query(default=None),
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "Planner", "Store", "Purchase", "Sales"])),
+):
+    """Incoming reject rate by supplier and material, and customer returns by customer and reason.
+
+    The latest inspection of each lot decides its outcome, so a lot that failed and then
+    passed a re-inspection counts once, as passed after re-inspection.
+    """
+    plant_filter = authorized_plant_ids(plant_scope)
+    end = date_to or date.today()
+    start = date_from or (end - timedelta(days=90))
+    lo = datetime.combine(start, datetime.min.time())
+    hi = datetime.combine(end + timedelta(days=1), datetime.min.time())
+    inspections = (
+        db.query(InventoryQualityInspection)
+        .filter(
+            InventoryQualityInspection.plant_id.in_(plant_filter),
+            InventoryQualityInspection.entity_type.in_(["BATCH", "REEL"]),
+            InventoryQualityInspection.created_at >= lo,
+            InventoryQualityInspection.created_at < hi,
+        )
+        .order_by(InventoryQualityInspection.created_at.asc())
+        .all()
+    )
+    per_lot: dict[tuple[str, uuid.UUID], dict[str, Any]] = {}
+    for row in inspections:
+        key = (row.entity_type, row.entity_id)
+        entry = per_lot.setdefault(key, {"first": row, "last": row, "count": 0})
+        entry["last"] = row
+        entry["count"] += 1
+    batch_ids = [key[1] for key in per_lot if key[0] == "BATCH"]
+    reel_ids = [key[1] for key in per_lot if key[0] == "REEL"]
+    batches = {row.id: row for row in db.query(StockBatch).options(joinedload(StockBatch.item)).filter(StockBatch.id.in_(batch_ids)).all()} if batch_ids else {}
+    reels = {row.id: row for row in db.query(PaperReel).options(joinedload(PaperReel.paper)).filter(PaperReel.id.in_(reel_ids)).all()} if reel_ids else {}
+
+    def blank() -> dict[str, Any]:
+        return {"lots": 0, "first_pass": 0, "failed_first": 0, "rejected": 0, "returned": 0, "qty": 0.0, "rejected_qty": 0.0}
+
+    suppliers: dict[str, dict[str, Any]] = defaultdict(blank)
+    materials: dict[str, dict[str, Any]] = defaultdict(blank)
+    failing_parameters: dict[str, int] = defaultdict(int)
+    for (entity_type, entity_id), entry in per_lot.items():
+        lot = batches.get(entity_id) if entity_type == "BATCH" else reels.get(entity_id)
+        supplier = (getattr(lot, "supplier_name_snapshot", None) or getattr(lot, "supplier_name", None) or "Unknown supplier") if lot else "Unknown supplier"
+        item = (getattr(lot, "item", None) if entity_type == "BATCH" else getattr(lot, "paper", None)) if lot else None
+        material = f"{item.item_code} · {item.name}" if item else "Unknown material"
+        qty = float(
+            (getattr(lot, "received_qty", None) if entity_type == "BATCH" else getattr(lot, "inward_weight_kg", None)) or 0.0
+        ) if lot else 0.0
+        first_pass = str(entry["first"].status or "").upper() == "PASS"
+        last = entry["last"]
+        rejected = str(last.disposition or "").upper() in {"REJECT", "BLOCK", "SCRAP"} or (
+            str(last.status or "").upper() == "FAIL"
+        )
+        returned = bool(lot is not None and getattr(lot, "stock_status", None) == "RETURNED")
+        for bucket in (suppliers[supplier], materials[material]):
+            bucket["lots"] += 1
+            bucket["qty"] += qty
+            bucket["first_pass"] += 1 if first_pass else 0
+            bucket["failed_first"] += 0 if first_pass else 1
+            bucket["rejected"] += 1 if rejected else 0
+            bucket["returned"] += 1 if returned else 0
+            bucket["rejected_qty"] += qty if rejected or returned else 0.0
+        if not first_pass:
+            for failure in entry["first"].failures or []:
+                if isinstance(failure, dict):
+                    failing_parameters[str(failure.get("label") or failure.get("code") or failure.get("parameter") or "?")] += 1
+
+    def rows(source: dict[str, dict[str, Any]], label: str) -> list[dict[str, Any]]:
+        out = []
+        for name, bucket in source.items():
+            lots = bucket["lots"] or 1
+            out.append(
+                {
+                    label: name,
+                    **{key: round(value, 3) if isinstance(value, float) else value for key, value in bucket.items()},
+                    "first_pass_rate": round(bucket["first_pass"] / lots * 100.0, 1),
+                    "reject_rate": round(bucket["rejected"] / lots * 100.0, 1),
+                }
+            )
+        return sorted(out, key=lambda row: (-row["reject_rate"], -row["lots"]))
+
+    returns = (
+        db.query(CustomerRejection)
+        .filter(
+            CustomerRejection.plant_id.in_(plant_filter),
+            CustomerRejection.created_at >= lo,
+            CustomerRejection.created_at < hi,
+        )
+        .all()
+    )
+    by_customer: dict[str, dict[str, Any]] = defaultdict(lambda: {"cases": 0, "qty": 0.0, "open": 0, "cost_impact": 0.0})
+    by_reason: dict[str, dict[str, Any]] = defaultdict(lambda: {"cases": 0, "qty": 0.0})
+    for row in returns:
+        customer = by_customer[row.customer_name or "Unknown customer"]
+        customer["cases"] += 1
+        customer["qty"] += float(row.rejected_qty or 0.0)
+        customer["open"] += 0 if row.closed_at else 1
+        customer["cost_impact"] += float(row.cost_impact or 0.0)
+        reason = by_reason[row.reason_code or "UNSPECIFIED"]
+        reason["cases"] += 1
+        reason["qty"] += float(row.rejected_qty or 0.0)
+    lot_count = len(per_lot)
+    first_pass_total = sum(1 for entry in per_lot.values() if str(entry["first"].status or "").upper() == "PASS")
+    return {
+        "date_from": start.isoformat(),
+        "date_to": end.isoformat(),
+        "incoming": {
+            "lots_inspected": lot_count,
+            "first_pass_rate": round(first_pass_total / lot_count * 100.0, 1) if lot_count else None,
+            "reinspected_lots": sum(1 for entry in per_lot.values() if entry["count"] > 1),
+            "by_supplier": rows(suppliers, "supplier"),
+            "by_material": rows(materials, "material"),
+            "failing_parameters": [
+                {"parameter": name, "lots": count} for name, count in sorted(failing_parameters.items(), key=lambda item: -item[1])[:15]
+            ],
+        },
+        "customer_returns": {
+            "cases": len(returns),
+            "qty": round(sum(float(row.rejected_qty or 0.0) for row in returns), 3),
+            "open_cases": sum(1 for row in returns if not row.closed_at),
+            "cost_impact": round(sum(float(row.cost_impact or 0.0) for row in returns), 2),
+            "by_customer": sorted(
+                ({"customer": name, **{k: round(v, 2) if isinstance(v, float) else v for k, v in bucket.items()}} for name, bucket in by_customer.items()),
+                key=lambda row: -row["qty"],
+            ),
+            "by_reason": sorted(
+                ({"reason_code": name, "cases": bucket["cases"], "qty": round(bucket["qty"], 3)} for name, bucket in by_reason.items()),
+                key=lambda row: -row["cases"],
+            ),
+        },
+    }
+
+
+def _sync_rejection_batch(db: Session, rejection: CustomerRejection, plant_id: str, status: str) -> None:
+    """Keep a customer-return lot's batch and its inward ledger row on the rejection's status.
+
+    Stock balances by status are read from the ledger, so changing only the batch
+    flag would leave released goods counted as held (or scrapped goods as held).
+    """
+    if not rejection.batch_id:
+        return
+    batch = (
+        db.query(StockBatch)
+        .filter(StockBatch.id == rejection.batch_id, StockBatch.plant_id == plant_id)
+        .with_for_update()
+        .first()
+    )
+    if batch is None:
+        return
+    batch.stock_status = status
+    for txn in (
+        db.query(StockTransaction)
+        .filter(
+            StockTransaction.batch_id == batch.id,
+            StockTransaction.transaction_type == TransactionType.FG_INWARD,
+            StockTransaction.external_ref == f"CUST-REJ:{rejection.id}",
+        )
+        .all()
+    ):
+        txn.stock_status = status
+
+
+def _dispatched_qty(db: Session, *, plant_id: str, item_id: uuid.UUID, dispatch_ref: str) -> tuple[float, dict[str, Any]]:
+    """Quantity of this item shipped under a dispatch reference, and the trace it carried."""
+    reference_id = uuid.uuid5(uuid.NAMESPACE_URL, dispatch_ref.strip())
+    rows = (
+        db.query(StockTransaction)
+        .filter(
+            StockTransaction.plant_id == plant_id,
+            StockTransaction.item_id == item_id,
+            StockTransaction.transaction_type == TransactionType.DISPATCH,
+            StockTransaction.reference_type == ReferenceType.DISPATCH,
+            StockTransaction.reference_id == reference_id,
+        )
+        .all()
+    )
+    shipped = round(sum(-float(row.qty_change or 0.0) for row in rows), 3)
+    trace: dict[str, Any] = {}
+    for row in rows:
+        meta = row.movement_metadata or {}
+        for key in ("production_job_id", "sales_order_id", "sales_order_line_id"):
+            if meta.get(key) and not trace.get(key):
+                trace[key] = meta[key]
+        if row.batch_id and not trace.get("dispatched_batch_id"):
+            trace["dispatched_batch_id"] = str(row.batch_id)
+    return shipped, trace
+
+
+def _returned_against_dispatch(db: Session, *, plant_id: str, item_id: uuid.UUID, dispatch_ref: str) -> float:
+    total = (
+        db.query(func.coalesce(func.sum(CustomerRejection.rejected_qty), 0.0))
+        .filter(
+            CustomerRejection.plant_id == plant_id,
+            CustomerRejection.item_id == item_id,
+            func.upper(func.trim(CustomerRejection.dispatch_ref)) == dispatch_ref.strip().upper(),
+        )
+        .scalar()
+    )
+    return float(total or 0.0)
+
+
+@router.get("/customer-rejections/dispatch-lookup")
+def lookup_dispatch_for_return(
+    dispatch_ref: str = Query(min_length=1, max_length=100),
+    item_id: Optional[uuid.UUID] = Query(default=None),
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "Store", "Dispatch", "Sales"])),
+):
+    """What was shipped under a dispatch reference, and how much has already come back."""
+    reference_id = uuid.uuid5(uuid.NAMESPACE_URL, dispatch_ref.strip())
+    query = db.query(StockTransaction).filter(
+        StockTransaction.plant_id == plant_id,
+        StockTransaction.transaction_type == TransactionType.DISPATCH,
+        StockTransaction.reference_type == ReferenceType.DISPATCH,
+        StockTransaction.reference_id == reference_id,
+    )
+    if item_id:
+        query = query.filter(StockTransaction.item_id == item_id)
+    item_ids = sorted({row.item_id for row in query.all()}, key=str)
+    lines = []
+    for candidate in item_ids:
+        shipped, trace = _dispatched_qty(db, plant_id=plant_id, item_id=candidate, dispatch_ref=dispatch_ref)
+        returned = _returned_against_dispatch(db, plant_id=plant_id, item_id=candidate, dispatch_ref=dispatch_ref)
+        item = db.get(ItemMaster, candidate)
+        lines.append(
+            {
+                "item_id": str(candidate),
+                "item_code": item.item_code if item else None,
+                "item_name": item.name if item else None,
+                "dispatched_qty": shipped,
+                "already_returned_qty": round(returned, 3),
+                "returnable_qty": round(max(shipped - returned, 0.0), 3),
+                **trace,
+            }
+        )
+    return {"dispatch_ref": dispatch_ref.strip(), "found": bool(lines), "lines": lines}
+
+
 @router.post("/customer-rejections", response_model=CustomerRejectionResponse)
 def create_customer_rejection(
     payload: CustomerRejectionCreate,
@@ -1971,8 +2213,30 @@ def create_customer_rejection(
         if not location:
             raise HTTPException(status_code=404, detail="Inventory location not found")
 
+    dispatch_trace: dict[str, Any] = {}
+    dispatch_verified = False
+    if (payload.dispatch_ref or "").strip():
+        shipped, dispatch_trace = _dispatched_qty(db, plant_id=plant_id, item_id=payload.item_id, dispatch_ref=payload.dispatch_ref)
+        if shipped > 0:
+            already = _returned_against_dispatch(db, plant_id=plant_id, item_id=payload.item_id, dispatch_ref=payload.dispatch_ref)
+            if already + float(payload.rejected_qty) > shipped + 1e-6:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "RETURN_EXCEEDS_DISPATCH",
+                        "message": (
+                            f"Dispatch {payload.dispatch_ref.strip()} shipped {shipped:g} of this item and {already:g} has already come back; "
+                            f"at most {max(shipped - already, 0):g} more can be returned."
+                        ),
+                        "dispatched_qty": shipped,
+                        "already_returned_qty": already,
+                    },
+                )
+            dispatch_verified = True
     trace_snapshot = {
         **dict(payload.trace_snapshot or {}),
+        **{key: value for key, value in dispatch_trace.items() if value},
+        "dispatch_verified": dispatch_verified,
         "source_batch_id": str(payload.source_batch_id) if payload.source_batch_id else None,
         "source_job_card_id": str(payload.source_job_card_id) if payload.source_job_card_id else None,
         "source_dispatch_id": str(payload.source_dispatch_id) if payload.source_dispatch_id else None,
@@ -1992,7 +2256,8 @@ def create_customer_rejection(
         reason_code=payload.reason_code.strip().upper(),
         reason_notes=payload.reason_notes,
         effective_date=effective_date_value,
-        source_job_card_id=payload.source_job_card_id,
+        source_job_card_id=payload.source_job_card_id
+        or (uuid.UUID(dispatch_trace["production_job_id"]) if dispatch_trace.get("production_job_id") else None),
         source_dispatch_id=payload.source_dispatch_id,
         source_spec_id=payload.source_spec_id,
         status="QC_HOLD",
@@ -2086,7 +2351,7 @@ def dispose_customer_rejection(
         batch = db.query(StockBatch).filter(StockBatch.id == rejection.batch_id, StockBatch.plant_id == plant_id).with_for_update().populate_existing().first()
         if batch:
             batch_qty_before_disposition = max(0.0, float(get_batch_balance(str(batch.id), db)))
-            batch.stock_status = target_stock_status
+            _sync_rejection_batch(db, rejection, plant_id, target_stock_status)
             db.add(
                 StockTransaction(
                     item_id=batch.item_id,
@@ -2103,7 +2368,7 @@ def dispose_customer_rejection(
                         "disposition": payload.disposition,
                         "notes": payload.notes,
                     },
-                    external_ref=f"CUST-REJ-DISP:{rejection.id}:{payload.disposition}",
+                    external_ref=f"CUST-REJ-DISP:{rejection.id}:{payload.disposition}:{uuid.uuid4().hex[:8]}",
                     effective_date=effective_date_value,
                 )
             )
@@ -2197,12 +2462,33 @@ def dispose_customer_rejection(
     rejection.owner_department = payload.owner_department or rejection.owner_department
     rejection.corrective_action = payload.corrective_action or rejection.corrective_action
     rejection.closure_due_date = payload.closure_due_date or rejection.closure_due_date
-    rejection.closure_status = (payload.closure_status or "CLOSED").strip().upper()
+    # ACCEPT and SCRAP are final outcomes. Rework / reheat / segregate / hold / block are
+    # steps: the case stays open so the next step (e.g. accept after rework) is recorded
+    # on the same record instead of being refused as "already closed".
+    final = (
+        payload.disposition == "SCRAP"
+        or (payload.disposition == "ACCEPT" and target_stock_status == "UNRESTRICTED")
+        or str(payload.closure_status or "").strip().upper() == "CLOSED"
+    )
+    rejection.closure_status = "CLOSED" if final else (payload.closure_status or "IN_PROGRESS").strip().upper()
     rejection.rework_cost = rework_cost
     rejection.scrap_cost = scrap_cost
     rejection.cost_impact = payload.cost_impact if payload.cost_impact is not None else round(rework_cost + scrap_cost, 2)
     rejection.attachment_refs = list(payload.attachment_refs or rejection.attachment_refs or [])
-    rejection.closed_at = datetime.utcnow()
+    rejection.closed_at = datetime.utcnow() if final else None
+    history = list((rejection.trace_snapshot or {}).get("disposition_history") or [])
+    history.append(
+        {
+            "disposition": payload.disposition,
+            "status": target_stock_status,
+            "notes": payload.notes,
+            "actor": current_user.get("sub"),
+            "at": datetime.utcnow().isoformat(),
+            "inspection_id": str(inspection.id),
+        }
+    )
+    rejection.trace_snapshot = {**(rejection.trace_snapshot or {}), "disposition_history": history}
+    flag_modified(rejection, "trace_snapshot")
     db.commit()
     db.refresh(rejection)
     return _customer_rejection_response(rejection)
