@@ -18,12 +18,33 @@ type SpecQcToleranceDialogProps = {
     parchment?: string
     notching?: boolean | null
   }
+  /** Read-only references shown beside each stage parameter, e.g. the spec's final limits or the mandrel band. */
+  references?: Partial<Record<QcStageKey, Record<string, QcReference>>>
   initialProfile?: any
   saving?: boolean
+  saveCompleteLabel?: string
   onBack: (profile: any) => void
   onDiscard: () => void
   onSaveDraft: (profile: any) => void
   onSaveComplete: (profile: any) => void
+}
+
+export type QcReference = {
+  label: string
+  min?: number | null
+  max?: number | null
+  unit?: string
+  /** Offer an explicit "Use" button (never applied automatically). */
+  copyable?: boolean
+}
+
+function referenceText(ref: QcReference) {
+  const unit = ref.unit ? ` ${ref.unit}` : ""
+  const fmt = (value: number) => String(Math.round(value * 1000) / 1000)
+  if (ref.min != null && ref.max != null) return `${ref.label}: ${fmt(ref.min)}–${fmt(ref.max)}${unit}`
+  if (ref.min != null) return `${ref.label}: ≥ ${fmt(ref.min)}${unit}`
+  if (ref.max != null) return `${ref.label}: ≤ ${fmt(ref.max)}${unit}`
+  return `${ref.label}: not set`
 }
 
 const STAGES: { key: QcStageKey; label: string }[] = [
@@ -78,8 +99,10 @@ function cloneProfile(profile: any, notching: boolean | null) {
 export function SpecQcToleranceDialog({
   open,
   context,
+  references,
   initialProfile,
   saving,
+  saveCompleteLabel = "Save QC tolerances",
   onBack,
   onDiscard,
   onSaveDraft,
@@ -186,7 +209,7 @@ export function SpecQcToleranceDialog({
             Target weight {context.targetWeight || "pending"} · C.S. {context.cs || "pending"} · Recipe {context.recipe || "pending"} · Ply {context.ply || "pending"} · Parchment {context.parchment || "pending"}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Final product limits stay on the spec sheet. Winding / oven / process ranges are entered here and frozen onto job cards. No invented ± bands.
+            Final product limits stay on the spec sheet. Winding / oven / process ranges are entered here and frozen onto job cards. References are shown for guidance only — nothing is copied unless you press Use.
           </p>
           <p className="mt-1 text-xs font-semibold text-muted-foreground">{summary}</p>
           {needsNotchingReview ? (
@@ -236,6 +259,7 @@ export function SpecQcToleranceDialog({
                 <th className="border border-border px-2 py-2">Sampling</th>
                 <th className="border border-border px-2 py-2">Min</th>
                 <th className="border border-border px-2 py-2">Max</th>
+                <th className="border border-border px-2 py-2">Reference</th>
                 <th className="border border-border px-2 py-2">Frozen rule</th>
               </tr>
             </thead>
@@ -299,14 +323,82 @@ export function SpecQcToleranceDialog({
                       onChange={(event) => updateRow(row.code, { max: event.target.value === "" ? null : Number(event.target.value) })}
                     />
                   </td>
+                  <td className="border border-border px-2 py-2 text-xs text-muted-foreground" data-testid={`spec-qc-reference-${stage}-${row.code}`}>
+                    {(() => {
+                      const ref = references?.[stage]?.[row.code]
+                      if (!ref) return <span>—</span>
+                      return (
+                        <div className="space-y-1">
+                          <div>{referenceText(ref)}</div>
+                          {ref.copyable && !notApplicable && (ref.min != null || ref.max != null) ? (
+                            <button
+                              type="button"
+                              data-testid={`spec-qc-use-reference-${stage}-${row.code}`}
+                              onClick={() => updateRow(row.code, { min: ref.min ?? null, max: ref.max ?? null })}
+                              className="rounded-lg border border-border bg-card px-2 py-1 text-[11px] font-semibold text-foreground"
+                            >
+                              Use
+                            </button>
+                          ) : null}
+                        </div>
+                      )
+                    })()}
+                  </td>
                   <td className="border border-border px-2 py-2 text-xs font-semibold text-muted-foreground" data-testid={`spec-qc-frozen-${stage}-${row.code}`}>
                     {formatAllowedRange(row)}
                     <label className="mt-2 flex min-h-10 items-center gap-2 font-medium">
                       <input type="checkbox" checked={row.non_waivable === true}
                         aria-label={`Critical non-waivable check: ${row.label || row.code || "parameter"}`}
-                        onChange={(event) => updateRow(row.code, { non_waivable: event.target.checked })} />
+                        onChange={(event) => updateRow(row.code, { non_waivable: event.target.checked, ...(event.target.checked ? { gating: "blocking" } : {}) })} />
                       Critical: cannot be waived
                     </label>
+                    <label className="mt-1 flex items-center gap-2 font-medium">
+                      <span>On fail</span>
+                      <select
+                        data-testid={`spec-qc-gating-${stage}-${row.code}`}
+                        disabled={row.non_waivable === true || notApplicable}
+                        value={row.non_waivable === true ? "blocking" : row.gating === "advisory" ? "advisory" : "blocking"}
+                        onChange={(event) => updateRow(row.code, { gating: event.target.value })}
+                        className="h-8 rounded-lg border border-border bg-card px-1 text-[11px]"
+                      >
+                        <option value="blocking">Hold the card</option>
+                        <option value="advisory">Warn only</option>
+                      </select>
+                    </label>
+                    <label className="mt-1 flex items-center gap-2 font-medium">
+                      <input
+                        type="checkbox"
+                        data-testid={`spec-qc-required-${stage}-${row.code}`}
+                        disabled={notApplicable}
+                        checked={row.required !== false}
+                        onChange={(event) => updateRow(row.code, { required: event.target.checked })}
+                      />
+                      Reading required
+                    </label>
+                    <label className="mt-1 flex items-center gap-2 font-medium">
+                      <input
+                        type="checkbox"
+                        data-testid={`spec-qc-instrument-${stage}-${row.code}`}
+                        disabled={notApplicable}
+                        checked={row.requires_instrument === true}
+                        onChange={(event) =>
+                          updateRow(row.code, {
+                            requires_instrument: event.target.checked,
+                            required_instrument_id: event.target.checked ? row.required_instrument_id || "" : null,
+                          })
+                        }
+                      />
+                      Calibrated instrument
+                    </label>
+                    {row.requires_instrument === true ? (
+                      <input
+                        data-testid={`spec-qc-instrument-id-${stage}-${row.code}`}
+                        value={row.required_instrument_id || ""}
+                        placeholder="Instrument ID (optional)"
+                        onChange={(event) => updateRow(row.code, { required_instrument_id: event.target.value })}
+                        className="mt-1 h-8 w-full rounded-lg border border-border px-2 text-[11px] font-medium"
+                      />
+                    ) : null}
                   </td>
                 </tr>
                 )
@@ -364,7 +456,7 @@ export function SpecQcToleranceDialog({
             onClick={() => onSaveComplete({ ...profile, status: "complete" })}
             className="rounded-2xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
           >
-            Save specification + QC
+            {saveCompleteLabel}
           </button>
         </div>
       </div>

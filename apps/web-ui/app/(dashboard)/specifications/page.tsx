@@ -13,6 +13,7 @@ import { useCustomers, useMandrels, useTubeSizes } from "@/hooks/use-master-data
 import { specApi } from "@/lib/api"
 import { qcRowActions, qcSetupStatus } from "@/lib/qc-measurement"
 import { SpecQcQuickEditor } from "@/components/specs/spec-qc-quick-editor"
+import { SpecDefaultsPanel } from "@/components/specs/SpecDefaultsPanel"
 import { formatSpecMeasure, resolveSpecSummary } from "@/lib/spec-summary"
 import { PageHeader } from "@/components/workspace/page-header"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
@@ -272,6 +273,8 @@ export default function SpecificationsIndexPage() {
               <p className="mt-1 text-sm text-muted-foreground">Approved snapshots that planning and production can rely on.</p>
             </div>
       </section>
+
+      {canManageSpecs ? <SpecDefaultsPanel /> : null}
 
       {canAuthorQc ? (
         <section

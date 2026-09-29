@@ -480,3 +480,75 @@ export function emptyIncomingProfile() {
     parameters: [] as QcParameterRule[],
   }
 }
+
+type LimitPair = { min?: number | null; max?: number | null }
+
+function finiteOrNull(value: unknown): number | null {
+  if (value == null || value === "") return null
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
+
+/**
+ * Read-only references for the stage tolerance dialog. Final limits apply to the finished
+ * tube, so they are offered as "Use" only on the Process rows that measure the finished
+ * specimen; winding shows them (and the mandrel band) for guidance but never copies them.
+ */
+export function qcReferencesFromSpec(args: {
+  finalLimits: { id?: LimitPair; od?: LimitPair; length?: LimitPair; weight?: LimitPair; cs?: LimitPair; moisture?: LimitPair }
+  mandrel?: LimitPair | null
+}) {
+  const ref = (label: string, pair: LimitPair | undefined | null, unit: string, copyable = false) => {
+    const min = finiteOrNull(pair?.min)
+    const max = finiteOrNull(pair?.max)
+    return min == null && max == null ? undefined : { label, min, max, unit, copyable }
+  }
+  const clean = (rows: Record<string, ReturnType<typeof ref>>) =>
+    Object.fromEntries(Object.entries(rows).filter(([, value]) => value)) as Record<
+      string,
+      { label: string; min: number | null; max: number | null; unit: string; copyable: boolean }
+    >
+  const limits = args.finalLimits
+  return {
+    WINDER: clean({
+      id: ref("Mandrel O.D.", args.mandrel, "mm") || ref("Spec final", limits.id, "mm"),
+      od: ref("Spec final", limits.od, "mm"),
+      cs: ref("Spec final (dry)", limits.cs, "N"),
+    }),
+    OVEN: clean({
+      post_moisture: ref("Spec final", limits.moisture, "%"),
+    }),
+    PROCESS: clean({
+      height: ref("Spec final length", limits.length, "mm", true),
+      weight: ref("Spec final", limits.weight, "g", true),
+      cs: ref("Spec final", limits.cs, "N", true),
+      moisture: ref("Spec final", limits.moisture, "%", true),
+    }),
+  }
+}
+
+/** One printable line per stage: "I.D. 75.4–75.6 mm · O.D. …", plus the profile's approval state. */
+export function qcPrintStageRows(profile: any): Array<{ label: string; value: string }> {
+  if (!profile || typeof profile !== "object" || !profile.stages) return []
+  const status = qcSetupStatus(profile)
+  const labels: Record<QcStageKey, string> = { WINDER: "Winding", OVEN: "Oven", PROCESS: "Process" }
+  const rows = (Object.keys(QC_STAGE_PARAMETERS) as QcStageKey[]).map((stage) => {
+    const parameters = Array.isArray(profile.stages?.[stage]?.parameters) ? profile.stages[stage].parameters : []
+    const parts = parameters
+      .filter((row: any) => row && row.applicable !== false && (row.min != null || row.max != null))
+      .map((row: any) => {
+        const unit = row.unit ? ` ${row.unit}` : ""
+        const band =
+          row.min != null && row.max != null ? `${row.min}–${row.max}` : row.min != null ? `≥${row.min}` : `≤${row.max}`
+        return `${row.label || row.code} ${band}${unit}${row.non_waivable ? "*" : ""}`
+      })
+    return { label: labels[stage], value: parts.length ? parts.join(" · ") : "not set" }
+  })
+  const state =
+    status === "approved"
+      ? `Approved${profile.revision ? ` · rev ${profile.revision}` : ""}`
+      : status === "complete"
+        ? "Awaiting Owner approval"
+        : "Incomplete"
+  return [...rows, { label: "QC status", value: `${state}${rows.some((row) => row.value.includes("*")) ? " · * critical" : ""}` }]
+}

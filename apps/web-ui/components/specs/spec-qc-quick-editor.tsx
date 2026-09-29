@@ -7,6 +7,7 @@ import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
 import { useSpec, useUpsertSpecQcProfile } from "@/hooks/use-specs"
 import { displayPlantScope } from "@/lib/plant-scope"
+import { qcReferencesFromSpec } from "@/lib/qc-measurement"
 
 const avg = (min: unknown, max: unknown) => {
   const low = Number(min)
@@ -66,6 +67,17 @@ export function SpecQcQuickEditor({ specId, open, onOpenChange }: { specId: stri
               ? true
               : null,
       }}
+      references={qcReferencesFromSpec({
+        finalLimits: {
+          id: { min: spec.id_min_mm, max: spec.id_max_mm },
+          od: { min: spec.od_min_mm, max: spec.od_max_mm },
+          length: { min: spec.length_min_mm, max: spec.length_max_mm },
+          weight: { min: spec.weight_min_g, max: spec.weight_max_g },
+          cs: { min: spec.cs_min_n, max: spec.cs_max_n },
+          moisture: { min: spec.moisture_min_pct, max: spec.moisture_max_pct },
+        },
+      })}
+      saveCompleteLabel="Save QC tolerances"
       initialProfile={spec.qc_profile || null}
       saving={upsert.isPending}
       onBack={() => onOpenChange(false)}

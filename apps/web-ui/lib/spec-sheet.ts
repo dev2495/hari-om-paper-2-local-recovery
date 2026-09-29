@@ -485,6 +485,40 @@ export const DEFAULT_TOLERANCE_BANDS: ToleranceBands = {
   moisture: 1,
 }
 
+/** Plant defaults (spec-service /defaults band_* fields) as ToleranceBands, falling back field by field. */
+export function plantToleranceBands(defaults: any): ToleranceBands {
+  const pick = (value: unknown, fallback: number) => {
+    const number = Number(value)
+    return value != null && value !== "" && Number.isFinite(number) && number >= 0 ? number : fallback
+  }
+  return {
+    id: pick(defaults?.band_id_mm, DEFAULT_TOLERANCE_BANDS.id),
+    od: pick(defaults?.band_od_mm, DEFAULT_TOLERANCE_BANDS.od),
+    length: pick(defaults?.band_length_mm, DEFAULT_TOLERANCE_BANDS.length),
+    weightG: pick(defaults?.band_weight_g, DEFAULT_TOLERANCE_BANDS.weightG),
+    csPct: pick(defaults?.band_cs_pct, DEFAULT_TOLERANCE_BANDS.csPct),
+    moisture: pick(defaults?.band_moisture_pct, DEFAULT_TOLERANCE_BANDS.moisture),
+  }
+}
+
+/** A spec's own saved bands win; otherwise the given fallback (plant defaults for a new spec). */
+export function resolveToleranceBands(savedJson: string | undefined, fallback: ToleranceBands): ToleranceBands {
+  const saved = parseJsonField<Partial<ToleranceBands> | null>(savedJson, null)
+  if (!saved || typeof saved !== "object") return fallback
+  const pick = (value: unknown, base: number) => {
+    const number = Number(value)
+    return value != null && value !== "" && Number.isFinite(number) && number >= 0 ? number : base
+  }
+  return {
+    id: pick(saved.id, fallback.id),
+    od: pick(saved.od, fallback.od),
+    length: pick(saved.length, fallback.length),
+    weightG: pick(saved.weightG, fallback.weightG),
+    csPct: pick(saved.csPct, fallback.csPct),
+    moisture: pick(saved.moisture, fallback.moisture),
+  }
+}
+
 export const DEFAULT_PROCESS_GUIDANCE: ProcessGuidanceRow[] = []
 
 export const DEFAULT_SPEC_FIELD_DEFINITIONS: ScalarDynamicField[] = [
@@ -537,6 +571,7 @@ export const DEFAULT_SPEC_FIELD_DEFINITIONS: ScalarDynamicField[] = [
   { field_key: "oven_target_json", label: "Oven Target JSON", field_type: "text" },
   { field_key: "process_target_json", label: "Process Target JSON", field_type: "text" },
   { field_key: "packing_target_json", label: "Packing Target JSON", field_type: "text" },
+  { field_key: "tolerance_bands_json", label: "Final Limit Bands JSON", field_type: "text" },
 ]
 
 export function clamp(value: number, min: number, max: number) {

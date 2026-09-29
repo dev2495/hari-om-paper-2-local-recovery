@@ -413,6 +413,16 @@ export function useSpecDefaults(plantId?: string | null) {
   })
 }
 
+export function useUpdateSpecDefaults() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ data, plantId }: { data: any; plantId: string }) => specApi.updateDefaults(data, plantId),
+    onSuccess: (_response, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["spec", "defaults", variables.plantId] })
+    },
+  })
+}
+
 export function useSpecFields() {
   return useQuery({
     queryKey: ["spec-fields"],

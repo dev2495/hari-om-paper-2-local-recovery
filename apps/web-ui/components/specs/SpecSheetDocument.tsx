@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { NotchDiagramPanel } from "@/components/specs/NotchDiagramPanel"
 import { SpecQcToleranceDialog } from "@/components/qc/SpecQcToleranceDialog"
 import { SpecQcQuickEditor } from "@/components/specs/spec-qc-quick-editor"
-import { qcMissingFieldLabels, qcSetupStatus } from "@/lib/qc-measurement"
+import { qcMissingFieldLabels, qcPrintStageRows, qcReferencesFromSpec, qcSetupStatus } from "@/lib/qc-measurement"
 import { SpecSheetPrint } from "@/components/specs/print/SpecSheetPrint"
 import { SpecSheetWorkspace } from "@/components/specs/SpecSheetWorkspace"
 import { ClientReqCard } from "@/components/specs/sections/ClientReqCard"
@@ -66,6 +66,8 @@ import {
   DEFAULT_PROCESS_GUIDANCE,
   DEFAULT_SPEC_FIELD_DEFINITIONS,
   DEFAULT_TOLERANCE_BANDS,
+  plantToleranceBands,
+  resolveToleranceBands,
   NOTCH_TOOL_FIELD_CATEGORY_MAP,
   deriveRanges,
   DynamicFieldValue,
@@ -1023,7 +1025,17 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
     }))
   }, [form.dynamicValues.fadda_per_box, form.dynamicValues.fadda_sku, form.dynamicValues.fadda_unit_weight_kg, form.dynamicValues.fadda_weight_per_box_kg, packagingFaddaMap])
 
-  const clientRanges = useMemo(() => deriveRanges(form.averages, DEFAULT_TOLERANCE_BANDS), [form.averages])
+  // Final-limit bands: the spec's own saved bands, else plant defaults for a new spec,
+  // else the historic ±0.5/0.5/2 mm, ±5 g, ±7 % C.S., ±1 % moisture every older spec used.
+  const toleranceBands = useMemo(
+    () =>
+      resolveToleranceBands(
+        form.dynamicValues.tolerance_bands_json,
+        isCreate ? plantToleranceBands(specDefaults) : DEFAULT_TOLERANCE_BANDS,
+      ),
+    [form.dynamicValues.tolerance_bands_json, isCreate, specDefaults],
+  )
+  const clientRanges = useMemo(() => deriveRanges(form.averages, toleranceBands), [form.averages, toleranceBands])
   const clientRows = useMemo(() => buildMatrixRows(form.averages, clientRanges), [form.averages, clientRanges])
 
   const recipeTotalWallThickness = useMemo(
@@ -1074,7 +1086,7 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
       length: roundValue(avg.length + 20, 2),
       weight: roundValue(avg.weight + 20, 2),
       cs: roundValue(avg.cs * 1.07, 2),
-      moisture: roundValue(clamp(avg.moisture + DEFAULT_TOLERANCE_BANDS.moisture, 0, 100), 2),
+      moisture: roundValue(clamp(avg.moisture + toleranceBands.moisture, 0, 100), 2),
     }
     const min = {
       id: minId,
@@ -1082,7 +1094,7 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
       length: roundValue(Math.max(avg.length - 20, 0), 2),
       weight: roundValue(Math.max(avg.weight - 20, 0), 2),
       cs: roundValue(avg.cs * 0.93, 2),
-      moisture: roundValue(clamp(avg.moisture - DEFAULT_TOLERANCE_BANDS.moisture, 0, 100), 2),
+      moisture: roundValue(clamp(avg.moisture - toleranceBands.moisture, 0, 100), 2),
     }
 
     return [
@@ -1090,7 +1102,7 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
       { label: "MAX", id: max.id, od: max.od, thick: thicknessFrom(max.id, max.od), length: max.length, weight: max.weight, cs: max.cs, moisture: max.moisture },
       { label: "MIN", id: min.id, od: min.od, thick: thicknessFrom(min.id, min.od), length: min.length, weight: min.weight, cs: min.cs, moisture: min.moisture },
     ]
-  }, [manufacturingAverages, recipeTotalWallThickness, selectedMandrel])
+  }, [manufacturingAverages, recipeTotalWallThickness, selectedMandrel, toleranceBands.moisture])
 
   const recipePreview = useMemo(() => {
     const usableLength = Math.max(0, Number(specConstants?.bamboo_max_length_mm || 1560) - Number(specConstants?.cut_loss_mm || 40))
@@ -1984,6 +1996,8 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
       fill_instructions_version: CANONICAL_VARIANT_KEY,
       adhesive_components_json: stringifyJsonField(adhesiveComponentsPayload),
       recipe_sheet_json: stringifyJsonField({ rows: form.recipeRows }),
+      // Persist the bands the limits were derived from, so a later plant-default change never shifts them.
+      tolerance_bands_json: stringifyJsonField(toleranceBands),
       winder_target_json: stringifyJsonField(form.winderTarget),
       oven_target_json: stringifyJsonField(form.ovenTarget),
       process_target_json: stringifyJsonField(form.processTarget),
@@ -2640,6 +2654,7 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
       blockers: releaseBlockers,
       notes: form.notes,
       signOff: optionValue(form.dynamicValues.sign_off_note),
+      qcStages: qcPrintStageRows(specDocument?.spec?.qc_profile || qcProfile),
     }
     return <SpecSheetPrint enabled data={printData} embedded={embedded} />
   }
@@ -2676,6 +2691,18 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
                 ? true
                 : null,
           }}
+          references={qcReferencesFromSpec({
+            finalLimits: {
+              id: { min: clientRanges.id_min_mm, max: clientRanges.id_max_mm },
+              od: { min: clientRanges.od_min_mm, max: clientRanges.od_max_mm },
+              length: { min: clientRanges.length_min_mm, max: clientRanges.length_max_mm },
+              weight: { min: clientRanges.weight_min_g, max: clientRanges.weight_max_g },
+              cs: { min: clientRanges.cs_min_n, max: clientRanges.cs_max_n },
+              moisture: { min: clientRanges.moisture_min_pct, max: clientRanges.moisture_max_pct },
+            },
+            mandrel: selectedMandrel ? { min: manufacturingIdBand.min, max: manufacturingIdBand.max } : null,
+          })}
+          saveCompleteLabel={qcOnly ? "Save QC tolerances" : "Save specification + QC"}
           initialProfile={qcProfile}
           saving={createSpecSheet.isPending || updateSpecSheet.isPending || upsertSpecQcProfile.isPending || upsertSpecQcProfile.isPending}
           onBack={(profile) => {
@@ -3031,6 +3058,48 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
                     value={(1 - Number(form.shrinkPercent || 9.0) / 100).toFixed(3)}
                     detail="Default 0.91 from 9% moisture loss"
                   />
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-[#d7dfdc] bg-[#f8faf9] p-3" data-testid="spec-final-limit-bands">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-muted-foreground">Final limits · ± band around the averages</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {form.dynamicValues.tolerance_bands_json ? "Set on this spec" : isCreate ? "Plant defaults" : "Standard bands"} · printed and checked at final QC
+                  </p>
+                </div>
+                <div className="mt-2 grid gap-2 sm:grid-cols-3 xl:grid-cols-6">
+                  {(
+                    [
+                      { key: "id", label: "I.D.", unit: "mm", min: clientRanges.id_min_mm, max: clientRanges.id_max_mm },
+                      { key: "od", label: "O.D.", unit: "mm", min: clientRanges.od_min_mm, max: clientRanges.od_max_mm },
+                      { key: "length", label: "Length", unit: "mm", min: clientRanges.length_min_mm, max: clientRanges.length_max_mm },
+                      { key: "weightG", label: "Weight", unit: "g", min: clientRanges.weight_min_g, max: clientRanges.weight_max_g },
+                      { key: "csPct", label: "C.S.", unit: "%", min: clientRanges.cs_min_n, max: clientRanges.cs_max_n },
+                      { key: "moisture", label: "Moisture", unit: "%", min: clientRanges.moisture_min_pct, max: clientRanges.moisture_max_pct },
+                    ] as const
+                  ).map((band) => (
+                    <div key={band.key} className="space-y-1">
+                      <FieldLabel>± {band.label}</FieldLabel>
+                      <NumericInput
+                        data-testid={`spec-band-${band.key}`}
+                        step="0.01"
+                        unit={band.unit}
+                        value={inputNumberValue(toleranceBands[band.key], true)}
+                        disabled={!isEditable}
+                        onChange={(event) =>
+                          updateDynamicValue(
+                            "tolerance_bands_json",
+                            stringifyJsonField({ ...toleranceBands, [band.key]: Math.max(0, safeNumber(event.target.value || 0)) }),
+                          )
+                        }
+                        className="h-9 rounded-lg"
+                      />
+                      <p className="text-[10px] leading-4 text-muted-foreground">
+                        {Number(band.min).toFixed(2)} – {Number(band.max).toFixed(2)}
+                      </p>
+                    </div>
+                  ))}
                 </div>
               </div>
 

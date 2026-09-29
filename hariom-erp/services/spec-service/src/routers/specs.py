@@ -265,6 +265,12 @@ class SpecDefaultsPayload(BaseModel):
     adhesive_percent: float = spec_math.GLOBAL_ADHESIVE_PERCENT
     parchment_percent: float = spec_math.GLOBAL_PARCHMENT_PERCENT
     moisture_loss_percent: float = spec_math.GLOBAL_MOISTURE_LOSS_PERCENT
+    band_id_mm: float = 0.5
+    band_od_mm: float = 0.5
+    band_length_mm: float = 2.0
+    band_weight_g: float = 5.0
+    band_cs_pct: float = 7.0
+    band_moisture_pct: float = 1.0
 
 
 class SpecDefaultsResponse(SpecDefaultsPayload):
@@ -913,6 +919,18 @@ def update_spec_defaults(
     defaults.adhesive_percent = _normalize_percent(payload.adhesive_percent, "adhesive_percent")
     defaults.parchment_percent = _normalize_percent(payload.parchment_percent, "parchment_percent")
     defaults.moisture_loss_percent = _normalize_percent(payload.moisture_loss_percent, "moisture_loss_percent")
+    for field, ceiling in (
+        ("band_id_mm", 10.0),
+        ("band_od_mm", 10.0),
+        ("band_length_mm", 50.0),
+        ("band_weight_g", 500.0),
+        ("band_cs_pct", 50.0),
+        ("band_moisture_pct", 20.0),
+    ):
+        value = float(getattr(payload, field))
+        if not 0 <= value <= ceiling:
+            raise HTTPException(status_code=400, detail=f"{field} must be between 0 and {ceiling:g}")
+        setattr(defaults, field, value)
     defaults.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(defaults)
