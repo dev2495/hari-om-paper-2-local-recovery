@@ -149,7 +149,13 @@ export function StageQcFields({
                     onChange={(event) => onReadingChange?.(rule.code, event.target.value)}
                     aria-invalid={fail || feedback?.verdict === "INVALID" ? true : undefined}
                     aria-describedby={describedBy || undefined}
-                    className="h-11 w-full rounded-xl border border-border px-3 text-sm text-foreground"
+                    className={`h-11 w-full rounded-xl border px-3 text-sm text-foreground ${
+                      fail || feedback?.verdict === "INVALID"
+                        ? "border-signal-rose-line bg-signal-rose-soft"
+                        : feedback?.verdict === "PASS"
+                          ? "border-signal-emerald-line"
+                          : "border-border"
+                    }`}
                   />
                 ) : (
                   <div

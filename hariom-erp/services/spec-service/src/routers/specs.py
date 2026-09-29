@@ -1378,6 +1378,26 @@ def approve_spec_qc_profile(
             status_code=409,
             detail={"code": "STALE_REVISION", "message": "QC profile revision changed since preview.", "current_revision": current_revision},
         )
+    _approve_qc_profile_in_place(spec, current, current_user)
+    bump_write_revision(spec)
+    db.commit()
+    db.refresh(spec)
+    return _serialize_spec(spec)
+
+
+def _qc_profile_bounds_complete(spec: SpecificationSheet) -> bool:
+    """True when every required stage parameter has limits, whatever the saved status label."""
+    current = spec.qc_profile if isinstance(spec.qc_profile, dict) else None
+    if not current:
+        return False
+    if profile_status(current) == "approved":
+        return True
+    if notching_review_required(current, spec):
+        return False
+    return profile_status({**current, "status": "complete"}) in {"complete", "approved"}
+
+
+def _approve_qc_profile_in_place(spec: SpecificationSheet, current: dict, current_user: dict) -> None:
     try:
         normalized = normalize_qc_profile(current, previous=current, mutating=True, allow_approved=True)
     except QcProfileError as exc:
@@ -1398,10 +1418,6 @@ def approve_spec_qc_profile(
     normalized["approved_at"] = datetime.utcnow().isoformat()
     normalized["approved_snapshot"] = dict(normalized)
     spec.qc_profile = normalized
-    bump_write_revision(spec)
-    db.commit()
-    db.refresh(spec)
-    return _serialize_spec(spec)
 
 
 @router.post("/{spec_id}/submit-review")
@@ -1496,6 +1512,10 @@ def submit_spec_for_review(
     ]
     if missing_footer:
         blockers.append(f"release footer is incomplete ({', '.join(missing_footer)})")
+    if not _qc_profile_bounds_complete(spec):
+        blockers.append(
+            "stage QC tolerances are incomplete (set winding, oven and process limits and decide notching)"
+        )
     if blockers:
         raise HTTPException(status_code=409, detail="Review blockers: " + "; ".join(blockers))
 
@@ -1554,8 +1574,28 @@ def approve_spec(
     if not recipe:
         raise HTTPException(status_code=400, detail="No trial recipe found for this specification")
 
+    # A live spec must carry an approved process-QC standard; otherwise job cards are
+    # released with missing_qc_setup and stage inspections are blocked on the floor.
+    # The Owner/Admin approving the spec is also the QC approver, so a bounds-complete
+    # profile is approved in the same step.
+    qc_current = spec.qc_profile if isinstance(spec.qc_profile, dict) else {}
+    if profile_status(qc_current) != "approved":
+        if not _qc_profile_bounds_complete(spec):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "QC_PROFILE_INCOMPLETE",
+                    "message": "Stage QC tolerances are incomplete. Return the spec to draft and complete winding, oven and process limits before approval.",
+                },
+            )
+        _require_qc_approver(current_user)
+        _approve_qc_profile_in_place(spec, qc_current, current_user)
+        bump_write_revision(spec)
+        db.flush()
+
     service = ApprovalService(db)
     result = service.approve_recipe(str(recipe.id), approved_by=current_user.get("sub"))
+    db.commit()
     return result
 
 

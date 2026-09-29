@@ -424,6 +424,8 @@ export const productionApi = {
     api.get(`/api/production/quality/job-cards/${jobCardId}/template`, { params, ...(withPlantHeader(plantId) || {}) }),
   completeJobCardQc: (jobCardId: string, data: any, plantId?: string) =>
     api.post(`/api/production/quality/job-cards/${jobCardId}/complete`, data, withPlantHeader(plantId)),
+  attachJobCardQcProfile: (jobCardId: string, data: { expected_revision?: number }, plantId?: string) =>
+    api.post(`/api/production/quality/job-cards/${jobCardId}/attach-qc-profile`, data, withPlantHeader(plantId)),
   getQualitySummary: () => api.get("/api/production/quality/summary"),
   createQualityInspection: (data: any, plantId?: string) =>
     api.post("/api/production/quality/inspections", data, withPlantHeader(plantId)),

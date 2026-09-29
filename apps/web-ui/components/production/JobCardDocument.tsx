@@ -451,19 +451,57 @@ function TextInput({
   value,
   onChange,
   type = "text",
+  placeholder,
+  rule,
+  testId,
 }: {
   value: any
   onChange: (value: string) => void
   type?: "text" | "number" | "date" | "datetime-local"
+  placeholder?: string
+  rule?: QcParameterRule | null
+  testId?: string
 }) {
+  const band = readingBand(rule, value)
+  const tone =
+    band === "out"
+      ? "border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink"
+      : band === "in"
+        ? "border-signal-emerald-line bg-signal-emerald-soft/60 text-foreground"
+        : "border-border bg-card/95 text-foreground"
+  const hint = rule ? formatAllowedRange(rule) : ""
   return (
     <input
       type={type}
       value={value ?? ""}
+      placeholder={placeholder ?? (rule && rule.applicable !== false && (rule.min != null || rule.max != null) ? rangePlaceholder(rule) : undefined)}
+      title={hint || undefined}
+      aria-invalid={band === "out" ? true : undefined}
+      data-testid={testId}
+      data-band={band}
       onChange={(event) => onChange(event.target.value)}
-      className="h-11 w-full rounded-2xl border border-border bg-card/95 px-3 text-sm font-medium text-foreground shadow-sm"
+      className={`h-11 w-full rounded-2xl border px-3 text-sm font-medium shadow-sm ${tone}`}
     />
   )
+}
+
+/** "in" / "out" of the frozen allowed range, or "" when blank / no range. Display only — the server decides verdicts. */
+function readingBand(rule: QcParameterRule | null | undefined, value: any): "" | "in" | "out" {
+  if (!rule || rule.applicable === false || (rule.min == null && rule.max == null)) return ""
+  const text = String(value ?? "").trim()
+  if (!text) return ""
+  const number = Number(text)
+  if (!Number.isFinite(number)) return "out"
+  if (rule.min != null && (rule.inclusive_min === false ? number <= Number(rule.min) : number < Number(rule.min))) return "out"
+  if (rule.max != null && (rule.inclusive_max === false ? number >= Number(rule.max) : number > Number(rule.max))) return "out"
+  return "in"
+}
+
+function rangePlaceholder(rule: QcParameterRule) {
+  const unit = rule.unit ? ` ${rule.unit}` : ""
+  if (rule.min != null && rule.max != null) return `${rule.min}–${rule.max}${unit}`
+  if (rule.min != null) return `≥ ${rule.min}${unit}`
+  return `≤ ${rule.max}${unit}`
 }
 
 function MatrixBlock({
@@ -818,15 +856,26 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
       const rows = Array.isArray(current.entry_snapshot?.dimension_readings)
         ? [...current.entry_snapshot.dimension_readings]
         : blankWinderEntry().dimension_readings
+      const previous = rows[index]?.[field]
       rows[index] = {
         ...(rows[index] || blankWinderEntry().dimension_readings[0]),
         [field]: value,
+      }
+      // The first sample row is the stage-QC specimen: mirror it into the QC reading
+      // unless the inspector already typed a different QC value, so nothing is keyed twice.
+      const qcReadings = { ...((current.entry_snapshot || {}).qc_readings || {}) }
+      if (index === 0) {
+        const existing = qcReadings[field]
+        if (existing == null || String(existing) === "" || String(existing) === String(previous ?? "")) {
+          qcReadings[field] = value
+        }
       }
       return {
         ...current,
         entry_snapshot: {
           ...(current.entry_snapshot || {}),
           dimension_readings: rows,
+          qc_readings: qcReadings,
         },
       }
     })
@@ -911,6 +960,14 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
         <p className="mt-1 text-[11px] text-muted-foreground">
           Allowed bands come from the job-card snapshot and signed inspection. Later profile revisions do not relabel this card.
         </p>
+        {!options?.print && (card?.spec_snapshot?.missing_qc_setup || card?.spec_snapshot?.missing_profile_marker) ? (
+          <div className="mt-2 rounded-lg border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-xs text-signal-amber-ink" data-testid={`stage-qc-missing-setup-${stage.toLowerCase()}`}>
+            Released without approved stage QC tolerances — checks are blocked.{" "}
+            <Link className="font-semibold underline" href={`/quality/stage?job=${encodeURIComponent(String(card?.id || jobCardId || ""))}&stage=${stage}`}>
+              Attach approved tolerances
+            </Link>
+          </div>
+        ) : null}
         <div className="mt-3">
           <StageQcFields
             rules={rules}
@@ -2138,6 +2195,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     const stageData = stageRow(stage)
     const assignment = stageAssignment(stage)
     const entry = stageForms[stage]?.entry_snapshot || normalizeStageEntry(stage, {})
+    const winderEntryRules = inspectionFrozenRules(stageQcInspection("WINDER"), frozenQcProfile(), "WINDER")
     return (
       <section className="border border-slate-800 p-3">
         <div className="flex items-center justify-between gap-3 border-b border-border pb-2">
@@ -2198,11 +2256,18 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
         <table className="mt-1 w-full border-collapse text-sm">
           <thead>
             <tr className="bg-muted text-left">
-              <th className="border border-border px-2 py-2">Height</th>
-              <th className="border border-border px-2 py-2">I.D.</th>
-              <th className="border border-border px-2 py-2">O.D.</th>
-              <th className="border border-border px-2 py-2">Weight</th>
-              <th className="border border-border px-2 py-2">C.S.</th>
+              {(["height", "id", "od", "weight", "cs"] as const).map((code) => {
+                const rule = winderEntryRules.find((item) => item.code === code) || null
+                const label = { height: "Height", id: "I.D.", od: "O.D.", weight: "Weight", cs: "C.S." }[code]
+                return (
+                  <th key={code} className="border border-border px-2 py-2">
+                    {label}
+                    <span className="block text-[10px] font-medium normal-case text-muted-foreground" data-testid={`winder-allowed-${code}`}>
+                      {rule ? formatAllowedRange(rule) : "Allowed: not configured"}
+                    </span>
+                  </th>
+                )
+              })}
             </tr>
           </thead>
           <tbody>
@@ -2210,11 +2275,17 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
               <tr key={`winder-row-${index}`}>
                 {stageEditable(stage) ? (
                   <>
-                    <td className="border border-border px-2 py-2"><TextInput type="number" value={row.height ?? row.length} onChange={(next) => updateDimensionReading(index, "height", next)} /></td>
-                    <td className="border border-border px-2 py-2"><TextInput type="number" value={row.id} onChange={(next) => updateDimensionReading(index, "id", next)} /></td>
-                    <td className="border border-border px-2 py-2"><TextInput type="number" value={row.od} onChange={(next) => updateDimensionReading(index, "od", next)} /></td>
-                    <td className="border border-border px-2 py-2"><TextInput type="number" value={row.weight} onChange={(next) => updateDimensionReading(index, "weight", next)} /></td>
-                    <td className="border border-border px-2 py-2"><TextInput type="number" value={row.cs} onChange={(next) => updateDimensionReading(index, "cs", next)} /></td>
+                    {(["height", "id", "od", "weight", "cs"] as const).map((code) => (
+                      <td key={code} className="border border-border px-2 py-2">
+                        <TextInput
+                          type="number"
+                          value={code === "height" ? row.height ?? row.length : row[code]}
+                          rule={winderEntryRules.find((rule) => rule.code === code) || null}
+                          testId={`winder-entry-${code}-${index}`}
+                          onChange={(next) => updateDimensionReading(index, code, next)}
+                        />
+                      </td>
+                    ))}
                   </>
                 ) : (
                   <>
@@ -2457,6 +2528,72 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     )
   }
 
+  function renderFinalQcSummary() {
+    const snapshot = card?.spec_snapshot || documentSnapshot || {}
+    const limits = [
+      { code: "id", label: "I.D.", unit: "mm", min: snapshot.id_min_mm, max: snapshot.id_max_mm },
+      { code: "od", label: "O.D.", unit: "mm", min: snapshot.od_min_mm, max: snapshot.od_max_mm },
+      { code: "length", label: "Length", unit: "mm", min: snapshot.length_min_mm, max: snapshot.length_max_mm },
+      { code: "weight", label: "Weight", unit: "g", min: snapshot.weight_min_g, max: snapshot.weight_max_g },
+      { code: "cs", label: "C.S.", unit: "N", min: snapshot.cs_min_n, max: snapshot.cs_max_n },
+    ].filter((row) => row.min != null || row.max != null)
+    const inspections = Array.isArray(card?.quality_inspections) ? card.quality_inspections : []
+    const latest =
+      [...inspections]
+        .filter((row: any) => String(row?.stage_type || "").toUpperCase() === "QC")
+        .filter((row: any) => String(row?.evaluation?.workflow_status || "").toUpperCase() !== "SUPERSEDED")
+        .sort((a: any, b: any) => String(b?.created_at || "").localeCompare(String(a?.created_at || "")))[0] || null
+    const verdict = String(latest?.status || "").toUpperCase()
+    const jobId = card?.id || jobCardId
+    return (
+      <div className="mt-3 rounded-xl border border-signal-cyan-line bg-signal-cyan-soft/50 p-3" data-testid="final-qc-summary">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="text-xs font-semibold uppercase tracking-wide text-signal-cyan-ink">Final QC · spec final limits</div>
+          <span
+            data-testid="final-qc-verdict"
+            className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+              verdict === "PASS"
+                ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink"
+                : verdict
+                  ? "border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink"
+                  : "border-border bg-card text-muted-foreground"
+            }`}
+          >
+            {verdict ? `Latest final QC: ${verdict}` : "Final QC not recorded"}
+          </span>
+        </div>
+        {limits.length ? (
+          <div className="mt-2 grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
+            {limits.map((row) => {
+              const reading = latest?.readings?.[row.code]
+              return (
+                <div key={row.code} className="rounded-lg border border-border bg-card px-2 py-1.5 text-xs" data-testid={`final-qc-limit-${row.code}`}>
+                  <div className="font-semibold text-foreground">{row.label}</div>
+                  <div className="text-muted-foreground">{formatAllowedRange({ min: row.min, max: row.max, unit: row.unit, applicable: true })}</div>
+                  {reading != null && String(reading) !== "" ? <div className="font-semibold text-foreground">Measured {String(reading)} {row.unit}</div> : null}
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <p className="mt-2 text-xs text-signal-amber-ink">This job card&apos;s spec snapshot has no final limits; final QC cannot pass until the spec carries them.</p>
+        )}
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          Every limited reading is required. A current passing final QC is required before FG handoff and dispatch.
+        </p>
+        {jobId && mode !== "print" ? (
+          <Link
+            href={`/quality/stage?job=${encodeURIComponent(String(jobId))}&stage=QC`}
+            data-testid="final-qc-record-link"
+            className="no-print mt-2 inline-flex rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground"
+          >
+            {verdict ? "Record new final QC" : "Record final QC"}
+          </Link>
+        ) : null}
+      </div>
+    )
+  }
+
   function renderQcSection() {
     const stage = "QC" as StageName
     const stageData = stageRow(stage)
@@ -2469,6 +2606,8 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             {stageData?.status || "PLANNED"}
           </span>
         </div>
+
+        {renderFinalQcSummary()}
 
         <div className="mt-3 grid gap-2 md:grid-cols-3">
           {renderOperatorPicker(stage, "Inspector", "inspector_name", "inspector_employee_id")}
@@ -3116,7 +3255,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
                 <td className="jc-value"><Req value={withUnit(header.selected_bamboo_length_mm || selectedBambooLength, "mm", 0)} hint={allowed(winderQcRules, "height", "bamboo")} /></td>
                 <td className="jc-value"><Req value={withUnit(bambooWetWeightG, "g", 0)} hint={allowed(winderQcRules, "weight", "wet bamboo")} /></td>
                 <td className="jc-value"><Req value={num(manufacturingSpec?.winder_pre_dry_cs)} hint={allowed(winderQcRules, "cs", "pre-dry")} /></td>
-                <td className="jc-value"><Req value="" hint={allowed(winderQcRules, "pasting", "")} /></td>
+                <td className="jc-value"><Req value="" hint={allowed(winderQcRules, "pasting", "visual · OK / NG")} /></td>
               </tr>
               {Array.from({ length: 4 }, (_, index) => {
                 const reading = winderReadings[index] || {}
@@ -3246,7 +3385,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
                 <td className="jc-value"><Req value={num(clientSpec?.length?.avg ?? header.tube_length_mm)} hint={allowed(processQcRules, "height", range(clientSpec?.length))} /></td>
                 <td className="jc-value"><Req value={withUnit(tubeDryWeightG || clientSpec?.tube_weight?.avg, "g")} hint={allowed(processQcRules, "weight", range(clientSpec?.tube_weight))} /></td>
                 <td className="jc-value"><Req value={num(requiredCs)} hint={allowed(processQcRules, "cs", range(clientSpec?.cs))} /></td>
-                <td className="jc-value"><Req value="" hint={allowed(processQcRules, "pasting", "")} /></td>
+                <td className="jc-value"><Req value="" hint={allowed(processQcRules, "pasting", "visual · OK / NG")} /></td>
                 <td className="jc-value"><Req value={setup.notch_distance || ""} hint={allowed(processQcRules, "notch_distance", "mm")} /></td>
                 <td className="jc-value"><Req value={setup.notch_depth || ""} hint={allowed(processQcRules, "notch_depth", "mm")} /></td>
               </tr>

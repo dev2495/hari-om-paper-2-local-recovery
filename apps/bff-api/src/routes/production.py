@@ -100,6 +100,11 @@ async def complete_job_card_qc(job_card_id: str, request: Request, token: str = 
     return response
 
 
+@router.post("/quality/job-cards/{job_card_id}/attach-qc-profile")
+async def attach_job_card_qc_profile(job_card_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/quality/job-cards/{job_card_id}/attach-qc-profile", request, token)
+
+
 @router.post("/quality/supervisor/inspections")
 async def create_supervisor_quality_inspection(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/quality/supervisor/inspections", request, token)

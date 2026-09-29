@@ -248,6 +248,19 @@ export function useUpsertSpecQcProfile() {
   })
 }
 
+export function useApproveSpecQcProfile() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ specId, expectedRevision, plantId }: { specId: string; expectedRevision: number; plantId?: string }) =>
+      specApi.approveSpecQcProfile(specId, { expected_revision: expectedRevision }, plantId),
+    onSuccess: (_response, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["specs"] })
+      queryClient.invalidateQueries({ queryKey: ["spec", variables.specId] })
+      queryClient.invalidateQueries({ queryKey: ["spec-sheet-document", variables.specId] })
+    },
+  })
+}
+
 export function usePreviewQcProfileAssign() {
   return useMutation({
     mutationFn: ({ data, plantId }: { data: any; plantId?: string }) => specApi.previewQcProfileAssign(data, plantId),

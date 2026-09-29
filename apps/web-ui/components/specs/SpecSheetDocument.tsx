@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 
 import { NotchDiagramPanel } from "@/components/specs/NotchDiagramPanel"
 import { SpecQcToleranceDialog } from "@/components/qc/SpecQcToleranceDialog"
+import { SpecQcQuickEditor } from "@/components/specs/spec-qc-quick-editor"
 import { qcMissingFieldLabels, qcSetupStatus } from "@/lib/qc-measurement"
 import { SpecSheetPrint } from "@/components/specs/print/SpecSheetPrint"
 import { SpecSheetWorkspace } from "@/components/specs/SpecSheetWorkspace"
@@ -38,6 +39,7 @@ import {
 } from "@/hooks/use-master-data"
 import {
   useApproveSpec,
+  useApproveSpecQcProfile,
   useCloneSpecSheet,
   useCreateSpecSheet,
   useEnsureSpecSheetCatalog,
@@ -713,6 +715,8 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
   const upsertSpecQcProfile = useUpsertSpecQcProfile()
   const logToolUsage = useLogToolUsage()
   const approveSpec = useApproveSpec()
+  const approveSpecQcProfile = useApproveSpecQcProfile()
+  const [qcQuickEditorOpen, setQcQuickEditorOpen] = useState(false)
   const submitSpecForReview = useSubmitSpecForReview()
   const obsoleteSpec = useObsoleteSpec()
   const cloneSpec = useCloneSpecSheet()
@@ -1638,7 +1642,13 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
       form.mandrelId &&
       selectedTubeMatchesMandrel,
   )
+  const savedQcProfile = specDocument?.spec?.qc_profile || null
+  const savedQcStatus = qcSetupStatus(savedQcProfile)
+  const savedQcBoundsReady =
+    savedQcStatus === "approved" ||
+    (savedQcProfile ? ["complete", "approved"].includes(qcSetupStatus({ ...savedQcProfile, status: "complete" })) : false)
   const canSubmitReview = Boolean(
+    savedQcBoundsReady &&
     !isCreate &&
       specDocument?.spec?.status === "draft" &&
       adhesiveRatioBalanced &&
@@ -1656,6 +1666,7 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
     canApproveAsSuperUser &&
     hasConcreteWritePlant &&
     specDocument?.spec?.status === "review" &&
+    savedQcBoundsReady &&
     Boolean(specDocument?.latestRecipe?.id) &&
     Boolean(effectiveBalance.withinBand)
 
@@ -2324,11 +2335,37 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
 
     try {
       await approveSpec.mutateAsync({ specId, data: {} })
-      showToast("Specification approved and live for production.", "success")
+      showToast(
+        savedQcStatus === "approved"
+          ? "Specification approved and live for production."
+          : "Specification and its stage QC tolerances approved — live for production.",
+        "success",
+      )
       router.refresh()
     } catch (error: any) {
       const message = error?.response?.data?.detail || error?.message || "Failed to approve specification."
       showToast(typeof message === "string" ? message : JSON.stringify(message), "error")
+    }
+  }
+
+  const handleApproveQc = async () => {
+    if (!specId || !savedQcProfile) return
+    if (!hasConcreteWritePlant) {
+      showToast("Pick one plant in the top switcher before approving quality parameters.", "error")
+      return
+    }
+    if (!window.confirm("Approve these stage QC tolerances? Job cards released from this spec will freeze them for floor checks.")) return
+    try {
+      await approveSpecQcProfile.mutateAsync({
+        specId,
+        expectedRevision: Number(savedQcProfile.revision || 1),
+        plantId: activePlant || undefined,
+      })
+      showToast("Stage QC tolerances approved. New job cards will carry them.", "success")
+      void refetchDocument()
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail
+      showToast(typeof detail === "string" ? detail : detail?.message || error?.message || "Could not approve quality parameters.", "error")
     }
   }
 
@@ -2487,6 +2524,7 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
     !effectiveBalance.withinBand ? `Weight outside ±${DELTA_ABS_G} g` : null,
     !footerComplete ? "Release footer" : null,
     csGateFailed ? "CS trial" : null,
+    !isCreate && !savedQcBoundsReady ? "Stage QC tolerances" : null,
   ].filter(Boolean) as string[]
   const reviewChecksPass = Boolean(
     draftSaved &&
@@ -2608,6 +2646,16 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
   return (
     <SpecSheetWorkspace printMode={isPrint}>
       <div className="min-w-0 space-y-3" data-testid="spec-sheet-page">
+        {specId && !isEditable ? (
+          <SpecQcQuickEditor
+            specId={specId}
+            open={qcQuickEditorOpen}
+            onOpenChange={(next) => {
+              setQcQuickEditorOpen(next)
+              if (!next) void refetchDocument()
+            }}
+          />
+        ) : null}
         <SpecQcToleranceDialog
           open={qcDialogOpen}
           context={{
@@ -2729,6 +2777,27 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
                 <Link href={`/specifications/${specId}/edit`} className="rounded-lg border border-[#d7dfdc] bg-card px-3.5 py-2 text-sm font-bold text-muted-foreground shadow-sm transition hover:border-[#9db7b0]">
                   {currentStatus === "draft" ? "Edit Draft" : "Edit live spec (Owner)"}
                 </Link>
+              ) : null}
+              {!isCreate && !isPrint && !isEditable && specDocument?.spec?.active !== false && currentStatus !== "obsolete" && currentStatus !== "review" && canAuthorQc && savedQcStatus !== "approved" ? (
+                <button
+                  type="button"
+                  data-testid="spec-qc-open-editor"
+                  onClick={() => setQcQuickEditorOpen(true)}
+                  className="rounded-lg border border-signal-amber-line bg-signal-amber-soft px-3.5 py-2 text-sm font-bold text-signal-amber-ink shadow-sm"
+                >
+                  {savedQcStatus === "missing" ? "Set QC tolerances" : "Edit QC tolerances"}
+                </button>
+              ) : null}
+              {!isCreate && !isPrint && !isEditable && specDocument?.spec?.active !== false && currentStatus !== "obsolete" && canApproveAsSuperUser && savedQcStatus !== "approved" && savedQcBoundsReady ? (
+                <button
+                  type="button"
+                  data-testid="spec-qc-approve"
+                  onClick={handleApproveQc}
+                  disabled={approveSpecQcProfile.isPending}
+                  className="rounded-lg border border-[#b9e4d1] bg-[#e4f6ed] px-3.5 py-2 text-sm font-bold text-[#166b51] shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Approve QC tolerances
+                </button>
               ) : null}
               {!isCreate && currentStatus === "draft" && !isEditable ? (
                 <button
