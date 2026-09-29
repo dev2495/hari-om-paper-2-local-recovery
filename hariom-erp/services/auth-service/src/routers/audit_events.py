@@ -9,6 +9,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert
 
@@ -136,25 +137,21 @@ def post_audit_event(
     return _serialize(row)
 
 
-@router.get("/")
-def list_audit_events(
-    since_hours: int = Query(default=72, ge=1, le=720),
-    event_type: str | None = None,
-    entity_type: str | None = None,
-    entity_id: str | None = None,
-    actor_email: str | None = None,
-    plant_id: str | None = None,
-    limit: int = Query(default=100, ge=1, le=500),
-    offset: int = Query(default=0, ge=0),
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+def _filtered_query(
+    db: Session,
+    current_user: models.User,
+    *,
+    since_hours: int,
+    event_type: str | None,
+    entity_type: str | None,
+    entity_id: str | None,
+    actor_email: str | None,
+    plant_id: str | None,
+    source_service: str | None,
+    q: str | None,
 ):
-    """List audit events with filters. Owners/Admins see everything;
-    other roles see their own actions only.
-    """
     role_names = set(get_session_claims(current_user)["roles"])
     is_owner_admin = "Owner" in role_names or "Admin" in role_names
-
     since = datetime.utcnow() - timedelta(hours=since_hours)
     query = db.query(models.AuditEvent).filter(models.AuditEvent.occurred_at >= since)
     if not is_owner_admin:
@@ -168,8 +165,41 @@ def list_audit_events(
     if actor_email:
         query = query.filter(models.AuditEvent.actor_email == actor_email)
     if plant_id:
-        query = query.filter(models.AuditEvent.plant_id == plant_id)
+        query = query.filter(or_(models.AuditEvent.plant_id == plant_id, models.AuditEvent.plant_id.is_(None)))
+    if source_service:
+        query = query.filter(models.AuditEvent.source_service == source_service)
+    if q and q.strip():
+        needle = "%" + q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        query = query.filter(or_(
+            models.AuditEvent.summary.ilike(needle, escape="\\"),
+            models.AuditEvent.entity_id.ilike(needle, escape="\\"),
+            models.AuditEvent.event_type.ilike(needle, escape="\\"),
+            models.AuditEvent.actor_email.ilike(needle, escape="\\"),
+            models.AuditEvent.payload.ilike(needle, escape="\\"),
+        ))
+    return query
 
+
+@router.get("/")
+def list_audit_events(
+    since_hours: int = Query(default=72, ge=1, le=8760),
+    event_type: str | None = None,
+    entity_type: str | None = None,
+    entity_id: str | None = None,
+    actor_email: str | None = None,
+    plant_id: str | None = None,
+    source_service: str | None = None,
+    q: str | None = Query(default=None, max_length=200),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """List audit events with filters and free-text search. Owners/Admins see everything;
+    other roles see their own actions only. Plant filter keeps account-wide (no plant) events.
+    """
+    query = _filtered_query(db, current_user, since_hours=since_hours, event_type=event_type, entity_type=entity_type,
+                            entity_id=entity_id, actor_email=actor_email, plant_id=plant_id, source_service=source_service, q=q)
     total = query.count()
     rows = (
         query.order_by(models.AuditEvent.occurred_at.desc())
@@ -183,6 +213,51 @@ def list_audit_events(
         "limit": limit,
         "offset": offset,
         "has_more": (offset + len(rows)) < total,
+    }
+
+
+@router.get("/facets")
+def audit_event_facets(
+    since_hours: int = Query(default=168, ge=1, le=8760),
+    event_type: str | None = None,
+    entity_type: str | None = None,
+    entity_id: str | None = None,
+    actor_email: str | None = None,
+    plant_id: str | None = None,
+    source_service: str | None = None,
+    q: str | None = Query(default=None, max_length=200),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Counts behind the audit filters and chart: by module, record type, event, person and day."""
+    query = _filtered_query(db, current_user, since_hours=since_hours, event_type=event_type, entity_type=entity_type,
+                            entity_id=entity_id, actor_email=actor_email, plant_id=plant_id, source_service=source_service, q=q)
+    sub = query.subquery()
+
+    def top(column, limit: int):
+        rows = (
+            db.query(getattr(sub.c, column), func.count())
+            .group_by(getattr(sub.c, column))
+            .order_by(func.count().desc())
+            .limit(limit)
+            .all()
+        )
+        return [{"value": value, "count": int(count)} for value, count in rows if value]
+
+    day = func.date_trunc("day", sub.c.occurred_at)
+    by_day = (
+        db.query(day, sub.c.source_service, func.count())
+        .group_by(day, sub.c.source_service)
+        .order_by(day)
+        .all()
+    )
+    return {
+        "total": int(db.query(func.count()).select_from(sub).scalar() or 0),
+        "source_service": top("source_service", 20),
+        "entity_type": top("entity_type", 40),
+        "event_type": top("event_type", 60),
+        "actor_email": top("actor_email", 30),
+        "by_day": [{"day": d.date().isoformat() if d else None, "source_service": service or "unknown", "count": int(count)} for d, service, count in by_day],
     }
 
 
