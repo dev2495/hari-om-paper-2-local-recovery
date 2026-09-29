@@ -312,10 +312,20 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
       {/* ── Workspace tab ── */}
       {activeTab === "workspace" && (
         <div className="space-y-5">
+          {summary && !Number(summary.total_theoretical_consumption_kg || 0) && !Number(summary.total_ledger_issued_kg || 0) && !Number(summary.total_actual_consumption_kg || 0) ? (
+            <div className="rounded-xl border border-signal-amber-line bg-signal-amber-soft px-4 py-3 text-[13px] text-signal-amber-ink" data-testid="reco-nothing-recorded">
+              <p className="font-semibold">Nothing is recorded for this month yet, so every line reads 0 — this is not a clean close.</p>
+              <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-[12.5px]">
+                <li><strong>Theoretical</strong> fills in as job-card stages are completed (spec BOM × output) — <Link className="underline" href="/production/job-cards">job cards</Link>.</li>
+                <li><strong>Ledger issued</strong> fills in from reel issues to the winder and bulk issues to production — <Link className="underline" href="/inventory/production-issue">production issue</Link>.</li>
+                <li><strong>Actual</strong> is the month-end consumption you enter on the Actuals tab after the <Link className="underline" href="/inventory/stock-control">stock count</Link> is certified.</li>
+              </ul>
+            </div>
+          ) : null}
           <Panel
             id="streams"
             title="Theoretical · Ledger · Actual"
-            subtitle="Three independent consumption streams for the period. Variance = Actual − Theoretical. Ledger is the sum of daily ISSUE_PRODUCTION transactions."
+            subtitle="Three independent consumption streams for the period. Variance = Actual − Theoretical. Ledger is net issues to production: reel issues to the winder plus bulk issues, less returns."
             actions={
               <div className="flex items-center gap-2">
                 <div className="relative">

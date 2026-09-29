@@ -946,7 +946,8 @@ def _build_monthly_material_summary(
     paper_catalog = _fetch_paper_catalog(token, machine_scope_plant)
     paper_codes = _paper_catalog_codes(paper_catalog)
     inventory_catalog = _fetch_inventory_item_catalog(token, machine_scope_plant)
-    ledger_map = _fetch_ledger_consumption(token, machine_scope_plant, month_start, month_end)
+    # The inventory aggregate is inclusive on both ends: stop the day before next month starts.
+    ledger_map = _fetch_ledger_consumption(token, machine_scope_plant, month_start, month_end - _td(days=1))
 
     provisional_query = _apply_scope(db.query(MonthlyMaterialProvisional), MonthlyMaterialProvisional, plant_scope).filter(
         MonthlyMaterialProvisional.month_start == month_start
@@ -1508,7 +1509,7 @@ def get_weekly_drift(
     machine_scope_plant = "ALL" if plant_scope.get("scope_all") else str(plant_scope["selected_plant_id"])
     token = current_user.get("token", "")
     inventory_catalog = _fetch_inventory_item_catalog(token, machine_scope_plant)
-    ledger_map = _fetch_ledger_consumption(token, machine_scope_plant, start, end)
+    ledger_map = _fetch_ledger_consumption(token, machine_scope_plant, start, end - _td(days=1))
 
     # Build a simple provisional sum for the week by scanning job cards active in window.
     job_cards = _month_scope_job_cards(db, plant_scope, start, end)
