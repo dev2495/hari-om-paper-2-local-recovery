@@ -438,6 +438,18 @@ export function useUpdateStockCertification() {
   })
 }
 
+/** Re-sync a draft count sheet: new items added, book stock moved to now, counts kept. */
+export function useRefreshStockCertification() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => inventoryApi.refreshStockCertification(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-stock-certifications"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-stock-certification"] })
+    },
+  })
+}
+
 export function useCertifyStockCertification() {
   const queryClient = useQueryClient()
   return useMutation({

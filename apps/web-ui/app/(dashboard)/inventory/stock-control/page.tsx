@@ -21,8 +21,9 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import { ChartCard, CompactTable, FilterChip, formatCompactCurrency, formatCompactNumber } from "@/components/erp/premium-dashboard"
 import { MetricCard, MetricRail } from "@/components/erp/shell"
 import { PageHeader } from "@/components/workspace/page-header"
+import { CountSheet } from "@/components/inventory/count-sheet"
 import { useAuth } from "@/context/AuthContext"
-import {
+import { useRefreshStockCertification,
   useAdjustmentVouchers,
   useCarryForwards,
   useCertifyStockCertification,
@@ -123,6 +124,7 @@ export default function InventoryStockControlPage() {
   const createCertification = useCreateStockCertification()
   const updateCertification = useUpdateStockCertification()
   const certifyCertification = useCertifyStockCertification()
+  const refreshCertification = useRefreshStockCertification()
   const postCertificationVariance = usePostStockCertificationVariance()
   const createCarryForward = useCreateCarryForward()
   const adjustmentVouchersQuery = useAdjustmentVouchers()
@@ -439,8 +441,9 @@ export default function InventoryStockControlPage() {
             </ResponsiveContainer>
           </div>
           <div className="mt-4">
+            <div className="max-h-[420px] overflow-auto">
             <CompactTable
-              rows={statementRows.slice(0, 10)}
+              rows={statementRows}
               columns={[
                 { key: "item_code", label: "Item", render: (row) => <div><p className="font-semibold text-foreground">{row.item_code}</p><p className="text-xs text-muted-foreground">{row.item_name}</p></div> },
                 { key: "opening_qty", label: "Opening", render: (row) => `${formatNumber(row.opening_qty, 2)} ${row.uom}` },
@@ -451,6 +454,7 @@ export default function InventoryStockControlPage() {
               ]}
               emptyLabel="No statement rows for this period."
             />
+            </div>
           </div>
         </ChartCard>
 
@@ -517,6 +521,23 @@ export default function InventoryStockControlPage() {
         </div>
       </section>
 
+      {selectedCertification ? (
+        <CountSheet
+          certification={selectedCertification}
+          editable={selectedCertification.status === "DRAFT" && !writeBlocked}
+          busy={{ save: updateCertification.isPending, refresh: refreshCertification.isPending, certify: certifyCertification.isPending }}
+          onSave={(lines) => updateCertification.mutateAsync({ id: selectedCertification.id, data: {
+            count_location_scope: sessionDraft.count_location_scope || undefined,
+            count_taken_at: sessionDraft.count_taken_at || countTakenAt,
+            counted_by: sessionDraft.counted_by || undefined,
+            checked_by: sessionDraft.checked_by || undefined,
+            lines: lines.map((line) => ({ ...line, counted_by: sessionDraft.counted_by || undefined, checked_by: sessionDraft.checked_by || undefined })),
+          } })}
+          onRefresh={() => refreshCertification.mutateAsync(selectedCertification.id)}
+          onCertify={certifySelected}
+        />
+      ) : null}
+
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
         <ChartCard eyebrow="Selected certificate" title={selectedCertification ? `${selectedCertification.period_start} to ${selectedCertification.period_end}` : "Select or draft a certificate"} description="Count rows stay editable only while the certificate is draft.">
           {selectedCertification ? (
@@ -528,12 +549,6 @@ export default function InventoryStockControlPage() {
                 <FilterChip>{selectedCertification.count_state || "DRAFT"}</FilterChip>
                 <FilterChip>As of {formatDateTime(selectedCertification.stock_as_of_at)}</FilterChip>
                 <FilterChip>Count {formatDateTime(selectedCertification.count_taken_at || selectedCertification.counted_at)}</FilterChip>
-                <button type="button" disabled={selectedCertification.status !== "DRAFT" || updateCertification.isPending} onClick={savePhysicalCounts} className="rounded-full bg-primary px-3 py-1.5 text-[12px] font-semibold text-primary-foreground disabled:opacity-45">
-                  Save counts
-                </button>
-                <button type="button" disabled={selectedCertification.status !== "DRAFT" || certifyCertification.isPending} onClick={certifySelected} className="rounded-full border border-signal-cyan-ink/40 px-3 py-1.5 text-[12px] font-semibold text-signal-cyan-ink disabled:opacity-45">
-                  Certify
-                </button>
                 <button type="button" disabled={!["CERTIFIED", "CARRIED_FORWARD"].includes(String(selectedCertification.status)) || createCarryForward.isPending} onClick={carryForwardSelected} className="rounded-full border border-signal-emerald-ink/40 px-3 py-1.5 text-[12px] font-semibold text-signal-emerald-ink disabled:opacity-45">
                   Carry forward
                 </button>
@@ -586,77 +601,7 @@ export default function InventoryStockControlPage() {
                   className="h-10 rounded-xl border border-border bg-card px-3 text-sm outline-none focus:border-signal-cyan-ink/40 disabled:bg-muted"
                 />
               </div>
-              <CompactTable
-                rows={certificationLines}
-                columns={[
-                  { key: "item_code", label: "Item", render: (row) => <div><p className="font-semibold text-foreground">{row.item_code}</p><p className="text-xs text-muted-foreground">{row.tracking_mode} · {row.uom}</p></div> },
-                  { key: "closing_qty", label: "Book close", render: (row) => `${formatNumber(row.closing_qty, 2)} ${row.uom}` },
-                  {
-                    key: "physical_qty",
-                    label: "Physical",
-                    render: (row) => (
-                      <input
-                        disabled={selectedCertification.status !== "DRAFT"}
-                        type="number"
-                        step="0.001"
-                        value={physicalDraft[row.id] ?? String(row.physical_qty ?? row.closing_qty ?? 0)}
-                        onChange={(event) => setPhysicalDraft((current) => ({ ...current, [row.id]: event.target.value }))}
-                        className="h-9 w-28 rounded-xl border border-border px-2 text-right text-sm font-semibold disabled:bg-muted"
-                      />
-                    ),
-                  },
-                  {
-                    key: "count_state",
-                    label: "Count state",
-                    render: (row) => (
-                      <div className="space-y-1">
-                        <select
-                          disabled={selectedCertification.status !== "DRAFT"}
-                          value={lineAuditDraft[row.id]?.count_state ?? row.count_state ?? "COUNTED"}
-                          onChange={(event) => setLineAuditDraft((current) => ({ ...current, [row.id]: { ...(current[row.id] || {}), count_state: event.target.value } }))}
-                          className="h-8 w-36 rounded-lg border border-border bg-card px-2 text-xs font-semibold disabled:bg-muted"
-                        >
-                          {["COUNTED", "REVIEWED", "RECOUNT_REQUIRED"].map((state) => <option key={state} value={state}>{state}</option>)}
-                        </select>
-                        <label className="flex items-center gap-1 text-[11px] font-semibold text-muted-foreground">
-                          <input
-                            type="checkbox"
-                            disabled={selectedCertification.status !== "DRAFT"}
-                            checked={Boolean(lineAuditDraft[row.id]?.recount_required ?? row.recount_required ?? false)}
-                            onChange={(event) => setLineAuditDraft((current) => ({ ...current, [row.id]: { ...(current[row.id] || {}), recount_required: event.target.checked, count_state: event.target.checked ? "RECOUNT_REQUIRED" : "REVIEWED" } }))}
-                          />
-                          Recount
-                        </label>
-                      </div>
-                    ),
-                  },
-                  {
-                    key: "bin_code",
-                    label: "Bin / checker",
-                    render: (row) => (
-                      <div className="space-y-1">
-                        <input
-                          disabled={selectedCertification.status !== "DRAFT"}
-                          value={lineAuditDraft[row.id]?.bin_code ?? row.bin_code ?? ""}
-                          onChange={(event) => setLineAuditDraft((current) => ({ ...current, [row.id]: { ...(current[row.id] || {}), bin_code: event.target.value } }))}
-                          placeholder="Bin"
-                          className="h-8 w-28 rounded-lg border border-border px-2 text-xs disabled:bg-muted"
-                        />
-                        <input
-                          disabled={selectedCertification.status !== "DRAFT"}
-                          value={lineAuditDraft[row.id]?.checked_by ?? row.checked_by ?? ""}
-                          onChange={(event) => setLineAuditDraft((current) => ({ ...current, [row.id]: { ...(current[row.id] || {}), checked_by: event.target.value } }))}
-                          placeholder="Checker"
-                          className="h-8 w-28 rounded-lg border border-border px-2 text-xs disabled:bg-muted"
-                        />
-                      </div>
-                    ),
-                  },
-                  { key: "variance_qty", label: "Variance", render: (row) => <span className={Number(row.variance_qty || 0) ? "font-semibold text-signal-amber-ink" : "text-signal-emerald-ink"}>{formatNumber(Number(physicalDraft[row.id] ?? row.physical_qty ?? row.closing_qty ?? 0) - Number(row.closing_qty || 0), 2)} {row.uom}</span> },
-                  { key: "closing_value", label: "Value", render: (row) => formatCompactCurrency(Number(row.closing_value || 0)) },
-                ]}
-                emptyLabel="No certificate lines selected."
-              />
+              <p className="rounded-lg bg-[hsl(var(--surface-2))] px-3 py-2 text-[12.5px] text-muted-foreground">Counts are entered in the count sheet below — every active material, book vs live stock, variance per line.</p>
             </>
           ) : (
             <div className="rounded-[1.5rem] border border-dashed border-border bg-muted p-8 text-center text-sm text-muted-foreground">

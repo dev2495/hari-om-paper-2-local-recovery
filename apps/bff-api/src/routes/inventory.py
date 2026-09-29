@@ -345,6 +345,11 @@ async def update_certification(certification_id: str, request: Request, token: s
     return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/stock-control/certifications/{certification_id}", request, token)
 
 
+@router.post("/stock-control/certifications/{certification_id}/refresh")
+async def refresh_certification(certification_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/stock-control/certifications/{certification_id}/refresh", request, token)
+
+
 @router.post("/stock-control/certifications/{certification_id}/certify")
 async def certify_stock(certification_id: str, request: Request, token: str = Depends(get_token)):
     response = await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/stock-control/certifications/{certification_id}/certify", request, token)

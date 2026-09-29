@@ -511,6 +511,7 @@ export const inventoryApi = {
   createStockCertification: (data: any) => api.post("/api/inventory/stock-control/certifications", data),
   getStockCertification: (id: string) => api.get(`/api/inventory/stock-control/certifications/${id}`),
   updateStockCertification: (id: string, data: any) => api.patch(`/api/inventory/stock-control/certifications/${id}`, data),
+  refreshStockCertification: (id: string) => api.post(`/api/inventory/stock-control/certifications/${id}/refresh`, {}),
   certifyStockCertification: (id: string, data?: any) => api.post(`/api/inventory/stock-control/certifications/${id}/certify`, data || {}),
   postStockCertificationVariance: (id: string) =>
     api.post(`/api/inventory/stock-control/certifications/${id}/post-variance`, {}),

@@ -36,6 +36,7 @@ from ..models import (
     TransactionType,
 )
 from ..services.stock_control import compute_stock_statement
+from ..services.stock_calc import get_item_balance
 from ..utils.audit_client import emit_audit_event
 from ..utils.auth import get_current_plant, get_current_plant_scope, get_current_user, require_role
 
@@ -240,6 +241,49 @@ def _line_from_statement(cert_id: uuid.UUID, row: dict[str, Any]) -> InventoryCe
         safety_stock=float(row.get("safety_stock") or 0.0),
         lead_time_days=float(row.get("lead_time_days") or 0.0),
     )
+
+
+COUNTED_STATES = {"COUNTED", "REVIEWED"}
+
+
+def _sync_draft_lines(db: Session, header: InventoryCertification, plant_id: str, as_of: datetime) -> dict[str, int]:
+    """Bring a draft count sheet up to date without losing work.
+
+    Every active item gets a line (items created after the draft are added), book figures move to
+    ``as_of``, counts already entered are kept and their variance recomputed. Uncounted lines for
+    items that are no longer active are dropped.
+    """
+    statement = compute_stock_statement(
+        db=db, plant_scope={"scope_all": False, "selected_plant_id": plant_id},
+        start_date=header.period_start, end_date=header.period_end, as_of_at=as_of,
+    )
+    by_item = {str(line.item_id): line for line in header.lines or []}
+    seen: set[str] = set()
+    added = updated = removed = 0
+    for row in statement["rows"]:
+        item_id = str(row["item_id"])
+        seen.add(item_id)
+        line = by_item.get(item_id)
+        if line is None:
+            db.add(_line_from_statement(header.id, row))
+            added += 1
+            continue
+        counted = str(line.count_state or "").upper() in COUNTED_STATES or bool(line.recount_required)
+        for key in ("opening_qty", "inward_qty", "outward_qty", "adjustment_qty", "closing_qty", "unit_cost", "reorder_level", "safety_stock", "lead_time_days"):
+            setattr(line, key, float(row.get(key) or 0.0))
+        line.item_code, line.item_name = row["item_code"], row["item_name"]
+        if not counted:
+            line.physical_qty = line.closing_qty
+        line.variance_qty = float(line.physical_qty if line.physical_qty is not None else line.closing_qty) - float(line.closing_qty or 0.0)
+        line.closing_value = round(float(line.closing_qty or 0.0) * float(line.unit_cost or 0.0), 2)
+        line.variance_value = round(float(line.variance_qty or 0.0) * float(line.unit_cost or 0.0), 2)
+        updated += 1
+    for item_id, line in by_item.items():
+        if item_id not in seen and str(line.count_state or "").upper() not in COUNTED_STATES:
+            db.delete(line)
+            removed += 1
+    header.stock_as_of_at = as_of
+    return {"added": added, "updated": updated, "removed": removed}
 
 
 class OpeningLoadLinePayload(BaseModel):
@@ -1191,20 +1235,8 @@ def create_certification(
     if not existing:
         db.add(header)
         db.flush()
-    else:
-        for old_line in list(header.lines or []):
-            db.delete(old_line)
-        db.flush()
-
-    statement = compute_stock_statement(
-        db=db,
-        plant_scope={"scope_all": False, "selected_plant_id": plant_id},
-        start_date=payload.period_start,
-        end_date=payload.period_end,
-        as_of_at=stock_as_of_at,
-    )
-    for row in statement["rows"]:
-        db.add(_line_from_statement(header.id, row))
+    # A re-draft of the same period keeps counts already entered (never wipes a count in progress).
+    _sync_draft_lines(db, header, plant_id, stock_as_of_at)
     db.commit()
     db.refresh(header)
     try:
@@ -1246,7 +1278,39 @@ def get_certification(
     header = query.first()
     if not header:
         raise HTTPException(status_code=404, detail="Certification not found")
-    return _serialize_certification(header, include_lines=True)
+    result = _serialize_certification(header, include_lines=True)
+    # Live stock right now next to the book figure the sheet was drafted at, so a count taken
+    # later (or movements after the draft) are visible, and items created since are flagged.
+    for line in result.get("lines") or []:
+        line["live_qty"] = round(float(get_item_balance(line["item_id"], db)), 3)
+        line["counted"] = str(line.get("count_state") or "").upper() in COUNTED_STATES
+    if header.status == "DRAFT":
+        active = db.query(ItemMaster.id).filter(ItemMaster.plant_id == header.plant_id, ItemMaster.active == "true").all()
+        on_sheet = {line["item_id"] for line in result.get("lines") or []}
+        result["missing_item_count"] = sum(1 for (item_id,) in active if str(item_id) not in on_sheet)
+        result["moved_since_draft_count"] = sum(1 for line in result.get("lines") or [] if abs(line["live_qty"] - line["closing_qty"]) > 0.0005)
+    return result
+
+
+@router.post("/certifications/{certification_id}/refresh")
+def refresh_certification(
+    certification_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Store"])),
+):
+    """Re-sync a draft count sheet: add new items, move book stock to now, keep counts entered."""
+    header = db.query(InventoryCertification).filter(
+        InventoryCertification.id == certification_id, InventoryCertification.plant_id == plant_id,
+    ).first()
+    if not header:
+        raise HTTPException(status_code=404, detail="Certification not found")
+    if header.status != "DRAFT":
+        raise HTTPException(status_code=400, detail="Only a draft count sheet can be refreshed")
+    stats = _sync_draft_lines(db, header, plant_id, datetime.utcnow())
+    db.commit()
+    db.refresh(header)
+    return {**_serialize_certification(header, include_lines=True), "refresh": stats}
 
 
 @router.patch("/certifications/{certification_id}")
@@ -1395,6 +1459,11 @@ def certify_stock(
     ]
     if recount_lines:
         raise HTTPException(status_code=400, detail="Review or clear recount-required lines before certification")
+    if header.status == "DRAFT":
+        uncounted = [line for line in header.lines or [] if str(line.count_state or "").upper() not in COUNTED_STATES]
+        if uncounted:
+            names = ", ".join(line.item_code for line in uncounted[:5])
+            raise HTTPException(status_code=409, detail=f"{len(uncounted)} line(s) are not counted yet ({names}{'…' if len(uncounted) > 5 else ''}). Count them, or mark them as matching book stock, before certifying.")
     header.status = "CERTIFIED"
     header.count_state = "CERTIFIED"
     header.certified_by = _actor(current_user)
