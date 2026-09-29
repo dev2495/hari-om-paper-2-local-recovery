@@ -88,6 +88,55 @@ def apply_profile_save(
     return payload
 
 
+_CATEGORICAL_TYPES = frozenset({"select", "categorical", "enum", "boolean"})
+
+
+def _finite(value: Any) -> Optional[float]:
+    if value in (None, ""):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number == number and number not in (float("inf"), float("-inf")) else None
+
+
+def profile_approval_blockers(payload: dict[str, Any]) -> list[str]:
+    """Reasons an incoming profile cannot be approved: an approved profile that can never
+    produce PASS would leave every receipt INCOMPLETE and blocked indefinitely."""
+    rows = [row for row in (payload.get("parameters") or []) if isinstance(row, dict)]
+    if not rows:
+        return ["add at least one parameter"]
+    blockers: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        code = str(row.get("code") or row.get("parameter_key") or "").strip()
+        label = str(row.get("label") or code or "parameter").strip()
+        if not code:
+            blockers.append(f"{label}: missing parameter code")
+            continue
+        if code in seen:
+            blockers.append(f"{label}: duplicate parameter code {code}")
+        seen.add(code)
+        if row.get("applicable") is False:
+            continue
+        input_type = str(row.get("input_type") or "number").strip().lower() or "number"
+        if input_type == "text":
+            continue  # recorded observation; never decides PASS/FAIL on its own
+        if input_type in _CATEGORICAL_TYPES:
+            options = [str(item).strip() for item in (row.get("options") or []) if str(item).strip()]
+            if not options and row.get("required", True) is not False:
+                blockers.append(f"{label}: list the accepted outcomes (e.g. OK / NOT OK)")
+            continue
+        lower = _finite(row.get("min") if "min" in row else row.get("lower"))
+        upper = _finite(row.get("max") if "max" in row else row.get("upper"))
+        if lower is None and upper is None:
+            blockers.append(f"{label}: set a min and/or max")
+        elif lower is not None and upper is not None and lower > upper:
+            blockers.append(f"{label}: min {lower:g} is above max {upper:g}")
+    return blockers
+
+
 def apply_profile_approve(
     current: Optional[dict[str, Any]],
     *,
@@ -113,6 +162,12 @@ def apply_profile_approve(
             status_code=409,
         )
     _validate_waiver_policy(payload)
+    blockers = profile_approval_blockers(payload)
+    if blockers:
+        raise ProfileLifecycleError(
+            "Profile cannot be approved yet: " + "; ".join(blockers),
+            code="PROFILE_INCOMPLETE",
+        )
     payload["status"] = "approved"
     payload["setup_status"] = "approved"
     payload["inspection_required"] = True

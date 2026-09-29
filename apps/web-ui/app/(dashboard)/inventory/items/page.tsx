@@ -4,8 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { ArrowRight, Boxes, PencilLine, Plus, Save } from "lucide-react"
 
-import { useCreateItem, useDeleteItem, useInventoryBalances, useInventoryItems, useUpdateItem, useUpsertItemQualityProfile, useCopyItemQualityTemplate, useApproveItemQualityProfile } from "@/hooks/use-inventory"
-import { ItemQualityProfileForm } from "@/components/qc/ItemQualityProfileForm"
+import { useCreateItem, useDeleteItem, useInventoryBalances, useInventoryItems, useUpdateItem } from "@/hooks/use-inventory"
 
 const formatNumber = (value: unknown, digits = 2) =>
   Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: digits })
@@ -19,9 +18,6 @@ export default function InventoryItemsPage() {
   const { data: balances = [] } = useInventoryBalances()
   const createItem = useCreateItem()
   const updateItem = useUpdateItem()
-  const upsertQualityProfile = useUpsertItemQualityProfile()
-  const copyQualityTemplate = useCopyItemQualityTemplate()
-  const approveQualityProfile = useApproveItemQualityProfile()
   const deleteItem = useDeleteItem()
   const [selectedItemId, setSelectedItemId] = useState("")
   const [form, setForm] = useState({
@@ -218,28 +214,36 @@ export default function InventoryItemsPage() {
         {selectedItem ? (
           <div className="mt-5 rounded-2xl border border-signal-cyan-line bg-card p-4">
             <p className="text-[11.5px] font-semibold text-signal-cyan-ink/70">Incoming QC profile</p>
-            <p className="mt-1 text-xs text-muted-foreground">Owned item rules used by incoming QC. No invented thresholds.</p>
-            <div className="mt-3">
-              <ItemQualityProfileForm
-                item={selectedItem}
-                saving={upsertQualityProfile.isPending || copyQualityTemplate.isPending || approveQualityProfile.isPending}
-                onSave={async (profile) => {
-                  await upsertQualityProfile.mutateAsync({
-                    id: String(selectedItem.id),
-                    data: { quality_profile: profile, setup_status: profile.setup_status || profile.status },
-                  })
-                }}
-                onCopyTemplate={async () => {
-                  await copyQualityTemplate.mutateAsync({ id: String(selectedItem.id) })
-                }}
-                onApprove={async (exemption?: boolean) => {
-                  const revision = Number(selectedItem.quality_profile?.revision || 1)
-                  await approveQualityProfile.mutateAsync({
-                    id: String(selectedItem.id),
-                    data: { expected_revision: revision, exemption: Boolean(exemption) },
-                  })
-                }}
-              />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Checks and tolerance bands incoming QC applies to this material. QC prepares them and Owner/Admin approves them in Quality → Material standards.
+            </p>
+            <div className="mt-3 space-y-2 text-sm" data-testid="item-qc-profile-summary">
+              <p className="font-semibold text-foreground">
+                {selectedItem.quality_profile
+                  ? `Revision ${selectedItem.quality_profile.revision || 1} · ${String(selectedItem.quality_profile.status || selectedItem.quality_profile.setup_status || "draft").replace(/_/g, " ")}`
+                  : "No incoming QC profile yet"}
+              </p>
+              {Array.isArray(selectedItem.quality_profile?.parameters) && selectedItem.quality_profile.parameters.length ? (
+                <ul className="space-y-1 text-xs text-muted-foreground">
+                  {selectedItem.quality_profile.parameters.map((row: any, index: number) => (
+                    <li key={`${row.code}-${index}`}>
+                      <span className="font-semibold text-foreground">{row.label || row.code}</span>{" "}
+                      {row.applicable === false
+                        ? "not applicable"
+                        : Array.isArray(row.options) && row.options.length
+                          ? `accepts ${row.options.join(" / ")}`
+                          : `${row.min ?? "—"} to ${row.max ?? "—"} ${row.unit || ""}`}
+                      {row.non_waivable ? " · critical" : ""}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              <Link
+                href="/quality/material-standards"
+                className="inline-flex rounded-xl border border-border px-3 py-2 text-xs font-semibold text-foreground"
+              >
+                Open material standards
+              </Link>
             </div>
           </div>
         ) : null}

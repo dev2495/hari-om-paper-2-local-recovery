@@ -552,3 +552,75 @@ export function qcPrintStageRows(profile: any): Array<{ label: string; value: st
         : "Incomplete"
   return [...rows, { label: "QC status", value: `${state}${rows.some((row) => row.value.includes("*")) ? " · * critical" : ""}` }]
 }
+
+/** Mirrors inventory-service profile_approval_blockers: why an incoming profile cannot be approved yet. */
+export function incomingProfileBlockers(parameters: any[]): string[] {
+  const rows = (Array.isArray(parameters) ? parameters : []).filter((row) => row && typeof row === "object")
+  if (!rows.length) return ["add at least one parameter"]
+  const blockers: string[] = []
+  const seen = new Set<string>()
+  for (const row of rows) {
+    const code = String(row.code || row.parameter_key || "").trim()
+    const label = String(row.label || code || "parameter").trim()
+    if (!code) {
+      blockers.push(`${label}: missing parameter code`)
+      continue
+    }
+    if (seen.has(code)) blockers.push(`${label}: duplicate parameter code ${code}`)
+    seen.add(code)
+    if (row.applicable === false) continue
+    const inputType = String(row.input_type || "number").toLowerCase()
+    if (inputType === "text") continue
+    if (["select", "categorical", "enum", "boolean"].includes(inputType)) {
+      const options = (Array.isArray(row.options) ? row.options : []).filter((item: any) => String(item).trim())
+      if (!options.length && row.required !== false) blockers.push(`${label}: list the accepted outcomes (e.g. OK / NG)`)
+      continue
+    }
+    const lower = row.min == null || row.min === "" ? null : Number(row.min)
+    const upper = row.max == null || row.max === "" ? null : Number(row.max)
+    if ((lower == null || !Number.isFinite(lower)) && (upper == null || !Number.isFinite(upper))) {
+      blockers.push(`${label}: set a min and/or max`)
+    } else if (lower != null && upper != null && lower > upper) {
+      blockers.push(`${label}: min ${lower} is above max ${upper}`)
+    }
+  }
+  return blockers
+}
+
+export type MasterNominal = { code: string; label: string; value: number; unit?: string }
+
+const normalizeKey = (value: unknown) => String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "")
+
+/** Master nominals (paper GSM / BF / ply bond) for a RAW_PAPER stock item, matched by id or normalized code. */
+export function paperMasterNominals(item: any, papers: any[]): MasterNominal[] {
+  if (!item || String(item.type || "").toUpperCase() !== "RAW_PAPER") return []
+  const list = Array.isArray(papers) ? papers : []
+  const paper =
+    list.find((row) => String(row?.id) === String(item.id)) ||
+    list.find((row) => normalizeKey(row?.code) && normalizeKey(row?.code) === normalizeKey(item.item_code))
+  if (!paper) return []
+  const rows: MasterNominal[] = []
+  const push = (code: string, label: string, value: unknown, unit?: string) => {
+    const number = Number(value)
+    if (value != null && value !== "" && Number.isFinite(number) && number > 0) rows.push({ code, label, value: number, unit })
+  }
+  push("gsm", "GSM", paper.gsm, "g/m²")
+  push("bf", "BF", paper.bf)
+  push("ply_bond", "Ply bond", paper.ply_bond)
+  return rows
+}
+
+/** Rows whose band does not contain the master nominal for the same parameter. */
+export function nominalMismatches(parameters: any[], nominals: MasterNominal[]) {
+  const out: Array<MasterNominal & { index: number }> = []
+  ;(Array.isArray(parameters) ? parameters : []).forEach((row, index) => {
+    if (!row || row.applicable === false) return
+    const nominal = nominals.find((entry) => normalizeKey(entry.code) === normalizeKey(row.code))
+    if (!nominal) return
+    const lower = row.min == null || row.min === "" ? null : Number(row.min)
+    const upper = row.max == null || row.max === "" ? null : Number(row.max)
+    if (lower == null && upper == null) return
+    if ((lower != null && nominal.value < lower) || (upper != null && nominal.value > upper)) out.push({ ...nominal, index })
+  })
+  return out
+}

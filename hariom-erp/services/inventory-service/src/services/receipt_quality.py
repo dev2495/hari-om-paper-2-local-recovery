@@ -24,6 +24,7 @@ def refresh_receipt_stock(db, line):
     """
     allocations = db.query(ReceiptStockAllocation).filter_by(receipt_line_id=line.id).all()
     outcomes = []
+    rejected = False
     for allocation in allocations:
         entity_type = "REEL" if allocation.reel_id else "BATCH"
         model = PaperReel if allocation.reel_id else StockBatch
@@ -40,6 +41,8 @@ def refresh_receipt_stock(db, line):
             as_of=line.receipt.received_date, item_id=line.item_id)
         verdict = inspection.status if inspection else ("NOT_REQUIRED" if exempt else "PENDING")
         outcomes.append(verdict)
+        if entity.stock_status == "RETURNED" or (inspection is not None and inspection.disposition in {"REJECT", "BLOCK", "SCRAP"}):
+            rejected = True
         acceptable = verdict in {"PASS", "NOT_REQUIRED"} and (not inspection or inspection.disposition in {None, "ACCEPT"})
         # Never erase a physical staging/scrap state or scoped concession partition.
         if entity.stock_status not in {"UNRESTRICTED", "QC_HOLD", "BLOCKED"}:
@@ -55,4 +58,8 @@ def refresh_receipt_stock(db, line):
                 if txn.stock_status in {"UNRESTRICTED", "QC_HOLD", "BLOCKED"}:
                     txn.stock_status = status
     if outcomes:
-        line.qc_status = "PASS" if all(v in {"PASS", "NOT_REQUIRED"} for v in outcomes) else "PENDING"
+        line.qc_status = (
+            "REJECTED"
+            if rejected
+            else "PASS" if all(v in {"PASS", "NOT_REQUIRED"} for v in outcomes) else "PENDING"
+        )

@@ -462,7 +462,7 @@ def ensure_runtime_schema() -> None:
       text(
         "ALTER TABLE IF EXISTS purchase_receipt_lines "
         "ADD CONSTRAINT ck_purchase_receipt_lines_qc_status "
-        "CHECK (qc_status IN ('PENDING','PASS','HOLD','NOT_REQUIRED'))"
+        "CHECK (qc_status IN ('PENDING','PASS','HOLD','NOT_REQUIRED','REJECTED'))"
       )
     )
     connection.execute(text("ALTER TABLE IF EXISTS purchase_order_lines ADD COLUMN IF NOT EXISTS qty_rejected DOUBLE PRECISION DEFAULT 0"))

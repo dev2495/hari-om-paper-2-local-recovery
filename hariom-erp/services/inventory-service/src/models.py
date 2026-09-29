@@ -30,9 +30,11 @@ STOCK_STATUS_VALUES = (
     "DISPATCH_STAGING",
     "SCRAP",
     "CONCESSION",
+    "RETURNED",
 )
+# RETURNED: a QC-rejected inward lot sent back to its supplier (quantity written out to zero).
 STOCK_STATUS_CHECK = (
-    "stock_status IN ('UNRESTRICTED','WIP','QC_HOLD','BLOCKED','DISPATCH_STAGING','SCRAP','CONCESSION')"
+    "stock_status IN ('UNRESTRICTED','WIP','QC_HOLD','BLOCKED','DISPATCH_STAGING','SCRAP','CONCESSION','RETURNED')"
 )
 
 
@@ -975,7 +977,7 @@ class PurchaseReceiptLine(Base):
 
     __table_args__ = (
         CheckConstraint("qty_received > 0", name="ck_purchase_receipt_lines_qty_positive"),
-        CheckConstraint("qc_status IN ('PENDING','PASS','HOLD','NOT_REQUIRED')", name="ck_purchase_receipt_lines_qc_status"),
+        CheckConstraint("qc_status IN ('PENDING','PASS','HOLD','NOT_REQUIRED','REJECTED')", name="ck_purchase_receipt_lines_qc_status"),
     )
 
 

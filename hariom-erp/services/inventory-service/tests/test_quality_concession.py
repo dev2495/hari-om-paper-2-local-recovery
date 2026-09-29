@@ -86,7 +86,7 @@ def test_profile_critical_policy_requires_boolean_and_survives_approval():
     from src.quality_profile_lifecycle import apply_profile_save, apply_profile_approve, ProfileLifecycleError
     with pytest.raises(ProfileLifecycleError):
         apply_profile_save(None, {'parameters': [{'code': 'gsm', 'non_waivable': 'false'}]})
-    draft = apply_profile_save(None, {'parameters': [{'code': 'gsm', 'non_waivable': True}]})
+    draft = apply_profile_save(None, {'parameters': [{'code': 'gsm', 'unit': 'g/m2', 'min': 118, 'max': 122, 'non_waivable': True}]})
     approved = apply_profile_approve(draft, expected_revision=1, actor='owner', actor_roles=['Owner'])
     assert approved['approved_snapshot']['parameters'][0]['non_waivable'] is True
     edited = apply_profile_save(approved, {'parameters': [{'code': 'gsm', 'non_waivable': False}]})

@@ -103,7 +103,7 @@ def setup_module() -> None:
             text(
                 "ALTER TABLE IF EXISTS purchase_receipt_lines "
                 "ADD CONSTRAINT ck_purchase_receipt_lines_qc_status "
-                "CHECK (qc_status IN ('PENDING','PASS','HOLD','NOT_REQUIRED'))"
+                "CHECK (qc_status IN ('PENDING','PASS','HOLD','NOT_REQUIRED','REJECTED'))"
             )
         )
 

@@ -35,6 +35,15 @@ from ..models import (
     ItemMaster,
     ItemType,
     PaperReel,
+    PurchaseDiscrepancy,
+    PurchaseReceipt,
+    PurchaseReceiptLine,
+    ReceiptInvoiceAllocation,
+    ReceiptStockAllocation,
+    ReelScanEvent,
+    ReelScanEventType,
+    ReelScanSource,
+    ReelStatus,
     ReferenceType,
     StockAdjustmentLine,
     StockAdjustmentVoucher,
@@ -405,6 +414,16 @@ class PendingQualityItem(BaseModel):
     quality_profile: Optional[dict[str, Any]] = None
 
     inspection_holds: list[dict[str, Any]] = Field(default_factory=list)
+    # AWAITING_INSPECTION (only this state can be overdue), FAILED (held after a FAIL /
+    # hold disposition), REJECTED (QC rejected: return to supplier or concession),
+    # COMMERCIAL_HOLD (QC passed; stock waits on the purchase side).
+    queue_state: str = "AWAITING_INSPECTION"
+    last_inspection: Optional[dict[str, Any]] = None
+    grn_no: Optional[str] = None
+    po_no: Optional[str] = None
+    invoice_no: Optional[str] = None
+    received_date: Optional[date] = None
+    nominal: dict[str, Any] = Field(default_factory=dict)
 
 
 class CustomerRejectionCreate(BaseModel):
@@ -718,6 +737,7 @@ def list_pending_quality(
         )
 
     by_entity = {(row.entity_type, row.entity_id): row for row in rows}
+    _annotate_pending_rows(db, rows)
     if by_entity:
         holds = db.query(InventoryQualityHold).filter(InventoryQualityHold.plant_id.in_(plant_filter),
             InventoryQualityHold.entity_id.in_([row.entity_id for row in rows]),
@@ -728,7 +748,309 @@ def list_pending_quality(
             if row:
                 row.inspection_holds.append({"id": str(hold.id), "reason": hold.reason, "inspection_id": str(hold.source_inspection_id)})
 
-    return sorted(rows, key=lambda row: (not row.overdue, row.due_at.timestamp() if row.due_at else float("inf")))
+    state_rank = {"AWAITING_INSPECTION": 0, "FAILED": 1, "REJECTED": 2, "COMMERCIAL_HOLD": 3}
+    return sorted(
+        rows,
+        key=lambda row: (
+            state_rank.get(row.queue_state, 9),
+            not row.overdue,
+            row.due_at.timestamp() if row.due_at else float("inf"),
+        ),
+    )
+
+
+def _annotate_pending_rows(db: Session, rows: list[PendingQualityItem]) -> None:
+    """Queue state, latest inspection and receipt context (GRN / PO / invoice) per lot.
+
+    Only material nobody has inspected yet is "awaiting" and can be overdue; failed or
+    rejected lots are waiting on a decision, not on QC, and must not look overdue forever.
+    """
+    if not rows:
+        return
+    entity_ids = [row.entity_id for row in rows]
+    latest: dict[tuple[str, uuid.UUID], InventoryQualityInspection] = {}
+    for inspection in (
+        db.query(InventoryQualityInspection)
+        .filter(InventoryQualityInspection.entity_id.in_(entity_ids))
+        .order_by(InventoryQualityInspection.created_at.desc(), InventoryQualityInspection.id.desc())
+        .all()
+    ):
+        latest.setdefault((inspection.entity_type, inspection.entity_id), inspection)
+    allocations = (
+        db.query(ReceiptStockAllocation)
+        .filter(
+            (ReceiptStockAllocation.batch_id.in_(entity_ids)) | (ReceiptStockAllocation.reel_id.in_(entity_ids))
+        )
+        .all()
+    )
+    line_by_entity = {(allocation.batch_id or allocation.reel_id): allocation.receipt_line_id for allocation in allocations}
+    lines = {
+        line.id: line
+        for line in db.query(PurchaseReceiptLine).filter(PurchaseReceiptLine.id.in_(set(line_by_entity.values()))).all()
+    } if line_by_entity else {}
+    invoice_nos: dict[uuid.UUID, str] = {}
+    if lines:
+        from ..models import SupplierInvoice, SupplierInvoiceLine
+
+        for receipt_line_id, invoice_no in (
+            db.query(ReceiptInvoiceAllocation.receipt_line_id, SupplierInvoice.invoice_no)
+            .join(SupplierInvoiceLine, SupplierInvoiceLine.id == ReceiptInvoiceAllocation.invoice_line_id)
+            .join(SupplierInvoice, SupplierInvoice.id == SupplierInvoiceLine.invoice_id)
+            .filter(ReceiptInvoiceAllocation.receipt_line_id.in_(list(lines)))
+            .all()
+        ):
+            invoice_nos.setdefault(receipt_line_id, invoice_no)
+    reels = {
+        reel.id: reel for reel in db.query(PaperReel).filter(PaperReel.id.in_([row.entity_id for row in rows if row.entity_type == "REEL"])).all()
+    } if any(row.entity_type == "REEL" for row in rows) else {}
+    for row in rows:
+        inspection = latest.get((row.entity_type, row.entity_id))
+        if inspection is not None:
+            row.last_inspection = {
+                "id": str(inspection.id),
+                "status": inspection.status,
+                "disposition": inspection.disposition,
+                "created_at": inspection.created_at.isoformat() if inspection.created_at else None,
+                "created_by": inspection.created_by,
+                "failures": [
+                    str(item.get("label") or item.get("parameter") or item.get("code") or "")
+                    for item in (inspection.failures or [])
+                    if isinstance(item, dict)
+                ][:8],
+            }
+            status = str(inspection.status or "").upper()
+            disposition = str(inspection.disposition or "").upper()
+            if disposition in {"REJECT", "BLOCK", "SCRAP"} or row.stock_status == "BLOCKED" and status == "FAIL":
+                row.queue_state = "REJECTED"
+            elif status == "PASS" and disposition in {"", "ACCEPT"} and row.stock_status == "BLOCKED":
+                row.queue_state = "COMMERCIAL_HOLD"
+            else:
+                row.queue_state = "FAILED" if status in {"FAIL", "INVALID", "INCOMPLETE"} or disposition == "HOLD" else "AWAITING_INSPECTION"
+        if row.queue_state != "AWAITING_INSPECTION":
+            row.overdue = False
+        line = lines.get(line_by_entity.get(row.entity_id))
+        if line is not None:
+            receipt = line.receipt
+            row.grn_no = receipt.grn_no if receipt else None
+            row.received_date = receipt.received_date if receipt else None
+            order = getattr(receipt, "order", None) if receipt else None
+            row.po_no = getattr(order, "po_no", None) if order else None
+            row.invoice_no = invoice_nos.get(line.id)
+            if row.queue_state == "AWAITING_INSPECTION" and row.stock_status == "BLOCKED" and line.commercial_status not in {"CLEAR", "RELEASED_WITH_CLAIM"}:
+                # Still owes a QC check; the commercial block is shown alongside.
+                pass
+        reel = reels.get(row.entity_id)
+        if reel is not None:
+            row.nominal = {key: value for key, value in (("gsm", reel.gsm), ("bf", reel.bf), ("width_mm", reel.width_mm)) if value is not None}
+
+
+class SupplierReturnCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    entity_type: str
+    entity_id: uuid.UUID
+    reason: str = Field(min_length=3, max_length=1000)
+    return_reference: Optional[str] = Field(default=None, max_length=120)
+
+    @field_validator("entity_type")
+    @classmethod
+    def validate_entity_type(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if normalized not in {"BATCH", "REEL"}:
+            raise ValueError("entity_type must be BATCH or REEL")
+        return normalized
+
+
+@router.post("/rejected-lots/return-to-supplier")
+def return_rejected_lot_to_supplier(
+    payload: SupplierReturnCreate,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "Store"])),
+):
+    """Send a QC-failed / rejected inward lot back to the supplier.
+
+    Writes the full remaining quantity out of stock, closes its QC holds, marks the
+    receipt line REJECTED and, when the supplier invoice is already attached, raises a
+    QUALITY discrepancy so Accounts can put it on a debit note.
+    """
+    actor = str(current_user.get("sub") or "unknown")
+    if payload.entity_type == "BATCH":
+        entity = (
+            db.query(StockBatch)
+            .filter(StockBatch.id == payload.entity_id, StockBatch.plant_id == plant_id)
+            .with_for_update()
+            .first()
+        )
+    else:
+        try:
+            plant_uuid = uuid.UUID(str(plant_id))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Select one concrete plant before returning material")
+        entity = (
+            db.query(PaperReel)
+            .filter(PaperReel.id == payload.entity_id, PaperReel.plant_id == plant_uuid)
+            .with_for_update()
+            .first()
+        )
+    if entity is None:
+        raise HTTPException(status_code=404, detail="Lot not found in this plant")
+    if entity.stock_status == "RETURNED":
+        raise HTTPException(status_code=409, detail={"code": "ALREADY_RETURNED", "message": "This lot was already returned to the supplier."})
+    if entity.stock_status not in {"QC_HOLD", "BLOCKED"}:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "NOT_HELD", "message": f"Only held material can be returned; this lot is {entity.stock_status}."},
+        )
+    inspection = (
+        db.query(InventoryQualityInspection)
+        .filter(
+            InventoryQualityInspection.entity_type == payload.entity_type,
+            InventoryQualityInspection.entity_id == payload.entity_id,
+        )
+        .order_by(InventoryQualityInspection.created_at.desc(), InventoryQualityInspection.id.desc())
+        .first()
+    )
+    if inspection is None or not (
+        str(inspection.status or "").upper() == "FAIL"
+        or str(inspection.disposition or "").upper() in {"REJECT", "BLOCK", "SCRAP"}
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "NOT_REJECTED_BY_QC",
+                "message": "Only material that QC failed or rejected can be returned from the QC desk. Inspect it first.",
+            },
+        )
+
+    today = date.today()
+    now = datetime.utcnow()
+    allocation = (
+        db.query(ReceiptStockAllocation)
+        .filter(
+            (ReceiptStockAllocation.batch_id == payload.entity_id)
+            if payload.entity_type == "BATCH"
+            else (ReceiptStockAllocation.reel_id == payload.entity_id)
+        )
+        .first()
+    )
+    receipt_line = db.get(PurchaseReceiptLine, allocation.receipt_line_id) if allocation else None
+    receipt = receipt_line.receipt if receipt_line else None
+    return_meta = {
+        "kind": "SUPPLIER_RETURN",
+        "inspection_id": str(inspection.id),
+        "reason": payload.reason.strip(),
+        "return_reference": (payload.return_reference or "").strip() or None,
+        "actor": actor,
+        "at": now.isoformat(),
+        "grn_no": receipt.grn_no if receipt else None,
+    }
+
+    if payload.entity_type == "BATCH":
+        quantity = float(get_batch_balance(db, entity.id) or 0.0)
+        if quantity <= 0:
+            raise HTTPException(status_code=409, detail={"code": "NOTHING_TO_RETURN", "message": "This lot has no remaining quantity."})
+        db.add(
+            StockTransaction(
+                item_id=entity.item_id,
+                batch_id=entity.id,
+                transaction_type=TransactionType.ADJUSTMENT,
+                qty_change=-quantity,
+                reference_type=ReferenceType.PURCHASE,
+                reference_id=receipt.id if receipt else entity.id,
+                plant_id=plant_id,
+                location_id=getattr(entity, "location_id", None),
+                stock_status=entity.stock_status,
+                movement_metadata={**return_meta, "quantity": quantity},
+                effective_date=today,
+                effective_at=now,
+            )
+        )
+    else:
+        quantity = float(entity.current_weight_kg or 0.0)
+        if quantity <= 0:
+            raise HTTPException(status_code=409, detail={"code": "NOTHING_TO_RETURN", "message": "This reel has no remaining weight."})
+        entity.current_weight_kg = 0.0
+        entity.status = ReelStatus.SCRAP
+        db.add(
+            ReelScanEvent(
+                plant_id=entity.plant_id,
+                reel_id=entity.id,
+                event_type=ReelScanEventType.MOVE_SCAN,
+                source=ReelScanSource.INVENTORY,
+                operator_id=None,
+                event_metadata={**return_meta, "source_document_type": "SUPPLIER_RETURN", "adjustment_qty_delta": round(-quantity, 3)},
+            )
+        )
+    return_meta["quantity"] = round(quantity, 3)
+    entity.stock_status = "RETURNED"
+    entity.inward_metadata = {**(entity.inward_metadata or {}), "supplier_return": return_meta}
+    flag_modified(entity, "inward_metadata")
+
+    for hold in _open_entity_holds(db, plant_id=plant_id, entity_type=payload.entity_type, entity_id=payload.entity_id):
+        hold.status = "RELEASED"
+        hold.released_by = actor
+        hold.released_at = now
+
+    claim = None
+    if receipt_line is not None:
+        receipt_line.qc_status = "REJECTED"
+        invoice_allocation = (
+            db.query(ReceiptInvoiceAllocation)
+            .filter(ReceiptInvoiceAllocation.receipt_line_id == receipt_line.id)
+            .order_by(ReceiptInvoiceAllocation.created_at.desc())
+            .first()
+        )
+        if invoice_allocation is not None and float(invoice_allocation.invoice_rate or 0) > 0:
+            from decimal import Decimal, ROUND_HALF_UP
+
+            qty = Decimal(str(round(quantity, 3)))
+            rate = Decimal(str(invoice_allocation.invoice_rate))
+            claim = PurchaseDiscrepancy(
+                plant_id=plant_id,
+                allocation_id=invoice_allocation.id,
+                discrepancy_type="QUALITY",
+                quantity=qty,
+                po_rate=invoice_allocation.po_rate,
+                invoice_rate=invoice_allocation.invoice_rate,
+                delta=invoice_allocation.invoice_rate,
+                claimable_amount=(qty * rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+                evidence_json={**return_meta, "entity_type": payload.entity_type, "entity_id": str(payload.entity_id)},
+                status="OPEN",
+            )
+            db.add(claim)
+        if receipt is not None:
+            receipt.approval_history = [
+                *(receipt.approval_history or []),
+                {
+                    "action": "QC_RETURN_TO_SUPPLIER",
+                    "receipt_line_id": str(receipt_line.id),
+                    "entity_type": payload.entity_type,
+                    "entity_id": str(payload.entity_id),
+                    "quantity": round(quantity, 3),
+                    "actor": actor,
+                    "reason": payload.reason.strip(),
+                    "at": now.isoformat(),
+                    "claim_raised": claim is not None,
+                },
+            ]
+            flag_modified(receipt, "approval_history")
+    db.commit()
+    return {
+        "entity_type": payload.entity_type,
+        "entity_id": str(payload.entity_id),
+        "stock_status": "RETURNED",
+        "returned_qty": round(quantity, 3),
+        "grn_no": receipt.grn_no if receipt else None,
+        "receipt_qc_status": receipt_line.qc_status if receipt_line is not None else None,
+        "claim_id": str(claim.id) if claim is not None else None,
+        "claim_amount": float(claim.claimable_amount) if claim is not None else None,
+        "message": (
+            "Returned to supplier. A quality claim is open for the debit note."
+            if claim is not None
+            else "Returned to supplier. No supplier invoice is attached yet — deduct the returned quantity when it arrives."
+        ),
+    }
 
 
 @router.post("/inspections", response_model=QualityInspectionResponse)
