@@ -421,8 +421,11 @@ def inspect(db,job,e,user):
     except RuleError as exc:raise HTTPException(422,str(exc)) from exc
     if any(r["verdict"] in ("INVALID","INCOMPLETE") for r in e.evaluation["results"]):raise HTTPException(422,{"message":"Correct invalid or unpaired observations before submitting","blockers":[r for r in e.evaluation["results"] if r["verdict"] in ("INVALID","INCOMPLETE")]})
     if not e.evaluation["results"]:return
+    from .quality import _apply_instrument_register
+    evidence=_apply_instrument_register(db,job.plant_id,{'instrument':(e.details or {}).get('instrument') or {}}).get('instrument',{})
+    e.details={**(e.details or {}),'instrument':evidence}
     for sample in e.samples:
-        instrument_state=instrument_readiness_for_snapshot(job.spec_snapshot or {},e.stage,{**sample.get("readings",{}),**((e.details or {}).get("instrument") or {})})
+        instrument_state=instrument_readiness_for_snapshot(job.spec_snapshot or {},e.stage,{**sample.get("readings",{}),'instrument':evidence})
         if instrument_state.get("required") and not instrument_state.get("ready"):raise HTTPException(409,instrument_not_ready_detail(instrument_state,{"samples":e.samples}))
     e.details={**(e.details or {}),"qc_name":user.get("name") or user.get("email") or user["sub"]}
     failures=[r for r in e.evaluation["results"] if r["verdict"] in ("FAIL","INVALID","INCOMPLETE")]

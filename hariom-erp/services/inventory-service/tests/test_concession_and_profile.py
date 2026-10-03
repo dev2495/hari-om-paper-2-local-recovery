@@ -52,7 +52,7 @@ def test_approved_profile_edit_opens_new_draft():
 
 
 def test_approve_requires_matching_revision():
-    current = {"status": "draft", "revision": 2, "parameters": []}
+    current = {"status": "draft", "revision": 2, "parameters": [{"code": "gsm", "unit": "g/m2", "min": 118, "max": 122}]}
     try:
         apply_profile_approve(current, expected_revision=1, actor="owner", actor_roles=["Owner"])
         raise AssertionError("stale revision must fail")
@@ -129,3 +129,28 @@ def test_qct066_other_customer_or_expired_authorization_denied():
         raise AssertionError("missing concession record must be denied")
     except ConcessionScopeError as exc:
         assert exc.code == "CONCESSION_RECORD_MISSING"
+
+
+def test_approve_refuses_profile_that_can_never_pass():
+    for parameters, fragment in (
+        ([], "at least one parameter"),
+        ([{"code": "gsm", "unit": "g/m2"}], "set a min and/or max"),
+        ([{"code": "gsm", "unit": "g/m2", "min": 130, "max": 120}], "above max"),
+        ([{"code": "visual", "input_type": "select", "options": []}], "accepted outcomes"),
+        ([{"code": "gsm", "unit": "g", "min": 1}, {"code": "gsm", "unit": "g", "max": 2}], "duplicate"),
+    ):
+        try:
+            apply_profile_approve({"revision": 1, "parameters": parameters}, expected_revision=1, actor="owner", actor_roles=["Owner"])
+            raise AssertionError(f"approval must refuse {parameters}")
+        except ProfileLifecycleError as exc:
+            assert exc.code == "PROFILE_INCOMPLETE" and fragment in exc.message, exc.message
+    # not-applicable rows and optional free-text observations do not block approval
+    ok = apply_profile_approve(
+        {"revision": 1, "parameters": [
+            {"code": "gsm", "unit": "g/m2", "min": 118},
+            {"code": "ply_bond", "applicable": False},
+            {"code": "remarks", "input_type": "text", "required": False},
+        ]},
+        expected_revision=1, actor="owner", actor_roles=["Owner"],
+    )
+    assert ok["status"] == "approved"

@@ -81,7 +81,7 @@ export const LANDING_QUICK_ACTIONS: Record<LandingRole, QuickAction[]> = {
   ],
   Admin: [
     { href: "/system/users", label: "Role Matrix", detail: "Manage users, roles, and governance." },
-    { href: "/system/tolerances", label: "Tolerance Editor", detail: "Set per-plant variance bands used by reconciliation." },
+    { href: "/system/tolerances", label: "Stock variance limits", detail: "Per-plant kg variance allowed in reconciliation and consumption (not QC tolerances)." },
     { href: "/quality", label: "Quality Lifecycle", detail: "Review holds, inspections, and release decisions." },
     { href: "/reports/owner", label: "Owner Pack", detail: "Monitor cross-plant operations." },
   ],

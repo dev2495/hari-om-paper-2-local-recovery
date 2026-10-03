@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { PageHeader } from "@/components/workspace/page-header"
+import { SpecDefaultsPanel } from "@/components/specs/SpecDefaultsPanel"
 import { SeasonRecipeManager } from "@/components/specs/SeasonRecipeManager"
 import { useAuth } from "@/context/AuthContext"
 import { useCustomers } from "@/hooks/use-master-data"
@@ -37,6 +38,7 @@ export default function SpecificationsIndexPage() {
   const facets=query.data?.facets || {}
   return <div className="space-y-5">
     <PageHeader title="Specifications" description="Independent seasonal recipes, approvals and release readiness." actions={canEdit?<Button asChild><Link href="/specifications/new">Create specification</Link></Button>:undefined} />
+    {canEdit && <SpecDefaultsPanel/>}
     <div className="flex flex-wrap gap-2">{["all","draft","review","trial","approved","obsolete"].map(s=><Button variant={status===s?"default":"outline"} key={s} onClick={()=>filter(()=>setStatus(s))}>{s==="all"?"All statuses":s.charAt(0).toUpperCase()+s.slice(1)} <span className="ml-2 opacity-70">{s==="all"?Object.values(facets).reduce((a:number,b:any)=>a+Number(b),0):facets[s] || 0}</span></Button>)}</div>
     <section className="rounded-xl border border-border bg-card p-4"><div className="flex flex-wrap gap-3"><Input aria-label="Search specifications" className="min-w-56 flex-1" placeholder="Search customer, size ID or specification ID" value={search} onChange={e=>filter(()=>setSearch(e.target.value))} /><select aria-label="Customer filter" className={fieldClass} value={customer} onChange={e=>filter(()=>setCustomer(e.target.value))}><option value="">All customers</option>{(customers.data || []).map((c:any)=><option key={c.id} value={c.id}>{c.name}</option>)}</select><select aria-label="Recipe season filter" className={fieldClass} value={season} onChange={e=>filter(()=>setSeason(e.target.value as Season))}><option value="ROY">Rest of year</option><option value="MONSOON">Monsoon</option></select><select aria-label="Release readiness filter" className={fieldClass} value={readiness} onChange={e=>filter(()=>setReadiness(e.target.value))}><option value="all">All readiness</option><option value="ready">Ready to release</option><option value="blocked">Needs attention</option></select><select aria-label="Version filter" className={fieldClass} value={view} onChange={e=>filter(()=>setView(e.target.value))}><option value="active">Active versions</option><option value="disabled">Disabled versions</option></select></div><p className="mt-2 text-xs text-muted-foreground">Readiness is for {seasonLabel(season)}. Released job cards keep their frozen recipe and tolerances.</p></section>
     {error && <p role="alert" className="rounded-lg border border-destructive p-3 text-sm text-destructive">{error}</p>}

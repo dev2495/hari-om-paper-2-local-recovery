@@ -171,6 +171,14 @@ class GlobalSpecDefaults(Base):
     adhesive_percent = Column(Float, nullable=False, default=12.5)
     parchment_percent = Column(Float, nullable=False, default=1.5)
     moisture_loss_percent = Column(Float, nullable=False, default=9.0)
+    # Default ± bands used to derive a new spec's final limits from its averages.
+    # Each spec may override them (dynamic field tolerance_bands_json).
+    band_id_mm = Column(Float, nullable=False, default=0.5)
+    band_od_mm = Column(Float, nullable=False, default=0.5)
+    band_length_mm = Column(Float, nullable=False, default=2.0)
+    band_weight_g = Column(Float, nullable=False, default=5.0)
+    band_cs_pct = Column(Float, nullable=False, default=7.0)
+    band_moisture_pct = Column(Float, nullable=False, default=1.0)
     updated_at = Column(DateTime, default=datetime.utcnow)
 
 

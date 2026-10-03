@@ -325,6 +325,20 @@ export function useCreateQualityInspection() {
   })
 }
 
+export function useAttachJobCardQcProfile() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ jobCardId, expectedRevision, plantId }: { jobCardId: string; expectedRevision?: number; plantId?: string }) =>
+      productionApi.attachJobCardQcProfile(jobCardId, expectedRevision != null ? { expected_revision: expectedRevision } : {}, plantId),
+    onSuccess: (_response, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["job-qc-template", variables.jobCardId] })
+      queryClient.invalidateQueries({ queryKey: ["planning-job-cards"] })
+      queryClient.invalidateQueries({ queryKey: ["planning-job-card", variables.jobCardId] })
+      queryClient.invalidateQueries({ queryKey: ["job-cards"] })
+    },
+  })
+}
+
 export function useCompleteJobCardQc() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -357,8 +371,8 @@ export function useCreateQualityHold() {
 export function useReleaseQualityHold() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ holdId, plantId }: { holdId: string; plantId?: string }) =>
-      productionApi.releaseQualityHold(holdId, plantId),
+    mutationFn: ({ holdId, plantId, data }: { holdId: string; plantId?: string; data?: { reason: string; disposition?: string; affected_qty?: number } }) =>
+      productionApi.releaseQualityHold(holdId, plantId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["quality-holds"] })
       queryClient.invalidateQueries({ queryKey: ["quality-summary"] })

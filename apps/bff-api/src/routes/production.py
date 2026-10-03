@@ -113,6 +113,21 @@ async def list_quality_inspections(request: Request, token: str = Depends(get_to
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/quality/inspections", request, token)
 
 
+@router.get("/quality/instruments")
+async def list_qc_instruments(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/quality/instruments", request, token)
+
+
+@router.post("/quality/instruments")
+async def upsert_qc_instrument(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/quality/instruments", request, token)
+
+
+@router.get("/quality/analytics")
+async def production_quality_analytics(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/quality/analytics", request, token)
+
+
 @router.get("/quality/summary")
 async def get_quality_summary(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/quality/summary", request, token)
@@ -133,6 +148,11 @@ async def complete_job_card_qc(job_card_id: str, request: Request, token: str = 
     response = await proxy_to_service(PRODUCTION_SERVICE_URL, f"/quality/job-cards/{job_card_id}/complete", request, token)
     handoff_events.notify_qc_complete(response, request, token, job_card_id)
     return response
+
+
+@router.post("/quality/job-cards/{job_card_id}/attach-qc-profile")
+async def attach_job_card_qc_profile(job_card_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/quality/job-cards/{job_card_id}/attach-qc-profile", request, token)
 
 
 @router.post("/quality/supervisor/inspections")

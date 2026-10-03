@@ -371,6 +371,30 @@ class QualityHold(Base):
     released_at = Column(DateTime, nullable=True)
 
 
+class QcInstrument(Base):
+    """Calibrated measuring instrument register (gauges, balances, C.S. tester, moisture meter).
+
+    Stage inspections that require an instrument take calibration evidence from here, so
+    a due date or status typed on the floor cannot vouch for an uncalibrated instrument.
+    """
+
+    __tablename__ = "qc_instruments"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    code = Column(String(80), nullable=False)
+    name = Column(String(200), nullable=False)
+    instrument_type = Column(String(80), nullable=True)
+    calibration_due = Column(Date, nullable=True)
+    certificate_ref = Column(String(200), nullable=True)
+    active = Column(Boolean, nullable=False, default=True)
+    updated_by = Column(String(200), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("plant_id", "code", name="uq_qc_instruments_plant_code"),)
+
+
 class PackingRecord(Base):
     __tablename__ = "packing_records"
 

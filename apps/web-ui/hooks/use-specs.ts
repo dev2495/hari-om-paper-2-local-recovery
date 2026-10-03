@@ -253,6 +253,19 @@ export function useUpsertSpecQcProfile() {
   })
 }
 
+export function useApproveSpecQcProfile() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ specId, expectedRevision, plantId }: { specId: string; expectedRevision: number; plantId?: string }) =>
+      specApi.approveSpecQcProfile(specId, { expected_revision: expectedRevision }, plantId),
+    onSuccess: (_response, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["specs"] })
+      queryClient.invalidateQueries({ queryKey: ["spec", variables.specId] })
+      queryClient.invalidateQueries({ queryKey: ["spec-sheet-document", variables.specId] })
+    },
+  })
+}
+
 export function usePreviewQcProfileAssign() {
   return useMutation({
     mutationFn: ({ data, plantId }: { data: any; plantId?: string }) => specApi.previewQcProfileAssign(data, plantId),
@@ -410,6 +423,16 @@ export function useSpecDefaults(plantId?: string | null) {
       return data
     },
     enabled: Boolean(plantId && plantId !== "ALL"),
+  })
+}
+
+export function useUpdateSpecDefaults() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ data, plantId }: { data: any; plantId: string }) => specApi.updateDefaults(data, plantId),
+    onSuccess: (_response, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["spec", "defaults", variables.plantId] })
+    },
   })
 }
 

@@ -812,6 +812,11 @@ async def create_inventory_quality_inspection(request: Request, token: str = Dep
     return response
 
 
+@router.get("/quality/analytics")
+async def inventory_quality_analytics(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/quality/analytics", request, token)
+
+
 @router.get("/quality/concessions")
 async def list_inventory_quality_concessions(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/quality/concessions", request, token)
@@ -838,6 +843,37 @@ async def create_inventory_quality_concession(request: Request, token: str = Dep
         },
     )
     return response
+
+
+@router.post("/quality/rejected-lots/return-to-supplier")
+async def return_rejected_lot_to_supplier(request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/quality/rejected-lots/return-to-supplier", request, token)
+    payload = response_body_json(response) or {}
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="QC_LOT_RETURNED_TO_SUPPLIER",
+        title="Rejected lot returned to supplier" + (f" · GRN {payload['grn_no']}" if payload.get("grn_no") else ""),
+        message=(
+            f"{payload.get('returned_qty') or ''} written out of stock. A quality claim is open for the debit note."
+            if payload.get("claim_id")
+            else f"{payload.get('returned_qty') or ''} written out of stock. Deduct it when the supplier invoice arrives."
+        ),
+        href="/purchase/discrepancies" if payload.get("claim_id") else "/quality/incoming",
+        recipient_roles=["Owner", "Admin", "PlantManager", "Accounts", "Purchase", "QC", "Store"],
+        payload={
+            "entity_id": str(payload.get("entity_id") or ""),
+            "claim_id": str(payload.get("claim_id") or ""),
+            "plant_id": request.headers.get("X-Plant-ID"),
+            "event_id": f"qc-return:{payload.get('entity_id')}",
+        },
+    )
+    return response
+
+
+@router.get("/quality/customer-rejections/dispatch-lookup")
+async def lookup_dispatch_for_return(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/quality/customer-rejections/dispatch-lookup", request, token)
 
 
 @router.get("/quality/customer-rejections")

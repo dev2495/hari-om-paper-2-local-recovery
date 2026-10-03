@@ -126,6 +126,20 @@ def ensure_runtime_schema() -> None:
                 "ADD COLUMN IF NOT EXISTS moisture_loss_percent DOUBLE PRECISION DEFAULT 9.0"
             )
         )
+        for column, default in (
+            ("band_id_mm", 0.5),
+            ("band_od_mm", 0.5),
+            ("band_length_mm", 2.0),
+            ("band_weight_g", 5.0),
+            ("band_cs_pct", 7.0),
+            ("band_moisture_pct", 1.0),
+        ):
+            connection.execute(
+                text(
+                    "ALTER TABLE IF EXISTS global_spec_defaults "
+                    f"ADD COLUMN IF NOT EXISTS {column} DOUBLE PRECISION NOT NULL DEFAULT {default}"
+                )
+            )
         connection.execute(
             text(
                 "ALTER TABLE IF EXISTS specification_sheet ALTER COLUMN adhesive_percent SET DEFAULT 12.5"

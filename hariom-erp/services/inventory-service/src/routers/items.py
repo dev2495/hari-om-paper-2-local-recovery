@@ -1,7 +1,7 @@
 import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import Any, List, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from datetime import date, datetime
 import uuid
@@ -400,13 +400,24 @@ def _profile_history(before, after, action, actor):
     }]}
 
 
+def _last_saved_by(profile: Any) -> Optional[str]:
+    """Who saved the current revision (maker), from the profile's own edit history."""
+    if not isinstance(profile, dict):
+        return None
+    revision = profile.get("revision")
+    for entry in reversed(profile.get("history") or []):
+        if isinstance(entry, dict) and entry.get("action") in {"SAVED", "TEMPLATE_COPIED"} and entry.get("revision") == revision:
+            return str(entry.get("actor") or "") or None
+    return None
+
+
 @router.put("/{item_id}/quality-profile", response_model=ItemResponse)
 def upsert_item_quality_profile(
     item_id: uuid.UUID,
     payload: ItemQualityProfileUpdate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Owner", "QC", "Store"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "QC"])),
 ):
     db_item = db.query(ItemMaster).filter(ItemMaster.id == item_id, ItemMaster.plant_id == plant_id).with_for_update().populate_existing().first()
     if not db_item:
@@ -443,6 +454,15 @@ def approve_item_quality_profile(
     if not db_item:
         raise HTTPException(status_code=404, detail="Item not found")
     previous_profile = dict(db_item.quality_profile or {})
+    maker = _last_saved_by(previous_profile)
+    if maker and maker == str(current_user.get("sub") or ""):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "SELF_APPROVAL",
+                "message": "You saved this revision, so another Owner/Admin must approve it (maker-checker).",
+            },
+        )
     try:
         if payload.exemption:
             db_item.quality_profile = apply_profile_exemption(
@@ -470,13 +490,26 @@ def approve_item_quality_profile(
     return db_item
 
 
+_TEMPLATE_UNITS = {"gsm": "g/m²", "moisture_pct": "%", "solid_content": "%", "temperature": "°C", "caliper_mm": "mm", "width_mm": "mm"}
+
+
+def _template_unit(key: str, label: str) -> str:
+    """Unit for a copied template row: known keys, else the '(unit)' in its label, else unitless."""
+    if key in _TEMPLATE_UNITS:
+        return _TEMPLATE_UNITS[key]
+    text = str(label or "")
+    if "(" in text and text.rstrip().endswith(")"):
+        return text[text.rfind("(") + 1 : -1].strip()
+    return ""
+
+
 @router.post("/{item_id}/quality-profile/copy-template", response_model=ItemResponse)
 def copy_item_quality_template(
     item_id: uuid.UUID,
     payload: ItemQualityProfileCopyTemplate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Owner", "QC", "Store"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "QC"])),
 ):
     db_item = db.query(ItemMaster).filter(ItemMaster.id == item_id, ItemMaster.plant_id == plant_id).with_for_update().populate_existing().first()
     if not db_item:
@@ -509,6 +542,7 @@ def copy_item_quality_template(
                 "input_type": row.input_type,
                 "options": row.options or [],
                 "required": bool(row.required) if not isinstance(row.required, str) else str(row.required).lower() == "true",
+                "unit": _template_unit(row.parameter_key, row.label),
                 "min": None,
                 "max": None,
                 "applicable": True,

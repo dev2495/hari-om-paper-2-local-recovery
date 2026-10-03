@@ -4,21 +4,28 @@ import Link from "next/link"
 import { FormEvent, useEffect, useMemo, useState } from "react"
 
 import { EmptyState, ExecutiveHero, Panel } from "@/components/erp/shell"
+import { InstrumentRegister, useQcInstruments } from "@/components/qc/InstrumentRegister"
 import { QualityDeskNav } from "@/components/qc/QualityDeskNav"
 import { StageQcFields } from "@/components/qc/StageQcFields"
 import { RoleGate } from "@/components/workspace/role-gate"
 import { ErrorState, LoadingState } from "@/components/workspace/query-state"
 import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
-import { useCompleteJobCardQc, useCreateQualityInspection, useJobQcTemplate, usePlanningJobCards } from "@/hooks/use-production"
+import { useAttachJobCardQcProfile, useCompleteJobCardQc, useCreateQualityInspection, useJobQcTemplate, usePlanningJobCards } from "@/hooks/use-production"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
 import { frozenStageRules, inspectionProfileRevision, qcExceptionIssues, type QcStageKey } from "@/lib/qc-measurement"
 
-const STAGES: { value: QcStageKey; label: string }[] = [
+// "QC" is the final acceptance check against the spec sheet's own final limits
+// (I.D./O.D./Length/Weight/C.S.); dispatch requires a current passing one.
+type DeskStage = QcStageKey | "QC"
+
+const STAGES: { value: DeskStage; label: string }[] = [
   { value: "WINDER", label: "Winding" },
   { value: "OVEN", label: "Oven" },
   { value: "PROCESS", label: "Process" },
+  { value: "QC", label: "Final QC" },
 ]
+const PROCESS_STAGES: QcStageKey[] = ["WINDER", "OVEN", "PROCESS"]
 
 type StageDraft = {
   readings: Record<string, string>
@@ -142,7 +149,7 @@ function reconnectConflict(error: any) {
   return null
 }
 
-function numericReadings(stageType: QcStageKey, draft: StageDraft) {
+function numericReadings(stageType: DeskStage, draft: StageDraft) {
   const numeric: Record<string, any> = Object.fromEntries(
     Object.entries(draft.readings)
       .filter(([key, value]) => {
@@ -184,14 +191,16 @@ function numericReadings(stageType: QcStageKey, draft: StageDraft) {
 
 export default function StageQualityPage() {
   const { showToast } = useApp()
-  const { activePlant } = useAuth()
+  const { activePlant, user } = useAuth()
+  const canEditInstruments = ["Owner", "Admin", "QC"].some((role) => role === user?.role || (user?.roles || []).includes(role))
   const [search, setSearch] = useState("")
   const [selectedJobId, setSelectedJobId] = useState("")
-  const [stageType, setStageType] = useState<QcStageKey>("WINDER")
-  const [drafts, setDrafts] = useState<Record<QcStageKey, StageDraft>>({
+  const [stageType, setStageType] = useState<DeskStage>("WINDER")
+  const [drafts, setDrafts] = useState<Record<DeskStage, StageDraft>>({
     WINDER: emptyDraft(),
     OVEN: emptyDraft(),
     PROCESS: emptyDraft(),
+    QC: emptyDraft(),
   })
   const [lastVerdict, setLastVerdict] = useState("")
   const [lastGatingPolicy, setLastGatingPolicy] = useState("")
@@ -217,10 +226,14 @@ export default function StageQualityPage() {
   const jobCardsQuery = usePlanningJobCards({ limit: 80, search: search.trim() || undefined })
   const createInspection = useCreateQualityInspection()
   const completeCard = useCompleteJobCardQc()
+  const attachProfile = useAttachJobCardQcProfile()
+  const [attachError, setAttachError] = useState<{ code: string; message: string } | null>(null)
   const jobs = useMemo(() => asArray(jobCardsQuery.data), [jobCardsQuery.data])
   const selectedJob = jobs.find((job: any) => String(job.id) === selectedJobId) || null
   const plantId = plantForJob(selectedJob) || (activePlant && activePlant.toUpperCase() !== "ALL" ? activePlant : undefined)
   const templateQuery = useJobQcTemplate(selectedJobId || undefined, stageType, plantId)
+  const instrumentsQuery = useQcInstruments(plantId)
+  const registeredInstruments = (instrumentsQuery.data || []).filter((row) => row.active)
   const snapshotProfile = selectedJob?.spec_snapshot?.qc_profile || templateQuery.data?.qc_profile
   const missingSetup = Boolean(
     selectedJob?.spec_snapshot?.missing_qc_setup
@@ -230,7 +243,9 @@ export default function StageQualityPage() {
   const stageBlock = templateQuery.data?.stages?.[stageType]
   const rules = asArray(stageBlock?.parameters).length
     ? stageBlock.parameters
-    : frozenStageRules(snapshotProfile, stageType)
+    : stageType === "QC"
+      ? []
+      : frozenStageRules(snapshotProfile, stageType)
   const profileRevision = inspectionProfileRevision(null, snapshotProfile || templateQuery.data)
   const draft = drafts[stageType]
   const failCodes = qcExceptionIssues(rules, draft.readings).map((row) => row.code)
@@ -239,6 +254,15 @@ export default function StageQualityPage() {
   const checkpoint = stageType === "OVEN"
     ? (draft.ovenCheckpoint === "POST" ? "Oven post" : "Oven pre")
     : STAGES.find((stage) => stage.value === stageType)?.label
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const params = new URLSearchParams(window.location.search)
+    const job = params.get("job")
+    const stage = String(params.get("stage") || "").toUpperCase()
+    if (job) setSelectedJobId(job)
+    if (STAGES.some((item) => item.value === stage)) setStageType(stage as DeskStage)
+  }, [])
 
   useEffect(() => {
     setDraftContext(null)
@@ -257,7 +281,45 @@ export default function StageQualityPage() {
     return rows.slice(0, 80)
   }, [jobs, search])
 
-  const updateDraft = (stage: QcStageKey, patch: Partial<StageDraft> | ((current: StageDraft) => StageDraft)) => {
+  const missingSetupJobs = useMemo(
+    () => jobs.filter((job: any) => job?.spec_snapshot?.missing_qc_setup || job?.spec_snapshot?.missing_profile_marker),
+    [jobs],
+  )
+
+  const handleAttachProfile = async () => {
+    if (!selectedJobId || !plantId) {
+      showToast("Select a job card in one plant before attaching QC setup.", "error")
+      return
+    }
+    setAttachError(null)
+    try {
+      const response = await attachProfile.mutateAsync({ jobCardId: selectedJobId, plantId })
+      const body = response?.data || {}
+      showToast(
+        body.idempotent
+          ? "This job card already carries the approved QC profile."
+          : `Approved QC profile v${body.profile_revision ?? ""} attached. Stage checks are now open.`,
+        "success",
+      )
+      void templateQuery.refetch()
+      void jobCardsQuery.refetch()
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail
+      const code = String(detail?.code || "")
+      const message =
+        code === "PROFILE_NOT_APPROVED"
+          ? "The spec's stage QC tolerances are not approved yet. Open the spec, set or finish the tolerances, and have the Owner/Admin approve them — then attach."
+          : code === "JOB_ALREADY_STARTED"
+            ? "This job card has already started, so QC setup can no longer be attached. Record findings with an Owner/Admin decision instead."
+            : typeof detail === "string"
+              ? detail
+              : detail?.message || error?.message || "Could not attach the QC profile."
+      setAttachError({ code, message })
+      showToast(message, "error")
+    }
+  }
+
+  const updateDraft = (stage: DeskStage, patch: Partial<StageDraft> | ((current: StageDraft) => StageDraft)) => {
     setDrafts((current) => {
       const prior = current[stage] || emptyDraft()
       const next = typeof patch === "function" ? patch(prior) : { ...prior, ...patch }
@@ -366,14 +428,19 @@ export default function StageQualityPage() {
         plantId,
         data: {
           visible_stage: stageType,
-          stages: STAGES.map((stage) => {
-            const stageDraft = drafts[stage.value]
-            const stageRules = asArray(templateQuery.data?.stages?.[stage.value]?.parameters).length
-              ? templateQuery.data.stages[stage.value].parameters
-              : frozenStageRules(snapshotProfile, stage.value)
+          stages: [
+            ...PROCESS_STAGES,
+            ...(Object.values(drafts.QC.readings).some((value) => String(value).trim() !== "") ? (["QC"] as const) : []),
+          ].map((stageKey) => {
+            const stageDraft = drafts[stageKey]
+            const stageRules = asArray(templateQuery.data?.stages?.[stageKey]?.parameters).length
+              ? templateQuery.data.stages[stageKey].parameters
+              : stageKey === "QC"
+                ? []
+                : frozenStageRules(snapshotProfile, stageKey)
             return {
-              stage_type: stage.value,
-              readings: numericReadings(stage.value, stageDraft),
+              stage_type: stageKey,
+              readings: numericReadings(stageKey, stageDraft),
               reasons: packedReasons(
                 stageDraft,
                 qcExceptionIssues(stageRules, stageDraft.readings).map((row) => row.code),
@@ -409,6 +476,28 @@ export default function StageQualityPage() {
           description="Winding uses Height, not Length. Oven pre/post pairs share one sample ID. Process notch fields appear only when applicable. Verdicts are never taken from the client."
         />
         <QualityDeskNav />
+        {missingSetupJobs.length ? (
+          <div className="rounded-2xl border border-signal-amber-line bg-signal-amber-soft px-4 py-3 text-sm text-signal-amber-ink" data-testid="quality-stage-missing-setup-queue">
+            <p className="font-semibold">
+              {missingSetupJobs.length} job card{missingSetupJobs.length === 1 ? "" : "s"} waiting for QC setup
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {missingSetupJobs.slice(0, 12).map((job: any) => (
+                <button
+                  key={job.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedJobId(String(job.id))
+                    setAttachError(null)
+                  }}
+                  className="rounded-full border border-signal-amber-line bg-card px-3 py-1 text-xs font-semibold"
+                >
+                  {job.job_card_no || job.job_no || String(job.id).slice(0, 8)}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
         {jobCardsQuery.isLoading ? <LoadingState label="Loading job cards for stage QC…" /> : null}
         {jobCardsQuery.isError ? (
           <ErrorState
@@ -434,7 +523,8 @@ export default function StageQualityPage() {
                   value={selectedJobId}
                   onChange={(event) => {
                     setSelectedJobId(event.target.value)
-                    setDrafts({ WINDER: emptyDraft(), OVEN: emptyDraft(), PROCESS: emptyDraft() })
+                    setDrafts({ WINDER: emptyDraft(), OVEN: emptyDraft(), PROCESS: emptyDraft(), QC: emptyDraft() })
+                    setAttachError(null)
                     setLastVerdict("")
                     setLastGatingPolicy("")
                     setLastMovementGate("")
@@ -458,7 +548,7 @@ export default function StageQualityPage() {
                 <select
                   value={stageType}
                   onChange={(event) => {
-                    setStageType(event.target.value as QcStageKey)
+                    setStageType(event.target.value as DeskStage)
                     setLastVerdict("")
                   }}
                   data-testid="quality-stage-type"
@@ -516,6 +606,12 @@ export default function StageQualityPage() {
                   Post fields are not due at the pre checkpoint. The later post checkpoint requires the same sample / pair ID.
                 </p>
               </label>
+            ) : null}
+            {selectedJobId && stageType === "QC" ? (
+              <p className="rounded-2xl border border-border bg-muted px-4 py-3 text-xs text-muted-foreground" data-testid="quality-stage-final-hint">
+                Final QC checks the finished tube against the spec sheet&apos;s final limits. Every limited reading is required; a current passing
+                final QC is required before FG handoff and dispatch.
+              </p>
             ) : null}
             {selectedJobId ? (
               <>
@@ -622,8 +718,32 @@ export default function StageQualityPage() {
               </div>
             ) : null}
             {missingSetup ? (
-              <div className="rounded-2xl border border-signal-amber-line bg-signal-amber-soft p-4 text-sm text-signal-amber-ink" data-testid="quality-stage-missing-setup">
-                Missing QC setup. Queue admission succeeded with a missing-setup flag. This checkpoint requires an approved resolution. Empty setup is not measured PASS.
+              <div className="space-y-3 rounded-2xl border border-signal-amber-line bg-signal-amber-soft p-4 text-sm text-signal-amber-ink" data-testid="quality-stage-missing-setup">
+                <p className="font-semibold">This job card was released before its spec had approved stage QC tolerances.</p>
+                <p>
+                  Checks stay blocked until the approved tolerances are attached. Attaching copies the spec&apos;s current approved QC profile onto this
+                  unstarted card; an empty setup is never treated as PASS.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    data-testid="quality-stage-attach-profile"
+                    disabled={attachProfile.isPending}
+                    onClick={() => void handleAttachProfile()}
+                    className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+                  >
+                    {attachProfile.isPending ? "Attaching…" : "Attach approved QC tolerances"}
+                  </button>
+                  {selectedJob?.spec_id ? (
+                    <a
+                      href={`/specifications/${selectedJob.spec_id}`}
+                      className="rounded-xl border border-signal-amber-line bg-card px-4 py-2 text-sm font-semibold text-signal-amber-ink"
+                    >
+                      Open spec tolerances
+                    </a>
+                  ) : null}
+                </div>
+                {attachError ? <p data-testid="quality-stage-attach-error">{attachError.message}</p> : null}
               </div>
             ) : null}
             {requiresInstrument ? (
@@ -633,12 +753,39 @@ export default function StageQualityPage() {
                 </div>
                 <label className="block text-sm">
                   <span className="mb-1 block text-[12px] font-semibold text-muted-foreground">Instrument ID</span>
-                  <input
-                    data-testid="quality-stage-instrument-id"
-                    value={draft.instrumentId}
-                    onChange={(event) => updateDraft(stageType, { instrumentId: event.target.value })}
-                    className="h-10 w-full rounded-xl border border-foreground/80 px-3 text-sm text-foreground"
-                  />
+                  {registeredInstruments.length ? (
+                    <select
+                      data-testid="quality-stage-instrument-id"
+                      value={draft.instrumentId}
+                      onChange={(event) => {
+                        const picked = registeredInstruments.find((row) => row.code === event.target.value)
+                        updateDraft(stageType, {
+                          instrumentId: event.target.value,
+                          calibrationDue: picked?.calibration_due || "",
+                          calibrationStatus: picked ? (picked.calibration_status === "expired" ? "expired" : "valid") : "",
+                          instrumentEvidence: picked?.certificate_ref || "",
+                        })
+                      }}
+                      className="h-10 w-full rounded-xl border border-foreground/80 bg-card px-3 text-sm text-foreground"
+                    >
+                      <option value="">Select a registered instrument</option>
+                      {registeredInstruments.map((row) => (
+                        <option key={row.id} value={row.code}>
+                          {row.code} · {row.name} · {row.calibration_status === "expired" ? "CALIBRATION EXPIRED" : `due ${row.calibration_due || "—"}`}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      data-testid="quality-stage-instrument-id"
+                      value={draft.instrumentId}
+                      onChange={(event) => updateDraft(stageType, { instrumentId: event.target.value })}
+                      className="h-10 w-full rounded-xl border border-foreground/80 px-3 text-sm text-foreground"
+                    />
+                  )}
+                  {registeredInstruments.length ? (
+                    <span className="mt-1 block text-[11px] text-muted-foreground">Calibration comes from the instrument register; it cannot be typed here.</span>
+                  ) : null}
                 </label>
                 <label className="block text-sm">
                   <span className="mb-1 block text-[12px] font-semibold text-muted-foreground">Calibration due</span>
@@ -803,6 +950,9 @@ export default function StageQualityPage() {
               </button>
             </div>
           </form>
+        </Panel>
+        <Panel title="Instrument register" subtitle="Gauges, balances, C.S. tester and moisture meters with their calibration due dates. Expired instruments cannot back an instrument-required check.">
+          <InstrumentRegister plantId={plantId} canEdit={canEditInstruments} />
         </Panel>
       </div>
     </RoleGate>

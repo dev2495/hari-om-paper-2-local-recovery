@@ -424,7 +424,13 @@ export const productionApi = {
     api.get(`/api/production/quality/job-cards/${jobCardId}/template`, { params, ...(withPlantHeader(plantId) || {}) }),
   completeJobCardQc: (jobCardId: string, data: any, plantId?: string) =>
     api.post(`/api/production/quality/job-cards/${jobCardId}/complete`, data, withPlantHeader(plantId)),
+  attachJobCardQcProfile: (jobCardId: string, data: { expected_revision?: number }, plantId?: string) =>
+    api.post(`/api/production/quality/job-cards/${jobCardId}/attach-qc-profile`, data, withPlantHeader(plantId)),
   getQualitySummary: () => api.get("/api/production/quality/summary"),
+  getQcInstruments: (plantId?: string) => api.get("/api/production/quality/instruments", withPlantHeader(plantId)),
+  upsertQcInstrument: (data: any, plantId?: string) => api.post("/api/production/quality/instruments", data, withPlantHeader(plantId)),
+  getProductionQualityAnalytics: (params?: { date_from?: string; date_to?: string }) =>
+    api.get("/api/production/quality/analytics", { params }),
   createQualityInspection: (data: any, plantId?: string) =>
     api.post("/api/production/quality/inspections", data, withPlantHeader(plantId)),
   createSupervisorQualityInspection: (data: any, plantId?: string) =>
@@ -438,8 +444,8 @@ export const productionApi = {
   getQualityHolds: (params?: any) => api.get("/api/production/quality/holds", { params }),
   createQualityHold: (data: any, plantId?: string) =>
     api.post("/api/production/quality/holds", data, withPlantHeader(plantId)),
-  releaseQualityHold: (holdId: string, plantId?: string) =>
-    api.post(`/api/production/quality/holds/${holdId}/release`, {}, withPlantHeader(plantId)),
+  releaseQualityHold: (holdId: string, plantId?: string, data?: { reason: string; disposition?: string; affected_qty?: number }) =>
+    api.post(`/api/production/quality/holds/${holdId}/release`, data ?? {}, withPlantHeader(plantId)),
 
   getJobCards: (params?: any) => api.get("/api/production/jobs", { params }),
   createJobCard: (data: any) => api.post("/api/production/job-cards", data),
@@ -574,8 +580,14 @@ export const inventoryApi = {
   getInventoryQualityConcessions: (params?: any) => api.get("/api/inventory/quality/concessions", { params }),
   createInventoryQualityInspection: (data: any) => api.post("/api/inventory/quality/inspections", data),
   createInventoryQualityConcession: (data: any) => api.post("/api/inventory/quality/concessions", data),
+  getIncomingQualityAnalytics: (params?: { date_from?: string; date_to?: string }) =>
+    api.get("/api/inventory/quality/analytics", { params }),
+  returnRejectedLotToSupplier: (data: { entity_type: string; entity_id: string; reason: string; return_reference?: string }) =>
+    api.post("/api/inventory/quality/rejected-lots/return-to-supplier", data),
   getCustomerRejections: (params?: any) => api.get("/api/inventory/quality/customer-rejections", { params }),
   createCustomerRejection: (data: any) => api.post("/api/inventory/quality/customer-rejections", data),
+  lookupDispatchForReturn: (dispatchRef: string) =>
+    api.get("/api/inventory/quality/customer-rejections/dispatch-lookup", { params: { dispatch_ref: dispatchRef } }),
   disposeCustomerRejection: (id: string, data: any) =>
     api.post(`/api/inventory/quality/customer-rejections/${id}/disposition`, data),
   // Lifecycle gap endpoints

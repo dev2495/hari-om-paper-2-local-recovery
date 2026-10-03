@@ -632,7 +632,6 @@ export default function InventoryStockControlPage() {
                   <option value="PHYSICAL_COUNT_VARIANCE">Physical count variance</option>
                   <option value="SCRAP_DISCOVERY">Scrap discovery</option>
                   <option value="REWORK_RECOVERY">Rework recovery</option>
-                  <option value="CUSTOMER_REJECTION">Customer rejection</option>
                 </select>
               </div>
               <label className="flex h-11 items-center gap-2 rounded-xl border border-signal-cyan-line bg-card px-3 text-xs font-semibold text-signal-cyan-ink">

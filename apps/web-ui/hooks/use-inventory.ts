@@ -694,6 +694,41 @@ export function useCreateInventoryQualityInspection() {
   })
 }
 
+function invalidateIncomingQc(queryClient: ReturnType<typeof useQueryClient>) {
+  for (const key of [
+    "inventory-quality-pending",
+    "inventory-quality-inspections",
+    "inventory-quality-concessions",
+    "inventory-reels",
+    "inventory-items",
+    "inventory-transactions",
+    "inventory-balances",
+    "inventory-stock-statement",
+  ]) {
+    queryClient.invalidateQueries({ queryKey: [key] })
+  }
+}
+
+export function useCreateInventoryQualityConcession() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: any) => inventoryApi.createInventoryQualityConcession(data),
+    onSuccess: () => invalidateIncomingQc(queryClient),
+  })
+}
+
+export function useReturnRejectedLotToSupplier() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { entity_type: string; entity_id: string; reason: string; return_reference?: string }) =>
+      inventoryApi.returnRejectedLotToSupplier(data),
+    onSuccess: () => {
+      invalidateIncomingQc(queryClient)
+      queryClient.invalidateQueries({ queryKey: ["purchase-v2"] })
+    },
+  })
+}
+
 export function useCustomerRejections(params?: any) {
   return useQuery({
     queryKey: ["inventory-customer-rejections", params || {}],

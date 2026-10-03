@@ -40,6 +40,8 @@ export type SpecSheetPrintData = {
   blockers: string[]
   notes: string
   signOff: string
+  /** Approved stage QC tolerances, one compact row per stage (standalone spec print only). */
+  qcStages?: Array<{ label: string; value: string }>
 }
 
 type SpecSheetPrintProps = {
@@ -252,6 +254,7 @@ export function SpecSheetPrint({ enabled, data, embedded = false }: SpecSheetPri
           <section className="spec-print-panel spec-print-operations" data-print-section="operations">
             <DetailTable title="Notch & tooling" rows={data.tooling} />
             <DetailTable title="Packing" rows={data.packing} />
+            {!embedded && data.qcStages?.length ? <DetailTable title="Stage QC tolerances" rows={data.qcStages} /> : null}
           </section>
         </div>
 

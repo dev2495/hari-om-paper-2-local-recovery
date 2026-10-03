@@ -76,6 +76,25 @@ def test_direct_service_blocks_backdated_entry_into_closed_books(card):
     finally:
         db.query(MonthlyMaterialClose).filter_by(plant_id=job.plant_id,month_start=previous_end.replace(day=1)).delete();db.commit()
 
+def test_continuous_qc_uses_registered_calibration_instead_of_typed_evidence(card):
+    import copy
+    from datetime import timedelta
+    from src.models import QcInstrument
+    a,db,job=card
+    snapshot=copy.deepcopy(job.spec_snapshot)
+    snapshot['qc_profile']['stages']['WINDER']['parameters'][0]['requires_instrument']=True
+    job.spec_snapshot=snapshot
+    code='SEASON-'+uuid.uuid4().hex[:12]
+    instrument=QcInstrument(plant_id=job.plant_id,code=code,name='Test gauge',active=True,calibration_due=date.today()-timedelta(days=1),certificate_ref='EXPIRED-CERT')
+    db.add(instrument);db.commit()
+    typed={'instrument':{'instrument_id':code,'calibration_due':'2099-01-01','instrument_evidence':'USER-TYPED'}}
+    with pytest.raises(HTTPException) as caught:create(a,db,job,samples=winding_samples(),details=typed)
+    assert caught.value.status_code==409 and caught.value.detail['instrument_status']=='expired';db.rollback()
+    instrument.calibration_due=date.today()+timedelta(days=30);instrument.certificate_ref='REGISTER-CERT';db.commit()
+    result=create(a,db,job,samples=winding_samples(),details=typed)
+    assert result['entry']['details']['instrument']['source']=='register'
+    assert result['entry']['details']['instrument']['evidence_ref']=='REGISTER-CERT'
+
 def test_release_ack_and_noop_tools_allow_reopen_but_posted_stock_does_not(card):
     from src.entry_models import CompletionEffect
     a,db,job=card

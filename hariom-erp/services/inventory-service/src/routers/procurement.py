@@ -796,7 +796,8 @@ def _discrepancy_payload(row: PurchaseDiscrepancy, db: Session) -> dict[str, Any
         "quantity_delta_kg": float(row.delta) if row.discrepancy_type == "QUANTITY" else 0,
         "po_rate": float(row.po_rate), "invoice_rate": float(row.invoice_rate),
         "delta": float(row.delta),
-        "signed_amount": float(Decimal(row.quantity) * Decimal(row.delta)) if row.discrepancy_type == "RATE" else 0,
+        "signed_amount": float(Decimal(row.quantity) * Decimal(row.delta)) if row.discrepancy_type == "RATE"
+        else float(row.claimable_amount) if row.discrepancy_type == "QUALITY" else 0,
         "claimable_amount": float(row.claimable_amount), "assignee": row.assignee,
         "resolution_reason": row.resolution_reason, "evidence": row.evidence_json or {},
         "created_at": row.created_at.isoformat()}
@@ -835,8 +836,11 @@ def _refresh_receipt_commercial_status(db: Session, line: PurchaseReceiptLine) -
         return
     allocations = db.query(ReceiptInvoiceAllocation).filter(ReceiptInvoiceAllocation.receipt_line_id == line.id).all()
     allocation_ids = [row.id for row in allocations]
+    # A QUALITY claim is against goods already returned to the supplier; it never
+    # holds the accepted lots on the same line.
     unresolved = db.query(PurchaseDiscrepancy).filter(
         PurchaseDiscrepancy.allocation_id.in_(allocation_ids),
+        PurchaseDiscrepancy.discrepancy_type != "QUALITY",
         PurchaseDiscrepancy.status.in_(["OPEN", "UNDER_REVIEW", "CLAIM_DRAFTED", "CLAIMED"]),
     ).count() if allocation_ids else 0
     if line.commercial_status != "RELEASED_WITH_CLAIM":
@@ -897,6 +901,7 @@ def act_on_discrepancy(
         unresolved_siblings = db.query(PurchaseDiscrepancy).filter(
             PurchaseDiscrepancy.allocation_id.in_(sibling_allocations),
             PurchaseDiscrepancy.id != row.id,
+            PurchaseDiscrepancy.discrepancy_type != "QUALITY",
             PurchaseDiscrepancy.status.in_(["OPEN", "UNDER_REVIEW", "CLAIM_DRAFTED"]),
         ).count()
         if unresolved_siblings:

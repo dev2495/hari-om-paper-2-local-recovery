@@ -21,12 +21,12 @@ KEEP={
  "masterdb":set("adhesive_master customer customer_contact employee machine machine_supported_mandrel mandrel packaging_box packaging_fadda packaging_plastic_sheet paper_master parchment_color parchment_vendor plant_holiday reason_code shift_definition supplier supplier_contact tool_attribute_option tool_master tube_size".split()),
  "specdb":set("global_spec_defaults spec_dynamic_fields production_season_state season_qc_rule_versions production_season_events".split()),
  "salesdb":set("sales_order_number_counters".split()),
- "productiondb":set("job_card_number_counters machine_stage_capacity_profile plant_tolerance_setting".split()),
+ "productiondb":set("job_card_number_counters machine_stage_capacity_profile plant_tolerance_setting qc_instruments".split()),
  "inventorydb":set("document_series inventory_locations inventory_quality_templates item_master stock_alert_policies".split()),
  "analyticsdb":set(),
 }
 CLEAR={
- "authdb":set("notifications".split()),
+ "authdb":set("notifications notification_delivery_log".split()),
  "masterdb":set("audit_outbox tool_usage_log".split()),
  "specdb":set("audit_outbox recipe_header recipe_layers season_command_receipts season_qc_overlay_versions season_release_authorizations season_spec_readiness spec_dynamic_field_values spec_save_operations spec_season_recipe_bindings specification_sheet trial_results".split()),
  "salesdb":set("audit_outbox sales_order_delivery_schedules sales_order_dispatch_logs sales_order_line_colors sales_order_lines sales_order_release_lots sales_order_schedule_allocations sales_orders".split()),
@@ -56,7 +56,8 @@ def pg_tool(name,url,args):
     tool=shutil.which(name) or str(Path('/opt/homebrew/opt/postgresql@16/bin')/name)
     env=dict(os.environ);env.update(PGHOST=url.host,PGPORT=str(url.port),PGUSER=url.username,PGDATABASE=url.database)
     if url.password:env['PGPASSWORD']=url.password
-    result=subprocess.run([tool,*args],env=env,capture_output=True,text=True)
+    target=['--dbname',url.database] if name=='pg_restore' else []
+    result=subprocess.run([tool,*target,*args],env=env,capture_output=True,text=True)
     if result.returncode:raise RuntimeError(f"{name} failed; archive preserved. Exit {result.returncode}")
 
 
@@ -122,6 +123,10 @@ def run(args):
             # App connections (including idle pools) must be gone before backups.
             if args.apply and c.execute(text("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() AND backend_type='client backend'")).scalar():raise RuntimeError(f"Application/database clients still connected to {name}; stop services first")
         clear=tables&CLEAR[name];keep=tables-clear
+        with engine.connect() as c:
+            references=c.execute(text("SELECT source.relname,target.relname FROM pg_constraint f JOIN pg_class source ON source.oid=f.conrelid JOIN pg_class target ON target.oid=f.confrelid WHERE f.contype='f' AND source.relnamespace='public'::regnamespace AND target.relnamespace='public'::regnamespace")).all()
+            conflicts=[(source,target) for source,target in references if source in keep and target in clear]
+            if conflicts:raise RuntimeError(f'Retained tables reference the reset scope in {name}: {conflicts}; classify dependencies explicitly')
         report['databases'][name]={'clear':sorted(clear),'keep':sorted(keep),'before':counts(engine,tables),'content_hashes':content_hashes(engine,tables)}
     if args.apply and existing and any(existing['databases'][name]!=report['databases'][name] for name in KEEP):raise RuntimeError('Data changed since the reviewed preview; create and review a fresh preview while the runtime is stopped')
     print(json.dumps({name:{'clear_tables':len(r['clear']),'rows':sum(r['before'][t] for t in r['clear']),'kept_tables':len(r['keep'])} for name,r in report['databases'].items()},indent=2))
