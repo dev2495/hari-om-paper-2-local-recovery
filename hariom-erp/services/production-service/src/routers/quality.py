@@ -2002,15 +2002,25 @@ def production_quality_analytics(
     first: dict[tuple[str, str], QualityInspection] = {}
     checks: dict[str, int] = defaultdict(int)
     fails: dict[str, int] = defaultdict(int)
+    observations: dict[str, int] = defaultdict(int)
+    pending: dict[str, int] = defaultdict(int)
     for row in query.order_by(QualityInspection.created_at.asc()).all():
         if (row.evaluation or {}).get("workflow_status") == "SUPERSEDED":
             continue
         stage = str(row.stage_type or "").upper()
         checks[stage] += 1
-        if str(row.status or "").upper() == "FAIL":
+        status = str(row.status or "").upper()
+        if status == "FAIL":
             fails[stage] += 1
-        first.setdefault((str(row.job_card_id), stage), row)
+        if status in {"PASS", "FAIL"}:
+            first.setdefault((str(row.job_card_id), stage), row)
+        elif status == "OBSERVATION_ONLY":
+            observations[stage] += 1
+        else:
+            pending[stage] += 1
     stages: dict[str, dict[str, Any]] = defaultdict(lambda: {"job_cards": 0, "first_pass": 0})
+    for stage in checks:
+        stages[stage]
     parameters: dict[tuple[str, str], int] = defaultdict(int)
     for (_, stage), row in first.items():
         bucket = stages[stage]
@@ -2035,6 +2045,8 @@ def production_quality_analytics(
                 "first_pass_yield": round(bucket["first_pass"] / bucket["job_cards"] * 100.0, 1) if bucket["job_cards"] else None,
                 "checks": checks.get(stage, 0),
                 "failed_checks": fails.get(stage, 0),
+                "observation_checks": observations.get(stage, 0),
+                "pending_checks": pending.get(stage, 0),
             }
             for stage, bucket in sorted(stages.items(), key=lambda item: order.index(item[0]) if item[0] in order else 99)
         ],

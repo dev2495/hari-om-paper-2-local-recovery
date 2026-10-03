@@ -1,5 +1,5 @@
 from datetime import date, datetime, timedelta
-from math import isfinite
+from math import isfinite, isclose
 from typing import List, Optional
 import logging
 import uuid
@@ -135,6 +135,7 @@ class SalesOrderUpdate(BaseModel):
 class DispatchValidationPayload(BaseModel):
     qty: float = Field(..., gt=0)
     approved_spec_id: Optional[uuid.UUID] = None
+    dispatch_line_ref: Optional[str] = Field(default=None, min_length=1, max_length=100)
 
 
 class RecordDispatchPayload(BaseModel):
@@ -187,7 +188,7 @@ class ReleaseLotReturnPayload(BaseModel):
 
 class ReleaseLotReallocatePayload(BaseModel):
     carry_forward_job_card_id: uuid.UUID
-    gap_qty: float = Field(..., gt=0)
+    gap_qty: float = Field(..., gt=0, allow_inf_nan=False)
     release_lot_id: Optional[uuid.UUID] = None
 
 
@@ -207,10 +208,13 @@ def carry_forward_lot_split(original_released_qty: float, gap_qty: float) -> tup
 
 class SalesOrderLineShortClosePayload(BaseModel):
     job_card_id: uuid.UUID
-    produced_qty: float = Field(..., ge=0)
-    gap_qty: float = Field(..., gt=0)
+    produced_qty: float = Field(..., ge=0, allow_inf_nan=False)
+    gap_qty: float = Field(..., gt=0, allow_inf_nan=False)
     reason_code: str
     notes: Optional[str] = None
+    # V2 uses an absolute released-allocation target so a committed Sales call
+    # can be retried after its response was lost without shortening the SO twice.
+    expected_release_qty: Optional[float] = Field(None, gt=0, allow_inf_nan=False)
 
 
 class SalesOrderReleaseLotResponse(BaseModel):
@@ -219,6 +223,7 @@ class SalesOrderReleaseLotResponse(BaseModel):
     line_id: uuid.UUID
     release_lot_id: uuid.UUID
     release_qty: float
+    source_release_lot_id: Optional[uuid.UUID] = None
     winder_machine_id: Optional[uuid.UUID]
     product_code: Optional[str]
     status: str
@@ -382,6 +387,7 @@ def _serialize_line(line: SalesOrderLine) -> dict:
                 "line_id": lot.sales_order_line_id,
                 "release_lot_id": lot.id,
                 "release_qty": lot.released_qty,
+                "source_release_lot_id": getattr(lot, "source_release_lot_id", None),
                 "winder_machine_id": lot.winder_machine_id,
                 "product_code": lot.product_code,
                 "status": lot.status,
@@ -517,6 +523,7 @@ def _lot_payload(lot: SalesOrderReleaseLot, order_id) -> dict:
         "line_id": lot.sales_order_line_id,
         "release_lot_id": lot.id,
         "release_qty": lot.released_qty,
+        "source_release_lot_id": getattr(lot, "source_release_lot_id", None),
         "winder_machine_id": lot.winder_machine_id,
         "product_code": lot.product_code,
         "status": lot.status,
@@ -2254,14 +2261,6 @@ def reallocate_release_lot_carry_forward(
         uuid.NAMESPACE_URL,
         f"hariom:carry-release:{payload.carry_forward_job_card_id}",
     )
-    existing = db.query(SalesOrderReleaseLot).filter(SalesOrderReleaseLot.id == requested_lot_id).first()
-    if existing:
-        if existing.job_card_id != payload.carry_forward_job_card_id:
-            raise HTTPException(status_code=409, detail="Carry-forward release lot id belongs to another job card")
-        if abs(float(existing.released_qty or 0.0) - float(payload.gap_qty or 0.0)) > 0.0001:
-            raise HTTPException(status_code=409, detail="Carry-forward release lot was already used with a different quantity")
-        return _lot_payload(existing, existing.sales_order_id)
-
     original = (
         db.query(SalesOrderReleaseLot)
         .join(SalesOrderLine)
@@ -2272,12 +2271,46 @@ def reallocate_release_lot_carry_forward(
     )
     if not original:
         raise HTTPException(status_code=404, detail="Release lot not found")
+    # Serialize every commercial adjustment on the same line as dispatch and
+    # release. Reload after the lock to prevent stale quantities losing a split.
+    _locked_line(db, original.sales_order_line_id, plant_id)
+    db.refresh(original)
+    existing = db.query(SalesOrderReleaseLot).filter(SalesOrderReleaseLot.id == requested_lot_id).first()
+    if existing:
+        if (existing.job_card_id != payload.carry_forward_job_card_id
+                or existing.sales_order_line_id != original.sales_order_line_id
+                or existing.sales_order_id != original.sales_order_id):
+            raise HTTPException(status_code=409, detail="Carry-forward release lot id belongs to another source or job card")
+        if abs(float(existing.released_qty or 0.0) - float(payload.gap_qty)) > 0.0001:
+            raise HTTPException(status_code=409, detail="Carry-forward release lot was already used with a different quantity")
+        if existing.source_release_lot_id is None:
+            # Older V2 carry-forward IDs cryptographically bind the parent card
+            # and gap. This proof permits recovery after a pre-upgrade Sales
+            # commit; a same-line sibling or arbitrary historical split cannot
+            # claim provenance merely by presenting the same child lot ID.
+            expected_child = uuid.uuid5(uuid.NAMESPACE_URL,
+                f"hariom:carry:{original.job_card_id}:{float(payload.gap_qty):.4f}")
+            expected_lot = uuid.uuid5(uuid.NAMESPACE_URL, f"hariom:carry-release:{expected_child}")
+            if (original.job_card_id is None or existing.job_card_id != expected_child
+                    or existing.id != expected_lot):
+                raise HTTPException(409, "Historical release-lot source cannot be verified for this replay")
+            existing.source_release_lot_id = original.id
+            db.commit()
+            db.refresh(existing)
+        elif existing.source_release_lot_id != release_lot_id:
+            raise HTTPException(409, "Carry-forward release lot belongs to another source release lot")
+        return _lot_payload(existing, existing.sales_order_id)
+    if str(original.status or "").lower() in {"cancelled", "short_closed"}:
+        raise HTTPException(409, "This release lot is already closed")
+    if float(payload.gap_qty) > float(original.released_qty or 0) + 0.0001:
+        raise HTTPException(409, "The carry-forward quantity exceeds the source release allocation")
 
     shrunk_qty, gap_qty = carry_forward_lot_split(original.released_qty, payload.gap_qty)
     original.released_qty = shrunk_qty
 
     new_lot = SalesOrderReleaseLot(
         id=requested_lot_id,
+        source_release_lot_id=original.id,
         sales_order_id=original.sales_order_id,
         sales_order_line_id=original.sales_order_line_id,
         product_code=original.product_code,
@@ -2490,15 +2523,9 @@ def short_close_sales_order_line(
     current_user: dict = Depends(require_role(["Admin", "Owner", "Sales", "Planner", "PlantManager"])),
 ):
     """Reduce a sales line/release lot after production short-closes the gap."""
-    line = (
-        db.query(SalesOrderLine)
-        .join(SalesOrder)
-        .options(joinedload(SalesOrderLine.sales_order), joinedload(SalesOrderLine.release_lots))
-        .filter(SalesOrderLine.id == line_id, SalesOrder.plant_id == plant_id)
-        .first()
-    )
-    if not line:
-        raise HTTPException(status_code=404, detail="Sales order line not found")
+    line = _locked_line(db, line_id, plant_id)
+    db.refresh(line)
+    db.expire(line, ["release_lots"])
 
     reason = (payload.reason_code or "").strip().upper()
     if not reason:
@@ -2509,13 +2536,30 @@ def short_close_sales_order_line(
         if str(lot.status or "").lower() != "cancelled"
     ]
     matched_lot = next((lot for lot in active_lots if str(lot.job_card_id) == str(payload.job_card_id)), None)
-    if matched_lot is None and active_lots:
-        matched_lot = sorted(active_lots, key=lambda lot: lot.created_at or datetime.min)[-1]
-
-    if matched_lot is not None:
-        matched_lot.released_qty = max(0.0, round(float(matched_lot.released_qty or 0.0) - float(payload.gap_qty or 0.0), 4))
-        if matched_lot.released_qty <= 0.0001:
-            matched_lot.status = "short_closed"
+    if payload.expected_release_qty is not None:
+        if matched_lot is None:
+            raise HTTPException(409, "The job card's exact release lot was not found on this sales line")
+        expected = float(payload.expected_release_qty)
+        kept = float(payload.produced_qty)
+        if kept >= expected or abs(expected - kept - float(payload.gap_qty)) > 0.0001:
+            raise HTTPException(422, "The shortage must equal original allocation minus final QC accepted quantity")
+        current = float(matched_lot.released_qty or 0)
+        if str(matched_lot.status or "").lower() == "short_closed":
+            if abs(current - kept) <= 0.0001:
+                return _serialize_line(line)
+            raise HTTPException(409, "This job card was already short-closed to a different quantity")
+        if abs(current - expected) > 0.0001:
+            raise HTTPException(409, "The source release allocation changed before short-close")
+        matched_lot.released_qty = round(kept, 4)
+        matched_lot.status = "short_closed"
+    else:
+        # Preserve the legacy stage-level short-close contract.
+        if matched_lot is None and active_lots:
+            matched_lot = sorted(active_lots, key=lambda lot: lot.created_at or datetime.min)[-1]
+        if matched_lot is not None:
+            matched_lot.released_qty = max(0.0, round(float(matched_lot.released_qty or 0.0) - float(payload.gap_qty or 0.0), 4))
+            if matched_lot.released_qty <= 0.0001:
+                matched_lot.status = "short_closed"
 
     released_after = sum(
         float(lot.released_qty or 0.0)
@@ -2554,6 +2598,15 @@ def short_close_sales_order_line(
     return _serialize_line(line)
 
 
+def _exact_dispatch_replay(db: Session, line: SalesOrderLine, ref: Optional[str], qty: float):
+    if not ref:
+        return None
+    existing = db.query(SalesOrderDispatchLog).filter(SalesOrderDispatchLog.dispatch_line_ref == ref).first()
+    if existing and (existing.line_id != line.id or not isclose(float(existing.qty), float(qty), rel_tol=0, abs_tol=1e-9)):
+        raise HTTPException(status_code=409, detail="Dispatch reference was already used for another line or quantity")
+    return existing
+
+
 @router.post("/lines/{line_id}/validate-dispatch", response_model=DispatchValidationResponse)
 def validate_dispatch_for_line(
     line_id: uuid.UUID,
@@ -2575,15 +2628,22 @@ def validate_dispatch_for_line(
         raise HTTPException(status_code=404, detail="Sales order line not found")
 
     order = line.sales_order
+    if payload.approved_spec_id and line.approved_spec_id != payload.approved_spec_id:
+        raise HTTPException(status_code=400, detail="Spec mismatch for this sales order line")
+
+    # A receiver may commit fulfillment and lose its response. Recognize the
+    # exact immutable shipment before checking the now-reduced commercial balance.
+    replay = _exact_dispatch_replay(db, line, payload.dispatch_line_ref, payload.qty)
+    if replay:
+        return {"order_id": order.id, "order_status": order.status.value,
+                "line_id": line.id, "qty": payload.qty,
+                "remaining_qty": max(0.0, line.qty - line.fulfilled_qty), "valid": True}
     if order.status not in [
         SalesOrderStatus.RELEASED,
         SalesOrderStatus.PARTIALLY_RELEASED,
         SalesOrderStatus.PARTIALLY_DISPATCHED,
     ]:
         raise HTTPException(status_code=400, detail="Sales order line not released for dispatch")
-
-    if payload.approved_spec_id and line.approved_spec_id != payload.approved_spec_id:
-        raise HTTPException(status_code=400, detail="Spec mismatch for this sales order line")
 
     remaining = max(0.0, line.qty - line.fulfilled_qty)
     if payload.qty > remaining:
@@ -2607,6 +2667,10 @@ def record_dispatch_for_line(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner", "Dispatch"])),
 ):
+    # The reference is globally unique. Serialize even requests for different
+    # lines so a collision becomes an explicit replay conflict, never a 500.
+    db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+               {"key": "sales-dispatch-ref:" + payload.dispatch_line_ref})
     line = (
         db.query(SalesOrderLine)
         .join(SalesOrder)
@@ -2620,9 +2684,7 @@ def record_dispatch_for_line(
     if not line:
         raise HTTPException(status_code=404, detail="Sales order line not found")
 
-    existing_log = db.query(SalesOrderDispatchLog).filter(
-        SalesOrderDispatchLog.dispatch_line_ref == payload.dispatch_line_ref
-    ).first()
+    existing_log = _exact_dispatch_replay(db, line, payload.dispatch_line_ref, payload.qty)
     if existing_log:
         return {
             "message": "Dispatch already recorded",

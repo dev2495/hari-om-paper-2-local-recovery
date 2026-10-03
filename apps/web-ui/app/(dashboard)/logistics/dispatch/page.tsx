@@ -9,19 +9,29 @@ import { useAuth } from "@/context/AuthContext"
 import { PageHeader } from "@/components/workspace/page-header"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
 import { jobCardRef } from "@/lib/job-card-display"
+import { usePlants } from "@/hooks/use-system"
+import { errorText } from "@/lib/season-api"
+import { RetainSurplusButton } from "@/components/production/RetainSurplusButton"
+
+const handoffLabels: Record<string, string> = { AWAITING_PACKING: "Awaiting packing", AWAITING_QC: "Awaiting final QC", AWAITING_FG: "Awaiting FG posting", QC_HOLD: "QC hold", REJECTED_QC: "No accepted FG (QC closed)", RETAINED_FG: "Surplus retained in FG", UNSEALED: "Unsealed", SEALED: "Sealed" }
 
 export default function DispatchSelectionPage() {
-    const { activePlant } = useAuth()
-    const { data: readyJobs, isLoading } = useReadyJobs(activePlant)
-    const { data: customers } = useCustomers()
+    const { activePlant, user } = useAuth()
+    const canRetain = (user?.roles || []).some(role => ["Owner", "Admin", "Dispatch"].includes(role))
+    const jobsQuery = useReadyJobs(activePlant)
+    const customersQuery = useCustomers()
+    const { data: plants = [] } = usePlants()
+    const { data: readyJobs, isLoading } = jobsQuery
+    const { data: customers } = customersQuery
 
     const [filterCustomer, setFilterCustomer] = useState("")
     const [filterJobNo, setFilterJobNo] = useState("")
     const [filterStatus, setFilterStatus] = useState("")
 
-    if (isLoading) {
+    if (!activePlant || isLoading || customersQuery.isLoading) {
         return <div className="p-6 text-muted-foreground">Loading ready dispatches...</div>
     }
+    if (jobsQuery.isError || customersQuery.isError) return <div className="space-y-3 rounded-xl border border-border bg-card p-6"><p role="alert" className="text-destructive">Could not load dispatch handoffs: {errorText(jobsQuery.error || customersQuery.error)}</p><Button variant="outline" onClick={() => { jobsQuery.refetch(); customersQuery.refetch() }}>Retry</Button></div>
 
     const jobs = readyJobs || []
 
@@ -53,10 +63,10 @@ export default function DispatchSelectionPage() {
                 appearance={MODULE_APPEARANCES.dispatch}
                 badge="Finished-goods handoff"
                 title="Dispatch Selection"
-                description="Create, resume, or review challans for packed jobs. Sealing posts FG stock and sales fulfillment together."
+                description="Create, resume, or review challans for packed jobs. Sealing records stock outward and Sales fulfillment."
                 aside={
                     <div>
-                        <p className="text-2xl font-semibold text-foreground">{jobs.length}</p>
+                        <p className="text-2xl font-semibold text-foreground">{filteredJobs.length}</p>
                         <p className="text-[12px] font-medium text-muted-foreground">handoffs visible</p>
                     </div>
                 }
@@ -91,7 +101,7 @@ export default function DispatchSelectionPage() {
                         onChange={(e) => setFilterStatus(e.target.value)}
                     >
                         <option value="">All Statuses</option>
-                        <option value="READY">Ready (No Dispatch)</option>
+                        <option value="READY">Unsealed (No Draft)</option>
                         <option value="DRAFT">Draft Dispatch</option>
                         <option value="SEALED">Sealed</option>
                     </select>
@@ -105,9 +115,10 @@ export default function DispatchSelectionPage() {
                         <thead className="bg-muted text-muted-foreground border-b border-border">
                             <tr>
                                 <th className="px-4 py-3 font-semibold">Job Card No</th>
+                                <th className="px-4 py-3 font-semibold">Plant</th>
                                 <th className="px-4 py-3 font-semibold">Customer</th>
                                 <th className="px-4 py-3 font-semibold">Size / Specs</th>
-                                <th className="px-4 py-3 font-semibold">Planned Qty</th>
+                                <th className="px-4 py-3 font-semibold">Accepted FG / Balance</th>
                                 <th className="px-4 py-3 font-semibold">Stage</th>
                                 <th className="px-4 py-3 font-semibold">Dispatch Status</th>
                                 <th className="px-4 py-3 font-semibold text-right">Action</th>
@@ -116,7 +127,7 @@ export default function DispatchSelectionPage() {
                         <tbody className="divide-y divide-border">
                             {filteredJobs.length === 0 ? (
                                 <tr>
-                                    <td colSpan={7} className="p-0">
+                                    <td colSpan={8} className="p-0">
                                         <div className="flex min-h-[260px] flex-col items-center justify-center bg-gradient-to-b from-card to-muted/80 px-6 py-10 text-center">
                                             <span className="grid h-14 w-14 place-items-center rounded-2xl border border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink shadow-sm">
                                                 {jobs.length === 0 ? <ClipboardCheck className="h-7 w-7" /> : <Truck className="h-7 w-7" />}
@@ -146,16 +157,20 @@ export default function DispatchSelectionPage() {
                                 filteredJobs.map((job: any) => {
                                     const customerName = customerMap[job.customer_id] || "Unknown Customer"
                                     const spec = job.spec_snapshot || {}
-                                    const specDisplay = spec.name || `${spec.dimensions?.tube_od_mm || '?'}x${spec.dimensions?.tube_thickness_mm || '?'} mm`
+                                    const specDisplay = spec.name || `${spec.od_mm ?? spec.od_min_mm ?? spec.dimensions?.tube_od_mm ?? '?'} OD × ${spec.id_mm ?? spec.id_min_mm ?? '?'} ID × ${spec.length_mm ?? spec.length_min_mm ?? '?'} mm`
+                                    const plant = plants.find((p: any) => String(p.id) === String(job.plant_id))
+                                    const maxShipQty = Number(job.max_ship_qty || 0)
+                                    const latestShipment = job.shipments?.[0]
 
                                     return (
                                         <tr key={job.id} className="hover:bg-muted transition-colors">
                                             <td className="px-4 py-3 font-medium text-foreground border-l-[3px] border-l-transparent hover:border-l-amber-500">
                                                 {jobCardRef(job)}
                                             </td>
+                                            <td className="px-4 py-3 text-muted-foreground">{plant?.name || plant?.code || "Plant unavailable"}</td>
                                             <td className="px-4 py-3 text-muted-foreground">{customerName}</td>
                                             <td className="px-4 py-3 text-muted-foreground">{specDisplay}</td>
-                                            <td className="px-4 py-3 text-muted-foreground">{job.planned_qty}</td>
+                                            <td className="px-4 py-3 text-muted-foreground"><p className="whitespace-nowrap">Accepted {job.dispatchable_qty ?? 0} · remaining {job.remaining_qty ?? 0} pcs</p><p className="text-xs">Packed {job.packed_qty ?? 0} · final QC rejected {job.qc_rejected_qty ?? 0} pcs</p><p className="text-xs">Unused / uninspected at final QC {job.qc_uninspected_qty ?? 0} pcs</p><p className="text-xs">Shipped {job.dispatched_qty ?? 0} · can ship {maxShipQty} pcs</p><p className="text-xs">Released {job.released_qty ?? job.planned_qty} · shipment allowance {job.shipping_allowance ?? 0} pcs</p>{job.retained_qty > 0 && <p className="text-xs">Retained FG {job.retained_qty} pcs</p>}</td>
                                             <td className="px-4 py-3">
                                                 <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs transition-colors bg-muted text-muted-foreground font-normal">
                                                     {job.current_stage}
@@ -167,16 +182,14 @@ export default function DispatchSelectionPage() {
                                                 ) : job.dispatch_status === "DRAFT" ? (
                                                     <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors text-signal-amber-ink border-signal-amber-line bg-signal-amber-soft">DRAFT</span>
                                                 ) : (
-                                                    <span className="text-muted-foreground italic text-xs">Ready</span>
+                                                    <span className="text-muted-foreground text-xs">{handoffLabels[job.handoff_state] || "Unsealed"}</span>
                                                 )}
+                                                {job.dispatch_status === "DRAFT" && job.handoff_state !== "UNSEALED" && <p className="mt-1 text-xs text-muted-foreground">{handoffLabels[job.handoff_state]}</p>}
                                             </td>
                                             <td className="px-4 py-3 text-right">
-                                                {(job.shipments || []).map((shipment: any, index: number) => <Link key={shipment.id} href={`/logistics/dispatch/${job.id}/print?dispatch_id=${shipment.id}`} className="mr-3 block text-xs text-signal-teal-ink underline">Shipment {index + 1}: {shipment.qty} pcs</Link>)}
-                                                <Button asChild size="sm" variant={job.dispatch_status === "SEALED" ? "outline" : "default"}>
-                                                    <Link href={job.dispatch_status === "SEALED" ? `/logistics/dispatch/${job.id}/print?dispatch_id=${job.dispatch_id}` : `/logistics/dispatch/new?job_card_id=${job.id}&remaining_qty=${job.remaining_qty ?? job.planned_qty}`}>
-                                                        {job.dispatch_status === "SEALED" ? "View Challan" : job.dispatch_status === "DRAFT" ? "Edit Draft" : "Create Dispatch"}
-                                                    </Link>
-                                                </Button>
+                                                {(job.shipments || []).map((shipment: any, index: number) => <Link key={shipment.id} href={`/logistics/dispatch/${job.id}/print?dispatch_id=${shipment.id}`} className="mr-3 block text-xs text-signal-teal-ink underline">Shipment {job.shipments.length - index}: {shipment.qty} pcs</Link>)}
+                                                {maxShipQty > 0 && job.handoff_state !== "REJECTED_QC" ? <Button asChild size="sm"><Link href={`/logistics/dispatch/new?job_card_id=${job.id}`}>{job.dispatch_status === "DRAFT" ? "Edit Draft" : "Create Dispatch"}</Link></Button> : latestShipment ? <Button asChild size="sm" variant="outline"><Link href={`/logistics/dispatch/${job.id}/print?dispatch_id=${latestShipment.id}`}>View Challan</Link></Button> : null}
+                                                {canRetain && job.entry_model === "V2" && job.remaining_qty > 0 && job.dispatched_qty >= job.shipping_allowance && job.handoff_state === "UNSEALED" && <RetainSurplusButton job={job} />}
                                             </td>
                                         </tr>
                                     )

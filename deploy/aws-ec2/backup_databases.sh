@@ -51,8 +51,15 @@ timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 backup_dir="${BACKUP_ROOT}/${timestamp}"
 archive_path="${BACKUP_ROOT}/hariom-erp-${timestamp}.tar.gz"
 mkdir -p "${backup_dir}"
-exec 9>"${BACKUP_ROOT}/backup.lock"
-flock -n 9 || { echo "Another backup is running" >&2; exit 1; }
+if [[ "${ERP_BACKUP_LOCK_HELD:-0}" == 1 ]]; then
+  # The release parent keeps this SAME open-file description locked until its
+  # cutover/rollback finishes. Never reopen FD9 and accidentally self-conflict.
+  [[ "$(readlink /proc/$$/fd/9 2>/dev/null || true)" == "${BACKUP_ROOT}/backup.lock" ]] \
+    || { echo 'Inherited backup lock is missing or belongs to another path' >&2; exit 1; }
+else
+  exec 9>"${BACKUP_ROOT}/backup.lock"
+fi
+flock -n 9 || { echo "Another backup or maintenance operation is running" >&2; exit 1; }
 # A coordinated seven-database backup needs a quiet application. Graceful stop
 # drains in-flight requests; PostgreSQL stays online. Restart even on failure.
 if docker compose --env-file "${ENV_FILE}" --project-directory "${DEPLOY_DIR}" ps --status running --services | grep -qx erp-app; then
@@ -74,6 +81,24 @@ resume_app
 sha256sum "${backup_dir}"/*.dump "${backup_dir}"/*.counts "${backup_dir}/CONSISTENCY" > "${backup_dir}/SHA256SUMS"
 tar -C "${backup_dir}" -czf "${archive_path}" .
 aws s3 cp "${archive_path}" "s3://${BACKUP_S3_BUCKET}/database/${timestamp}/$(basename "${archive_path}")" --sse AES256 --only-show-errors
+if [[ -n "${BACKUP_RESULT_FILE:-}" ]]; then
+  export BACKUP_RESULT_FILE BACKUP_RESULT_ARCHIVE="$archive_path" BACKUP_RESULT_KEY="database/${timestamp}/$(basename "$archive_path")"
+  python3 - <<'PY'
+import hashlib, json, os
+from pathlib import Path
+target=Path(os.environ['BACKUP_RESULT_FILE'])
+temporary=target.with_name(target.name+'.tmp')
+archive=Path(os.environ['BACKUP_RESULT_ARCHIVE'])
+with archive.open('rb') as stream:checksum=hashlib.file_digest(stream,'sha256').hexdigest()
+with temporary.open('w') as stream:
+    json.dump({'archive_path':str(archive),'s3_key':os.environ['BACKUP_RESULT_KEY'],'sha256':checksum},stream)
+    stream.flush();os.fsync(stream.fileno())
+os.replace(temporary,target)
+directory=os.open(target.parent,os.O_RDONLY)
+try:os.fsync(directory)
+finally:os.close(directory)
+PY
+fi
 
 rm -rf "${backup_dir}"
 find "${BACKUP_ROOT}" -maxdepth 1 -type f -name 'hariom-erp-*.tar.gz' -mtime +7 -delete

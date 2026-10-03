@@ -35,11 +35,18 @@ finish() {
 }
 trap finish EXIT
 
-latest_key="$(aws s3api list-objects-v2 \
-  --bucket "${BACKUP_S3_BUCKET}" \
-  --prefix database/ \
-  --query 'reverse(sort_by(Contents,&LastModified))[0].Key' \
-  --output text)"
+if [[ -n "${RESTORE_BACKUP_KEY:-}" ]]; then
+  [[ "$RESTORE_BACKUP_KEY" =~ ^database/[0-9]{8}T[0-9]{6}Z/hariom-erp-[0-9]{8}T[0-9]{6}Z\.tar\.gz$ \
+     && "${RESTORE_ARCHIVE_SHA256:-}" =~ ^[a-f0-9]{64}$ ]] \
+    || { echo 'Exact backup key and SHA-256 required for a selected restore drill' >&2; exit 1; }
+  latest_key="$RESTORE_BACKUP_KEY"
+else
+  latest_key="$(aws s3api list-objects-v2 \
+    --bucket "${BACKUP_S3_BUCKET}" \
+    --prefix database/ \
+    --query 'reverse(sort_by(Contents,&LastModified))[0].Key' \
+    --output text)"
+fi
 if [[ -z "${latest_key}" || "${latest_key}" == "None" ]]; then
   echo "No database backup found in s3://${BACKUP_S3_BUCKET}/database/" >&2
   exit 1
@@ -47,6 +54,10 @@ fi
 
 archive_path="${work_dir}/backup.tar.gz"
 aws s3 cp "s3://${BACKUP_S3_BUCKET}/${latest_key}" "${archive_path}" --only-show-errors
+if [[ -n "${RESTORE_BACKUP_KEY:-}" ]]; then
+  [[ "$(sha256sum "$archive_path" | cut -d ' ' -f 1)" == "$RESTORE_ARCHIVE_SHA256" ]] \
+    || { echo 'Selected backup archive checksum differs; restore drill stopped' >&2; exit 1; }
+fi
 tar -xzf "${archive_path}" -C "${work_dir}"
 (cd "${work_dir}" && sed 's#  .*/#  #' SHA256SUMS | sha256sum --check -)
 

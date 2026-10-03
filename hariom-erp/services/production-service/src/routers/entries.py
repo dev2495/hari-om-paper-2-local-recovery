@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 from ..database import get_db
+from ..dispatch_quantities import dispatchable_quantity, shipping_allowance, qc_excluded_quantities
 from ..models import JobCard, JobCardStage, JobCardStageSegment, QualityHold, QualityInspection, PackingRecord, Dispatch, MonthlyMaterialClose
 from ..entry_models import StageEntry, EntryRevision, InputAllocation, EntryReceipt, CompletionEffect, ResidualWip
 from ..utils.auth import get_current_plant, get_current_user, require_role
@@ -133,6 +134,7 @@ def residual_dict(r):
 
 def flow(db,job):
     stage_map={r.stage_type:r for r in db.query(JobCardStage).filter_by(job_card_id=job.id).all()}
+    packing_record=db.query(PackingRecord).filter_by(job_card_id=job.id).first()
     segments=db.query(JobCardStageSegment).filter_by(job_card_id=job.id).all()
     all_entries=db.query(StageEntry).filter_by(job_card_id=job.id).order_by(StageEntry.entry_no).all()
     holds=db.query(QualityHold).filter_by(job_card_id=job.id).all()
@@ -174,13 +176,15 @@ def flow(db,job):
         if drafts:blockers.append(f"{drafts} draft entries remain")
         if not readiness["ready"]:blockers.append("Required QC samples or dispositions incomplete")
         if accepted<target:blockers.append("Target not reached; short-close reason required")
-        status=row.status
+        status=row.status;retained=0
         if stage=="DISPATCH":
-            packed=int(stage_map["PACKING"].output_qty or 0) if "PACKING" in stage_map else target
-            status="COMPLETED" if packed>0 and accepted>=packed else "RUNNING" if accepted>0 else row.status
-            cap=max(0,packed-accepted);blockers=[] if status=="COMPLETED" else ["Complete shipment through Logistics Dispatch"]
+            packed=int(dispatchable_quantity(job,packing_record,stage_map.get("QC")))
+            retained=int(snapshot.get("retained_fg_qty") or 0)
+            status="COMPLETED" if packed>0 and accepted+retained>=packed or snapshot.get("all_qc_rejected") else "RUNNING" if accepted>0 else row.status
+            cap=max(0,packed-accepted-retained);blockers=[] if status=="COMPLETED" else ["Complete shipment through Logistics Dispatch"]
         stage_segments=[s for s in segments if s.stage_type==stage]
         states.append({"stage":stage,"status":status,"unit":stage_unit(stage),"target":target,"produced_total":produced,"accepted_total":accepted,"rejected_total":produced-accepted,"input_total":accepted if stage=="DISPATCH" else sum(e.input_quantity for e in actual),"cutting_loss_total":sum(e.cutting_loss_pcs for e in actual),"carryover_pcs":sum(e.carry_out_pcs-e.carry_in_pcs for e in actual),"available_from_upstream":cap,"input_unit":stage_unit(upstream) if upstream else None,"qc":readiness,"draft_count":drafts,"can_close":status!="COMPLETED" and stage not in ("SLITTING","DISPATCH") and not blockers,"blockers":blockers,"row_version":int(snapshot.get("row_version",1)),"supervisor_name":snapshot.get("supervisor_name"),"closed_at":snapshot.get("closed_at"),"residual_quantity":snapshot.get("residual_quantity"),"residual_disposition":snapshot.get("residual_disposition"),"segments":[{"id":str(s.id),"machine_id":str(s.machine_id) if s.machine_id else None,"plan_date":s.plan_date,"shift_code":s.shift_code,"status":s.status,**planning._planner_gate_context(current_stage=stage,active_stage=row,active_segment=s)} for s in stage_segments]})
+        if stage=="DISPATCH":states[-1].update({"retained_fg_qty":retained,"surplus_settlement":snapshot.get("surplus_settlement"),"dispatchable_qty":packed,"max_ship_qty":max(0,shipping_allowance(job,packed,row)-accepted),**qc_excluded_quantities(job,packing_record,stage_map.get("QC")),"all_qc_rejected":bool(snapshot.get("all_qc_rejected"))})
     pending=db.query(func.count(CompletionEffect.id)).filter(CompletionEffect.job_card_id==job.id,CompletionEffect.status.in_(["PENDING","RUNNING","FAILED"])).scalar()
     return {"job_card_id":str(job.id),"season":(job.spec_snapshot or {}).get("season"),"recipe_revision":((job.material_plan_snapshot or {}).get("recipe_snapshot") or {}).get("season_revision"),"stages":states,"pending_effects":pending,"residual_wip":[residual_dict(r) for r in residuals],"final_samples":[{"sample_id":i.sample_id,"status":i.status,"readings":i.readings,"qc_name":i.created_by,"recorded_at":i.created_at,"workflow_status":(i.evaluation or {}).get("workflow_status")} for i in inspections if i.stage_type=="QC"],"active_stages":[s["stage"] for s in states if s["status"]=="RUNNING"]}
 
@@ -330,9 +334,9 @@ def validate_setup(db,job,e):
             cycle=(datetime.fromisoformat(str(e.details["end_time"]).replace("Z","+00:00"))-datetime.fromisoformat(str(e.details["start_time"]).replace("Z","+00:00"))).total_seconds()/3600
         planning._validate_execution_capacity(db,actual,e.stage,machine,e.accepted+sum(v.accepted for v in matching),e.details,reference_time=datetime.combine(e.business_date,datetime.min.time()),card_cycle_hours=cycle,override_reason=e.details.get("overproduction_reason") or e.details.get("capacity_override_reason"),warnings=warnings)
         e.details={**e.details,"machine_warnings":warnings}
-    current=sum(v.accepted for v in entries(db,job,e.stage) if v.id!=e.id)
+    current=sum(v.produced for v in entries(db,job,e.stage) if v.id!=e.id)
     target=planned_in_stage_units(e.stage,job.planned_qty,planning._pcs_per_bamboo_from_snapshot(job.spec_snapshot or {}))
-    if current+e.accepted>target*1.10 and not str(e.details.get("overproduction_reason") or "").strip():raise HTTPException(409,"Output above 110% of target requires an overproduction reason")
+    if current+e.produced>target*1.10 and not str(e.details.get("overproduction_reason") or "").strip():raise HTTPException(409,"Production above 110% of target requires an overproduction reason")
 
 
 @router.patch("/job-cards/{card_id}/entries/{entry_id}")

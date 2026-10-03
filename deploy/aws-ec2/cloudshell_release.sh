@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
 # Run from AWS CloudShell (ap-south-1). Finds the ERP host by its Elastic IP and
 # runs release_verified.sh on it through SSM Run Command, then reports health.
-# Usage: bash cloudshell_release.sh <40-char release sha>
+# Usage: bash cloudshell_release.sh <40-char release sha> <40-char expected deployed sha>
 set -euo pipefail
 release="${1:?exact 40-character Git commit required}"
-[[ "$release" =~ ^[a-f0-9]{40}$ ]]
+expected="${2:?exact expected deployed commit required}"
+[[ "$release" =~ ^[a-f0-9]{40}$ && "$expected" =~ ^[a-f0-9]{40}$ ]]
 region="${AWS_REGION:-ap-south-1}"
 ip="${ERP_ELASTIC_IP:-35.154.224.14}"
 site="${ERP_SITE_HOST:-35-154-224-14.sslip.io}"
-# Commit that snapshots the tree the host was last deployed from (used only
-# when the host has no DEPLOYED_COMMIT marker yet).
-snapshot="f2d248b05b58b4ca0194a18d92c22db62a476258"
 repo="https://raw.githubusercontent.com/dev2495/hari-om-paper-2-local-recovery"
 
 iid="$(aws ec2 describe-instances --region "$region" --filters "Name=ip-address,Values=$ip" \
@@ -27,14 +25,12 @@ app=/opt/hariom/app
 if [[ ! -f \$app/deploy/aws-ec2/docker-compose.yml ]]; then
   echo "APP_DIR_MISSING: \$app"; docker ps --format '{{.Names}} {{.Label "com.docker.compose.project.working_dir"}}'; exit 3
 fi
-if [[ ! -s /opt/hariom/DEPLOYED_COMMIT ]]; then
-  echo "$snapshot" > /opt/hariom/DEPLOYED_COMMIT
-  echo "Initialised /opt/hariom/DEPLOYED_COMMIT with live snapshot $snapshot"
-fi
+[[ -s /opt/hariom/DEPLOYED_COMMIT ]] || { echo 'Deployed commit marker missing; inspect before releasing'; exit 3; }
+[[ "\$(cat /opt/hariom/DEPLOYED_COMMIT)" == "$expected" ]] || { echo 'Deployed commit changed; inspect before releasing'; exit 3; }
 echo "Currently deployed: \$(cat /opt/hariom/DEPLOYED_COMMIT)"
 curl -fsSL "$repo/$release/deploy/aws-ec2/release_verified.sh" -o /opt/hariom/release_verified.sh
 set +e
-bash /opt/hariom/release_verified.sh "$release" "\$(cat /opt/hariom/DEPLOYED_COMMIT)" > "/opt/hariom/release-$release.log" 2>&1
+bash /opt/hariom/release_verified.sh "$release" "$expected" > "/opt/hariom/release-$release.log" 2>&1
 code=\$?
 set -e
 tail -n 40 "/opt/hariom/release-$release.log"

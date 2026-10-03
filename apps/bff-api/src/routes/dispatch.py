@@ -37,3 +37,7 @@ async def create_or_update_dispatch(request: Request, token: str = Depends(get_t
 @router.get("/{dispatch_id}")
 async def get_dispatch(dispatch_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/dispatch/{dispatch_id}", request, token)
+
+@router.post("/retain-surplus/{job_card_id}")
+async def retain_surplus(job_card_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/dispatch/retain-surplus/{job_card_id}", request, token)

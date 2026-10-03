@@ -2,6 +2,16 @@ import { api } from "./api"
 
 export type Season = "ROY" | "MONSOON"
 export const seasonLabel = (season: string) => season === "MONSOON" ? "Monsoon" : "Rest of year"
+export const seasonTimestamp = (value: string) => new Date(/(?:Z|[+-]\d{2}:\d{2})$/i.test(value) ? value : `${value}Z`).toLocaleString("en-IN")
+export const qcRangeLabel = (rule: any): string => {
+  if (!rule.applicable) return "Not applicable"
+  if (rule.mode === "RECORD_ONLY") return "Required observation"
+  const term = (value: any) => `${value.ref === "SAMPLE.pre_weight" ? "Same sample pre-weight" : value.ref} × ${value.factor}${value.offset ? ` ${Number(value.offset) < 0 ? "−" : "+"} ${Math.abs(Number(value.offset))}` : ""}`
+  const bound = (values: any[], kind: string) => values.length > 1 ? `${kind}(${values.map(term).join(", ")})` : values.map(term).join("")
+  const min = rule.dynamic ? bound(rule.lower || [], "max") || null : rule.min
+  const max = rule.dynamic ? bound(rule.upper || [], "min") || null : rule.max
+  return `${min != null && max != null ? `${min} to ${max}` : min != null ? `≥ ${min}` : max != null ? `≤ ${max}` : "No bound configured"}${rule.unit ? ` ${rule.unit}` : ""}`
+}
 export const command = (extra: Record<string, unknown> = {}) => ({ request_id: crypto.randomUUID(), ...extra })
 export const errorText = (error: any): string => {
   const detail = error?.response?.data?.detail

@@ -5,6 +5,8 @@ import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { useDispatchByJobCard, useDispatch } from "@/hooks/use-dispatch"
 import { DispatchDocument } from "@/components/dispatch/dispatch-document"
 import { Button } from "@/components/ui/button"
+import { useAuth } from "@/context/AuthContext"
+import { errorText } from "@/lib/season-api"
 
 export default function PrintDispatchPage() {
     const params = useParams()
@@ -13,9 +15,11 @@ export default function PrintDispatchPage() {
 
     const searchParams = useSearchParams()
     const dispatchId = searchParams?.get("dispatch_id") || null
-    const byId = useDispatch(dispatchId)
-    const byJob = useDispatchByJobCard(dispatchId ? null : jobCardId)
-    const { data: dispatchRecord, isLoading } = dispatchId ? byId : byJob
+    const { activePlant } = useAuth()
+    const byId = useDispatch(dispatchId, activePlant)
+    const byJob = useDispatchByJobCard(dispatchId ? null : jobCardId, false, activePlant)
+    const query = dispatchId ? byId : byJob
+    const { data: dispatchRecord, isLoading } = query
 
     useEffect(() => {
         // Optional auto-print trigger
@@ -25,6 +29,7 @@ export default function PrintDispatchPage() {
     }, [dispatchRecord])
 
     if (isLoading) return <div className="p-8 text-center text-slate-500">Loading Challan Print View...</div>
+    if (query.isError) return <div className="space-y-3 p-8 text-center"><p role="alert" className="text-destructive">Could not load this challan: {errorText(query.error)}</p><Button variant="outline" onClick={() => query.refetch()}>Retry</Button><Button variant="ghost" onClick={() => router.push("/logistics/dispatch")}>Back to Logistics</Button></div>
 
     if (!dispatchRecord) {
         return (

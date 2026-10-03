@@ -1,5 +1,7 @@
 # Seasonal recipes, stage QC, continuous entries and specification list — implementation plan v2
 
+Implementation status, actual contracts, verification and release procedure are recorded in [season-implementation-as-built.md](season-implementation-as-built.md). The review verdict below records the pre-implementation review. The as-built document supersedes proposed mechanics where the final implementation differs.
+
 Reviewed 3 October 2026, including the user's subsequent instruction to reset current testing data. This document replaces the attached v1 plan as the implementation handoff; do not combine conflicting instructions from the two documents.
 
 Review basis: user requirements and source at `/Users/devarshthakkar/Downloads/hari om/hari-om-paper-2-local-recovery`, branch `release/2026-09-25-paper-reel-po`, commit `9ada1ffb00ac9c7e58cf3b09cc83281b4cbc5158`. The attached plan is untracked there. The chat workspace contains release evidence, not a Git checkout. All repository paths below are relative to the verified source checkout.

@@ -1,6 +1,7 @@
 import unittest
 from datetime import datetime
 from types import SimpleNamespace
+from contextlib import nullcontext
 from unittest.mock import patch
 import uuid
 
@@ -25,6 +26,9 @@ class _FakeQuery:
 
     def first(self):
         return self._result
+
+    def filter_by(self, **kwargs):
+        return self
 
     def count(self):
         return int(self._result or 0)
@@ -69,6 +73,10 @@ class _FakeDB:
 
 
 class DispatchIdempotencyTests(unittest.TestCase):
+    def setUp(self):
+        self.enterContext(patch("src.routers.dispatch._sales_line_posting_lease", return_value=nullcontext()))
+        self.enterContext(patch("src.routers.dispatch._require_sales_line_available"))
+
     def test_same_request_id_with_different_hash_is_conflict(self):
         job_card_id = uuid.UUID("00000000-0000-0000-0000-00000000d101")
         job_card = SimpleNamespace(

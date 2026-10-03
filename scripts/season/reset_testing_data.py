@@ -6,7 +6,9 @@ application services. Unknown tables fail closed. Credentials never enter output
 """
 import argparse
 from datetime import datetime, timezone
+import errno
 import hashlib
+import getpass
 import json
 import os
 from pathlib import Path
@@ -38,6 +40,31 @@ CLEAR={
 
 def db_url(name):
     return URL.create("postgresql+psycopg2",username=os.getenv("DB_USER",os.getenv("USER","postgres")),password=os.getenv("DB_PASSWORD") or None,host=os.getenv("DB_HOST","127.0.0.1"),port=int(os.getenv("DB_PORT","5432")),database=os.getenv("ERP_DB_PREFIX","")+name)
+
+
+def write_manifest(path, report):
+    """A killed writer must leave the previous recovery checkpoint readable."""
+    temporary=path.with_name(path.name+'.tmp')
+    with temporary.open('w') as stream:
+        os.chmod(temporary,0o600)
+        json.dump(report,stream,indent=2);stream.flush();os.fsync(stream.fileno())
+    os.replace(temporary,path)
+    directory=os.open(path.parent,os.O_RDONLY)
+    try:
+        try:os.fsync(directory)
+        except OSError as exc:
+            if exc.errno not in (errno.EINVAL,errno.ENOTSUP):raise
+    finally:os.close(directory)
+
+
+def classified_tables(name, tables):
+    # None deliberately retains the entire authentication/security catalogue.
+    # An empty set means no retained tables, not permission to retain anything.
+    known=(tables if KEEP[name] is None else KEEP[name])|CLEAR[name]|{'alembic_version'}
+    unknown=tables-known
+    if unknown:raise RuntimeError(f"Unclassified tables in {name}: {sorted(unknown)}")
+    clear=tables&CLEAR[name]
+    return clear,tables-clear
 
 
 def pg_tool(name,url,args):
@@ -81,17 +108,17 @@ def restore_backup(args,output,report,identity):
         engine=create_engine(db_url(name));engines[name]=engine
         with engine.connect() as c:
             if c.execute(text("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() AND backend_type='client backend'")).scalar():raise RuntimeError('Database clients still connected to '+name)
-    report['status']='RESTORING';(output/'reset-manifest.json').write_text(json.dumps(report,indent=2))
+    report['status']='RESTORING';write_manifest(output/'reset-manifest.json',report)
     try:
         for name,engine in engines.items():
             engine.dispose()
             pg_tool('pg_restore',db_url(name),['--clean','--if-exists','--single-transaction','--exit-on-error','--no-owner','--no-acl',str(output/(name+'.dump'))])
             data=report['databases'][name]
             if counts(engine,data['before'])!=data['before'] or content_hashes(engine,data['before'])!=data['content_hashes']:raise RuntimeError('Restored database differs from archived content: '+name)
-            data['recovered']=True;(output/'reset-manifest.json').write_text(json.dumps(report,indent=2))
+            data['recovered']=True;write_manifest(output/'reset-manifest.json',report)
     except Exception:
-        report['status']='RESTORE_FAILED';(output/'reset-manifest.json').write_text(json.dumps(report,indent=2));raise
-    report['status']='RESTORED';report['restored_at']=datetime.now(timezone.utc).isoformat();(output/'reset-manifest.json').write_text(json.dumps(report,indent=2))
+        report['status']='RESTORE_FAILED';write_manifest(output/'reset-manifest.json',report);raise
+    report['status']='RESTORED';report['restored_at']=datetime.now(timezone.utc).isoformat();write_manifest(output/'reset-manifest.json',report)
     print('All seven databases recovered and their archived counts/content verified')
 
 
@@ -109,30 +136,33 @@ def run(args):
         if existing.get('environment')!=identity:raise RuntimeError('Reset environment differs from the reviewed manifest')
         if existing.get('release_commit')!=os.getenv('ERP_RELEASE_COMMIT'):raise RuntimeError('Release differs from the reviewed reset manifest')
         if existing.get('status')=='COMPLETE':print("Reset already complete; no records deleted again");return
+        if not args.apply and existing.get('status')!='PREVIEW':raise RuntimeError('Recovery manifest cannot be replaced by a preview; use a fresh archive and reset ID')
         if args.apply and existing.get('status')!='PREVIEW':raise RuntimeError("An incomplete reset needs reviewed recovery from this manifest before rerun")
     if args.apply and not existing:raise RuntimeError('Create and review a dry-run manifest before applying the reset')
-    report={'reset_id':args.reset_id,'scope':'testing operations across both plants','environment':identity,'release_commit':os.getenv('ERP_RELEASE_COMMIT'),'created_at':datetime.now(timezone.utc).isoformat(),'status':'PREVIEW','databases':{}}
+    report={'reset_id':args.reset_id,'scope':'testing operations across both plants','environment':identity,'release_commit':os.getenv('ERP_RELEASE_COMMIT'),'operator':os.getenv('ERP_RESET_ACTOR') or getpass.getuser(),'created_at':datetime.now(timezone.utc).isoformat(),'status':'PREVIEW','databases':{}}
     engines={}
     for name in KEEP:
         url=db_url(name);engine=create_engine(url);engines[name]=engine
         with engine.connect() as c:
             tables=set(c.execute(text("SELECT tablename FROM pg_tables WHERE schemaname='public'")).scalars())
-            known=(KEEP[name] or tables)|CLEAR[name]|{'alembic_version'}
-            unknown=tables-known
-            if unknown:raise RuntimeError(f"Unclassified tables in {name}: {sorted(unknown)}")
+            clear,keep=classified_tables(name,tables)
             # App connections (including idle pools) must be gone before backups.
             if args.apply and c.execute(text("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() AND backend_type='client backend'")).scalar():raise RuntimeError(f"Application/database clients still connected to {name}; stop services first")
-        clear=tables&CLEAR[name];keep=tables-clear
         with engine.connect() as c:
             references=c.execute(text("SELECT source.relname,target.relname FROM pg_constraint f JOIN pg_class source ON source.oid=f.conrelid JOIN pg_class target ON target.oid=f.confrelid WHERE f.contype='f' AND source.relnamespace='public'::regnamespace AND target.relnamespace='public'::regnamespace")).all()
             conflicts=[(source,target) for source,target in references if source in keep and target in clear]
             if conflicts:raise RuntimeError(f'Retained tables reference the reset scope in {name}: {conflicts}; classify dependencies explicitly')
         report['databases'][name]={'clear':sorted(clear),'keep':sorted(keep),'before':counts(engine,tables),'content_hashes':content_hashes(engine,tables)}
     if args.apply and existing and any(existing['databases'][name]!=report['databases'][name] for name in KEEP):raise RuntimeError('Data changed since the reviewed preview; create and review a fresh preview while the runtime is stopped')
+    review_basis={key:report[key] for key in ('environment','release_commit','databases')}
+    report['review_fingerprint']=hashlib.sha256(json.dumps(review_basis,sort_keys=True,separators=(',',':')).encode()).hexdigest()
     print(json.dumps({name:{'clear_tables':len(r['clear']),'rows':sum(r['before'][t] for t in r['clear']),'kept_tables':len(r['keep'])} for name,r in report['databases'].items()},indent=2))
-    if not args.apply:report_path.write_text(json.dumps(report,indent=2));return
+    print('REVIEW_FINGERPRINT='+report['review_fingerprint'])
+    if not args.apply:write_manifest(report_path,report);return
     if args.confirm!='ALL CURRENT OPERATIONS ARE TEST DATA':raise RuntimeError("Exact testing-data confirmation required")
-    report['status']='BACKING_UP';report_path.write_text(json.dumps(report,indent=2))
+    reviewed=output/'reviewed-preview.json'
+    write_manifest(reviewed,existing)
+    report['status']='BACKING_UP';write_manifest(report_path,report)
     # All databases get checksum and actual restore/count verification BEFORE deletion.
     for name,engine in engines.items():
         url=db_url(name);dump=output/(name+'.dump');pg_tool('pg_dump',url,['--format=custom','--no-owner','--no-acl','--file',str(dump)])
@@ -151,8 +181,8 @@ def run(args):
             restored.dispose()
             with admin.connect() as c:c.execute(text('DROP DATABASE "'+restore_name+'" WITH (FORCE)'))
             admin.dispose()
-        report_path.write_text(json.dumps(report,indent=2))
-    report['status']='RESETTING';report_path.write_text(json.dumps(report,indent=2))
+        write_manifest(report_path,report)
+    report['status']='RESETTING';write_manifest(report_path,report)
     for name,engine in engines.items():
         data=report['databases'][name]
         if data['clear']:
@@ -162,8 +192,8 @@ def run(args):
         after=counts(engine,data['before'])
         if any(after[t] for t in data['clear']):raise RuntimeError('Reset count mismatch '+name)
         if any(after[t]!=data['before'][t] for t in data['keep']) or content_hashes(engine,data['keep'])!={t:data['content_hashes'][t] for t in data['keep']}:raise RuntimeError('Retained configuration changed '+name)
-        data['after']=after;data['cleared']=True;report_path.write_text(json.dumps(report,indent=2))
-    report['status']='COMPLETE';report['completed_at']=datetime.now(timezone.utc).isoformat();report_path.write_text(json.dumps(report,indent=2))
+        data['after']=after;data['cleared']=True;write_manifest(report_path,report)
+    report['status']='COMPLETE';report['completed_at']=datetime.now(timezone.utc).isoformat();write_manifest(report_path,report)
     print('Testing operations reset complete; all backups restored and retained counts verified')
 
 if __name__=='__main__':

@@ -1829,6 +1829,8 @@ def _post_fg_inward_if_configured(
     packing_record: Optional[PackingRecord],
     token: str,
     plant_id: str,
+    *,
+    accepted_qty: Optional[float] = None,
 ) -> Optional[dict[str, Any]]:
     deferred = _DEFERRED_EXTERNAL.get()
     if deferred is not None:
@@ -1841,6 +1843,10 @@ def _post_fg_inward_if_configured(
         return None
 
     output_qty = float(final_stage_row.output_qty or 0.0)
+    if (job_card.spec_snapshot or {}).get("entry_model") == "V2":
+        if accepted_qty is None:
+            raise HTTPException(409, "Final QC accepted quantity is required for finished-goods inward")
+        output_qty = min(output_qty, float(accepted_qty))
     if output_qty <= 0:
         return None
 
@@ -1876,7 +1882,10 @@ def _post_fg_inward_if_configured(
         )
     if response.status_code not in (200, 201):
         raise HTTPException(status_code=502, detail="Failed to post FG inward for completed job card")
-    return response.json() if response.headers.get("content-type", "").startswith("application/json") else None
+    result = response.json() if response.headers.get("content-type", "").startswith("application/json") else None
+    if result is not None and accepted_qty is not None:
+        result = {**result, "fg_accepted_qty": output_qty}
+    return result
 
 
 def _apply_fg_inward_snapshot(
@@ -1889,6 +1898,8 @@ def _apply_fg_inward_snapshot(
     snapshot["inventory_batch_id"] = fg_inward_result.get("batch_id")
     snapshot["inventory_transaction_id"] = fg_inward_result.get("transaction_id")
     snapshot["inventory_stock_status"] = fg_inward_result.get("stock_status")
+    for key in ("fg_accepted_qty", "qc_rejected_qty"):
+        if key in fg_inward_result:snapshot[key] = fg_inward_result[key]
     packing_record.snapshot = snapshot
 
 

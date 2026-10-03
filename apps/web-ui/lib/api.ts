@@ -664,7 +664,7 @@ export const purchaseApi = {
 
 export const dispatchApi = {
   getReadyJobs: (plantId?: string) => api.get("/api/dispatch/ready-jobs", withPlantHeader(plantId)),
-  getDispatch: (id: string) => api.get(`/api/dispatch/${id}`),
-  getDispatchByJob: (jobCardId: string, draftsOnly = false) => api.get(`/api/dispatch/by-job/${jobCardId}`, { params: { include_sealed: !draftsOnly } }),
-  createOrUpdateDispatch: (data: any) => api.post("/api/dispatch", data),
+  getDispatch: (id: string, plantId?: string) => api.get(`/api/dispatch/${id}`, withPlantHeader(plantId)),
+  getDispatchByJob: (jobCardId: string, draftsOnly = false, plantId?: string) => api.get(`/api/dispatch/by-job/${jobCardId}`, { ...withPlantHeader(plantId), params: { include_sealed: !draftsOnly } }),
+  createOrUpdateDispatch: (data: any, plantId?: string) => api.post("/api/dispatch", data, withPlantHeader(plantId)),
 }

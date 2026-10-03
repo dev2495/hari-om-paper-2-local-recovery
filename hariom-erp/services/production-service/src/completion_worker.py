@@ -8,7 +8,8 @@ import time
 import jwt
 from sqlalchemy import text
 from .database import SessionLocal
-from .models import JobCard, JobCardStage, JobCardStageSegment, PackingRecord, QualityHold
+from .models import AuditEvent, JobCard, JobCardStage, JobCardStageSegment, PackingRecord, QualityHold
+from .dispatch_quantities import dispatchable_quantity, qc_excluded_quantities
 from .entry_models import CompletionEffect
 from .security.jwt_handler import SECRET_KEY
 
@@ -21,6 +22,34 @@ def service_actor(plant):
     claims={"sub":"production-completion-worker","roles":["ProductionEffects"],"plant_id":str(plant),"allowed_plants":[str(plant)],"iat":now,"exp":now+timedelta(minutes=5),"service":"production-effects"}
     token=jwt.encode(claims,SECRET_KEY,algorithm="HS256")
     return {**claims,"token":token}
+
+
+def post_accepted_fg(db, job, stage, packing, qc, actor):
+    """Only final-QC accepted pieces become FG; rejects stay in the QC ledger."""
+    from .routers import planning
+    if not packing or not stage or stage.status!="COMPLETED" or not qc or qc.status!="COMPLETED":
+        raise ValueError("Packing and final QC must both be closed")
+    accepted = dispatchable_quantity(job, packing, qc)
+    excluded = qc_excluded_quantities(job,packing,qc)
+    if accepted > 0:
+        result = planning._post_fg_inward_if_configured(job,stage,packing,actor["token"],str(job.plant_id),accepted_qty=accepted)
+        if not result:raise ValueError("FG item and positive accepted output are required")
+        planning._apply_fg_inward_snapshot(packing,result)
+        packing.snapshot = {**(packing.snapshot or {}),**excluded}
+        return
+    gross = float(packing.total_packed_qty or 0)
+    previous = packing.snapshot or {}
+    if not previous.get("fg_zero_acceptance"):
+        packing.snapshot = {**previous,"fg_accepted_qty":0,**excluded,"fg_zero_acceptance":True}
+        dispatch = db.query(JobCardStage).filter_by(job_card_id=job.id,stage_type="DISPATCH").first()
+        if not dispatch:raise ValueError("Dispatch stage is missing")
+        now = datetime.utcnow()
+        dispatch.status="COMPLETED";dispatch.input_qty=0;dispatch.output_qty=0;dispatch.actual_end=now
+        dispatch.actuals_snapshot={**(dispatch.actuals_snapshot or {}),"closed_at":now.isoformat(),"closed_by":actor["sub"],"all_qc_rejected":True,"effective_target":0,"row_version":int((dispatch.actuals_snapshot or {}).get("row_version",1))+1}
+        job.status="COMPLETED";job.current_stage="DONE"
+        db.add(AuditEvent(plant_id=job.plant_id,entity_type="job_card",entity_id=job.id,job_card_id=job.id,
+                          action="FINAL_QC_ZERO_ACCEPTANCE",actor_id=actor["sub"],actor_role="ProductionEffects",
+                          payload={"packed_qty":gross,**excluded,"qc_close_reason":(qc.actuals_snapshot or {}).get("close_reason"),"fg_posted_qty":0}))
 
 
 def deliver_one():
@@ -57,9 +86,7 @@ def deliver_one():
                 qc=db.query(JobCardStage).filter_by(job_card_id=job.id,stage_type="QC").first()
                 if not qc or qc.status!="COMPLETED" or not stage or stage.status!="COMPLETED":raise ValueError("Packing and final QC must both be closed")
                 if planning._movement_blocking_holds(db,db.query(QualityHold).filter_by(job_card_id=job.id).all()):raise ValueError("QC hold prevents FG posting")
-                result=planning._post_fg_inward_if_configured(job,stage,packing,actor["token"],plant)
-                if not result:raise ValueError("FG item and positive packing output are required")
-                planning._apply_fg_inward_snapshot(packing,result)
+                post_accepted_fg(db,job,stage,packing,qc,actor)
             elif effect.kind in ("hold_stock","release_stock"):
                 held=bool(planning._movement_blocking_holds(db,db.query(QualityHold).filter_by(job_card_id=job.id).all()))
                 if held!=(effect.kind=="hold_stock"):

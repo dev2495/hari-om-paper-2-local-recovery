@@ -38,3 +38,13 @@ def test_dispatch_report_reads_saved_sales_timeline_quantity_and_date():
     report=_dispatch_report({'orders':[order],'ready_jobs':[]},start,end,'day')
     assert report['summary']['dispatch_qty']==50
     assert _compute_order_state(order,start,end)['final_dispatch']==date(2026,9,2)
+
+
+def test_unstarted_dispatch_handoff_is_not_a_blocked_production_card():
+    from src.routers.reports import _blocked_jobs
+    def card(identity, stage):
+        return {'id':identity, 'status':'IN_PROGRESS', 'current_stage':stage,
+                'stages':[{'stage_type':stage, 'status':'PLANNED'}]}
+    snapshot = {'job_cards':[card('ready','DISPATCH'), card('held','DISPATCH'), card('unassigned','WINDER')],
+                'quality_holds':[{'job_card_id':'held','status':'HOLD'}]}
+    assert {row['job_card_id'] for row in _blocked_jobs(snapshot)} == {'held','unassigned'}

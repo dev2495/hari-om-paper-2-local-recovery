@@ -346,7 +346,10 @@ def _blocked_jobs(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         current_stage = str(card.get("current_stage") or "WINDER").upper()
         current_row = next((stage for stage in card.get("stages") or [] if str(stage.get("stage_type") or "").upper() == current_stage), None)
-        is_blocked = str(card.get("id")) in active_holds or str((current_row or {}).get("status") or "").upper() in {"PLANNED", "ASSIGNED"}
+        is_blocked = str(card.get("id")) in active_holds or (
+            current_stage != "DISPATCH"
+            and str((current_row or {}).get("status") or "").upper() in {"PLANNED", "ASSIGNED"}
+        )
         if not is_blocked:
             continue
         rows.append(

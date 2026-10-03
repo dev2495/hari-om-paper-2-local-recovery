@@ -36,6 +36,15 @@ def create(a,db,job,stage='WINDER',**kw):
 
 def winding_samples():return [{'sample_id':str(uuid.uuid4()),'readings':{'id':76.3,'od':82,'height':1560,'weight':130,'cs':165}} for _ in range(2)]
 
+def test_rejected_excess_production_still_requires_variance_reason(card):
+    a,db,job=card
+    with pytest.raises(HTTPException) as error:
+        create(a,db,job,produced=12,accepted=5,details={'reject_reason':'Setup trial rejects'})
+    assert error.value.status_code==409
+    db.rollback()
+    result=create(a,db,job,produced=12,accepted=5,details={'reject_reason':'Setup trial rejects','overproduction_reason':'Setup trial produced extra rejected pieces'})
+    assert result['entry']['produced']==12 and result['entry']['rejected']==7
+
 def test_short_close_updates_every_downstream_target_and_rejects_stale_totals(card):
     a,db,job=card
     create(a,db,job,samples=winding_samples())

@@ -4,7 +4,7 @@
 No credentials/tokens enter the report. The API URLs are loopback-only and the
 caller must explicitly identify the disposable DB prefix. Fixtures use APIs.
 """
-import json, os, secrets, string, uuid
+import json, os, re, secrets, string, uuid
 from datetime import date, timedelta
 from pathlib import Path
 import httpx
@@ -13,12 +13,21 @@ if os.getenv('ERP_DB_PREFIX') != 'hariom_nverify_season_':
     raise SystemExit('Run only against the named disposable seasonal runtime')
 PORTS={'auth':18022,'master':18023,'spec':18024,'sales':18028,'production':18025,'inventory':18026,'bff':14003}
 PLANT='00000000-0000-0000-0000-0000000000a1'
-STATE=Path('reports/season-integrated-fixture.json')
+RUN=os.getenv('SEASON_VERIFY_RUN','').upper()
+if RUN and not re.fullmatch('[A-Z0-9]{1,16}',RUN):raise SystemExit('Use a short alphanumeric verification run ID')
+STATE=Path(f'reports/season-integrated-fixture-{RUN.lower()}.json' if RUN else 'reports/season-integrated-fixture.json')
 state=json.loads(STATE.read_text()) if STATE.exists() else {}
 client=httpx.Client(timeout=40,headers={'X-Plant-ID':PLANT})
 
+def test_code(value):return value+'_'+RUN if RUN and not value.endswith('_'+RUN) else value
+
+def fixture_body(value):
+    if isinstance(value,list):return [fixture_body(v) for v in value]
+    if not isinstance(value,dict):return value
+    return {k:test_code(v) if k in {'item_code','po_number','invoice_no','source_reel_no','challan_no'} and isinstance(v,str) and v.startswith('SEASON_') else fixture_body(v) for k,v in value.items()}
+
 def req(service,method,path,body=None):
-    r=client.request(method,f'http://127.0.0.1:{PORTS[service]}{path}',json=body)
+    r=client.request(method,f'http://127.0.0.1:{PORTS[service]}{path}',json=fixture_body(body))
     if not r.is_success:
         raise AssertionError(f'{method} {service} {path}: HTTP {r.status_code}: {r.text[:1800]}')
     return r.json()
@@ -28,7 +37,17 @@ def mark(name,**fields):
 
 def cmd(**extra):return {'request_id':str(uuid.uuid4()),**extra}
 
+def independent_approval(service,path,body):
+    password='Verify-'+secrets.token_urlsafe(18)+'1aA!';email='season-checker-'+uuid.uuid4().hex[:8]+'@example.com'
+    req('auth','POST','/users/',{'name':'Independent acceptance checker','email':email,'password':password,'role_names':['Owner','Admin'],'plant_id':PLANT,'allowed_plant_ids':[PLANT,'00000000-0000-0000-0000-0000000000b2']})
+    signed=httpx.post(f'http://127.0.0.1:{PORTS["auth"]}/auth/login',data={'username':email,'password':password},timeout=20)
+    assert signed.is_success
+    original=client.headers['Authorization'];client.headers['Authorization']='Bearer '+signed.json()['access_token']
+    try:return req(service,'POST',path,body)
+    finally:client.headers['Authorization']=original
+
 def master(key,path,payload):
+    payload={k:test_code(v) if k in {'code','customer_code','employee_code','mandrel_code','description','name'} and isinstance(v,str) else v for k,v in payload.items()}
     values=req('master','GET',path)
     identifiers={k:v for k,v in payload.items() if k in ('code','customer_code','employee_code','mandrel_code','description') and v}
     row=next((r for r in values if identifiers and all(r.get(k)==v for k,v in identifiers.items())),None)
@@ -241,7 +260,9 @@ if os.getenv('SEASON_VERIFY_BATCH')=='1':
         items=req('inventory','GET','/items/')
         item=next((i for i in items if i['item_code']==state['paper_monsoon']['code']),None) or req('inventory','POST','/items/',{'item_code':state['paper_monsoon']['code'],'name':'Acceptance Monsoon paper','type':'RAW_PAPER','tracking_mode':'REEL','uom':'KG'})
         saved=req('inventory','PUT',f'/items/{item["id"]}/quality-profile',{'quality_profile':{'parameters':[{'code':'gsm','label':'GSM','min':290,'max':310,'required':True,'unit':'gsm'}]},'setup_status':'complete'})
-        req('inventory','POST',f'/items/{item["id"]}/quality-profile/approve',{'expected_revision':saved['quality_profile']['revision']})
+        own=client.post(f'http://127.0.0.1:{PORTS["inventory"]}/items/{item["id"]}/quality-profile/approve',json={'expected_revision':saved['quality_profile']['revision']})
+        assert own.status_code==409 and own.json()['detail']['code']=='SELF_APPROVAL'
+        independent_approval('inventory',f'/items/{item["id"]}/quality-profile/approve',{'expected_revision':saved['quality_profile']['revision']})
         mark('Incoming material profile approved independently of seasonal stage rules',raw_item_id=item['id'])
     if not state.get('procurement_po_id'):
         suppliers=req('master','GET','/master/suppliers/')
@@ -347,3 +368,41 @@ if os.getenv('SEASON_VERIFY_UI_SETUP')=='1':
         mark('Fresh rest-of-year card prepared for browser entry',ui_job_id=result['line_results'][0]['job_card_id'])
         for stage in ('WINDER','OVEN','PROCESS','PACKING'):
             req('production','POST',f'/job-cards/{state["ui_job_id"]}/assign-machine',{'stage':stage,'machine_id':state['machine_'+stage]['id'],'sequence_no':3,'plan_date':date.today().isoformat(),'shift_code':'SHIFT_A'})
+
+if os.getenv('SEASON_VERIFY_ROLES')=='1':
+    owner_header=client.headers['Authorization']
+    jid=state.get('ui_job_id') or state['job_id']
+    for role in ('QC','Operator','Sales'):
+        password='Verify-'+secrets.token_urlsafe(18)+'1aA!';email='season-role-'+uuid.uuid4().hex[:8]+'@example.com'
+        req('auth','POST','/users/',{'name':'Disposable '+role+' acceptance','email':email,'password':password,'role_names':[role],'plant_id':PLANT,'allowed_plant_ids':[PLANT]})
+        signed=httpx.post(f'http://127.0.0.1:{PORTS["auth"]}/auth/login',data={'username':email,'password':password},timeout=20)
+        assert signed.is_success
+        client.headers['Authorization']='Bearer '+signed.json()['access_token']
+        try:
+            req('production','GET',f'/job-cards/{jid}/flow')
+            denied=client.post(f'http://127.0.0.1:{PORTS["spec"]}/season/switch/preview',json={'to':'MONSOON'})
+            assert denied.status_code==403,(role,'season switch',denied.status_code)
+            denied=client.post(f'http://127.0.0.1:{PORTS["production"]}/job-cards/{jid}/stages/WINDER/close',json=cmd(supervisor_id=supervisor['id']))
+            assert denied.status_code==403,(role,'stage close',denied.status_code)
+            wrong_plant=client.get(f'http://127.0.0.1:{PORTS["production"]}/job-cards/{jid}/flow',headers={'X-Plant-ID':'00000000-0000-0000-0000-0000000000b2'})
+            assert wrong_plant.status_code==403,(role,'cross plant',wrong_plant.status_code)
+            if role=='QC':
+                rules=req('spec','GET','/qc-rules?season=ROY')
+                saved=req('spec','PUT','/qc-rules/draft?season=ROY',cmd(expected_version=rules['draft']['row_version'] if rules.get('draft') else None,rules=(rules.get('draft') or rules['published'])['rules'],note='Disposable QC role contract: unchanged client rules'))
+                assert saved['status']=='DRAFT'
+                denied=client.post(f'http://127.0.0.1:{PORTS["production"]}/job-cards/{jid}/entries',json=cmd(stage='WINDER',produced=1,accepted=1))
+                assert denied.status_code==403
+            elif role=='Operator':
+                denied=client.post(f'http://127.0.0.1:{PORTS["production"]}/job-cards/{jid}/entries',json=cmd(stage='WINDER',produced=1,accepted=1,submit=True))
+                assert denied.status_code==403
+                if state.get('ui_job_id'):
+                    draft=req('production','POST',f'/job-cards/{jid}/entries',cmd(stage='WINDER',produced=1,accepted=1,operator_id=operator['id'],shift_code='SHIFT_A'))['entry']
+                    assert draft['status']=='DRAFT'
+                    client.headers['Authorization']=owner_header
+                    voided=req('production','POST',f'/job-cards/{jid}/entries/{draft["id"]}/void',cmd(expected_version=draft['row_version'],reason='Dispose isolated role-verification draft'))['entry']
+                    assert voided['status']=='VOID'
+            else:
+                denied=client.put(f'http://127.0.0.1:{PORTS["spec"]}/qc-rules/draft?season=ROY',json=cmd(rules=[],note='Must be denied'))
+                assert denied.status_code==403
+            mark('Authenticated '+role+' permissions and cross-plant denials verified')
+        finally:client.headers['Authorization']=owner_header

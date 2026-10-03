@@ -1,10 +1,11 @@
 from typing import Any, Optional
+from contextlib import contextmanager
 import hashlib
 import json
 import math
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import or_, text
+from sqlalchemy import and_, or_, text
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.orm import Session
 from datetime import date, datetime
@@ -13,10 +14,11 @@ import uuid
 
 from ..config import get_settings
 from ..due_risk import plant_today
-from ..database import get_db
+from ..database import get_db, engine
 from ..models import Dispatch, DispatchIdempotency, JobCard, JobCardStage, PackingRecord, QualityHold, SalesOrder
 from ..card_lock import card_posting_lease
-from ..utils.auth import get_current_plant, require_role
+from ..dispatch_quantities import dispatchable_quantity, shipping_allowance, qc_excluded_quantities
+from ..utils.auth import get_current_plant, get_current_plant_scope, require_role
 
 router = APIRouter(prefix="/dispatch", tags=["dispatch"])
 settings = get_settings()
@@ -37,6 +39,8 @@ ORCHESTRATION_SNAPSHOT_KEYS = {
     "sales_validation_status",
     "orchestration_state",
     "orchestration_error",
+    "seal_request",
+    "sales_dispatch_ref",
 }
 
 
@@ -45,6 +49,17 @@ def _plant_uuid(value: str) -> uuid.UUID:
         return uuid.UUID(str(value))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"Invalid plant_id: {value}") from exc
+
+
+def _apply_job_plant_scope(query, plant_scope: dict):
+    if plant_scope.get("scope_all"):
+        return query.filter(JobCard.plant_id.in_([
+            _plant_uuid(value) for value in plant_scope.get("allowed_plants") or []
+        ]))
+    selected = plant_scope.get("selected_plant_id")
+    if not selected:
+        raise HTTPException(status_code=400, detail="Select a plant to view dispatches")
+    return query.filter(JobCard.plant_id == _plant_uuid(selected))
 
 
 def _request_hash(payload: "DispatchPayload") -> str:
@@ -66,6 +81,44 @@ def _acquire_dispatch_lock(db: Session, lock_name: str) -> None:
     """Serialize dispatch orchestration per job across workers/processes."""
     lock_key = int.from_bytes(hashlib.sha256(lock_name.encode("utf-8")).digest()[:8], "big", signed=True)
     db.execute(text("SELECT pg_advisory_xact_lock(:lock_key)"), {"lock_key": lock_key})
+
+
+@contextmanager
+def _sales_line_posting_lease(plant_id, line_id):
+    """Keep competing cards off one commercial balance across DB checkpoints."""
+    if not line_id:
+        yield
+        return
+    key = int.from_bytes(hashlib.sha256(f"dispatch-sales-line:{plant_id}:{line_id}".encode()).digest()[:8], "big", signed=True)
+    with engine.connect() as connection:
+        locked = connection.execute(text("SELECT pg_try_advisory_lock(:key)"), {"key": key}).scalar()
+        connection.commit()
+        if not locked:
+            raise HTTPException(409, "Another shipment for this sales line is being posted; retry shortly")
+        try:
+            yield
+        finally:
+            try:
+                connection.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": key})
+                connection.commit()
+            except Exception:
+                # A pooled connection must never keep a session lease after an error.
+                connection.invalidate()
+                raise
+
+
+def _require_sales_line_available(db, job):
+    if not job.sales_order_line_id:
+        return
+    other = db.query(Dispatch).join(JobCard, JobCard.id == Dispatch.job_card_id).filter(
+        JobCard.plant_id == job.plant_id,
+        JobCard.sales_order_line_id == job.sales_order_line_id,
+        JobCard.id != job.id,
+        Dispatch.status == "DRAFT",
+        Dispatch.dispatch_snapshot["orchestration_state"].astext.in_(["PENDING", "FAILED"]),
+    ).first()
+    if other:
+        raise HTTPException(409, "Finish the existing unfinished shipment for this sales line before dispatching another card")
 
 class DispatchPayload(BaseModel):
     job_card_id: uuid.UUID
@@ -265,10 +318,12 @@ def create_or_update_dispatch(
     current_user: dict = Depends(require_role(DISPATCH_ACCESS_ROLES))
 ):
     candidate=db.query(JobCard).filter(JobCard.id==payload.job_card_id,JobCard.plant_id==_plant_uuid(plant_id)).first()
-    if candidate and (getattr(candidate,"spec_snapshot",None) or {}).get("entry_model")=="V2":
-        with card_posting_lease(payload.job_card_id):
-            return _create_or_update_dispatch(payload,db,plant_id,current_user)
-    return _create_or_update_dispatch(payload,db,plant_id,current_user)
+    line_id = getattr(candidate, "sales_order_line_id", None) if payload.status == "SEALED" else None
+    with _sales_line_posting_lease(plant_id, line_id):
+        if candidate and (getattr(candidate,"spec_snapshot",None) or {}).get("entry_model")=="V2":
+            with card_posting_lease(payload.job_card_id):
+                return _create_or_update_dispatch(payload,db,plant_id,current_user)
+        return _create_or_update_dispatch(payload,db,plant_id,current_user)
 
 
 def _create_or_update_dispatch(payload,db,plant_id,current_user):
@@ -349,6 +404,7 @@ def _create_or_update_dispatch(payload,db,plant_id,current_user):
 
     # Check if a dispatch already exists
     dispatch = db.query(Dispatch).filter(Dispatch.job_card_id == payload.job_card_id, Dispatch.status == "DRAFT").first()
+    persisted_snapshot = dict(dispatch.dispatch_snapshot or {}) if dispatch else {}
 
     if dispatch:
         previous = dispatch.dispatch_snapshot or {}
@@ -374,16 +430,20 @@ def _create_or_update_dispatch(payload,db,plant_id,current_user):
         db.refresh(dispatch)
         return dispatch
 
+    _require_sales_line_available(db, job_card)
+
     active_holds = _active_hold_count(db, job_card.id)
     if active_holds:
         raise HTTPException(status_code=409, detail=f"Cannot seal dispatch while {active_holds} quality hold(s) are active")
 
     _require_final_qc(db, plant_uuid, job_card)
 
+    qc_stage = None
     if (getattr(job_card,"spec_snapshot",None) or {}).get("entry_model")=="V2":
         stages={s.stage_type:s for s in db.query(JobCardStage).filter_by(job_card_id=job_card.id).all()}
         if any(not stages.get(s) or stages[s].status!="COMPLETED" for s in ("PACKING","QC")):
             raise HTTPException(409,"Close Packing and final QC before dispatch")
+        qc_stage = stages["QC"]
 
     packing_record = db.query(PackingRecord).filter(PackingRecord.job_card_id == job_card.id).first()
     if not packing_record or float(packing_record.total_packed_qty or 0.0) <= 0:
@@ -392,12 +452,20 @@ def _create_or_update_dispatch(payload,db,plant_id,current_user):
     dispatch_qty = _dispatch_qty(dispatch_snapshot, job_card, packing_record)
     if dispatch_qty <= 0:
         raise HTTPException(status_code=400, detail="Dispatch quantity must be positive before sealing")
-    packed_qty = float(packing_record.total_packed_qty or 0.0)
+    dispatchable_qty = dispatchable_quantity(job_card, packing_record, qc_stage)
     sealed = db.query(Dispatch).filter(Dispatch.job_card_id == job_card.id, Dispatch.status == "SEALED").all()
     previously_shipped = sum(float((row.dispatch_snapshot or {}).get("dispatch_qty") or (row.dispatch_snapshot or {}).get("qty") or 0) for row in sealed)
-    remaining_qty = max(0, packed_qty - previously_shipped)
+    dispatch_stage = db.query(JobCardStage).filter_by(job_card_id=job_card.id, stage_type="DISPATCH").first()
+    retained_qty = float(((getattr(dispatch_stage, "actuals_snapshot", None) or {}).get("retained_fg_qty") or 0))
+    if retained_qty > 0:
+        raise HTTPException(409, "This card is reconciled with retained finished goods; create a governed new allocation before shipping that stock")
+    remaining_qty = max(0, dispatchable_qty - previously_shipped - retained_qty)
     if dispatch_qty > remaining_qty + 0.0001:
-        raise HTTPException(status_code=409, detail=f"Dispatch qty {dispatch_qty:g} cannot exceed remaining packed qty {remaining_qty:g}")
+        raise HTTPException(status_code=409, detail=f"Dispatch qty {dispatch_qty:g} cannot exceed remaining accepted FG qty {remaining_qty:g}")
+    allowance = shipping_allowance(job_card, dispatchable_qty, dispatch_stage)
+    max_ship_qty = max(0, allowance - previously_shipped)
+    if dispatch_qty > max_ship_qty + 0.0001:
+        raise HTTPException(status_code=409, detail=f"Dispatch qty {dispatch_qty:g} cannot exceed this card's remaining released allocation {max_ship_qty:g}")
 
     # Freeze the plant business date once so a retry across midnight keeps
     # the original challan and inventory accounting date.
@@ -407,6 +475,23 @@ def _create_or_update_dispatch(payload,db,plant_id,current_user):
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="Dispatch date must be YYYY-MM-DD") from exc
     dispatch_ref = _dispatch_ref(dispatch_snapshot, dispatch.id, request_id)
+    # Keep human challan numbers separate from immutable receiver identities.
+    # An old unfinished shipment keeps the reference under which Sales may
+    # already have committed, so deployment cannot break its recovery.
+    previous = persisted_snapshot
+    legacy_pending = idem is not None and previous.get("orchestration_state") in {"PENDING", "FAILED"}
+    sales_ref = (previous.get("sales_dispatch_ref") or
+                 (previous.get("dispatch_ref") if legacy_pending else None) or
+                 "DISPATCH-REQUEST:" + hashlib.sha256(request_id.encode()).hexdigest())
+    token = current_user.get("token", "")
+    if job_card.sales_order_line_id:
+        _post_sales_request(
+            path=f"/sales-orders/lines/{job_card.sales_order_line_id}/validate-dispatch",
+            token=token, plant_id=plant_id,
+            payload={"qty": dispatch_qty, "approved_spec_id": str(job_card.spec_id) if job_card.spec_id else None,
+                     "dispatch_line_ref": sales_ref},
+            action="Sales dispatch validation",
+        )
     dispatch_snapshot.update(
         {
             "qty": dispatch_qty,
@@ -416,8 +501,17 @@ def _create_or_update_dispatch(payload,db,plant_id,current_user):
             "dispatch_request_id": request_id,
             "orchestration_state": "PENDING",
             "orchestration_error": None,
+            "sales_dispatch_ref": sales_ref,
+            "sales_validation_status": "VALIDATED" if job_card.sales_order_line_id else None,
         }
     )
+    if not legacy_pending and not _existing_inventory_dispatch_id(dispatch_snapshot):
+        dispatch_snapshot["inventory_dispatch_external_ref"] = "PROD-DISPATCH-REQUEST-" + hashlib.sha256(request_id.encode()).hexdigest()
+    # Preserve the exact command for resuming after refresh or a different
+    # authorized dispatch operator. Derived challan/posting fields must never
+    # become a changed payload under the original idempotency key.
+    if idem is None:
+        dispatch_snapshot["seal_request"] = payload.model_dump(mode="json")
     dispatch.dispatch_snapshot = dict(dispatch_snapshot)
     _safe_flag_modified(dispatch, "dispatch_snapshot")
     if idem is None:
@@ -436,18 +530,7 @@ def _create_or_update_dispatch(payload,db,plant_id,current_user):
         idem.response_snapshot = dict(dispatch_snapshot)
     db.commit()
 
-    token = current_user.get("token", "")
     try:
-        if job_card.sales_order_line_id:
-            _post_sales_request(
-                path=f"/sales-orders/lines/{job_card.sales_order_line_id}/validate-dispatch",
-                token=token,
-                plant_id=plant_id,
-                payload={"qty": dispatch_qty, "approved_spec_id": str(job_card.spec_id) if job_card.spec_id else None},
-                action="Sales dispatch validation",
-            )
-            dispatch_snapshot["sales_validation_status"] = "VALIDATED"
-
         dispatch_snapshot = _post_inventory_dispatch_if_needed(
             dispatch=dispatch,
             job_card=job_card,
@@ -468,7 +551,7 @@ def _create_or_update_dispatch(payload,db,plant_id,current_user):
                 path=f"/sales-orders/lines/{job_card.sales_order_line_id}/record-dispatch",
                 token=token,
                 plant_id=plant_id,
-                payload={"qty": dispatch_qty, "dispatch_line_ref": dispatch_ref},
+                payload={"qty": dispatch_qty, "dispatch_line_ref": sales_ref},
                 action="Sales fulfillment update",
             )
             dispatch_snapshot["sales_dispatch_status"] = "POSTED"
@@ -483,9 +566,9 @@ def _create_or_update_dispatch(payload,db,plant_id,current_user):
             if dispatch_stage:
                 shipped=previously_shipped+dispatch_qty
                 dispatch_stage.output_qty=shipped;dispatch_stage.input_qty=shipped
-                dispatch_stage.status="COMPLETED" if shipped>=packed_qty-0.0001 else "RUNNING"
+                dispatch_stage.status="COMPLETED" if shipped>=dispatchable_qty-0.0001 else "RUNNING"
                 dispatch_stage.actuals_snapshot={**(dispatch_stage.actuals_snapshot or {}),"produced_total":shipped,"accepted_total":shipped,"row_version":int((dispatch_stage.actuals_snapshot or {}).get("row_version",1))+1,"last_dispatch_id":str(dispatch.id),"closed_at":datetime.utcnow().isoformat() if dispatch_stage.status=="COMPLETED" else None}
-        if previously_shipped + dispatch_qty >= packed_qty - 0.0001:
+        if previously_shipped + dispatch_qty >= dispatchable_qty - 0.0001:
             job_card.status = "COMPLETED"
             job_card.current_stage = "DONE"
         idem.status = "SUCCESS"
@@ -508,15 +591,14 @@ def _create_or_update_dispatch(payload,db,plant_id,current_user):
 def get_dispatch(
     dispatch_id: uuid.UUID,
     db: Session = Depends(get_db),
-    plant_id: str = Depends(get_current_plant),
+    plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(require_role(DISPATCH_ACCESS_ROLES))
 ):
-    dispatch = (
+    dispatch = _apply_job_plant_scope(
         db.query(Dispatch)
         .join(JobCard, JobCard.id == Dispatch.job_card_id)
-        .filter(Dispatch.id == dispatch_id, JobCard.plant_id == _plant_uuid(plant_id))
-        .first()
-    )
+        .filter(Dispatch.id == dispatch_id), plant_scope
+    ).first()
     if not dispatch:
         raise HTTPException(status_code=404, detail="Dispatch not found")
     return dispatch
@@ -526,11 +608,11 @@ def get_dispatch_by_job_card(
     job_card_id: uuid.UUID,
     include_sealed: bool = True,
     db: Session = Depends(get_db),
-    plant_id: str = Depends(get_current_plant),
+    plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(require_role(DISPATCH_ACCESS_ROLES))
 ):
-    query = db.query(Dispatch).join(JobCard, JobCard.id == Dispatch.job_card_id).filter(
-        Dispatch.job_card_id == job_card_id, JobCard.plant_id == _plant_uuid(plant_id))
+    query = _apply_job_plant_scope(db.query(Dispatch).join(JobCard, JobCard.id == Dispatch.job_card_id).filter(
+        Dispatch.job_card_id == job_card_id), plant_scope)
     if not include_sealed:
         query = query.filter(Dispatch.status == "DRAFT")
     dispatch = query.order_by(Dispatch.created_at.desc()).first()
@@ -539,40 +621,69 @@ def get_dispatch_by_job_card(
 @router.get("/ready-jobs/", response_model=list[dict])
 def get_ready_jobs_for_dispatch(
     db: Session = Depends(get_db),
-    plant_id: str = Depends(get_current_plant),
+    plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(require_role(DISPATCH_ACCESS_ROLES))
 ):
     """
-    Returns job cards that are candidates for dispatch, meaning they have reached
-    PACKING or DONE stages, or their corresponding dispatches are sealed (so we can view them).
+    Packed/packing handoffs and shipment history, restricted to the allowed plants.
+    Candidate visibility is separate from the authoritative checks when sealing.
     """
-    results = (
+    results = (_apply_job_plant_scope(
         db.query(JobCard, SalesOrder, Dispatch)
         .join(SalesOrder, JobCard.sales_order_id == SalesOrder.id)
         .outerjoin(Dispatch, JobCard.id == Dispatch.job_card_id)
         .filter(
-            JobCard.plant_id == _plant_uuid(plant_id),
-            or_(JobCard.current_stage.in_(["PACKING", "DONE"]), Dispatch.status == "SEALED"),
-        )
+            or_(and_(JobCard.status != "CANCELLED", JobCard.current_stage.in_(["PACKING", "QC", "DISPATCH", "DONE"])), Dispatch.status == "SEALED"),
+        ), plant_scope
+    )
         .order_by(JobCard.created_at.desc())
         .all()
     )
 
     grouped = {}
     for jc, so, dispatch in results:
-        entry = grouped.setdefault(jc.id, {"id": jc.id, "status": jc.status,
+        entry = grouped.setdefault(jc.id, {"id": jc.id, "job_card_no": jc.job_card_no,
+            "plant_id": jc.plant_id, "status": jc.status,
             "current_stage": jc.current_stage, "spec_snapshot": jc.spec_snapshot,
             "planned_qty": jc.planned_qty, "customer_id": so.customer_id,
-            "created_at": jc.created_at, "shipments": [], "draft": None})
+            "created_at": jc.created_at, "entry_model": (jc.spec_snapshot or {}).get("entry_model"),
+            "shipments": [], "draft": None})
         if dispatch and dispatch.status == "SEALED":
             entry["shipments"].append({"id": str(dispatch.id), "qty": float((dispatch.dispatch_snapshot or {}).get("dispatch_qty") or (dispatch.dispatch_snapshot or {}).get("qty") or 0), "created_at": dispatch.created_at})
         elif dispatch:
             entry["draft"] = str(dispatch.id)
-    packing = {p.job_card_id: float(p.total_packed_qty or 0) for p in db.query(PackingRecord).filter(PackingRecord.job_card_id.in_(list(grouped))).all()} if grouped else {}
+    ids = list(grouped)
+    jobs = {jc.id: jc for jc, _, _ in results}
+    packing = {p.job_card_id: p for p in db.query(PackingRecord).filter(PackingRecord.job_card_id.in_(ids)).all()} if ids else {}
+    closing_stages = db.query(JobCardStage).filter(JobCardStage.job_card_id.in_(ids), JobCardStage.stage_type.in_(["QC", "DISPATCH"])).all() if ids else []
+    qc = {s.job_card_id: s for s in closing_stages if s.stage_type == "QC"}
+    dispatch_stages = {s.job_card_id: s for s in closing_stages if s.stage_type == "DISPATCH"}
+    retained = {s.job_card_id: float((s.actuals_snapshot or {}).get("retained_fg_qty") or 0) for s in closing_stages if s.stage_type == "DISPATCH"}
+    held = {row[0] for row in db.query(QualityHold.job_card_id).filter(QualityHold.job_card_id.in_(ids), QualityHold.status.in_(list(QC_BLOCKING_STATUSES))).distinct().all()} if ids else set()
     for key, entry in grouped.items():
         entry["shipments"].sort(key=lambda row: row["created_at"], reverse=True)
         entry["dispatched_qty"] = sum(row["qty"] for row in entry["shipments"])
-        entry["remaining_qty"] = max(0, packing.get(key, 0) - entry["dispatched_qty"])
+        record = packing.get(key)
+        entry["packed_qty"] = float(record.total_packed_qty or 0) if record else 0
+        entry["released_qty"] = float(jobs[key].released_qty or jobs[key].planned_qty or 0)
+        entry["dispatchable_qty"] = dispatchable_quantity(jobs[key], record, qc.get(key))
+        final_qc_closed = qc.get(key) is not None and qc[key].status == "COMPLETED"
+        entry.update(qc_excluded_quantities(jobs[key], record, qc.get(key)))
+        entry["shipping_allowance"] = shipping_allowance(jobs[key], entry["dispatchable_qty"], dispatch_stages.get(key))
+        entry["max_ship_qty"] = max(0, entry["shipping_allowance"] - entry["dispatched_qty"])
+        entry["retained_qty"] = retained.get(key, 0)
+        entry["physical_remaining_qty"] = max(0, entry["dispatchable_qty"] - entry["dispatched_qty"])
+        entry["remaining_qty"] = max(0, entry["physical_remaining_qty"] - entry["retained_qty"])
         entry["dispatch_id"] = entry["draft"] or (entry["shipments"][0]["id"] if entry["shipments"] else None)
         entry["dispatch_status"] = "DRAFT" if entry.pop("draft") else ("SEALED" if entry["shipments"] and entry["remaining_qty"] <= 0.0001 else None)
+        entry["handoff_state"] = (
+            "REJECTED_QC" if entry["entry_model"] == "V2" and final_qc_closed and entry["packed_qty"] > 0 and entry["dispatchable_qty"] <= 0 else
+            "RETAINED_FG" if entry["retained_qty"] > 0 else
+            "SEALED" if entry["dispatch_status"] == "SEALED" else
+            "QC_HOLD" if key in held else
+            "AWAITING_PACKING" if entry["packed_qty"] <= 0 else
+            "AWAITING_QC" if entry["entry_model"] == "V2" and not final_qc_closed else
+            "AWAITING_FG" if not (record.snapshot or {}).get("inventory_batch_id") else
+            "UNSEALED"
+        )
     return list(grouped.values())

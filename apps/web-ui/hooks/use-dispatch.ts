@@ -12,7 +12,7 @@ export function useReadyJobs(plantId?: string | null) {
       const { data } = await dispatchApi.getReadyJobs(plantId || undefined)
       return data
     },
-    enabled: isConcretePlant(plantId),
+    enabled: Boolean(plantId),
   })
 }
 
@@ -23,42 +23,57 @@ export function useDispatches(plantId?: string | null) {
       const { data } = await dispatchApi.getReadyJobs(plantId || undefined)
       return Array.isArray(data) ? data : []
     },
-    enabled: isConcretePlant(plantId),
+    enabled: Boolean(plantId),
   })
 }
 
-export function useDispatch(id: string | null) {
+export function useDispatch(id: string | null, plantId?: string | null) {
   return useQuery({
-    queryKey: ["dispatch", id],
+    queryKey: ["dispatch", id, plantId || null],
     queryFn: async () => {
       if (!id) return null
-      const { data } = await dispatchApi.getDispatch(id)
+      const { data } = await dispatchApi.getDispatch(id, plantId || undefined)
       return data
     },
     enabled: !!id,
   })
 }
 
-export function useDispatchByJobCard(jobCardId: string | null, draftsOnly = false) {
+export function useDispatchByJobCard(jobCardId: string | null, draftsOnly = false, plantId?: string | null) {
   return useQuery({
-    queryKey: ["dispatch-by-job", jobCardId, draftsOnly],
+    queryKey: ["dispatch-by-job", jobCardId, draftsOnly, plantId || null],
     queryFn: async () => {
       if (!jobCardId) return null
-      const { data } = await dispatchApi.getDispatchByJob(jobCardId, draftsOnly)
+      const { data } = await dispatchApi.getDispatchByJob(jobCardId, draftsOnly, plantId || undefined)
       return data
     },
     enabled: !!jobCardId,
   })
 }
 
-export function useCreateOrUpdateDispatch() {
+export function useCreateOrUpdateDispatch(plantId?: string | null) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (data: any) => dispatchApi.createOrUpdateDispatch(data),
+    mutationFn: (data: any) => {
+      if (!isConcretePlant(plantId)) throw new Error("The job card's plant is required to save a dispatch")
+      return dispatchApi.createOrUpdateDispatch(data, plantId || undefined)
+    },
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ["dispatch-by-job"] })
+      queryClient.invalidateQueries({ queryKey: ["ready-jobs"] })
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["dispatch-by-job"] })
       queryClient.invalidateQueries({ queryKey: ["ready-jobs"] })
       queryClient.invalidateQueries({ queryKey: ["dispatch"] })
+      queryClient.invalidateQueries({ queryKey: ["dispatches"] })
+      queryClient.invalidateQueries({ queryKey: ["planning-job-card"] })
+      queryClient.invalidateQueries({ queryKey: ["planning-job-cards"] })
+      queryClient.invalidateQueries({ queryKey: ["continuous-flow"] })
+      queryClient.invalidateQueries({ queryKey: ["sales-orders"] })
+      queryClient.invalidateQueries({ queryKey: ["sales"] })
+      queryClient.invalidateQueries({ queryKey: ["purchase-v2", "sales-bom-demand"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-items"] })
     },
   })
 }

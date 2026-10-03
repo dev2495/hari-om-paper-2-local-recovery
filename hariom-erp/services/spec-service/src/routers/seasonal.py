@@ -278,6 +278,9 @@ def spec_summary(search:str="",status:str="all",view:str="active",season:str="RO
     for spec in rows:
         seasons={s:({"ready":projections[(spec.id,s)].ready,**projections[(spec.id,s)].details} if (spec.id,s) in projections else {"ready":False,"blockers":["Seasonal configuration required"]}) for s in SEASONS}
         items.append({"id":str(spec.id),"plant_id":spec.plant_id,"customer_name":spec.customer_name_snapshot or spec.customer_name,"customer_id":str(spec.customer_id) if spec.customer_id else None,"tube_size_id":spec.tube_size_id,"version":spec.version,"status":spec.status,"write_revision":spec.write_revision,"updated_at":spec.updated_at,"required_cs":spec.required_cs,"target_tube_weight":spec.target_tube_weight,"id_min_mm":spec.id_min_mm,"id_max_mm":spec.id_max_mm,"od_min_mm":spec.od_min_mm,"od_max_mm":spec.od_max_mm,"length_min_mm":spec.length_min_mm,"length_max_mm":spec.length_max_mm,"seasonal_model":spec.seasonal_model,"seasons":seasons})
+        items[-1]["active"]=spec.active
+        if not spec.seasonal_model:
+            items[-1]["qc_profile"]=spec.qc_profile
     return {"items":items,"total":total,"facets":facets,"offset":offset,"limit":limit,"season":season}
 
 

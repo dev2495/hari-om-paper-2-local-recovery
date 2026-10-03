@@ -34,3 +34,20 @@ def test_dispatch_post_accepts_both_paths_without_redirect(monkeypatch, path):
 
     asyncio.run(run())
     assert forwarded == [('/dispatch/', {'job_card_id': 'job-1', 'status': 'SEALED'}, 'test-token')]
+
+def test_surplus_settlement_proxy_preserves_card_and_command(monkeypatch):
+    app = FastAPI()
+    app.include_router(dispatch.router, prefix='/api/dispatch')
+    app.dependency_overrides[dispatch.get_token] = lambda: 'test-token'
+    forwarded = []
+    async def proxy(base_url, service_path, request, token):
+        forwarded.append((service_path, await request.json(), request.headers.get('X-Plant-ID')))
+        return Response(json.dumps({'retained_qty': 10}), media_type='application/json')
+    monkeypatch.setattr(dispatch, 'proxy_to_service', proxy)
+    body = {'request_id': 'surplus-retry', 'expected_remaining_qty': 10, 'reason': 'Retain excess FG'}
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
+            response = await client.post('/api/dispatch/retain-surplus/card-1', json=body, headers={'X-Plant-ID': 'plant-1'})
+            assert response.status_code == 200 and response.json()['retained_qty'] == 10
+    asyncio.run(run())
+    assert forwarded == [('/dispatch/retain-surplus/card-1', body, 'plant-1')]

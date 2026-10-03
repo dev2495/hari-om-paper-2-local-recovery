@@ -1,5 +1,6 @@
 """Instrument register, hold-release reason and quality analytics against isolated PostgreSQL."""
 import os
+import sys
 import uuid
 from datetime import date, timedelta
 
@@ -9,16 +10,23 @@ if 'hardening_test' not in os.environ.get('DATABASE_URL', ''):
     pytest.skip('Requires isolated hardening_test PostgreSQL database', allow_module_level=True)
 
 from src.database import Base, SessionLocal, engine
-from src.models import AuditEvent, JobCard, QualityHold, QualityInspection, SalesOrder, PLANT_A_UUID
+from src.models import AuditEvent, JobCard, QualityHold, QualityInspection, SalesOrder
 from src.routers import quality
 
-PLANT = str(PLANT_A_UUID)
+TEST_PLANT_UUID = uuid.uuid4()
+PLANT = str(TEST_PLANT_UUID)
 QC = {'roles': ['QC'], 'role': 'QC', 'sub': 'qc-1', 'token': 't'}
 SCOPE = {'scope_all': False, 'selected_plant_id': PLANT}
 
 
 @pytest.fixture()
-def db():
+def db(monkeypatch):
+    # Other persistent contracts deliberately exercise Plant A. This suite's
+    # empty-register and denominator expectations must only see its own records.
+    plant = uuid.uuid4()
+    monkeypatch.setattr(sys.modules[__name__], "TEST_PLANT_UUID", plant)
+    monkeypatch.setattr(sys.modules[__name__], "PLANT", str(plant))
+    monkeypatch.setattr(sys.modules[__name__], "SCOPE", {"scope_all": False, "selected_plant_id": str(plant)})
     Base.metadata.create_all(engine)
     conn = engine.connect()
     transaction = conn.begin()
@@ -28,20 +36,21 @@ def db():
     finally:
         session.close()
         transaction.rollback()
+        conn.close()
 
 
 def _job(db):
-    order = SalesOrder(id=uuid.uuid4(), plant_id=PLANT_A_UUID, customer_id=uuid.uuid4(), spec_id=uuid.uuid4(),
+    order = SalesOrder(id=uuid.uuid4(), plant_id=TEST_PLANT_UUID, customer_id=uuid.uuid4(), spec_id=uuid.uuid4(),
         order_qty=100, due_date=date.today(), priority='NORMAL', status='OPEN')
     db.add(order); db.flush()
-    job = JobCard(id=uuid.uuid4(), plant_id=PLANT_A_UUID, sales_order_id=order.id, spec_id=order.spec_id,
+    job = JobCard(id=uuid.uuid4(), plant_id=TEST_PLANT_UUID, sales_order_id=order.id, spec_id=order.spec_id,
         planned_qty=100, status='CREATED', spec_snapshot={})
     db.add(job); db.flush()
     return job
 
 
 def test_register_overrides_typed_calibration(db):
-    plant = PLANT_A_UUID
+    plant = TEST_PLANT_UUID
     typed = {'height': 120, 'instrument': {'instrument_id': 'VC-01', 'calibration_due': '2099-01-01', 'calibration_status': 'valid'}}
     # No register kept yet: typed evidence passes through unchanged.
     assert quality._apply_instrument_register(db, plant, typed) == typed
@@ -63,12 +72,12 @@ def test_register_overrides_typed_calibration(db):
 
 def test_hold_release_records_reason_and_analytics_counts_first_pass(db):
     job = _job(db)
-    first = QualityInspection(plant_id=PLANT_A_UUID, job_card_id=job.id, stage_type='WINDER', status='FAIL',
+    first = QualityInspection(plant_id=TEST_PLANT_UUID, job_card_id=job.id, stage_type='WINDER', status='FAIL',
         failures=[{'label': 'Height'}], readings={'height': 130})
     db.add(first); db.flush()
-    db.add(QualityInspection(plant_id=PLANT_A_UUID, job_card_id=job.id, stage_type='WINDER', status='PASS', readings={'height': 120}))
-    db.add(QualityInspection(plant_id=PLANT_A_UUID, job_card_id=job.id, stage_type='QC', status='PASS', readings={}))
-    hold = QualityHold(plant_id=PLANT_A_UUID, job_card_id=job.id, stage_type='WINDER', reason='Height high', status='HOLD')
+    db.add(QualityInspection(plant_id=TEST_PLANT_UUID, job_card_id=job.id, stage_type='WINDER', status='PASS', readings={'height': 120}))
+    db.add(QualityInspection(plant_id=TEST_PLANT_UUID, job_card_id=job.id, stage_type='QC', status='PASS', readings={}))
+    hold = QualityHold(plant_id=TEST_PLANT_UUID, job_card_id=job.id, stage_type='WINDER', reason='Height high', status='HOLD')
     db.add(hold); db.flush()
 
     quality.release_hold(hold.id, quality.HoldReleasePayload(reason='Re-cut and re-measured', disposition='REWORKED', affected_qty=12),
@@ -84,3 +93,16 @@ def test_hold_release_records_reason_and_analytics_counts_first_pass(db):
     assert stages['QC']['first_pass_yield'] == 100.0
     assert report['failing_parameters'][0] == {'stage': 'WINDER', 'parameter': 'Height', 'job_cards': 1}
     assert report['holds']['opened'] == 1 and report['holds']['still_open'] == 0
+
+
+def test_continuous_pending_and_record_only_checks_do_not_lower_first_pass_yield(db):
+    job = _job(db)
+    for stage, status in [('WINDER', 'PENDING'), ('WINDER', 'OBSERVATION_ONLY'), ('WINDER', 'PASS'), ('OVEN', 'OBSERVATION_ONLY')]:
+        db.add(QualityInspection(plant_id=TEST_PLANT_UUID, job_card_id=job.id, stage_type=stage, status=status, readings={}))
+        db.flush()
+    report = quality.production_quality_analytics(date_from=date.today() - timedelta(days=1), date_to=date.today(),
+        db=db, plant_scope=SCOPE, current_user=QC)
+    stages = {row['stage']: row for row in report['by_stage']}
+    assert stages['WINDER']['first_pass_yield'] == 100.0
+    assert stages['WINDER']['pending_checks'] == 1 and stages['WINDER']['observation_checks'] == 1
+    assert stages['OVEN']['job_cards'] == 0 and stages['OVEN']['first_pass_yield'] is None

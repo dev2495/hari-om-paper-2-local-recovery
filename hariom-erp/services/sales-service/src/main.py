@@ -61,6 +61,7 @@ def _ensure_schema_compatibility():
             "ALTER TABLE sales_order_release_lots ADD COLUMN IF NOT EXISTS parchment_color VARCHAR(100)",
             "ALTER TABLE sales_order_release_lots ADD COLUMN IF NOT EXISTS parchment_color_id UUID",
             "ALTER TABLE sales_order_release_lots ADD COLUMN IF NOT EXISTS returned_qty DOUBLE PRECISION NOT NULL DEFAULT 0",
+            "ALTER TABLE sales_order_release_lots ADD COLUMN IF NOT EXISTS source_release_lot_id UUID",
             "CREATE INDEX IF NOT EXISTS ix_sales_order_line_colors_line ON sales_order_line_colors (sales_order_line_id)",
             # Existing single-color lines become one split for the full line qty (behaviour unchanged).
             "INSERT INTO sales_order_line_colors (id, sales_order_line_id, color_id, color, qty, created_at) "

@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from sqlalchemy import text
 from .database import Base, engine
 from . import entry_models
-from .routers import dispatch, jobs, lifecycle, operations, planning, quality, reconciliation, reel_issue, reports, entries
+from .routers import dispatch, dispatch_surplus, jobs, lifecycle, operations, planning, quality, reconciliation, reel_issue, reports, entries
 
 Base.metadata.create_all(bind=engine)
 
@@ -188,6 +188,7 @@ app.include_router(reel_issue.router)
 app.include_router(reports.router)
 app.include_router(reconciliation.router)
 app.include_router(dispatch.router)
+app.include_router(dispatch_surplus.router)
 app.include_router(quality.router)
 app.include_router(operations.router)
 
@@ -243,6 +244,7 @@ def start_completion_postings():
                 jsonb_build_object('stage','WINDER','authorization_id',spec_snapshot->>'release_authorization_id','bundle_hash',spec_snapshot->>'release_bundle_hash'),
                 'PENDING',0,now(),now() FROM job_cards
             WHERE spec_snapshot->>'entry_model'='V2'
+                AND parent_job_card_id IS NULL
                 AND spec_snapshot->>'release_authorization_id' IS NOT NULL
                 AND spec_snapshot->>'release_bundle_hash' IS NOT NULL
             ON CONFLICT (effect_key) DO NOTHING"""))

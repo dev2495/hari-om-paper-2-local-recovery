@@ -23,6 +23,7 @@ Each handler emits an audit event for the operations timeline.
 from __future__ import annotations
 
 import logging
+from copy import deepcopy
 import math
 import time
 import uuid
@@ -36,10 +37,14 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from ..card_lock import card_posting_lease
+from ..dispatch_quantities import dispatchable_quantity
 from ..config import get_settings
 from ..database import get_db
 from ..job_card_numbering import allocate_child_job_card_no
 from ..models import (
+    Dispatch,
+    PackingRecord,
     JobCard,
     JobCardShortClose,
     JobCardStage,
@@ -228,6 +233,7 @@ def _sync_sales_short_close(
     gap_qty: float,
     reason_code: str,
     notes: Optional[str],
+    expected_release_qty: Optional[float] = None,
 ) -> None:
     """Reduce the sales line/release lot for a SHORT_CLOSE_SO decision.
 
@@ -247,6 +253,7 @@ def _sync_sales_short_close(
                     "gap_qty": gap_qty,
                     "reason_code": reason_code,
                     "notes": notes,
+                    **({"expected_release_qty": expected_release_qty} if expected_release_qty is not None else {}),
                 },
                 timeout=10.0,
             )
@@ -395,9 +402,9 @@ def _spawn_carry_forward_job_card(
         sales_order_line_id=source_job.sales_order_line_id,
         release_lot_id=None,
         spec_id=source_job.spec_id,
-        spec_snapshot=dict(source_job.spec_snapshot or {}),
-        routing_snapshot=dict(source_job.routing_snapshot or {}),
-        material_plan_snapshot=dict(source_job.material_plan_snapshot or {}),
+        spec_snapshot=deepcopy(source_job.spec_snapshot or {}),
+        routing_snapshot=deepcopy(source_job.routing_snapshot or {}),
+        material_plan_snapshot=deepcopy(source_job.material_plan_snapshot or {}),
         released_qty=gap_qty,
         planned_qty=gap_qty,
         assigned_winder_machine_id=None,
@@ -412,6 +419,19 @@ def _spawn_carry_forward_job_card(
     )
     db.add(carry)
     db.flush()
+    if _is_v2(source_job):
+        # Reproduce the shortage through its entire authorized route. Quantity
+        # metadata changes; recipe, QC and release authorization stay frozen.
+        from . import planning
+        from .lifecycle import _rebuild_snapshots
+        route = list((source_job.routing_snapshot or {}).get("stages") or [])
+        if not route:
+            raise HTTPException(409, "The frozen route is missing from this V2 card")
+        _rebuild_snapshots(carry, qty=gap_qty, color=carry.parchment_color,
+                           token=token, plant_id=str(source_job.plant_id))
+        carry.current_stage, carry.status = route[0], "PLANNED"
+        planning._ensure_job_card_stages(db=db, job_card=carry, routing_stages=route,
+                                        first_stage=route[0])
 
     carry.release_lot_id = _reallocate_carry_forward_release_lot(
         token=token,
@@ -486,8 +506,71 @@ def _serialize_short_close(row: JobCardShortClose) -> ShortCloseResponse:
     )
 
 
+def _is_v2(job: JobCard) -> bool:
+    return (job.spec_snapshot or {}).get("entry_model") == "V2"
+
+
+def _v2_shortage_quantities(db: Session, job: JobCard, stage_type: str, supplied: float) -> tuple[float, float]:
+    if stage_type != "JOB_CARD":
+        raise HTTPException(422, "V2 commercial shortage decisions apply to JOB_CARD after final QC")
+    if (job.status or "").upper() == "CANCELLED":
+        raise HTTPException(409, "A cancelled job card cannot record a production shortage")
+    route = list((job.routing_snapshot or {}).get("stages") or [])
+    required = set(route) - {"DISPATCH"}
+    required.update({"WINDER", "OVEN", "PROCESS", "PACKING", "QC"})
+    if job.requires_slitting:
+        required.add("SLITTING")
+    stages = {row.stage_type: row for row in db.query(JobCardStage).filter_by(job_card_id=job.id).all()}
+    if any(stage not in stages or stages[stage].status != "COMPLETED" for stage in required):
+        raise HTTPException(409, "Close every upstream stage, Packing and final QC before deciding the commercial shortage")
+    packing = db.query(PackingRecord).filter_by(job_card_id=job.id).first()
+    if packing is None or "DISPATCH" not in stages:
+        raise HTTPException(409, "The completed packing record and Dispatch stage are required")
+    accepted = dispatchable_quantity(job, packing, stages["QC"])
+    allocated = float(job.released_qty or job.planned_qty or 0)
+    if not math.isfinite(supplied) or abs(float(supplied) - accepted) > 0.0001:
+        raise HTTPException(422, "produced_qty must equal the final QC accepted finished-goods quantity")
+    if not math.isfinite(allocated) or allocated <= accepted:
+        raise HTTPException(400, "No shortage remains against the original released allocation")
+    return allocated, accepted
+
+
+def _settle_v2_card_after_decision(db: Session, job: JobCard, accepted: float) -> None:
+    stage = db.query(JobCardStage).filter_by(job_card_id=job.id, stage_type="DISPATCH").first()
+    shipped = sum(float((row.dispatch_snapshot or {}).get("dispatch_qty") or
+                        (row.dispatch_snapshot or {}).get("qty") or 0)
+                  for row in db.query(Dispatch).filter_by(job_card_id=job.id, status="SEALED").all())
+    retained = float((stage.actuals_snapshot or {}).get("retained_fg_qty") or 0)
+    if shipped + retained >= accepted - 0.0001:
+        job.status, job.current_stage = "COMPLETED", "DONE"
+        stage.status = "COMPLETED"
+    else:
+        job.status, job.current_stage = "IN_PROGRESS", "DISPATCH"
+        # A shortage decision closes its commercial gap; accepted physical FG
+        # must still be shipped or deliberately retained before the card ends.
+        if stage.status == "COMPLETED":
+            stage.status = "QUEUED"
+
+
 @router.post("/short-close/{job_card_id}", response_model=ShortCloseResponse)
 def short_close_job_card(
+    job_card_id: uuid.UUID,
+    payload: ShortClosePayload,
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(["PlantManager", "Admin", "Owner"])),
+):
+    candidate = db.query(JobCard).filter_by(id=job_card_id).first()
+    if candidate and _is_v2(candidate):
+        # This lease survives Sales calls and local commit checkpoints and shares
+        # its key with final QC, ledger writers and dispatch posting.
+        with card_posting_lease(job_card_id):
+            db.expire_all()
+            return _short_close_job_card(job_card_id, payload, db, plant_scope, current_user)
+    return _short_close_job_card(job_card_id, payload, db, plant_scope, current_user)
+
+
+def _short_close_job_card(
     job_card_id: uuid.UUID,
     payload: ShortClosePayload,
     db: Session = Depends(get_db),
@@ -522,7 +605,8 @@ def short_close_job_card(
 
     # P1.1 — idempotency guards. Reject if the JC is already COMPLETED or a
     # prior short-close already exists. Frontend filters are client-side only.
-    if (job.status or "").upper() == "COMPLETED":
+    v2 = _is_v2(job)
+    if not v2 and (job.status or "").upper() == "COMPLETED":
         raise HTTPException(
             status_code=409,
             detail="Job card already completed — short-close cannot be re-applied",
@@ -539,6 +623,10 @@ def short_close_job_card(
         .first()
     )
     if existing_sc is not None:
+        if (v2 and existing_sc.decision == decision and existing_sc.reason_code == reason_code
+                and abs(float(existing_sc.produced_qty) - float(payload.produced_qty)) <= 0.0001
+                and existing_sc.notes == (payload.notes or None)):
+            return _serialize_short_close(existing_sc)
         raise HTTPException(
             status_code=409,
             detail=f"Short-close already recorded for this job card at stage {stage_type}",
@@ -546,6 +634,8 @@ def short_close_job_card(
 
     planned = float(job.planned_qty or 0.0)
     produced = float(payload.produced_qty or 0.0)
+    if v2:
+        planned, produced = _v2_shortage_quantities(db, job, stage_type, produced)
     gap = round(planned - produced, 4)
     if gap <= 0:
         raise HTTPException(status_code=400, detail="No gap — produced_qty meets or exceeds planned_qty. Use the normal close.")
@@ -601,6 +691,7 @@ def short_close_job_card(
                 gap_qty=gap,
                 reason_code=reason_code,
                 notes=payload.notes,
+                expected_release_qty=planned if v2 else None,
             )
 
         # Carry-forward branch: spawn a top-up job card sharing the same spec.
@@ -618,8 +709,9 @@ def short_close_job_card(
             short.carry_forward_job_card_id = carry.id
             carry_id = carry.id
 
-        # Mark the originating job card complete with the short qty.
-        if job.status != "COMPLETED":
+        if v2:
+            _settle_v2_card_after_decision(db, job, produced)
+        elif job.status != "COMPLETED":
             job.status = "COMPLETED"
 
         db.commit()
@@ -776,10 +868,13 @@ def short_close_job_card(
 def list_short_closes(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
+    job_card_id: Optional[uuid.UUID] = Query(None),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
 ):
     query = db.query(JobCardShortClose)
+    if job_card_id:
+        query = query.filter(JobCardShortClose.job_card_id == job_card_id)
     query = _apply_plant_scope(query, JobCardShortClose.plant_id, plant_scope, action="short-close history")
     if start_date:
         try:
@@ -822,6 +917,22 @@ def resolve_short_close_hold(
     plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(require_role(["PlantManager", "Admin", "Owner"])),
 ):
+    short = db.query(JobCardShortClose).filter_by(id=short_close_id).first()
+    candidate = db.query(JobCard).filter_by(id=short.job_card_id).first() if short else None
+    if candidate and _is_v2(candidate):
+        with card_posting_lease(candidate.id):
+            db.expire_all()
+            return _resolve_short_close_hold(short_close_id, payload, db, plant_scope, current_user)
+    return _resolve_short_close_hold(short_close_id, payload, db, plant_scope, current_user)
+
+
+def _resolve_short_close_hold(
+    short_close_id: uuid.UUID,
+    payload: ResolveHoldPayload,
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(["PlantManager", "Admin", "Owner"])),
+):
     """P3.2 — resolve an OPEN HOLD by executing the final decision.
 
     Executes the chosen decision (spawn carry JC + sales reallocate, OR call
@@ -842,16 +953,23 @@ def resolve_short_close_hold(
     short = query.first()
     if not short:
         raise HTTPException(status_code=404, detail="Short-close not found in this plant scope")
+    job = db.query(JobCard).filter(JobCard.id == short.job_card_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Originating job card no longer exists")
+    v2 = _is_v2(job)
+    if (v2 and short.hold_status == "RESOLVED" and short.resolution_decision == decision
+            and short.resolution_note == (payload.notes or None)):
+        return _serialize_short_close(short)
     if (short.hold_status or "").upper() != "OPEN":
         raise HTTPException(
             status_code=409,
             detail="Short-close is not an OPEN hold — nothing to resolve",
         )
 
-    # The originating job card carries the SO/release-lot links the decision needs.
-    job = db.query(JobCard).filter(JobCard.id == short.job_card_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Originating job card no longer exists")
+    if v2:
+        planned, accepted = _v2_shortage_quantities(db, job, short.stage_type, float(short.produced_qty))
+        if abs(planned - float(short.planned_qty)) > 0.0001:
+            raise HTTPException(409, "Original release allocation changed after the HOLD decision")
 
     actor_id = current_user.get("sub") or current_user.get("actor_identity") or "unknown"
     actor_role = current_user.get("acting_role") or (current_user.get("roles") or ["?"])[0]
@@ -878,6 +996,7 @@ def resolve_short_close_hold(
                 gap_qty=gap,
                 reason_code=short.reason_code,
                 notes=payload.notes,
+                expected_release_qty=float(short.planned_qty) if v2 else None,
             )
         elif decision == "CARRY_FORWARD" and gap > 0:
             carry, carry_release_orphan = _spawn_carry_forward_job_card(
@@ -889,6 +1008,8 @@ def resolve_short_close_hold(
             short.carry_forward_job_card_id = carry.id
             carry_id = carry.id
 
+        if v2:
+            _settle_v2_card_after_decision(db, job, accepted)
         short.hold_status = "RESOLVED"
         short.resolved_at = datetime.utcnow()
         short.resolved_by = str(actor_id)

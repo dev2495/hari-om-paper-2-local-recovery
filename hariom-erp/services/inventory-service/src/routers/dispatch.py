@@ -121,34 +121,8 @@ def create_dispatch(
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
 
-    reservation = None
-    reservation_remaining = 0.0
-    if dispatch.sales_order_line_id:
-        reservation_query = (
-            db.query(Reservation)
-            .filter(
-                Reservation.plant_id == plant_id,
-                Reservation.sales_order_line_id == dispatch.sales_order_line_id,
-                Reservation.item_id == dispatch.item_id,
-                Reservation.status == ReservationStatus.ACTIVE,
-            )
-        )
-        if dispatch.batch_id:
-            reservation = reservation_query.filter(Reservation.batch_id == dispatch.batch_id).order_by(Reservation.created_at.asc()).first()
-            if reservation is None and reservation_query.first() is not None:
-                raise HTTPException(status_code=409, detail="Dispatch batch does not match an active sales-line reservation")
-        else:
-            reservation = reservation_query.order_by(Reservation.created_at.asc()).first()
-        if reservation:
-            reservation_remaining = max(0.0, float(reservation.reserved_qty or 0.0) - float(reservation.consumed_qty or 0.0))
-            if dispatch.qty > reservation_remaining + 0.0001:
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"Dispatch qty exceeds reserved remaining ({round(reservation_remaining, 2)})",
-                )
-            if reservation.batch_id and dispatch.batch_id and reservation.batch_id != dispatch.batch_id:
-                raise HTTPException(status_code=409, detail="Dispatch batch does not match the sales-line reservation")
-
+    # Resolve an exact committed command before checking balances/reservations
+    # changed by that command. Replay must never consume a reservation twice.
     if dispatch.existing_transaction_id:
         existing_by_id = db.query(StockTransaction).filter(
             StockTransaction.id == dispatch.existing_transaction_id,
@@ -212,6 +186,28 @@ def create_dispatch(
         except Exception as exc:
             _audit_logger.warning("audit emit failed for dispatch_recorded (idempotent) %s: %s", existing.id, exc)
         return response
+
+    reservation = None
+    reservation_remaining = 0.0
+    if dispatch.sales_order_line_id:
+        reservation_query = db.query(Reservation).filter(
+            Reservation.plant_id == plant_id,
+            Reservation.sales_order_line_id == dispatch.sales_order_line_id,
+            Reservation.item_id == dispatch.item_id,
+            Reservation.status == ReservationStatus.ACTIVE,
+        )
+        if dispatch.batch_id:
+            reservation = reservation_query.filter(Reservation.batch_id == dispatch.batch_id).order_by(Reservation.created_at.asc()).first()
+            if reservation is None and reservation_query.first() is not None:
+                raise HTTPException(status_code=409, detail="Dispatch batch does not match an active sales-line reservation")
+        else:
+            reservation = reservation_query.order_by(Reservation.created_at.asc()).first()
+        if reservation:
+            reservation_remaining = max(0.0, float(reservation.reserved_qty or 0.0) - float(reservation.consumed_qty or 0.0))
+            if dispatch.qty > reservation_remaining + 0.0001:
+                raise HTTPException(status_code=409, detail=f"Dispatch qty exceeds reserved remaining ({round(reservation_remaining, 2)})")
+            if reservation.batch_id and dispatch.batch_id and reservation.batch_id != dispatch.batch_id:
+                raise HTTPException(status_code=409, detail="Dispatch batch does not match the sales-line reservation")
 
     selected_batch_id = reservation.batch_id if reservation and reservation.batch_id else dispatch.batch_id
     batch = None

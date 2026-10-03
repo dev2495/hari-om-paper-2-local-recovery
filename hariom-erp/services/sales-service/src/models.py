@@ -119,6 +119,8 @@ class SalesOrderReleaseLot(Base):
     released_qty = Column(Float, nullable=False)
     winder_machine_id = Column(UUID(as_uuid=True), nullable=False)
     job_card_id = Column(UUID(as_uuid=True), nullable=True)
+    # Exact commercial lineage for split/carry-forward replay validation.
+    source_release_lot_id = Column(UUID(as_uuid=True), nullable=True)
     # One job card = one color: the color this lot was released in (parchment lines only).
     parchment_color = Column(String(100), nullable=True)
     parchment_color_id = Column(UUID(as_uuid=True), nullable=True)

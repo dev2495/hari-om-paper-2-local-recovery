@@ -1,8 +1,6 @@
 "use client"
 
 import Link from "next/link"
-
-import Link from "next/link"
 import { SeasonRecipeManager } from "@/components/specs/SeasonRecipeManager"
 import { seasonLabel, type Season } from "@/lib/season-api"
 import { useRouter } from "next/navigation"

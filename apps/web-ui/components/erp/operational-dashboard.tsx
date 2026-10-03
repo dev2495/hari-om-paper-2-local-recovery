@@ -28,7 +28,7 @@ export function OperationalDashboard({ roles }: { roles: string[] }) {
   const { data: readyJobs } = useReadyJobs(activePlant)
 
   const jobCardRows = Array.isArray(jobCards) ? jobCards : []
-  const readyDispatchRows = Array.isArray(readyJobs) ? readyJobs : []
+  const readyDispatchRows = Array.isArray(readyJobs) ? readyJobs.filter((job: any) => job.handoff_state === "UNSEALED" && Number(job.max_ship_qty) > 0) : []
   const plannerSummary = (board as any)?.summary || {}
   const activeStageViews = Array.isArray((board as any)?.stages) ? (board as any).stages : []
   const unscheduledJobs = activeStageViews.reduce((sum: number, stage: any) => {
