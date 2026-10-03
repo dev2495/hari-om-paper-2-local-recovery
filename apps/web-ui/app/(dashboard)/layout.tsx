@@ -6,6 +6,7 @@ import { LockKeyhole, AlertTriangle, BarChart3, Boxes, CheckCircle2, Inbox, Tren
 import { useEffect, useMemo, useState } from "react"
 import { PlantSwitcher } from "@/components/PlantSwitcher"
 import { BooksLockedChip } from "@/components/workspace/books-locked-chip"
+import { SeasonChip } from "@/components/workspace/SeasonChip"
 import { NotificationCenter } from "@/components/workspace/notification-center"
 import { RoleSwitcher } from "@/components/workspace/role-switcher"
 import { AppearanceControls } from "@/components/workspace/appearance-controls"
@@ -116,6 +117,8 @@ const navigationUnits: NavGroup[] = [
       { name: "Incoming inspections", href: "/quality/incoming", icon: ClipboardList, description: "Receive, inspect and release material lots.", roles: ["Owner", "Admin", "QC"] },
       { name: "Production inspections", href: "/quality/stage", icon: Factory, description: "Winding, oven and process checks.", roles: ["Owner", "Admin", "QC", "PlantManager"] },
       { name: "Material standards", href: "/quality/material-standards", icon: ShieldCheck, description: "Approved tolerances and revision history.", roles: ["Owner", "Admin", "QC"] },
+      { name: "Seasonal stage rules", href: "/quality/stage-rules", icon: ShieldCheck, description: "Published seasonal rules and customer overlays.", roles: ["Owner", "Admin", "QC"] },
+      { name: "Production season", href: "/settings/production-season", icon: Factory, description: "Global season and release readiness.", ownerOnly: true },
       { name: "Results & holds", href: "/quality/results", icon: LockKeyhole, description: "Quality decisions and customer returns.", roles: ["Owner", "Admin", "QC", "PlantManager", "Store", "Sales", "Dispatch"] },
       { name: "Quality analytics", href: "/reports/quality", icon: BarChart3, description: "Quality trends and variance.", roles: ["Owner", "Admin", "QC", "PlantManager"] },
     ],
@@ -416,7 +419,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </DialogContent>
         </Dialog>
         <div className="ml-auto flex shrink-0 items-center gap-1 sm:ml-0">
-          <AppearanceControls /><BooksLockedChip compact /><RoleSwitcher compact /><NotificationCenter />
+          <SeasonChip /><AppearanceControls /><BooksLockedChip compact /><RoleSwitcher compact /><NotificationCenter />
           {userRoles.has("Owner") || userRoles.has("Admin") ? <PlantSwitcher compact /> : null}
           <Link href={`/help?route=${encodeURIComponent(pathname)}`} className="tube-icon-button max-[400px]:!hidden" aria-label="Open page guide" title="Open page guide"><BookOpen size={17} /></Link>
         </div>

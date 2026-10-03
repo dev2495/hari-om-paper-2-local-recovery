@@ -143,6 +143,8 @@ class ReelIssueResponse(BaseModel):
     reel_id: uuid.UUID
     issue_section: str
     machine_id: Optional[uuid.UUID] = None
+    sales_order_id: Optional[uuid.UUID] = None
+    customer_id: Optional[uuid.UUID] = None
     shift: str
     issue_date: date
     issued_weight_kg: float
@@ -166,6 +168,8 @@ def _serialize_issue(issue: ReelIssue) -> ReelIssueResponse:
         reel_id=issue.reel_id,
         issue_section=str(issue.issue_section or "WINDER_SECTION"),
         machine_id=issue.winder_machine_id,
+        sales_order_id=issue.sales_order_id,
+        customer_id=issue.customer_id,
         shift=issue.shift,
         issue_date=issue.issue_date,
         issued_weight_kg=float(issue.issued_weight_kg or 0.0),
@@ -223,6 +227,8 @@ def create_reel_issue(
         reel_id=payload.reel_id,
         issue_section=section,
         winder_machine_id=payload.machine_id,
+        sales_order_id=payload.sales_order_id,
+        customer_id=payload.customer_id,
         shift=payload.shift,
         issue_date=payload.issue_date,
         issued_weight_kg=payload.issued_weight_kg,

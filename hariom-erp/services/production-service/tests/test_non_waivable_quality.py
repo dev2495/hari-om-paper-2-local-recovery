@@ -53,7 +53,7 @@ def test_non_applicable_critical_rule_does_not_block():
 
 
 def test_admin_cannot_release_critical_hold_or_mutate_stock():
-    hold = SimpleNamespace(id=uuid.uuid4(), status='HOLD', source_inspection_id=uuid.uuid4())
+    hold = SimpleNamespace(id=uuid.uuid4(), job_card_id=uuid.uuid4(), status='HOLD', source_inspection_id=uuid.uuid4())
     inspection = SimpleNamespace(status='FAIL', evaluation=critical_evaluation())
     db = Mock()
     db.query.return_value.filter.return_value.first.side_effect = [hold, inspection]

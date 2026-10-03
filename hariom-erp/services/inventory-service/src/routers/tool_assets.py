@@ -318,7 +318,7 @@ def issue_tool(asset_id: str, payload: ToolIssue, db: Session = Depends(get_db),
 
 
 @router.post("/{asset_id}/usage")
-def record_tool_usage(asset_id: str, payload: ToolUsage, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(require_role(["Admin", "Owner", "Production", "PlantManager", "Operator"]))):
+def record_tool_usage(asset_id: str, payload: ToolUsage, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(require_role(["Admin", "Owner", "Production", "PlantManager", "Operator", "ProductionEffects"]))):
     asset = _asset(db, asset_id, plant_id)
     existing = db.query(ToolAssetAssignment).filter(
         ToolAssetAssignment.asset_id == asset.id,

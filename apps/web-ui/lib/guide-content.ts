@@ -899,6 +899,7 @@ const guides: GuideContent[] = [
 ]
 
 const routeGuideMap: Array<{ pattern: RegExp; guideId: string }> = [
+  { pattern: /^\/settings\/production-season(?:\/.*)?$/, guideId: "specifications" },
   { pattern: /^\/help\/appearance(?:\/.*)?$/, guideId: "appearance" },
   { pattern: /^\/sales-orders\/pending(?:\/.*)?$/, guideId: "customer-calendar" },
   { pattern: /^\/purchase\/supplier-deliveries(?:\/.*)?$/, guideId: "supplier-promises" },

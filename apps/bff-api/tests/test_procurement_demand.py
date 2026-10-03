@@ -79,6 +79,10 @@ def test_adapter_uses_plant_scoped_sources_and_canonical_bom():
             body = {'coverage': 'all_linked_jobs', 'jobs': []}
         elif url.endswith('/material-issues/by-job'):
             body = {'coverage': 'all_attributed_job_issues', 'items': []}
+        elif url.endswith('/season'):
+            body={'active_season':'ROY','epoch':1}
+        elif url.endswith('/season/release-authorizations'):
+            body=[]
         elif url.endswith('/specs/spec'):
             body = {'id': 'spec', 'version': 3, 'status': 'approved', 'tube_size_id': 'tube'}
         elif url.endswith('/recipes/spec/spec'):
@@ -152,6 +156,8 @@ def residual_result(*, section_issues=None, job_issues=None, shared=False, plan_
                 {'line_id':'line','spec_id':'spec','quantity_pcs':2000,'source_job_ids':['done']}]}}
     async def get(url, **kwargs):
         path = httpx.URL(url).path
+        if path=='/season':return httpx.Response(200,json={'active_season':'ROY','epoch':1})
+        if path=='/season/release-authorizations':return httpx.Response(200,json=[])
         return httpx.Response(200,json=bodies[path])
     with patch('src.services.procurement_demand.http_client.get',new=AsyncMock(side_effect=get)):
         return asyncio.run(material_demand('test','plant',date(2026,9,1),date(2026,9,30)))

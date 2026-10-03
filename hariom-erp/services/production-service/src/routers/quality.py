@@ -16,6 +16,8 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..database import get_db
+from ..card_lock import lock_card_transaction
+from ..entry_models import CompletionEffect
 from ..models import AuditEvent, Dispatch, JobCard, JobCardStage, PackingRecord, PLANT_A_UUID, PLANT_B_UUID, QualityHold, QualityInspection
 from ..quality_eval import (
     apply_qc_setup_marker,
@@ -36,6 +38,17 @@ router = APIRouter(prefix="/quality", tags=["quality"])
 settings = get_settings()
 
 STAGES = {"SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING", "QC"}
+
+
+def queue_continuous_stock_state(db,job,hold_id,stage,held):
+    kind="hold_stock" if held else "release_stock"
+    db.add(CompletionEffect(job_card_id=job.id,effect_key=f"{job.id}:{kind}:{hold_id}",kind=kind,payload={"stage":stage,"plant_id":str(job.plant_id)}))
+    status="QC_HOLD" if held else "UNRESTRICTED"
+    for packing in db.query(PackingRecord).filter_by(job_card_id=job.id).all():
+        if held or packing.stock_status=="QC_HOLD":packing.stock_status=status
+    for row in db.query(JobCardStage).filter_by(job_card_id=job.id).all():
+        actual=dict(row.actuals_snapshot or {})
+        if held or actual.get("stock_status")=="QC_HOLD":actual["stock_status"]=status;row.actuals_snapshot=actual
 CARD_QC_STAGES = ("WINDER", "OVEN", "PROCESS")
 ISSUE_VERDICTS = {"FAIL", "INCOMPLETE", "INVALID"}
 LATE_EXCEPTION_LABEL = "Late quality exception"
@@ -1226,6 +1239,9 @@ def record_stage_inspection(
     )
     if not job_card:
         raise HTTPException(status_code=404, detail="Job card not found")
+    if (job_card.spec_snapshot or {}).get("entry_model")=="V2":lock_card_transaction(db,job_card.id)
+    if (job_card.spec_snapshot or {}).get("entry_model")=="V2" and stage_type in CARD_QC_STAGES:
+        raise HTTPException(409, {"code":"CONTINUOUS_QC_REQUIRED","message":"Record paired samples on the continuous job card", "href":f"/production/job-cards/{job_card.id}"})
     sanitized_readings = _sanitize_observation_map(readings)
     stored_reasons = _normalize_reasons_map(reasons)
     mode = _normalize_entry_mode(entry_mode, "DEDICATED_QC")
@@ -1519,6 +1535,7 @@ def record_stage_inspection(
             )
             db.add(hold)
             db.flush()
+            if (job_card.spec_snapshot or {}).get("entry_model")=="V2":queue_continuous_stock_state(db,job_card,hold.id,stage_type,True)
 
     _record_audit_event(
         db=db,
@@ -2080,6 +2097,7 @@ def get_frozen_qc_template(
         }
     return {
         "job_card_id": str(job_card.id),
+        "entry_model": snapshot.get("entry_model"),
         "qc_profile": profile,
         "profile_revision": profile.get("revision"),
         "quality_context_version": context.get("quality_context_version"),
@@ -2151,6 +2169,8 @@ def attach_approved_qc_profile(
     if not job_card:
         raise HTTPException(status_code=404, detail="Job card not found")
     snapshot = dict(job_card.spec_snapshot or {})
+    if snapshot.get("entry_model") == "V2":
+        raise HTTPException(status_code=409, detail="Released seasonal recipe and QC rules are frozen; this card cannot attach a different profile")
     before = {
         "qc_setup_status": snapshot.get("qc_setup_status"),
         "missing_qc_setup": bool(snapshot.get("missing_qc_setup") or snapshot.get("missing_profile_marker")),
@@ -2366,6 +2386,8 @@ def create_hold(
     if not job_card:
         raise HTTPException(status_code=404, detail="Job card not found")
 
+    if (job_card.spec_snapshot or {}).get("entry_model")=="V2":lock_card_transaction(db,job_card.id)
+
     hold = QualityHold(
         plant_id=plant_uuid,
         job_card_id=job_card.id,
@@ -2378,6 +2400,7 @@ def create_hold(
     )
     db.add(hold)
     db.flush()
+    if (job_card.spec_snapshot or {}).get("entry_model")=="V2":queue_continuous_stock_state(db,job_card,hold.id,hold.stage_type,True)
     _record_audit_event(
         db=db,
         plant_id=plant_uuid,
@@ -2466,6 +2489,11 @@ def release_hold(
     )
     if not hold:
         raise HTTPException(status_code=404, detail="Quality hold not found")
+    job_card=db.get(JobCard,hold.job_card_id)
+    continuous=job_card and (job_card.spec_snapshot or {}).get("entry_model")=="V2"
+    if continuous:
+        lock_card_transaction(db,hold.job_card_id)
+        db.refresh(hold)
     if hold.status != "HOLD":
         raise HTTPException(status_code=400, detail="Only active holds can be released")
 
@@ -2495,8 +2523,9 @@ def release_hold(
         .count()
     )
     if remaining_holds == 0:
+        if continuous:queue_continuous_stock_state(db,job_card,hold.id,hold.stage_type,False)
         packing_record = db.query(PackingRecord).filter(PackingRecord.job_card_id == hold.job_card_id).first()
-        if packing_record and packing_record.stock_status == "QC_HOLD":
+        if not continuous and packing_record and packing_record.stock_status == "QC_HOLD":
             packing_record.stock_status = "UNRESTRICTED"
             inventory_batch_id = (packing_record.snapshot or {}).get("inventory_batch_id")
             if inventory_batch_id:

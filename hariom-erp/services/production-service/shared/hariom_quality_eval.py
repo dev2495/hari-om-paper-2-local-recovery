@@ -23,6 +23,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from math import isfinite
+import hashlib
+import json
 from typing import Any, Iterable, Optional
 
 
@@ -597,6 +599,22 @@ def qc_profile_setup_status(profile: Any) -> str:
     """Classify a frozen QC profile. Empty setup is missing, never PASS."""
     if not isinstance(profile, dict) or not profile:
         return "missing"
+    if profile.get("source") == "GLOBAL_RULES":
+        # A seasonal release is resolved at authorization time. Record-only and
+        # paired sample rules are valid setup, but an empty/tampered bundle is not.
+        expected = {"WINDER": {"id", "od", "height", "weight", "cs"}, "OVEN": {"pre_weight", "post_weight", "pre_moisture", "post_moisture", "cs"}, "PROCESS": {"id", "od", "height", "weight", "cs", "notch_distance", "notch_depth", "moisture"}}
+        stages = profile.get("stages") or {}
+        for stage, codes in expected.items():
+            rows = (stages.get(stage) or {}).get("parameters", [])
+            if {r.get("code") for r in rows if isinstance(r, dict)} != codes:
+                return "missing"
+            if any(r.get("required") is not True or type(r.get("min_readings")) is not int or r["min_readings"] < 2 for r in rows):
+                return "missing"
+        try:
+            digest = hashlib.sha256(json.dumps({k:v for k,v in profile.items() if k != "fingerprint"}, sort_keys=True, separators=(",", ":"), default=str, allow_nan=False).encode()).hexdigest()
+        except (TypeError, ValueError):
+            return "missing"
+        return "approved" if profile.get("status") == "approved" and profile.get("fingerprint") == digest and not profile.get("unresolved") and not profile.get("conflicts") else "incomplete"
     explicit = str(profile.get("status") or profile.get("setup_status") or "").strip().lower()
     if explicit == "attached":
         return "attached"

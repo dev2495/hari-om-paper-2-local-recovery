@@ -213,6 +213,9 @@ class SpecUpdate(BaseModel):
 
 
 class SpecResponse(BaseModel):
+    seasonal_model: bool = False
+    lineage_id: Optional[uuid.UUID] = None
+    mandrel_diameter_mm: Optional[float] = None
     id: uuid.UUID
     customer_name: str
     customer_id: Optional[str] = None
@@ -651,6 +654,9 @@ def _serialize_spec(spec: SpecificationSheet) -> dict:
         "qc_profile": spec.qc_profile if isinstance(spec.qc_profile, dict) else None,
         "qc_setup_status": profile_status(spec.qc_profile if isinstance(spec.qc_profile, dict) else None),
         "write_revision": int(spec.write_revision or 1),
+        "seasonal_model": bool(spec.seasonal_model),
+        "lineage_id": spec.lineage_id,
+        "mandrel_diameter_mm": spec.mandrel_diameter_mm,
         "dynamic_fields": sorted(dynamic_values, key=lambda x: x["field_key"]),
     }
     canonical = canonical_from_spec(spec)
@@ -1062,6 +1068,8 @@ def apply_qc_profile_assign(
     current_user: dict = Depends(require_role(["Admin", "Owner", "QC"])),
 ):
     _require_qc_author(current_user)
+    if db.query(SpecificationSheet).filter(SpecificationSheet.id.in_([payload.template_spec_id, *(payload.spec_ids or [])]), SpecificationSheet.plant_id == plant_id, SpecificationSheet.seasonal_model.is_(True)).first():
+        raise HTTPException(409, "Seasonal specifications use global QC rules and customer/spec overrides")
     for target in db.query(SpecificationSheet).filter(SpecificationSheet.id.in_(list(payload.spec_ids or [])), SpecificationSheet.plant_id == plant_id).all():
         _enforce_live_qc_lock(target, current_user, plant_id)
     return apply_assign(
@@ -1126,7 +1134,14 @@ def get_spec(
     ).first()
     if not spec:
         raise HTTPException(status_code=404, detail="Specification not found")
-    return _serialize_spec(spec)
+    result=_serialize_spec(spec)
+    if spec.seasonal_model:
+        from .seasonal import resolved
+        from ..season_models import SeasonState
+        state=db.get(SeasonState,"ORGANIZATION")
+        try:result["qc_profile"]=resolved(db,spec,state.active_season if state else "ROY")
+        except HTTPException:result["qc_profile"]={"status":"missing","source":"GLOBAL_RULES","missing_profile_marker":True}
+    return result
 
 
 def _live_spec_usage(spec_id: uuid.UUID, token: str, plant_id: str) -> dict:
@@ -1218,6 +1233,8 @@ def update_spec(
         return _serialize_spec(replayed)
     require_expected_revision(spec, payload.expected_revision)
 
+    if spec.seasonal_model:
+        raise HTTPException(status_code=409, detail="Use the seasonal document command for this specification")
     if spec.status == "draft":
         return _serialize_spec(
             _update_draft_in_place(
@@ -1295,6 +1312,8 @@ def upsert_spec_qc_profile(
     ).first()
     if not spec:
         raise HTTPException(status_code=404, detail="Specification not found")
+    if spec.seasonal_model:
+        raise HTTPException(status_code=409, detail="Use seasonal global rules and customer/spec overlays for this specification")
     if not spec.active:
         raise HTTPException(status_code=400, detail="Inactive specification versions are read-only")
     if spec.status == "review":
@@ -1370,6 +1389,8 @@ def approve_spec_qc_profile(
     ).first()
     if not spec:
         raise HTTPException(status_code=404, detail="Specification not found")
+    if spec.seasonal_model:
+        raise HTTPException(status_code=409, detail="Use seasonal global rules and customer/spec overlays for this specification")
     _enforce_live_qc_lock(spec, current_user, plant_id)
     current = spec.qc_profile if isinstance(spec.qc_profile, dict) else {}
     current_revision = int(current.get("revision") or 1)
@@ -1418,6 +1439,8 @@ def submit_spec_for_review(
     ).first()
     if not spec:
         raise HTTPException(status_code=404, detail="Specification not found")
+    if spec.seasonal_model:
+        raise HTTPException(status_code=409, detail="Use seasonal review for this specification")
     if spec.status == "review":
         return {"spec_id": str(spec.id), "status": "review", "message": "Specification is already under approval review"}
     if spec.status != "draft":
@@ -1521,6 +1544,8 @@ def approve_spec(
     ).first()
     if not spec:
         raise HTTPException(status_code=404, detail="Specification not found")
+    if spec.seasonal_model:
+        raise HTTPException(status_code=409, detail="Use seasonal approval for this specification")
     if spec.status != "review":
         raise HTTPException(status_code=409, detail="Owner approval requires a specification in review status")
 

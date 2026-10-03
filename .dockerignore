@@ -17,6 +17,8 @@ hariom-erp/runtime/
 hariom-erp/venv-runtime/
 hariom-erp/venv-verify/
 hariom-erp/runtime-verify/
+hariom-erp/runtime-season/
+hariom-erp/venv-season/
 hariom-erp/.venv-runtime/
 hariom-erp/.venv-direct/
 hariom-erp/services/auth-service/venv/

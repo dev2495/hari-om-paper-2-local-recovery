@@ -231,6 +231,9 @@ export type SpecProfile = {
 }
 
 export type SpecRecord = {
+  seasonal_model?: boolean
+  lineage_id?: string
+  mandrel_diameter_mm?: number
   id: string
   customer_id: string
   customer_name: string
@@ -275,6 +278,8 @@ export type SpecRecord = {
 }
 
 export type RecipeSummary = {
+  season?: string
+  season_revision?: number
   id: string
   spec_id: string
   version: number

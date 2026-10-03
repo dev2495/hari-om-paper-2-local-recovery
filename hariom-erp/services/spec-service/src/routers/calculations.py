@@ -99,7 +99,14 @@ def _midpoint(low: float | None, high: float | None) -> float:
     return 0.0
 
 
-def _approved_recipe_for_spec(spec_id: uuid.UUID, db: Session, plant_scope: dict) -> RecipeHeader | None:
+def _approved_recipe_for_spec(spec_id: uuid.UUID, db: Session, plant_scope: dict,season: str|None=None) -> RecipeHeader | None:
+    spec=apply_plant_scope(db.query(SpecificationSheet).filter_by(id=spec_id),SpecificationSheet.plant_id,plant_scope).first()
+    if spec and spec.seasonal_model:
+        from ..season_models import RecipeBinding,SeasonState
+        state=db.get(SeasonState,"ORGANIZATION")
+        binding=db.query(RecipeBinding).filter_by(spec_id=spec_id,season=season or (state.active_season if state else "ROY"),approved=True).first()
+        if not binding:raise HTTPException(409,"Active seasonal recipe is not approved")
+        return db.get(RecipeHeader,binding.recipe_id)
     query = apply_plant_scope(
         db.query(RecipeHeader).filter(RecipeHeader.spec_id == spec_id),
         RecipeHeader.plant_id,
@@ -142,6 +149,8 @@ def get_bom(
 @router.get("/bom-for-spec/{spec_id}")
 def get_bom_for_spec(
     spec_id: uuid.UUID,
+    season:str|None=None,
+    expected_epoch:int|None=None,
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(get_current_user),
@@ -155,7 +164,13 @@ def get_bom_for_spec(
     if not spec:
         raise HTTPException(status_code=404, detail="Specification not found")
 
-    recipe = _approved_recipe_for_spec(spec_id, db, plant_scope)
+    if spec.seasonal_model:
+        from .seasonal import lock_state,season_key
+        state=lock_state(db)
+        if season:season_key(season)
+        if expected_epoch is not None and state.epoch!=expected_epoch:raise HTTPException(409,"Production season changed; recalculate material demand")
+        if spec.status!="approved" or not spec.active:raise HTTPException(409,"Active approved specification required for new-build demand")
+    recipe = _approved_recipe_for_spec(spec_id, db, plant_scope,season)
     if not recipe:
         return {
             "spec_id": str(spec.id),
@@ -194,12 +209,15 @@ def get_bom_for_spec(
         }
 
     try:
-        bom = generate_bom(str(recipe.id), None, None, db)
+        bom = generate_bom(str(recipe.id), None, None, db, spec_override=spec)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"BOM generation error: {str(exc)}") from exc
 
     return {
         "spec_id": str(spec.id),
+        "season":recipe.season if spec.seasonal_model else None,
+        "season_epoch":state.epoch if spec.seasonal_model else None,
+        "recipe_revision":recipe.season_revision if spec.seasonal_model else recipe.version,
         "recipe_id": str(recipe.id),
         "recipe_version": recipe.version,
         "recipe_status": recipe.status,

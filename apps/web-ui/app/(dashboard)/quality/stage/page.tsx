@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { FormEvent, useEffect, useMemo, useState } from "react"
 
 import { EmptyState, ExecutiveHero, Panel } from "@/components/erp/shell"
@@ -397,6 +398,7 @@ export default function StageQualityPage() {
     }
   }
 
+  if (snapshotProfile?.source === "GLOBAL_RULES") return <main className="space-y-5 p-4 sm:p-6"><QualityDeskNav/><h1 className="text-2xl font-semibold">Stage QC observations</h1><p className="text-muted-foreground">This card records distinct samples alongside continuous production entries. Oven pre/post readings stay paired on one physical sample.</p><select aria-label="Job card" value={selectedJobId} onChange={e=>setSelectedJobId(e.target.value)} className="h-12 w-full rounded-xl border border-border bg-card px-3">{jobs.map((job:any)=><option key={job.id} value={job.id}>{jobLabel(job)}</option>)}</select><Link className="inline-flex rounded-lg bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground" href={`/production/job-cards/${selectedJobId}/supervisor`}>Open continuous job card and QC</Link></main>
   return (
     <RoleGate allow={["QC", "PlantManager"]}>
       <div className="space-y-6" data-testid="quality-stage-page">

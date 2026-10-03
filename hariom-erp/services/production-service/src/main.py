@@ -1,7 +1,8 @@
 from fastapi import FastAPI
 from sqlalchemy import text
 from .database import Base, engine
-from .routers import dispatch, jobs, lifecycle, operations, planning, quality, reconciliation, reel_issue, reports
+from . import entry_models
+from .routers import dispatch, jobs, lifecycle, operations, planning, quality, reconciliation, reel_issue, reports, entries
 
 Base.metadata.create_all(bind=engine)
 
@@ -9,6 +10,9 @@ Base.metadata.create_all(bind=engine)
 def _ensure_schema_compatibility():
     # Backward-compatible patch for persistent local docker volumes.
     with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE continuous_completion_outbox ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMP NOT NULL DEFAULT now()"))
+        connection.execute(text("ALTER TABLE continuous_stage_entries ADD COLUMN IF NOT EXISTS carry_in_pcs INTEGER NOT NULL DEFAULT 0"))
+        connection.execute(text("ALTER TABLE continuous_stage_entries ADD COLUMN IF NOT EXISTS carry_out_pcs INTEGER NOT NULL DEFAULT 0"))
         connection.execute(
             text("ALTER TABLE production_job ADD COLUMN IF NOT EXISTS job_card_no VARCHAR(50)")
         )
@@ -176,6 +180,7 @@ app = FastAPI(
     version="1.0.0",
 )
 
+app.include_router(entries.router)
 app.include_router(jobs.router)
 app.include_router(lifecycle.router)
 app.include_router(planning.router)
@@ -225,3 +230,27 @@ def detailed_health():
         "service": "production-service",
         "database": "connected",
     }
+
+
+@app.on_event("startup")
+def start_completion_postings():
+    # Recover an authorization ACK if an earlier process stopped after the
+    # durable card write. The receiver verifies its immutable bundle hash.
+    with engine.begin() as connection:
+        connection.execute(text("""INSERT INTO continuous_completion_outbox
+            (id,job_card_id,effect_key,kind,payload,status,attempts,created_at,next_attempt_at)
+            SELECT gen_random_uuid(),id,id::text||':release:acknowledge','release_ack',
+                jsonb_build_object('stage','WINDER','authorization_id',spec_snapshot->>'release_authorization_id','bundle_hash',spec_snapshot->>'release_bundle_hash'),
+                'PENDING',0,now(),now() FROM job_cards
+            WHERE spec_snapshot->>'entry_model'='V2'
+                AND spec_snapshot->>'release_authorization_id' IS NOT NULL
+                AND spec_snapshot->>'release_bundle_hash' IS NOT NULL
+            ON CONFLICT (effect_key) DO NOTHING"""))
+    from .completion_worker import start
+    start()
+
+
+@app.on_event("shutdown")
+def stop_completion_postings():
+    from .completion_worker import stop
+    stop()

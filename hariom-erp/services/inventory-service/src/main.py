@@ -517,6 +517,8 @@ def ensure_runtime_schema() -> None:
       "ALTER TABLE purchase_line_schedules ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1",
       "ALTER TABLE purchase_line_schedules ADD COLUMN IF NOT EXISTS change_history JSONB NOT NULL DEFAULT '[]'::jsonb",
       "ALTER TABLE reel_issues ADD COLUMN IF NOT EXISTS issue_section VARCHAR(40) NOT NULL DEFAULT 'WINDER_SECTION'",
+      "ALTER TABLE reel_issues ADD COLUMN IF NOT EXISTS sales_order_id UUID",
+      "ALTER TABLE reel_issues ADD COLUMN IF NOT EXISTS customer_id UUID",
       "ALTER TABLE reel_issues ALTER COLUMN winder_machine_id DROP NOT NULL",
     ):
       connection.execute(text(statement))
@@ -870,3 +872,6 @@ def root():
 @app.get("/health")
 def health():
   return {"service": "inventory-service", "status": "healthy"}
+
+from .routers import production_effects
+app.include_router(production_effects.router)

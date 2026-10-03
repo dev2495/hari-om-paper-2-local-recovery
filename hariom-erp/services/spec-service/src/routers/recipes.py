@@ -32,6 +32,8 @@ class RecipeResponse(BaseModel):
     id: uuid.UUID
     spec_id: uuid.UUID
     version: int
+    season: str = "ROY"
+    season_revision: int = 1
     status: str
     notes: Optional[str]
     plant_id: str
@@ -70,6 +72,8 @@ def create_recipe(
     if not spec:
         raise HTTPException(status_code=404, detail="Specification not found")
     
+    if spec.seasonal_model:
+        raise HTTPException(409, "Use the seasonal document or revision command")
     if spec.status == "obsolete":
         raise HTTPException(status_code=400, detail="Cannot create recipe for obsolete specification")
     
@@ -109,6 +113,8 @@ def add_layer(
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
     
+    if recipe.specification.seasonal_model:
+        raise HTTPException(409, "Use the seasonal document or revision command")
     # Can only add layers to trial recipes (immutable after approval)
     if recipe.status != "trial":
         raise HTTPException(
@@ -209,6 +215,8 @@ def replace_trial_recipe(
     ).first()
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
+    if recipe.specification.seasonal_model:
+        raise HTTPException(409, "Use the seasonal document or revision command")
     if recipe.status != "trial" or recipe.specification.status != "draft":
         raise HTTPException(status_code=409, detail="Only the current draft recipe can be edited")
     if len(payload.layers) > RECIPE_MAX_PLIES:
@@ -253,6 +261,8 @@ def approve_recipe(
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
         
+    if recipe.specification.seasonal_model:
+        raise HTTPException(409, "Use seasonal approval")
     approval_service = ApprovalService(db)
     result = approval_service.approve_recipe(str(recipe_id), approved_by=current_user.get("sub"))
     return result

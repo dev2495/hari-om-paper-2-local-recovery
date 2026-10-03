@@ -14,7 +14,8 @@ import uuid
 from ..config import get_settings
 from ..due_risk import plant_today
 from ..database import get_db
-from ..models import Dispatch, DispatchIdempotency, JobCard, PackingRecord, QualityHold, SalesOrder
+from ..models import Dispatch, DispatchIdempotency, JobCard, JobCardStage, PackingRecord, QualityHold, SalesOrder
+from ..card_lock import card_posting_lease
 from ..utils.auth import get_current_plant, require_role
 
 router = APIRouter(prefix="/dispatch", tags=["dispatch"])
@@ -263,6 +264,14 @@ def create_or_update_dispatch(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(DISPATCH_ACCESS_ROLES))
 ):
+    candidate=db.query(JobCard).filter(JobCard.id==payload.job_card_id,JobCard.plant_id==_plant_uuid(plant_id)).first()
+    if candidate and (getattr(candidate,"spec_snapshot",None) or {}).get("entry_model")=="V2":
+        with card_posting_lease(payload.job_card_id):
+            return _create_or_update_dispatch(payload,db,plant_id,current_user)
+    return _create_or_update_dispatch(payload,db,plant_id,current_user)
+
+
+def _create_or_update_dispatch(payload,db,plant_id,current_user):
     # Check if job card exists
     plant_uuid = _plant_uuid(plant_id)
     _acquire_dispatch_lock(db, f"dispatch-job:{plant_uuid}:{payload.job_card_id}")
@@ -371,6 +380,11 @@ def create_or_update_dispatch(
 
     _require_final_qc(db, plant_uuid, job_card)
 
+    if (getattr(job_card,"spec_snapshot",None) or {}).get("entry_model")=="V2":
+        stages={s.stage_type:s for s in db.query(JobCardStage).filter_by(job_card_id=job_card.id).all()}
+        if any(not stages.get(s) or stages[s].status!="COMPLETED" for s in ("PACKING","QC")):
+            raise HTTPException(409,"Close Packing and final QC before dispatch")
+
     packing_record = db.query(PackingRecord).filter(PackingRecord.job_card_id == job_card.id).first()
     if not packing_record or float(packing_record.total_packed_qty or 0.0) <= 0:
         raise HTTPException(status_code=409, detail="Cannot seal dispatch before production is packed")
@@ -464,6 +478,13 @@ def create_or_update_dispatch(
         dispatch.dispatch_snapshot = dict(dispatch_snapshot)
         _safe_flag_modified(dispatch, "dispatch_snapshot")
         dispatch.status = "SEALED"
+        if (getattr(job_card,"spec_snapshot",None) or {}).get("entry_model")=="V2":
+            dispatch_stage=db.query(JobCardStage).filter_by(job_card_id=job_card.id,stage_type="DISPATCH").first()
+            if dispatch_stage:
+                shipped=previously_shipped+dispatch_qty
+                dispatch_stage.output_qty=shipped;dispatch_stage.input_qty=shipped
+                dispatch_stage.status="COMPLETED" if shipped>=packed_qty-0.0001 else "RUNNING"
+                dispatch_stage.actuals_snapshot={**(dispatch_stage.actuals_snapshot or {}),"produced_total":shipped,"accepted_total":shipped,"row_version":int((dispatch_stage.actuals_snapshot or {}).get("row_version",1))+1,"last_dispatch_id":str(dispatch.id),"closed_at":datetime.utcnow().isoformat() if dispatch_stage.status=="COMPLETED" else None}
         if previously_shipped + dispatch_qty >= packed_qty - 0.0001:
             job_card.status = "COMPLETED"
             job_card.current_stage = "DONE"

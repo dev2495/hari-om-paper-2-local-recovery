@@ -1,0 +1,10 @@
+The fresh-start reset archives and clears operational testing records from both plants. It retains users, security history, master data, numbering counters, material QC templates, seasonal rule history and plant configuration. Physical stock, tool assets, procurement, dispatch, sales, specs, job cards, accounting reconciliation and pending integration/outbox records are cleared together. New imports must be deliberate after restart.
+
+1. Review the dry-run manifest against the intended seven databases and exact table classification.
+2. Stop the entire application runtime, schedulers and workers. Keep PostgreSQL running. The apply command refuses any remaining database client pools.
+3. Run the same script with a fresh archive directory, a unique reset ID, `--apply` and `--confirm 'ALL CURRENT OPERATIONS ARE TEST DATA'`. Supply DB settings through the environment; do not put credentials in command text.
+4. All seven full dumps are checksum-verified, restored into disposable databases and checked by table counts and content hashes before any operational table is cleared. Apply compares the reviewed preview counts and content to the stopped runtime. Drift requires a new reviewed preview. There is no TRUNCATE CASCADE. Unknown tables or retained dependencies stop the operation.
+5. Inspect `reset-manifest.json`. Keep the app offline after any partial failure. Recover every database with the same archive/reset ID, `--restore --confirm 'RESTORE ALL SEVEN DATABASES FROM THIS BACKUP'`. Recovery verifies all seven dump checksums before starting and uses a transaction per database, then verifies archived counts and content. Never bring up a partially recovered runtime. A COMPLETE archive is idempotent and never deletes newly entered records on rerun.
+6. Restart and verify the Owner, QC, Sales, Planner and shop-floor workflows. Number counters retain their history. Confirm both seasonal published rules and the active season before creating new specifications.
+
+This runner is offline administrative tooling, never a browser button. The deployed image and before/after backup IDs must be included in the release evidence.

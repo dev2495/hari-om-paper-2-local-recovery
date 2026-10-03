@@ -89,9 +89,9 @@ def _spec_dimension(spec: SpecificationSheet, name: str, supplied: float | None 
     return value
 
 
-def calculate_weights(recipe_id: str, db: Session, *, tube_length_mm: float | None = None) -> dict[str, Any]:
+def calculate_weights(recipe_id: str, db: Session, *, tube_length_mm: float | None = None, spec_override=None) -> dict[str, Any]:
     recipe = _get_recipe(recipe_id, db)
-    spec = recipe.specification
+    spec = spec_override or recipe.specification
     papers = _recipe_to_papers(recipe)
     globals_ = _spec_globals(spec)
     tube_length_mm = _spec_dimension(spec, "length", tube_length_mm)
@@ -140,9 +140,9 @@ def calculate_yield(spec_id: str, tube_length_mm: float | None, db: Session) -> 
     }
 
 
-def generate_bom(recipe_id: str, tube_length_mm: float | None, tube_od_mm: float | None, db: Session) -> dict[str, Any]:
+def generate_bom(recipe_id: str, tube_length_mm: float | None, tube_od_mm: float | None, db: Session, *, spec_override=None) -> dict[str, Any]:
     recipe = _get_recipe(recipe_id, db)
-    spec = recipe.specification
+    spec = spec_override or recipe.specification
     tube_length_mm = _spec_dimension(spec, "length", tube_length_mm)
     tube_od_mm = _spec_dimension(spec, "od", tube_od_mm)
 
@@ -161,7 +161,7 @@ def generate_bom(recipe_id: str, tube_length_mm: float | None, tube_od_mm: float
         grouped_layers[key]["bulk_snapshot"] = effective_bulk
         grouped_layers[key]["ply_count"] += 1
 
-    weight_summary = calculate_weights(recipe_id, db, tube_length_mm=tube_length_mm)
+    weight_summary = calculate_weights(recipe_id, db, tube_length_mm=tube_length_mm, spec_override=spec)
     preview_papers = _recipe_to_papers(recipe)
     globals_ = _spec_globals(spec)
     preview = spec_math.compute_preview(

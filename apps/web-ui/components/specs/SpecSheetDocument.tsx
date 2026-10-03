@@ -1,6 +1,8 @@
 "use client"
 
 import Link from "next/link"
+import { SeasonRecipeManager } from "@/components/specs/SeasonRecipeManager"
+import { seasonLabel, type Season } from "@/lib/season-api"
 import { useRouter } from "next/navigation"
 import { useEffect, useMemo, useRef, useState } from "react"
 
@@ -679,6 +681,16 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
   const isPrint = mode === "print"
 
   const [form, setForm] = useState<FormState>(() => defaultFormState())
+  const [recipeSeason, setRecipeSeason] = useState<Season>("ROY")
+  const seasonalRowsRef = useRef<Partial<Record<Season, GroupedRecipeRow[]>>>({})
+  const [monsoonConfirmation, setMonsoonConfirmation] = useState("")
+  const chooseRecipeSeason = (next: Season) => {
+    seasonalRowsRef.current[recipeSeason] = structuredClone(form.recipeRows)
+    const rows = seasonalRowsRef.current[next] || structuredClone(seasonalRowsRef.current.ROY || form.recipeRows)
+    seasonalRowsRef.current[next] = rows
+    setForm(current => ({ ...current, recipeRows: rows }))
+    setRecipeSeason(next)
+  }
   const [loadedSpecSignature, setLoadedSpecSignature] = useState<string | null>(null)
   const [qcDialogOpen, setQcDialogOpen] = useState(false)
   const [qcProfile, setQcProfile] = useState<any>(null)
@@ -2100,12 +2112,12 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
     }
   }
 
-  const buildRecipeLayers = () => {
+  const buildRecipeLayers = (recipeRows = form.recipeRows) => {
     const layers: Array<{ ply_no: number; paper_id: string; gsm_snapshot: number; bf_snapshot: number; bulk_snapshot?: number }> = []
     const usedPlyNumbers = new Set<number>()
     let nextSequentialPly = 1
 
-    for (const row of form.recipeRows) {
+    for (const row of recipeRows) {
       if (!row.paper_id) continue
       const paper = paperMap.get(row.paper_id)
       const explicitPositions = (row.positionsText || "").trim().length > 0
@@ -2180,7 +2192,14 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
         save_operation_key: saveOperationKeyRef.current,
         expected_revision: isCreate ? undefined : specDocument?.spec?.write_revision,
       }
-      const recipeLayers = buildRecipeLayers()
+      seasonalRowsRef.current[recipeSeason] = structuredClone(form.recipeRows)
+      const royRows = seasonalRowsRef.current.ROY || form.recipeRows
+      const monsoonRows = seasonalRowsRef.current.MONSOON || structuredClone(royRows)
+      const seasonRecipes = {
+        ROY: { layers: buildRecipeLayers(royRows), sheet_rows: royRows, notes: form.notes },
+        MONSOON: { layers: buildRecipeLayers(monsoonRows), sheet_rows: monsoonRows, notes: form.notes, confirm: monsoonConfirmation === JSON.stringify(monsoonRows) },
+      }
+      const recipeLayers = buildRecipeLayers(royRows)
       const recipeData = { notes: form.notes || "Factory sheet recipe" }
       const trialData = isCreate ? null : buildTrialPayload()
 
@@ -2189,6 +2208,7 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
           specData,
           recipeData,
           recipeLayers,
+          seasonRecipes,
         })
         saveOperationKeyRef.current = null
         const toolLogResults = await Promise.allSettled(
@@ -2243,6 +2263,7 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
         specData,
         recipeData,
         recipeLayers,
+        seasonRecipes,
         trialData,
       })
       saveOperationKeyRef.current = null
@@ -2294,7 +2315,7 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
       showToast("Customer, tube size, mandrel, and the core averages are required.", "error")
       return
     }
-    setQcDialogOpen(true)
+    (isCreate || specDocument?.spec?.seasonal_model) ? router.push("/quality/stage-rules") : setQcDialogOpen(true)
   }
 
   const handleSubmitReview = async () => {
@@ -2487,6 +2508,7 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
     !effectiveBalance.withinBand ? `Weight outside ±${DELTA_ABS_G} g` : null,
     !footerComplete ? "Release footer" : null,
     csGateFailed ? "CS trial" : null,
+    isCreate && monsoonConfirmation !== JSON.stringify(seasonalRowsRef.current.MONSOON || seasonalRowsRef.current.ROY || form.recipeRows) ? "Monsoon recipe not confirmed" : null,
   ].filter(Boolean) as string[]
   const reviewChecksPass = Boolean(
     draftSaved &&
@@ -3200,6 +3222,15 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
               <MasterLinkRow links={[{ href: "/masters/papers", label: "Papers" }]} />
             </div>
 
+            <div className="mt-3 flex flex-wrap items-center gap-2" role="tablist" aria-label="Recipe season">
+              {(["ROY", "MONSOON"] as Season[]).map(season => <button type="button" role="tab" aria-selected={recipeSeason === season} key={season} className={recipeSeason === season ? "erp-btn-primary" : "erp-btn-secondary"} onClick={() => chooseRecipeSeason(season)}>{seasonLabel(season)}</button>)}
+              {recipeSeason === "MONSOON" && isEditable && <>
+                <button type="button" className="erp-btn-secondary" onClick={() => { if (window.confirm("Replace this Monsoon draft with the rest-of-year paper selection?")) { const rows = structuredClone(seasonalRowsRef.current.ROY || form.recipeRows); seasonalRowsRef.current.MONSOON = rows; setMonsoonConfirmation(""); setForm(current => ({ ...current, recipeRows: rows })) } }}>Copy rest of year</button>
+                <button type="button" className="erp-btn-secondary" onClick={() => setMonsoonConfirmation(JSON.stringify(form.recipeRows))}>Confirm Monsoon selection</button>
+                <span className="text-xs text-muted-foreground">{monsoonConfirmation === JSON.stringify(form.recipeRows) ? "Confirmed for next save" : "Review and confirm before approval"}</span>
+              </>}
+            </div>
+            {specId && specDocument?.spec?.seasonal_model && <SeasonRecipeManager specId={specId} plantId={specDocument.spec.plant_id} onLoadRows={(data) => { seasonalRowsRef.current.ROY = data.ROY; seasonalRowsRef.current.MONSOON = data.MONSOON; setRecipeSeason("ROY"); if(data.monsoonConfirmed) setMonsoonConfirmation(JSON.stringify(data.MONSOON)); setForm(current => ({ ...current, recipeRows: data.ROY || current.recipeRows })) }} />}
             <div className="mt-4 space-y-3">
               <div className="space-y-3">
                 <div className="overflow-hidden rounded-xl bg-[#102832] text-white" data-testid="spec-sheet-live-builder">

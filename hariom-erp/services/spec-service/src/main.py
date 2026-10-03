@@ -2,8 +2,8 @@ from fastapi import FastAPI
 from sqlalchemy import text
 
 from .database import engine
-from . import models
-from .routers import calculations, recipes, spec_fields, specs, trials
+from . import models, season_models
+from .routers import calculations, recipes, spec_fields, specs, trials, seasonal
 
 
 app = FastAPI(
@@ -12,6 +12,7 @@ app = FastAPI(
     version="1.0.0",
 )
 
+app.include_router(seasonal.router)
 app.include_router(specs.router)
 app.include_router(spec_fields.router)
 app.include_router(recipes.router)
@@ -168,6 +169,33 @@ def ensure_runtime_schema() -> None:
 
 
 ensure_runtime_schema()
+
+with engine.begin() as connection:
+    for sql in (
+        "ALTER TABLE season_release_authorizations ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'AUTHORIZED'",
+        "ALTER TABLE season_release_authorizations ADD COLUMN IF NOT EXISTS job_card_id UUID",
+        "ALTER TABLE season_release_authorizations ADD COLUMN IF NOT EXISTS acknowledged_at TIMESTAMP",
+        "ALTER TABLE specification_sheet ADD COLUMN IF NOT EXISTS lineage_id UUID",
+        "ALTER TABLE specification_sheet ADD COLUMN IF NOT EXISTS supersedes_spec_id UUID",
+        "ALTER TABLE specification_sheet ADD COLUMN IF NOT EXISTS mandrel_diameter_mm DOUBLE PRECISION",
+        "ALTER TABLE specification_sheet ADD COLUMN IF NOT EXISTS seasonal_model BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE specification_sheet ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        "ALTER TABLE recipe_header ADD COLUMN IF NOT EXISTS season VARCHAR(12) NOT NULL DEFAULT 'ROY'",
+        "ALTER TABLE recipe_header ADD COLUMN IF NOT EXISTS lineage_id UUID",
+        "ALTER TABLE recipe_header ADD COLUMN IF NOT EXISTS season_revision INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE recipe_header ADD COLUMN IF NOT EXISTS predecessor_id UUID",
+        "ALTER TABLE recipe_header ADD COLUMN IF NOT EXISTS copied_from_id UUID",
+        "ALTER TABLE recipe_header ADD COLUMN IF NOT EXISTS sheet_rows JSON",
+        "ALTER TABLE recipe_header ADD COLUMN IF NOT EXISTS content_hash VARCHAR(64)",
+        "ALTER TABLE recipe_header ADD COLUMN IF NOT EXISTS row_version INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE recipe_header ADD COLUMN IF NOT EXISTS change_note TEXT",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_recipe_lineage_season_revision ON recipe_header(lineage_id,season,season_revision) WHERE lineage_id IS NOT NULL",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_qc_season_published ON season_qc_rule_versions(scope_id,season) WHERE status='PUBLISHED'",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_qc_season_draft ON season_qc_rule_versions(scope_id,season) WHERE status='DRAFT'",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_qc_overlay_published ON season_qc_overlay_versions(plant_id,target_type,target_id,season) WHERE status='PUBLISHED'",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_qc_overlay_draft ON season_qc_overlay_versions(plant_id,target_type,target_id,season) WHERE status='DRAFT'",
+    ):
+        connection.execute(text(sql))
 
 
 @app.get("/")

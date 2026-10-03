@@ -2278,7 +2278,7 @@ def _build_document_snapshot(
     order_qty = float(sales_order.order_qty) if sales_order else float(job_card.planned_qty)
     target_bamboo_count = None
     if pcs_per_bamboo and pcs_per_bamboo > 0:
-        target_bamboo_count = int(math.ceil(order_qty / pcs_per_bamboo))
+        target_bamboo_count = int(math.ceil(float(job_card.planned_qty) / pcs_per_bamboo))
 
     shrink_percent = _snapshot_float(spec_snapshot.get("shrink_percent"))
     recovery_factor = None
@@ -2331,6 +2331,9 @@ def _build_document_snapshot(
     recipe_sheet_payload = _snapshot_json(spec_snapshot.get("recipe_sheet_json"), {})
     recipe_rows_raw = recipe_sheet_payload.get("rows") if isinstance(recipe_sheet_payload, dict) else []
     recipe_rows = recipe_rows_raw if isinstance(recipe_rows_raw, list) else []
+    if spec_snapshot.get("entry_model")=="V2":
+        frozen_recipe=material_plan_snapshot.get("recipe_snapshot") or {}
+        recipe_rows=frozen_recipe.get("sheet_rows") or [{"paper_id":l.get("paper_id"),"code":l.get("paper_id"),"gsm":l.get("gsm_snapshot"),"bfPerPly":l.get("bf_snapshot"),"bulkFactor":l.get("bulk_snapshot"),"thicknessPerPly":float(l.get("gsm_snapshot") or 0)*float(l.get("bulk_snapshot") or 1)/1000,"plyCount":1,"positionsText":str(l.get("ply_no"))} for l in frozen_recipe.get("layers",[])]
     adhesive_components_raw = _snapshot_json(spec_snapshot.get("adhesive_components_json"), [])
     adhesive_components = adhesive_components_raw if isinstance(adhesive_components_raw, list) else []
     first_adhesive_component = adhesive_components[0] if adhesive_components and isinstance(adhesive_components[0], dict) else {}
@@ -2767,7 +2770,21 @@ def _build_job_card_snapshots(
     plant_id: str,
     planned_qty: float,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], bool]:
+    seasonal_bundle = None
+    if spec.get("seasonal_model"):
+        if not float(planned_qty).is_integer():raise HTTPException(422,"Seasonal job-card quantities must be whole pieces")
+        release_key = str(line.get("_season_operation_key") or f"release:{live_order.get('id')}:{line.get('id')}:{planned_qty}")
+        response = httpx.post(f"{settings.SPEC_SERVICE_URL}/specs/{spec['id']}/release-authorizations",
+            headers={"Authorization": f"Bearer {token}", "X-Plant-ID": plant_id},
+            json={"request_id": release_key, "quantity": int(planned_qty), "sales_order_line_id": str(line['id']), "expected_version": spec.get("write_revision")}, timeout=20)
+        if response.status_code >= 400:
+            raise HTTPException(response.status_code, response.json().get("detail", "Season authorization failed"))
+        authorization = response.json()
+        seasonal_bundle = authorization["bundle"]
+        spec = seasonal_bundle["spec"]
     spec_snapshot = _build_spec_snapshot(spec, priority=priority)
+    if seasonal_bundle:
+        spec_snapshot.update(entry_model="V2", season=seasonal_bundle["season"], season_epoch=seasonal_bundle["season_epoch"], qc_profile=seasonal_bundle["qc_profile"], qc_setup_status="approved", missing_qc_setup=False, release_authorization_id=authorization["authorization_id"], release_bundle_hash=authorization["bundle_hash"])
     requires_slitting = _line_requires_slitting(line, spec_snapshot)
     spec_snapshot["requires_slitting"] = requires_slitting
     spec_snapshot["sales_order_line_id"] = str(line.get("id") or "")
@@ -2787,15 +2804,17 @@ def _build_job_card_snapshots(
     )
     spec_snapshot["sales_order_dispatched_qty"] = float(line.get("fulfilled_qty") or 0.0)
     spec_snapshot["lot_number"] = f"{datetime.utcnow().strftime('%d/%m')}/{str(line.get('id') or '')[:6]}".upper()
-    recipe_snapshot = _primary_recipe_snapshot(uuid.UUID(str(spec["id"])), token, plant_id)
+    recipe_snapshot = ({**seasonal_bundle["recipe"], "recipe_id": seasonal_bundle["recipe"]["id"]} if seasonal_bundle else _primary_recipe_snapshot(uuid.UUID(str(spec["id"])), token, plant_id))
     # Freeze the same geometry used by the job card and capacity planner.
     # Older calculation endpoints otherwise used sample 150mm/122mm defaults.
     calculation_length = spec_snapshot.get("design_length_mm") or _snapshot_mid(spec_snapshot.get("length_min_mm"), spec_snapshot.get("length_max_mm"))
     calculation_od = spec_snapshot.get("od_avg_mm") or _snapshot_mid(spec_snapshot.get("od_min_mm"), spec_snapshot.get("od_max_mm"))
     calculation_query = f"tube_length_mm={calculation_length}&tube_od_mm={calculation_od}"
-    yield_snapshot = _fetch_spec_calculation(f"/calculate/yield/{spec['id']}?tube_length_mm={calculation_length}", token, plant_id)
+    yield_snapshot = seasonal_bundle["yield"] if seasonal_bundle else _fetch_spec_calculation(f"/calculate/yield/{spec['id']}?tube_length_mm={calculation_length}", token, plant_id)
     bom_snapshot = {}
-    if recipe_snapshot.get("recipe_id"):
+    if seasonal_bundle:
+        bom_snapshot = seasonal_bundle["bom"]
+    elif recipe_snapshot.get("recipe_id"):
         bom_snapshot = _fetch_spec_calculation(
             f"/calculate/bom/{recipe_snapshot['recipe_id']}?{calculation_query}",
             token,
@@ -3460,7 +3479,7 @@ def _create_or_sync_job_card_for_line(
 
     spec = _fetch_spec(line_spec_id, token, plant_id)
     lot_color = (parchment_color or "").strip() or _release_lot_color(line, release_lot_id)
-    line_payload = {**line, "product_code": product_code or line.get("product_code")}
+    line_payload = {**line, "product_code": product_code or line.get("product_code"), "_season_operation_key": f"lot:{release_lot_id}" if release_lot_id else f"line:{line.get('id')}:{planned_qty}"}
     if lot_color:
         # One job card = one color: the lot's color is the ordered color for this card.
         line_payload["parchment_color"] = lot_color
@@ -5254,6 +5273,11 @@ def sync_released_sales_order(
                     qc_setup_status=str((job_card.spec_snapshot or {}).get("qc_setup_status") or "missing"),
                 )
             )
+            if (job_card.spec_snapshot or {}).get("release_authorization_id"):
+                from ..entry_models import CompletionEffect
+                key=f"{job_card.id}:release:acknowledge"
+                if not db.query(CompletionEffect).filter_by(effect_key=key).first():
+                    db.add(CompletionEffect(job_card_id=job_card.id,effect_key=key,kind="release_ack",payload={"stage":"WINDER","authorization_id":job_card.spec_snapshot["release_authorization_id"],"bundle_hash":job_card.spec_snapshot["release_bundle_hash"]}))
         # The production transaction is durable before any cross-service link is written.
         # If sales linking fails, retrying the same release lot safely repairs the handoff.
         db.commit()
@@ -7318,6 +7342,8 @@ def retry_fg_inward(
     if not job_card:
         raise HTTPException(status_code=404, detail="Job card not found")
     packing = db.query(JobCardStage).filter(JobCardStage.job_card_id == job_card.id, JobCardStage.stage_type == "PACKING").first()
+    if (job_card.spec_snapshot or {}).get("entry_model") == "V2":
+        raise HTTPException(status_code=409, detail="Use the job card's Production postings panel to retry finished-goods inward after final QC close")
     if packing is None or packing.status != "COMPLETED":
         raise HTTPException(status_code=409, detail="Packing is not completed on this card")
     record = db.query(PackingRecord).filter(PackingRecord.job_card_id == job_card.id).order_by(PackingRecord.created_at.desc()).first()
@@ -7389,6 +7415,8 @@ def capture_stage_output(
             detail="Only Owner, Admin, or PlantManager can override an active QC hold.",
         )
 
+    if (job_card.spec_snapshot or {}).get("entry_model") == "V2" and str(payload.stage or job_card.current_stage).upper() != "SLITTING":
+        raise HTTPException(409, {"code": "CLIENT_UPGRADE_REQUIRED", "message": "Use continuous entries for this card"})
     selected_stage = payload.stage or job_card.current_stage
     selected_stage = _normalize_stage(selected_stage)
     instrument_readings = dict(quality_checks_payload)

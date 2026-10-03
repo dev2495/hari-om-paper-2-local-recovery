@@ -25,6 +25,8 @@ hariom-erp/runtime/
 hariom-erp/runtime-verify/
 hariom-erp/venv-runtime/
 hariom-erp/venv-verify/
+hariom-erp/venv-season/
+apps/web-ui/node_modules
 hariom-erp/.venv-runtime/
 hariom-erp/.venv-direct/
 
@@ -67,3 +69,5 @@ hariom-erp/runtime-cc/
 
 # Isolated client acceptance builds
 apps/web-ui/.next-client-*/
+
+hariom-erp/runtime-season/

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { specApi } from "@/lib/api"
+import { seasonApi, command } from "@/lib/season-api"
 import {
   DEFAULT_SPEC_FIELD_DEFINITIONS,
   RecipeDetail,
@@ -12,7 +13,8 @@ import {
 } from "@/lib/spec-sheet"
 import { computePreview } from "@/lib/spec-math"
 
-function getLatestRecipe(recipes: RecipeSummary[]) {
+function getLatestRecipe(allRecipes: RecipeSummary[]) {
+  const recipes = allRecipes.filter(r => !r.season || r.season === "ROY")
   return [...(recipes || [])].sort((left, right) => right.version - left.version)[0] || null
 }
 
@@ -219,6 +221,7 @@ export function useCreateSpec() {
   return useMutation({
     mutationFn: (data: any) => specApi.createSpec(data),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["spec-summary"] })
       queryClient.invalidateQueries({ queryKey: ["specs"] })
     },
   })
@@ -229,6 +232,7 @@ export function useUpdateSpec() {
   return useMutation({
     mutationFn: ({ specId, data }: { specId: string; data: any }) => specApi.updateSpec(specId, data),
     onSuccess: (_response, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["spec-summary"] })
       queryClient.invalidateQueries({ queryKey: ["specs"] })
       queryClient.invalidateQueries({ queryKey: ["spec", variables.specId] })
     },
@@ -241,6 +245,7 @@ export function useUpsertSpecQcProfile() {
     mutationFn: ({ specId, data, plantId }: { specId: string; data: any; plantId?: string }) =>
       specApi.upsertSpecQcProfile(specId, data, plantId),
     onSuccess: (_response, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["spec-summary"] })
       queryClient.invalidateQueries({ queryKey: ["specs"] })
       queryClient.invalidateQueries({ queryKey: ["spec", variables.specId] })
       queryClient.invalidateQueries({ queryKey: ["spec-sheet-document", variables.specId] })
@@ -259,6 +264,7 @@ export function useApplyQcProfileAssign() {
   return useMutation({
     mutationFn: ({ data, plantId }: { data: any; plantId?: string }) => specApi.applyQcProfileAssign(data, plantId),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["spec-summary"] })
       queryClient.invalidateQueries({ queryKey: ["specs"] })
     },
   })
@@ -297,9 +303,12 @@ export function useRecordTrial() {
 export function useApproveSpec() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ specId, data, plantId }: { specId: string; data?: any; plantId?: string }) =>
-      specApi.approveSpec(specId, data ?? {}, plantId),
+    mutationFn: async ({ specId, data, plantId }: { specId: string; data?: any; plantId?: string }) => {
+      const spec = (await specApi.getSpec(specId)).data
+      return spec.seasonal_model ? seasonApi.approve(specId, command({ expected_version: spec.write_revision })) : specApi.approveSpec(specId, data ?? {}, plantId)
+    },
     onSuccess: (_response, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["spec-summary"] })
       queryClient.invalidateQueries({ queryKey: ["specs"] })
       queryClient.invalidateQueries({ queryKey: ["spec", variables.specId] })
       queryClient.invalidateQueries({ queryKey: ["spec-sheet-document", variables.specId] })
@@ -310,9 +319,12 @@ export function useApproveSpec() {
 export function useSubmitSpecForReview() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ specId, plantId }: { specId: string; plantId?: string }) =>
-      specApi.submitSpecForReview(specId, plantId),
+    mutationFn: async ({ specId, plantId }: { specId: string; plantId?: string }) => {
+      const spec = (await specApi.getSpec(specId)).data
+      return spec.seasonal_model ? seasonApi.review(specId, command({ expected_version: spec.write_revision })) : specApi.submitSpecForReview(specId, plantId)
+    },
     onSuccess: (_response, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["spec-summary"] })
       queryClient.invalidateQueries({ queryKey: ["specs"] })
       queryClient.invalidateQueries({ queryKey: ["spec", variables.specId] })
       queryClient.invalidateQueries({ queryKey: ["spec-sheet-document", variables.specId] })
@@ -326,6 +338,7 @@ export function useObsoleteSpec() {
     mutationFn: ({ specId, data, plantId }: { specId: string; data?: any; plantId?: string }) =>
       specApi.obsoleteSpec(specId, data ?? {}, plantId),
     onSuccess: (_response, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["spec-summary"] })
       queryClient.invalidateQueries({ queryKey: ["specs"] })
       queryClient.invalidateQueries({ queryKey: ["spec", variables.specId] })
       queryClient.invalidateQueries({ queryKey: ["spec-sheet-document", variables.specId] })
@@ -437,6 +450,12 @@ export function useSpecSheetDocument(specId: string) {
     queryKey: ["spec-sheet-document", specId],
     queryFn: async () => {
       const { data: spec } = await specApi.getSpec(specId)
+      if(spec.seasonal_model) {
+        const document=(await seasonApi.document(specId)).data
+        const roy=document.recipes.ROY
+        const trialList=roy?.id ? (await specApi.getTrials(roy.id)).data : []
+        return {spec, recipes:Object.values(document.recipes) as RecipeSummary[], latestRecipe:roy as RecipeDetail, trials:trialList as TrialRecord[], latestTrial:(trialList || [])[0] || null}
+      }
       const { data: recipeList } = await specApi.getRecipesForSpec(specId)
       const recipes = (recipeList || []) as RecipeSummary[]
       const latestRecipe = getLatestRecipe(recipes)
@@ -521,33 +540,29 @@ export function useCreateSpecSheet() {
       specData,
       recipeData,
       recipeLayers,
+      seasonRecipes,
       trialData,
       plantId,
     }: {
       specData: any
       recipeData: any
       recipeLayers: RecipeLayer[]
+      seasonRecipes?: any
       trialData?: any
       plantId?: string
     }) => {
-      const specResponse = await specApi.createSpec(specData, plantId)
-      const spec = specResponse.data as SpecRecord
-      const recipeResponse = await specApi.createRecipe(spec.id, recipeData || {}, plantId)
-      const recipe = recipeResponse.data as RecipeSummary
-
-      for (const layer of recipeLayers || []) {
-        await specApi.addRecipeLayer(recipe.id, layer, plantId)
-      }
-
-      let trial = null
-      if (trialData) {
-        const trialResponse = await specApi.createTrial(recipe.id, trialData, plantId)
-        trial = trialResponse.data as TrialRecord
-      }
-
-      return { spec, recipe, trial }
+      const response = await seasonApi.saveDocument(undefined, {
+        request_id: specData.save_operation_key || crypto.randomUUID(),
+        expected_version: specData.expected_revision,
+        spec: specData,
+        recipes: seasonRecipes || { ROY: { ...recipeData, layers: recipeLayers, sheet_rows: specData.profile?.recipe?.recipe_rows || [] }, MONSOON: { ...recipeData, layers: recipeLayers, sheet_rows: specData.profile?.recipe?.recipe_rows || [], confirm: false } },
+        trial: trialData || null,
+      })
+      const { spec, recipes } = response.data
+      return { spec, recipe: recipes.ROY, trial: null }
     },
     onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["spec-summary"] })
       queryClient.invalidateQueries({ queryKey: ["specs"] })
       queryClient.invalidateQueries({ queryKey: ["spec-sheet-document", result.spec.id] })
     },
@@ -563,6 +578,7 @@ export function useUpdateSpecSheet() {
       specData,
       recipeData,
       recipeLayers,
+      seasonRecipes,
       recipeId,
       trialData,
       plantId,
@@ -571,38 +587,24 @@ export function useUpdateSpecSheet() {
       specData: any
       recipeData: any
       recipeLayers: RecipeLayer[]
+      seasonRecipes?: any
       recipeId?: string
       trialData?: any
       plantId?: string
     }) => {
-      const specResponse = await specApi.updateSpec(specId, specData, plantId)
-      const spec = specResponse.data as SpecRecord
-      let recipe: RecipeSummary | null = null
-
-      if (spec.id === specId && recipeId) {
-        const recipeResponse = await specApi.updateRecipe(recipeId, {
-          notes: recipeData?.notes || null,
-          layers: recipeLayers || [],
-        }, plantId)
-        recipe = recipeResponse.data as RecipeSummary
-      } else if ((recipeLayers || []).length > 0) {
-        const recipeResponse = await specApi.createRecipe(spec.id, recipeData || {}, plantId)
-        recipe = recipeResponse.data as RecipeSummary
-        for (const layer of recipeLayers || []) {
-          await specApi.addRecipeLayer(recipe.id, layer, plantId)
-        }
-      }
-
-      let trial = null
-      if (trialData && recipe?.id) {
-        const trialResponse = await specApi.createTrial(recipe.id, trialData, plantId)
-        trial = trialResponse.data as TrialRecord
-      }
-
-      return { spec, recipe, trial }
+      const response = await seasonApi.saveDocument(specId, {
+        request_id: specData.save_operation_key || crypto.randomUUID(),
+        expected_version: specData.expected_revision,
+        spec: specData,
+        recipes: seasonRecipes || { ROY: { ...recipeData, layers: recipeLayers, sheet_rows: specData.profile?.recipe?.recipe_rows || [] }, MONSOON: { ...recipeData, layers: recipeLayers, sheet_rows: specData.profile?.recipe?.recipe_rows || [], confirm: false } },
+        trial: trialData || null,
+      })
+      const { spec, recipes } = response.data
+      return { spec, recipe: recipes.ROY, trial: null }
     },
     onSuccess: async (result) => {
       await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["spec-summary"] }),
         queryClient.invalidateQueries({ queryKey: ["specs"] }),
         queryClient.invalidateQueries({ queryKey: ["spec", result.spec.id] }),
         queryClient.invalidateQueries({ queryKey: ["spec-sheet-document", result.spec.id] }),
@@ -658,29 +660,14 @@ export function useCloneSpecSheet() {
         })),
       }
 
-      const specResponse = await specApi.createSpec(specPayload, plantId)
-      const spec = specResponse.data as SpecRecord
-      let recipe: RecipeSummary | null = null
-      if (latestRecipeDetail) {
-        const recipeResponse = await specApi.createRecipe(spec.id, {
-          notes: latestRecipeDetail.notes || `Cloned from spec ${sourceSpec.id}`,
-        }, plantId)
-        recipe = recipeResponse.data as RecipeSummary
-
-        for (const layer of latestRecipeDetail.layers || []) {
-          await specApi.addRecipeLayer(recipe.id, {
-            ply_no: layer.ply_no,
-            paper_id: layer.paper_id,
-            gsm_snapshot: layer.gsm_snapshot,
-            bf_snapshot: layer.bf_snapshot,
-            bulk_snapshot: layer.bulk_snapshot,
-          }, plantId)
-        }
-      }
-
-      return { spec, recipe }
+      const document=sourceSpec.seasonal_model ? (await seasonApi.document(specId)).data : null
+      const roy=document?.recipes.ROY || latestRecipeDetail
+      const monsoon=document?.recipes.MONSOON || roy
+      const result=(await seasonApi.saveDocument(undefined,command({spec:specPayload,recipes:{ROY:{layers:roy?.layers || [],sheet_rows:roy?.sheet_rows || []},MONSOON:{layers:monsoon?.layers || [],sheet_rows:monsoon?.sheet_rows || [],confirm:false}},note:`Cloned from ${specId}`}))).data
+      return {spec:result.spec,recipe:result.recipes.ROY}
     },
     onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["spec-summary"] })
       queryClient.invalidateQueries({ queryKey: ["specs"] })
       queryClient.invalidateQueries({ queryKey: ["spec-sheet-document", result.spec.id] })
     },

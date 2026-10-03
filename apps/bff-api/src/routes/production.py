@@ -13,6 +13,41 @@ PRODUCTION_SERVICE_URL = os.getenv("PRODUCTION_SERVICE_URL", "http://127.0.0.1:1
 MASTER_SERVICE_URL = os.getenv("MASTER_SERVICE_URL", "http://127.0.0.1:18002")
 
 
+@router.get("/job-cards/{card_id}/flow")
+async def continuous_flow(card_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{card_id}/flow", request, token)
+
+
+@router.api_route("/job-cards/{card_id}/entries", methods=["GET", "POST"])
+@router.api_route("/job-cards/{card_id}/entries/{path:path}", methods=["GET", "POST", "PATCH"])
+async def continuous_entries(card_id: str, request: Request, path: str = "", token: str = Depends(get_token)):
+    if request.method in ("POST", "PATCH"):
+        body = await request.json()
+        plant_id = request.headers.get("X-Plant-ID")
+        if plant_id and body.get("business_date"):
+            await assert_not_backdated(token, plant_id, effective_date=body["business_date"])
+        for step in body.get("steps",[]):
+            if plant_id and step.get("entry",{}).get("business_date"):
+                await assert_not_backdated(token,plant_id,effective_date=step["entry"]["business_date"])
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{card_id}/entries" + (f"/{path}" if path else ""), request, token)
+
+
+@router.post("/job-cards/{card_id}/stages/{stage}/{action}")
+async def continuous_close(card_id: str, stage: str, action: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{card_id}/stages/{stage}/{action}", request, token)
+
+
+@router.get("/job-cards/{card_id}/effects")
+@router.post("/job-cards/{card_id}/effects/{path:path}")
+async def continuous_effects(card_id:str,request:Request,path:str="",token:str=Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL,f"/job-cards/{card_id}/effects"+(f"/{path}" if path else ""),request,token)
+
+
+@router.post("/job-cards/{card_id}/residual-wip/{residual_id}/resolve")
+async def continuous_residual(card_id:str,residual_id:str,request:Request,token:str=Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL,f"/job-cards/{card_id}/residual-wip/{residual_id}/resolve",request,token)
+
+
 @router.get("/jobs")
 async def get_jobs(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/jobs/", request, token)

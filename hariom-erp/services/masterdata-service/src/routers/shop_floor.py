@@ -154,6 +154,13 @@ def list_employees(
     return [_attach_is_active(r) for r in rows]
 
 
+@employee_router.get("/{employee_id}", response_model=EmployeeResponse)
+def get_employee(employee_id:uuid.UUID,db:Session=Depends(get_db),plant_scope:dict=Depends(get_current_plant_scope)):
+    row=apply_plant_scope(db.query(models.Employee).filter_by(id=employee_id),models.Employee.plant_id,plant_scope).first()
+    if not row:raise HTTPException(404,"Employee not found")
+    return _attach_is_active(row)
+
+
 @employee_router.post("/", response_model=EmployeeResponse)
 def create_employee(
     payload: EmployeeCreate,

@@ -9,6 +9,50 @@ router = APIRouter()
 SPEC_SERVICE_URL = os.getenv("SPEC_SERVICE_URL", "http://127.0.0.1:18003")
 
 
+@router.api_route("/season", methods=["GET"])
+@router.api_route("/season/{path:path}", methods=["GET", "POST"])
+async def season_proxy(request: Request, path: str = "", token: str = Depends(get_token)):
+    endpoint = "/season" + (f"/{path}" if path else "")
+    return await proxy_to_service(SPEC_SERVICE_URL, endpoint, request, token)
+
+
+@router.api_route("/qc-rules", methods=["GET"])
+@router.api_route("/qc-rules/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
+async def seasonal_rules_proxy(request: Request, path: str = "", token: str = Depends(get_token)):
+    return await proxy_to_service(SPEC_SERVICE_URL, "/qc-rules" + (f"/{path}" if path else ""), request, token)
+
+
+@router.api_route("/qc-overlays", methods=["GET"])
+@router.api_route("/qc-overlays/{path:path}", methods=["GET", "POST", "PUT"])
+async def seasonal_overlays_proxy(request: Request, path: str = "", token: str = Depends(get_token)):
+    return await proxy_to_service(SPEC_SERVICE_URL, "/qc-overlays" + (f"/{path}" if path else ""), request, token)
+
+
+@router.get("/specifications/summary")
+async def seasonal_spec_summary(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SPEC_SERVICE_URL, "/specs/summary", request, token)
+
+
+@router.post("/specifications/document")
+async def seasonal_spec_create(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SPEC_SERVICE_URL, "/specs/document", request, token)
+
+
+@router.api_route("/specifications/{spec_id}/document", methods=["PUT"])
+@router.api_route("/specifications/{spec_id}/season-document", methods=["GET"])
+@router.api_route("/specifications/{spec_id}/season-review", methods=["POST"])
+@router.api_route("/specifications/{spec_id}/season-approve", methods=["POST"])
+@router.api_route("/specifications/{spec_id}/qc-resolved", methods=["GET"])
+async def seasonal_spec_command(spec_id: str, request: Request, token: str = Depends(get_token)):
+    endpoint = request.url.path.split(f"/specifications/{spec_id}/", 1)[1]
+    return await proxy_to_service(SPEC_SERVICE_URL, f"/specs/{spec_id}/{endpoint}", request, token)
+
+
+@router.api_route("/specifications/{spec_id}/recipes/{season}/{action}", methods=["GET", "POST", "PUT"])
+async def seasonal_recipe_command(spec_id: str, season: str, action: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SPEC_SERVICE_URL, f"/specs/{spec_id}/recipes/{season}/{action}", request, token)
+
+
 @router.get("/specifications")
 async def get_specifications(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(SPEC_SERVICE_URL, "/specs/", request, token)

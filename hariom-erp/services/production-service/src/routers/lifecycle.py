@@ -170,6 +170,18 @@ def _audit(db: Session, job: JobCard, action: str, current_user: dict, payload: 
 
 def _rebuild_snapshots(job: JobCard, *, qty: float, color: Optional[str], token: str, plant_id: str) -> None:
     """Refreeze spec/routing/material snapshots for a new qty/color (queued cards only)."""
+    if (job.spec_snapshot or {}).get("entry_model")=="V2":
+        from copy import deepcopy
+        snapshot=deepcopy(job.material_plan_snapshot or {})
+        # Material BOM is per bamboo; consumers multiply the current card qty.
+        # Only quantity-specific totals are scaled; contract recipe/QC remain frozen.
+        for key in ("planned_qty","planned_output_qty","released_qty","quantity"):
+            if key in snapshot:snapshot[key]=qty
+        pcs=_pcs_per_bamboo_from_snapshot(job.spec_snapshot or {})
+        if pcs:snapshot["target_bamboo_count"]=int(__import__("math").ceil(qty/pcs))
+        frozen=dict(job.spec_snapshot or {});frozen["released_planned_qty"]=qty
+        job.material_plan_snapshot=snapshot;job.spec_snapshot=frozen
+        return
     live_order = _fetch_sales_order(job.sales_order_id, token, plant_id)
     line = next((row for row in (live_order.get("lines") or []) if str(row.get("id")) == str(job.sales_order_line_id)), None)
     if line is None:
@@ -498,6 +510,8 @@ def force_close_job_card(
     same card/lot. Nothing made → the card is cancelled and its whole qty returns.
     """
     job = _load_job(db, job_card_id, plant_id)
+    if (job.spec_snapshot or {}).get("entry_model")=="V2":
+        raise HTTPException(409, "Use continuous entries and governed stage close for this job card")
     state, views = _state(db, job)
     if state not in {"QUEUED", "SCHEDULED", "RUNNING"}:
         raise HTTPException(status_code=409, detail=f"Job card is already {state.lower().replace('_', ' ')}")
@@ -693,6 +707,8 @@ def add_running_entry(
     """Log output as it happens. Winder and oven run together on one card/lot; the oven
     can never be ahead of what was wound, and the winder may run up to +10% over plan."""
     job = _load_job(db, job_card_id, plant_id)
+    if (job.spec_snapshot or {}).get("entry_model")=="V2":
+        raise HTTPException(409, "Use continuous entries and governed stage close for this job card")
     if restore_missed_slot_for_late_entry(db, job, payload.stage, current_user.get("sub"), _current_actor_role(current_user)):
         db.flush()
     state, _ = _state(db, job)

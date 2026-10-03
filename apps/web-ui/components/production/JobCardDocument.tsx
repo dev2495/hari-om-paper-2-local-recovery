@@ -19,6 +19,8 @@ import {
   usePlanningJobCard,
   useSaveStageDraft,
 } from "@/hooks/use-production"
+import { ContinuousJobCard } from "./ContinuousJobCard"
+import { SeasonJobCardPrint } from "./SeasonJobCardPrint"
 import { StageQcFields } from "@/components/qc/StageQcFields"
 import {
   collectStageQualityChecks,
@@ -102,6 +104,7 @@ function computeHoursLate(endTimeValue: any): number {
 type Props = {
   jobCardId?: string
   mode: DocumentMode
+  materialPreparationOnly?: boolean
 }
 
 function buildProductionEntryUrl(jobCardId?: string) {
@@ -515,7 +518,7 @@ function MatrixBlock({
   )
 }
 
-export default function JobCardDocument({ jobCardId, mode }: Props) {
+export default function JobCardDocument({ jobCardId, mode, materialPreparationOnly = false }: Props) {
   const { showToast } = useApp()
   const { user } = useAuth()
   const jobCardQuery = usePlanningJobCard(jobCardId)
@@ -628,7 +631,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     documentSnapshot?.setup_tooling?.mandrel_label ||
     (mandrelId ? mandrelLabelMap.get(mandrelId) : null) ||
     "-"
-  const currentStage = (card?.current_stage || "WINDER") as StageName
+  const currentStage = (materialPreparationOnly ? "SLITTING" : card?.current_stage || "WINDER") as StageName
   const plannerGateReady = Boolean(card?.planner_gate_ready ?? true)
   const plannerGateReason = card?.planner_gate_reason || ""
   const currentStageSegments = stageSegments.filter((segment: any) => segment.stage_type === currentStage && segment.status !== "COMPLETED" && segment.status !== "CANCELLED")
@@ -1501,7 +1504,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
                 <div className={`rounded-2xl border px-4 py-3 ${plannerGateReady ? "border-signal-emerald-line bg-signal-emerald-soft" : "border-signal-amber-line bg-signal-amber-soft"}`}>
                   <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Planner Gate</div>
                   <div className="mt-1 text-sm font-semibold text-foreground">
-                    {plannerGateReady ? "Ready for floor entry" : "Blocked until planner slot is valid"}
+                    {plannerGateReady ? "Winding" : "Blocked until planner slot is valid"}
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">
                     {plannerGateReady
@@ -3745,6 +3748,11 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
 
   if (jobCardQuery.isError || !card) {
     return <div className="rounded-xl border border-signal-rose-line bg-signal-rose-soft p-8 text-sm text-signal-rose-ink">Unable to load job card.</div>
+  }
+
+  if (card.spec_snapshot?.entry_model === "V2" && !materialPreparationOnly) {
+    if (mode === "print") return <SeasonJobCardPrint card={card}/>
+    return <ContinuousJobCard card={card} />
   }
 
   if (mode === "print") {

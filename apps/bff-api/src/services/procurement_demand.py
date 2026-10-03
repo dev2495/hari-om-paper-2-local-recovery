@@ -250,7 +250,7 @@ async def material_demand(token, plant_id, start, end):
         except httpx.RequestError as exc:
             raise HTTPException(502, "A demand source is unavailable; requirements were not calculated") from exc
         if response.status_code >= 400:
-            raise HTTPException(response.status_code if response.status_code in (401, 403) else 502, f"Demand source could not load {path}")
+            raise HTTPException(response.status_code if response.status_code in (401, 403,409) else 502, f"Demand source could not load {path}")
         return response.json()
     orders = []
     for offset in range(0, 10000, 500):
@@ -287,6 +287,13 @@ async def material_demand(token, plant_id, start, end):
     fg_by_line = {}
     for allocation in issues.get("accepted_fg_allocations", []):
         fg_by_line.setdefault(allocation["line_id"], []).append(allocation)
+    season_state,pending_releases=await asyncio.gather(get(SPEC_URL,"/season"),get(SPEC_URL,"/season/release-authorizations"))
+    pending_by_line={}
+    linked_authorizations={str((j.get("spec_snapshot") or {}).get("release_authorization_id")) for j in snapshots.get("jobs",[])}
+    for authorization in pending_releases:
+        if str(authorization["id"]) not in linked_authorizations:
+            bundle=authorization["bundle"]
+            pending_by_line.setdefault(bundle["sales_order_line_id"],[]).append(authorization)
     cache = {}; requirements = []; other_requirements = []; blocked = []; warnings = []; excluded = []; seen = set()
     if coverage_gap:
         warnings.append({"order_no": None, "line_id": None, "reason": "Some production issues are not attributed to job cards yet; residual need may be slightly overstated"})
@@ -347,16 +354,36 @@ async def material_demand(token, plant_id, start, end):
                     other_requirements.append({**row, **job_source, "job_id": job["id"], "basis": "FROZEN_JOB_RESIDUAL",
                         "gross_qty": row["qty"], "already_issued": issued, "qty": round(max(0, row["qty"] - issued), 3)})
             linked_ids = {job["id"] for job in linked_jobs}
+            authorized_qty=0
+            for authorization in pending_by_line.get(line["id"],[]):
+                bundle=authorization["bundle"];quantity=float(bundle["quantity"])
+                if authorized_qty+quantity>unlinked_released+0.001:
+                    blocked.append({"order_no":order["order_no"],"line_id":line["id"],"reason":"Pending authorization quantity exceeds unmatched sales releases; reconcile release synchronization"})
+                    continue
+                authorized_qty+=quantity
+                frozen_line={**line,"release_remaining_qty":quantity}
+                pending_rows,problem=explode_paper_demand(order,frozen_line,bundle["spec"],bundle["recipe"],bundle["bom"],item_by_id,item_by_code,paper_by_id,start,end)
+                requirements.extend({**r,"basis":"AUTHORIZED_PENDING_RELEASE","authorization_id":authorization["id"],"season":bundle["season"],"season_epoch":bundle["season_epoch"],"gross_qty_kg":r["qty_kg"],"already_issued_kg":0} for r in pending_rows)
+                pending_other,_=explode_other_demand(order,frozen_line,bundle["spec"],bundle["bom"],items,start,end)
+                other_requirements.extend({**r,"basis":"AUTHORIZED_PENDING_RELEASE","authorization_id":authorization["id"],"gross_qty":r["qty"],"already_issued":0} for r in pending_other)
+                if problem:warnings.append({"order_no":order["order_no"],"line_id":line["id"],"reason":problem})
             accepted_fg = sum(float(row["quantity_pcs"]) for row in fg_by_line.get(line["id"], [])
                 if row.get("spec_id") == spec_id and not linked_ids.intersection(row.get("source_job_ids", [])))
-            new_build = max(0, min(float(line.get("release_remaining_qty", 0)) + unlinked_released,
+            new_build = max(0, min(float(line.get("release_remaining_qty", 0)) + unlinked_released-authorized_qty,
                 float(line.get("remaining_qty", line.get("release_remaining_qty", 0)))) - accepted_fg)
             if new_build <= 0:
                 continue
             if spec_id not in cache:
-                spec, recipes = await asyncio.gather(get(SPEC_URL, f"/specs/{spec_id}"), get(SPEC_URL, f"/recipes/spec/{spec_id}", {"status": "approved"}))
+                spec=await get(SPEC_URL,f"/specs/{spec_id}")
+                if spec.get("seasonal_model"):
+                    canonical=await get(SPEC_URL,f"/calculate/bom-for-spec/{spec_id}",{"season":season_state["active_season"],"expected_epoch":season_state["epoch"]})
+                    recipe={"id":canonical["recipe_id"],"version":canonical["recipe_revision"]}
+                    cache[spec_id]=((spec,recipe,canonical["bom"]),None) if canonical.get("completeness")=="OK" else (None,canonical.get("reason"))
+                    recipes=None
+                else:recipes=await get(SPEC_URL,f"/recipes/spec/{spec_id}",{"status":"approved"})
                 size = size_by_id.get(spec.get("tube_size_id"))
-                if not size or len(recipes) != 1 or spec.get("status") != "approved":
+                if recipes is None:pass
+                elif not size or len(recipes) != 1 or spec.get("status") != "approved":
                     cache[spec_id] = (None, "An approved specification, one approved recipe and tube dimensions are required")
                 else:
                     recipe = recipes[0]
@@ -380,7 +407,7 @@ async def material_demand(token, plant_id, start, end):
                     warnings.append({"order_no": order["order_no"], "line_id": line["id"], "spec_id": spec_id, "reason": problem})
             elif problem:
                 blocked.append({"order_no": order["order_no"], "line_id": line["id"], "spec_id": spec_id, "reason": problem})
-    digest = hashlib.sha256(json.dumps({"requirements": requirements, "blocked": blocked}, sort_keys=True).encode()).hexdigest()
+    digest = hashlib.sha256(json.dumps({"requirements": requirements, "blocked": blocked,"season_basis":season_state}, sort_keys=True).encode()).hexdigest()
     unmapped = {}
     for row in requirements:
         if not row.get("mapped", True):
@@ -397,7 +424,7 @@ async def material_demand(token, plant_id, start, end):
     return {"requirements": requirements, "material_requirements": other_requirements,
             "unmapped_materials": [{**value, "order_nos": sorted(filter(None, value["order_nos"]))} for value in unmapped_other.values()],
             "blocked": blocked, "warnings": warnings, "unmapped_papers": unmapped_papers,
-            "excluded": excluded, "source_version": f"SALES-BOM:{digest}",
+            "excluded": excluded, "source_version": f"SALES-BOM:{digest}","season_basis":season_state,
             "basis": "Unreleased approved sales demand plus residual paper for active jobs, using frozen job BOMs and item-specific net issues. Accepted allocated finished goods from outside the linked jobs reduce new-build units before BOM conversion. Saved customer call-offs set need dates; unscheduled quantities use the line delivery date. Where release-to-call-off attribution is absent, material timing conservatively uses the earliest commitment. Started jobs without issue attribution are flagged as incomplete; whole-bamboo cutting loss is included.",
             "as_of_date": start.isoformat(), "horizon_end": end.isoformat(), "order_count": len(orders)}
 

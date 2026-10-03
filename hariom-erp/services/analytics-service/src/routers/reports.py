@@ -240,8 +240,8 @@ def _load_scope_snapshot(token: str, plant_scope: dict) -> dict[str, Any]:
 
 def _compute_order_state(order: dict[str, Any], start_day: date, end_day: date) -> dict[str, Any]:
     due_date = _resolve_due_date(order)
-    dispatch_events = [event for event in order.get("_timeline_events") or [] if str(event.get("event_type")).upper() == "SO_LINE_DISPATCH_RECORDED"]
-    dispatch_dates = [(_parse_dt(event.get("timestamp")) or datetime.min).date() for event in dispatch_events if _parse_dt(event.get("timestamp"))]
+    dispatch_events = [event for event in order.get("_timeline_events") or [] if str(event.get("event_type")).upper() in {"SO_LINE_DISPATCH_RECORDED", "SALES_ORDER_DISPATCH_RECORDED"}]
+    dispatch_dates = [dt.date() for event in dispatch_events if (dt := _parse_dt(event.get("created_at") or event.get("timestamp")))]
     final_dispatch = max(dispatch_dates) if dispatch_dates else None
     created_at = (_parse_dt(order.get("created_at")) or datetime.min).date()
     closed = str(order.get("status") or "").lower() == "closed"
@@ -274,13 +274,13 @@ def _build_order_series(snapshot: dict[str, Any], start_day: date, end_day: date
         if state["closed"] and state["final_dispatch"] and _in_window(state["final_dispatch"], start_day, end_day):
             series[_bucket_key(state["final_dispatch"], granularity)]["orders_closed"] = series[_bucket_key(state["final_dispatch"], granularity)].get("orders_closed", 0) + 1
         for event in order.get("_timeline_events") or []:
-            if str(event.get("event_type") or "").upper() != "SO_LINE_DISPATCH_RECORDED":
+            if str(event.get("event_type") or "").upper() not in {"SO_LINE_DISPATCH_RECORDED", "SALES_ORDER_DISPATCH_RECORDED"}:
                 continue
-            event_dt = _parse_dt(event.get("timestamp"))
+            event_dt = _parse_dt(event.get("created_at") or event.get("timestamp"))
             if not event_dt or not _in_window(event_dt.date(), start_day, end_day):
                 continue
             bucket = series[_bucket_key(event_dt.date(), granularity)]
-            bucket["dispatch_qty"] = round(float(bucket.get("dispatch_qty") or 0.0) + float((event.get("payload") or {}).get("qty") or 0.0), 2)
+            bucket["dispatch_qty"] = round(float(bucket.get("dispatch_qty") or 0.0) + float(event.get("qty") if event.get("qty") is not None else (event.get("payload") or {}).get("qty") or 0.0), 2)
     return list(series.values())
 
 
@@ -463,6 +463,7 @@ def _quality_report(snapshot: dict[str, Any], start_day: date, end_day: date, gr
     total = 0
     passed = 0
     failed = 0
+    pending = 0
     for inspection in snapshot["quality_inspections"]:
         inspection_dt = _parse_dt(inspection.get("created_at"))
         if not inspection_dt or not _in_window(inspection_dt.date(), start_day, end_day):
@@ -470,21 +471,27 @@ def _quality_report(snapshot: dict[str, Any], start_day: date, end_day: date, gr
         total += 1
         bucket = series[_bucket_key(inspection_dt.date(), granularity)]
         bucket["checked"] = int(bucket.get("checked") or 0) + 1
-        if str(inspection.get("status") or "").upper() == "PASS":
+        verdict=str(inspection.get("status") or "").upper()
+        if verdict == "PASS":
             passed += 1
             bucket["passed"] = int(bucket.get("passed") or 0) + 1
-        else:
+        elif verdict == "FAIL":
             failed += 1
             bucket["failed"] = int(bucket.get("failed") or 0) + 1
             fail_by_stage[str(inspection.get("stage_type") or "UNKNOWN").upper()] += 1
+        else:
+            pending += 1
+            bucket['pending']=int(bucket.get('pending') or 0)+1
 
     return {
         "summary": {
             "checked": total,
             "passed": passed,
             "failed": failed,
-            "compliance_percent": round((passed / total * 100.0), 2) if total else 0.0,
-            "pass_rate": round((passed / total * 100.0), 2) if total else None,
+            "pending_or_record_only": pending,
+            "measured": passed+failed,
+            "compliance_percent": round((passed / (passed+failed) * 100.0), 2) if passed+failed else 0.0,
+            "pass_rate": round((passed / (passed+failed) * 100.0), 2) if passed+failed else None,
             "has_inspection_data": total > 0,
             "active_holds": len(active_holds),
         },

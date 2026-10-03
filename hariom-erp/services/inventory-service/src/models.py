@@ -566,6 +566,8 @@ class ReelIssue(Base):
     reel_id = Column(UUID(as_uuid=True), ForeignKey("paper_reels.id"), nullable=False, index=True)
     issue_section = Column(String(40), nullable=False, default="WINDER_SECTION", index=True)
     winder_machine_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    sales_order_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    customer_id = Column(UUID(as_uuid=True), nullable=True, index=True)
     shift = Column(String(20), nullable=False)
     issue_date = Column(Date, nullable=False)
     issued_weight_kg = Column(Float, nullable=False)
