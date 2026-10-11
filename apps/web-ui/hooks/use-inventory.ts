@@ -227,6 +227,18 @@ export function useApproveItemQualityProfile() {
   })
 }
 
+/** Masters: re-band QC's existing inward-QC parameters; the result awaits Owner/Admin approval. */
+export function useAdjustItemQualityTolerances() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Parameters<typeof inventoryApi.adjustItemQualityTolerances>[1] }) => inventoryApi.adjustItemQualityTolerances(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-items"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-quality-pending"] })
+    },
+  })
+}
+
 export function useDeleteItem() {
   const queryClient = useQueryClient()
   return useMutation({

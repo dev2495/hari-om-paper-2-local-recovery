@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input"
 import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
 import { MODULE_NAVIGATION } from "@/lib/module-navigation"
+import { roleLabel } from "@/lib/role-matrix"
 import { searchWorkspaceJumps } from "@/lib/workspace-jump"
 import { RouteProgress } from "@/components/workspace/route-progress"
 import { SidebarNav } from "@/components/workspace/sidebar-nav"
@@ -112,14 +113,14 @@ const navigationUnits: NavGroup[] = [
         href: "/quality",
         icon: ShieldCheck,
         description: "Inspection lifecycle, holds, release decisions, and audit evidence.",
-        roles: ["Owner", "Admin", "PlantManager", "QC", "Dispatch", "Store", "Sales"],
+        roles: ["Owner", "Admin", "PlantManager", "QC", "InwardQC", "Dispatch", "Store", "Sales"],
       },
-      { name: "Incoming inspections", href: "/quality/incoming", icon: ClipboardList, description: "Receive, inspect and release material lots.", roles: ["Owner", "Admin", "QC"] },
+      { name: "Incoming inspections", href: "/quality/incoming", icon: ClipboardList, description: "Receive, inspect and release material lots.", roles: ["Owner", "Admin", "QC", "InwardQC"] },
       { name: "Production inspections", href: "/quality/stage", icon: Factory, description: "Winding, oven and process checks.", roles: ["Owner", "Admin", "QC", "PlantManager"] },
-      { name: "Material standards", href: "/quality/material-standards", icon: ShieldCheck, description: "Approved tolerances and revision history.", roles: ["Owner", "Admin", "QC"] },
+      { name: "Material standards", href: "/quality/material-standards", icon: ShieldCheck, description: "Approved tolerances and revision history.", roles: ["Owner", "Admin", "QC", "InwardQC"] },
       { name: "Seasonal stage rules", href: "/quality/stage-rules", icon: ShieldCheck, description: "Published seasonal rules and customer overlays.", roles: ["Owner", "Admin", "QC"] },
       { name: "Production season", href: "/settings/production-season", icon: Factory, description: "Global season and release readiness.", ownerOnly: true },
-      { name: "Results & holds", href: "/quality/results", icon: LockKeyhole, description: "Quality decisions and customer returns.", roles: ["Owner", "Admin", "QC", "PlantManager", "Store", "Sales", "Dispatch"] },
+      { name: "Results & holds", href: "/quality/results", icon: LockKeyhole, description: "Quality decisions and customer returns.", roles: ["Owner", "Admin", "QC", "InwardQC", "PlantManager", "Store", "Sales", "Dispatch"] },
       { name: "Quality analytics", href: "/reports/quality", icon: BarChart3, description: "Quality trends and variance.", roles: ["Owner", "Admin", "QC", "PlantManager"] },
     ],
   },
@@ -140,7 +141,7 @@ const navigationUnits: NavGroup[] = [
         description: "Monthly paper, chemical and packing schedule: op stk, arrivals, BOM requirement, cl stk and vendor PO position.",
         roles: ["Owner", "Admin", "Store", "Planner", "PlantManager"],
       },
-      { name: "Supplier deliveries", href: "/purchase/supplier-deliveries", icon: Truck, description: "Confirmed arrivals, changed promises and partial receipts.", roles: ["Owner", "Admin", "Store", "Planner", "PlantManager"] },
+      { name: "Supplier deliveries", href: "/purchase/supplier-deliveries", icon: Truck, description: "Confirmed arrivals, changed promises and partial receipts.", roles: ["Owner", "Admin", "Store", "Planner", "PlantManager", "GRN"] },
       { name: "Create purchase order", href: "/purchase/new", icon: FileText, description: "Multi-item PO with automatic numbering and vendor terms.", roles: ["Owner", "Admin", "Store", "Planner", "PlantManager"] },
       { name: "Purchase requisitions", href: "/purchase/requisitions", icon: FileText, description: "Request a tool or material for Owner approval." },
       { name: "PO approvals", href: "/purchase/approvals", icon: ShieldCheck, description: "Review submitted PO revisions before goods receipt.", roles: ["Owner", "Admin", "PlantManager"] },
@@ -152,8 +153,10 @@ const navigationUnits: NavGroup[] = [
   {
     title: "Stores & inventory",
     items: [
-      { name: "Goods inward", href: "/purchase/inward", icon: Package, description: "Manual or approved-PO receipt with individual reel and coil labels.", roles: ["Owner", "Admin", "Store", "PlantManager"] },
-      { name: "GRN register & labels", href: "/purchase/receipts", icon: ClipboardList, description: "Saved receipts, pending invoices, QC and label reprints.", roles: ["Owner", "Admin", "Store", "PlantManager", "Accounts"] },
+      { name: "Goods inward", href: "/purchase/inward", icon: Package, description: "Manual or approved-PO receipt with individual reel and coil labels.", roles: ["Owner", "Admin", "Store", "PlantManager", "GRN"] },
+      { name: "GRN register & labels", href: "/purchase/receipts", icon: ClipboardList, description: "Saved receipts, pending invoices, QC and label reprints.", roles: ["Owner", "Admin", "Store", "PlantManager", "Accounts", "GRN", "InwardQC"] },
+      { name: "Reel issue", href: "/inventory/reels/issue", icon: Layers, description: "Scan and issue reels to a winder and shift; close with returned weight.", roles: ["Owner", "Admin", "Store", "PlantManager", "RMIssue"] },
+      { name: "Material issue", href: "/inventory/production-issue", icon: Boxes, description: "Issue adhesive, parchment and packing to a job card.", roles: ["Owner", "Admin", "Store", "PlantManager", "RMIssue"] },
       {
         name: "Stock Lifecycle",
         href: "/inventory/lifecycle",
@@ -166,7 +169,7 @@ const navigationUnits: NavGroup[] = [
         href: "/inventory",
         icon: Package,
         description: "Raw material inward, reel issue, balances, and valuation.",
-        roles: ["Owner", "Admin", "Store", "Planner", "PlantManager"],
+        roles: ["Owner", "Admin", "Store", "Planner", "PlantManager", "GRN", "RMIssue"],
       },
       {
         name: "Purchase",
@@ -180,7 +183,7 @@ const navigationUnits: NavGroup[] = [
         href: "/inventory/genealogy",
         icon: Layers,
         description: "Reel lineage, slit children, issue scans, and trace exceptions.",
-        roles: ["Owner", "Admin", "Store", "Planner", "PlantManager", "Dispatch"],
+        roles: ["Owner", "Admin", "Store", "Planner", "PlantManager", "Dispatch", "GRN", "RMIssue"],
       },
       {
         name: "Manual FG",
@@ -243,7 +246,7 @@ const navigationUnits: NavGroup[] = [
       { name: "Customer 360", href: "/reports/customer-360", icon: Users, description: "Per-customer demand, delivery and risk.", roles: ["Sales"] },
       { name: "Inventory intelligence", href: "/reports/inventory", icon: Boxes, description: "Stock value, ageing and velocity.", roles: ["Store", "Planner", "PlantManager"] },
       { name: "Supplier & reels", href: "/reports/loss", icon: Package, description: "Supplier and reel performance, losses.", roles: ["Store", "PlantManager"] },
-      { name: "Quality & variance", href: "/reports/quality", icon: ShieldCheck, description: "Inspections, fail causes and variance.", roles: ["QC", "PlantManager"] },
+      { name: "Quality & variance", href: "/reports/quality", icon: ShieldCheck, description: "Inspections, fail causes and variance.", roles: ["QC", "InwardQC", "PlantManager"] },
       { name: "Dispatch & SLA", href: "/reports/dispatch", icon: Truck, description: "Dispatch volume, readiness and SLA.", roles: ["Dispatch", "Sales"] },
       { name: "Tooling ledger", href: "/reports/tooling", icon: Wrench, description: "Tool assets, grinding and usage trail.", roles: ["PlantManager"] },
     ],
@@ -265,6 +268,7 @@ const navigationUnits: NavGroup[] = [
         description: "Users, plants, machine setup, tolerance bands, and platform governance.",
         roles: ["Owner", "Admin"],
       },
+
       {
         name: "Audit",
         href: "/system/audit",
@@ -289,7 +293,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { user, isLoading, logout, activeRole } = useAuth()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [sidebarPinned, setSidebarPinned] = useState(true)
-  const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set(["Overview"]))
+  // Only the current module's group opens by default, so a module's sub-pages fit on screen.
+  const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set())
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const userRoles = useMemo(() => new Set([user?.role, ...(user?.roles || [])].filter(Boolean) as string[]), [user?.role, user?.roles])
@@ -386,7 +391,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <aside className="tube-rail" aria-label="Workspace navigation">
       <Link href="/dashboard" className="tube-brand" aria-label="Hari Om TubeOS home"><span className="tube-mark"><CircleDot size={18} strokeWidth={1.75} /></span><span className="tube-brand-label"><strong>Hari Om <span className="text-primary">TubeOS</span></strong><small>Paper tube manufacturing</small></span></Link>
       {navigation()}
-      <div className="tube-user"><span className="tube-avatar">{initials}</span><div className="tube-user-detail min-w-0 flex-1"><p className="truncate text-xs font-semibold">{user.name}</p><p className="mt-1 truncate text-[11px] text-muted-foreground">{activeRole || user.role || user.roles?.[0]}</p></div><button className="tube-user-detail" aria-label="Logout" title="Logout" onClick={signOut}><LogOut size={15} /></button></div>
+      <div className="tube-user"><span className="tube-avatar">{initials}</span><div className="tube-user-detail min-w-0 flex-1"><p className="truncate text-xs font-semibold">{user.name}</p><p className="mt-1 truncate text-[11px] text-muted-foreground">{roleLabel(String(activeRole || user.role || user.roles?.[0] || ""))}</p></div><button className="tube-user-detail" aria-label="Logout" title="Logout" onClick={signOut}><LogOut size={15} /></button></div>
     </aside>
     <div className="tube-workspace">
       <header className="tube-topbar">

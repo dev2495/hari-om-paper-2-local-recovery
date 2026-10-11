@@ -1279,36 +1279,27 @@ def _reconcile_card_times(
     job_card_created_at: Optional[datetime],
     override_reason: Optional[str],
 ) -> tuple[dict[str, Any], list[str]]:
-    """Validate card Start/End times against the system entry time.
+    """Reconcile card Start/End times against the system entry time.
 
-    All datetimes are naive UTC. Raises HTTPException for times that cannot be
-    physically true; returns the reconciliation record plus soft warnings.
+    All datetimes are naive UTC. Card times never block an entry (client decision
+    2026-10-11: the card must keep moving); odd times are recorded and returned as
+    soft warnings for the time-reconciliation register instead.
     """
     warnings: list[str] = []
-    if card_start and card_end and card_end < card_start:
-        raise HTTPException(status_code=400, detail=f"{stage} end time (B) cannot be before start time (A)")
+    times_reversed = bool(card_start and card_end and card_end < card_start)
+    if times_reversed:
+        warnings.append(f"{stage} end time (B) is before start time (A); check the date on the card.")
     for label, value in (("start time (A)", card_start), ("end time (B)", card_end)):
         if value and value > now + FUTURE_TIME_TOLERANCE:
-            raise HTTPException(
-                status_code=400,
-                detail=f"{stage} {label} is in the future; enter the time written on the job card",
-            )
+            warnings.append(f"{stage} {label} is later than the entry time; check the time written on the card.")
     if save_mode == "complete" and stage in CARD_TIMED_STAGES and not (card_start and card_end):
-        if not override_reason:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"{stage} completion needs the Start (A) and End (B) times written on the job card. "
-                    "A supervisor may complete without them only with an override_reason."
-                ),
-            )
         warnings.append(f"{stage} completed without card times; system entry time is used as the end time.")
 
     if job_card_created_at and card_start and card_start < job_card_created_at - timedelta(hours=12):
         warnings.append(f"{stage} start time is earlier than the job card was released; check the card date.")
 
     cycle_minutes: Optional[float] = None
-    if card_start and card_end:
+    if card_start and card_end and not times_reversed:
         cycle_minutes = round((card_end - card_start).total_seconds() / 60.0, 1)
         if cycle_minutes > MAX_CARD_STAGE_DURATION_HOURS * 60:
             warnings.append(f"{stage} cycle time is {cycle_minutes / 60:.1f} h; check the card dates.")
@@ -3492,8 +3483,20 @@ def _create_or_sync_job_card_for_line(
     lot_color = (parchment_color or "").strip() or _release_lot_color(line, release_lot_id)
     line_payload = {**line, "product_code": product_code or line.get("product_code"), "_season_operation_key": f"lot:{release_lot_id}" if release_lot_id else f"line:{line.get('id')}:{planned_qty}"}
     if lot_color:
-        # One job card = one color: the lot's color is the ordered color for this card.
+        # One job card = one color: the lot's color is the ordered color for this card,
+        # and so is that color's commercial rate when the order priced it separately.
         line_payload["parchment_color"] = lot_color
+        color_rate = next(
+            (
+                split.get("rate_per_pc")
+                for split in (line.get("color_splits") or [])
+                if isinstance(split, dict) and split.get("rate_per_pc") is not None
+                and str(split.get("color") or "").strip().lower() == lot_color.lower()
+            ),
+            None,
+        )
+        if color_rate is not None:
+            line_payload["rate_per_pc"] = color_rate
     elif bool(line.get("parchment_required")) and str(line.get("parchment_color") or "") in {"", "Multiple colors"}:
         raise HTTPException(status_code=400, detail="This release has no parchment color. Choose one color per job card before release.")
     spec_snapshot, routing_snapshot, material_plan_snapshot, requires_slitting = _build_job_card_snapshots(
@@ -5691,7 +5694,7 @@ def list_planning_job_cards(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Store", "Sales", "Dispatch", "QC"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Store", "Sales", "Dispatch", "QC", "RMIssue"])),
 ):
     _sweep_missed_slots_safely(db, None if plant_scope.get("scope_all") else plant_scope.get("selected_plant_id"))
     query = (
@@ -6054,7 +6057,7 @@ def export_job_cards(
 @router.get("/material-demand-snapshots")
 def material_demand_snapshots(db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Store", "Sales"]))):
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Store", "Sales", "RMIssue"]))):
     query = _apply_plant_scope_filter(db.query(JobCard).options(selectinload(JobCard.stages)), JobCard.plant_id, plant_scope)
     jobs = query.filter(JobCard.status != "CANCELLED", JobCard.sales_order_line_id.isnot(None)).all()
     # Production date = the earliest open first-stage slot on the planner (material must be there
@@ -6094,7 +6097,7 @@ def get_planning_job_card(
     job_card_id: uuid.UUID,
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Sales", "Dispatch", "Store", "QC"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Sales", "Dispatch", "Store", "QC", "RMIssue"])),
 ):
     query = (
         db.query(JobCard, SalesOrder)
@@ -6443,7 +6446,7 @@ def get_job_card_genealogy(
     job_card_id: uuid.UUID,
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Sales", "Dispatch", "Store", "QC", "Production"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Sales", "Dispatch", "Store", "QC", "Production", "RMIssue"])),
 ):
     query = (
         db.query(JobCard, SalesOrder)
@@ -7545,6 +7548,14 @@ def capture_stage_output(
         job_card_created_at=job_card.created_at,
         override_reason=override_reason_for_times,
     )
+    # Odd card times stay on the reconciliation record (with a warning) but never become the
+    # stage's actual timestamps: a future or reversed time falls back to the entry time.
+    if card_start and card_start > now + FUTURE_TIME_TOLERANCE:
+        card_start = None
+    if card_end and card_end > now + FUTURE_TIME_TOLERANCE:
+        card_end = None
+    if card_start and card_end and card_end < card_start:
+        card_end = None
 
     before_payload = {
         "status": stage.status,

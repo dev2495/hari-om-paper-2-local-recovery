@@ -9,7 +9,7 @@ from ..database import get_db
 from ..models import InventoryQualityTemplate, ItemMaster, ItemType, TrackingMode
 from ..utils.audit_client import emit_audit_event
 from ..utils.auth import get_current_plant, get_current_plant_scope, get_current_user, require_role
-from ..quality_profile_lifecycle import ProfileLifecycleError, apply_profile_approve, apply_profile_exemption, apply_profile_save
+from ..quality_profile_lifecycle import ProfileLifecycleError, apply_profile_approve, apply_profile_exemption, apply_profile_save, apply_tolerance_adjustment
 
 _audit_logger = logging.getLogger(__name__)
 
@@ -380,6 +380,18 @@ class ItemQualityProfileApprove(BaseModel):
     scope_plant_id: Optional[str] = None
 
 
+class ToleranceAdjustment(BaseModel):
+    code: str = Field(..., min_length=1, max_length=80)
+    min: Optional[float] = None
+    max: Optional[float] = None
+
+
+class ItemQualityToleranceAdjust(BaseModel):
+    expected_revision: int
+    adjustments: List[ToleranceAdjustment] = Field(default_factory=list)
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
 class ItemQualityProfileCopyTemplate(BaseModel):
     material_type: Optional[str] = None
 
@@ -391,12 +403,13 @@ def _actor_roles(current_user: dict) -> list[str]:
     return [str(item) for item in raw]
 
 
-def _profile_history(before, after, action, actor):
+def _profile_history(before, after, action, actor, **extra):
     before = before if isinstance(before, dict) else {}
     return {**after, "history": [*(before.get("history") or []), {
         "action": action, "actor": actor, "at": datetime.utcnow().isoformat() + "Z",
         "revision": after.get("revision"), "status": after.get("status"),
         "before_parameters": before.get("parameters") or [], "parameters": after.get("parameters") or [],
+        **extra,
     }]}
 
 
@@ -417,7 +430,7 @@ def upsert_item_quality_profile(
     payload: ItemQualityProfileUpdate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Owner", "QC"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "QC", "InwardQC"])),
 ):
     db_item = db.query(ItemMaster).filter(ItemMaster.id == item_id, ItemMaster.plant_id == plant_id).with_for_update().populate_existing().first()
     if not db_item:
@@ -439,6 +452,49 @@ def upsert_item_quality_profile(
     db_item.quality_profile = _profile_history(previous_profile, db_item.quality_profile, "SAVED", current_user.get("sub"))
     db.commit()
     db.refresh(db_item)
+    return db_item
+
+
+@router.put("/{item_id}/quality-profile/tolerances", response_model=ItemResponse)
+def adjust_item_quality_tolerances(
+    item_id: uuid.UUID,
+    payload: ItemQualityToleranceAdjust,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "QC", "InwardQC"])),
+):
+    """Masters screen: re-band QC's existing parameters (min/max only); needs Owner/Admin approval."""
+    db_item = db.query(ItemMaster).filter(ItemMaster.id == item_id, ItemMaster.plant_id == plant_id).with_for_update().populate_existing().first()
+    if not db_item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    previous_profile = dict(db_item.quality_profile or {})
+    try:
+        db_item.quality_profile = apply_tolerance_adjustment(
+            previous_profile,
+            [row.model_dump() for row in payload.adjustments],
+            expected_revision=payload.expected_revision,
+            note=payload.note,
+        )
+    except ProfileLifecycleError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.as_dict()) from exc
+    # Recorded as SAVED so maker-checker applies: the adjuster cannot approve their own change.
+    db_item.quality_profile = _profile_history(
+        previous_profile, db_item.quality_profile, "SAVED", current_user.get("sub"),
+        source="MASTERS_TOLERANCE_ADJUSTMENT", note=payload.note,
+    )
+    db.commit()
+    db.refresh(db_item)
+    emit_audit_event(
+        token=current_user.get("token", ""),
+        event_type="item_quality_tolerance_adjusted",
+        entity_type="item",
+        entity_id=str(db_item.id),
+        plant_id=str(plant_id),
+        actor_role=str((current_user.get("roles") or ["?"])[0]),
+        actor_email=current_user.get("sub"),
+        summary=f"{db_item.item_code} inward QC tolerances adjusted from Masters (rev {db_item.quality_profile.get('revision')}, awaiting approval)",
+        payload={"adjustments": [row.model_dump() for row in payload.adjustments], "note": payload.note},
+    )
     return db_item
 
 
@@ -509,7 +565,7 @@ def copy_item_quality_template(
     payload: ItemQualityProfileCopyTemplate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Owner", "QC"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "QC", "InwardQC"])),
 ):
     db_item = db.query(ItemMaster).filter(ItemMaster.id == item_id, ItemMaster.plant_id == plant_id).with_for_update().populate_existing().first()
     if not db_item:

@@ -12,13 +12,15 @@ test('redesign route and viewport evidence',async({page})=>{
  test.setTimeout(240000)
  await login(page)
  for(const theme of ['light','dark']){
+  // The ERP is light-only: a saved or OS dark preference must never apply.
   await page.evaluate(value=>localStorage.setItem('hariom_theme_v1',value),theme)
+  await page.emulateMedia({colorScheme:theme})
   for(const route of routes){
    await page.setViewportSize({width:1440,height:1000})
    await page.goto(route,{waitUntil:'networkidle'})
    await expect(page.locator('.tube-shell')).toBeVisible()
    await expect(page).toHaveURL(route === '/dashboard' ? /\/landing\/(owner|admin)$/ : new RegExp(route.replaceAll('/', '\\/')+'(?:\\?.*)?$'))
-   await expect(page.locator('html')).toHaveAttribute('data-theme',theme)
+   await expect(page.locator('html')).toHaveAttribute('data-theme','light')
    expect.soft(await page.evaluate(()=>document.documentElement.scrollWidth),`${route} ${theme} document overflow`).toBeLessThanOrEqual(1440)
    await page.screenshot({path:`${process.env.PLAYWRIGHT_OUTPUT_DIR}/${theme}${route.replaceAll('/','_')}.png`,fullPage:false})
   }
@@ -32,16 +34,18 @@ test('redesign route and viewport evidence',async({page})=>{
   }
  }
 })
-test('theme persistence, deliberate navigation resize, command keyboard and mobile focus',async({page})=>{
+test('light-only theme, deliberate navigation resize, command keyboard and mobile focus',async({page})=>{
  await login(page)
+ await page.emulateMedia({colorScheme:'dark'})
  await page.setViewportSize({width:1440,height:1000})
  await page.goto('/purchase')
- await page.getByRole('button',{name:'Appearance settings',exact:true}).click()
- await page.getByRole('group',{name:'Theme',exact:true}).getByRole('button',{name:'Dark',exact:true}).click()
+ await expect(page.locator('html')).toHaveAttribute('data-theme','light')
+ await page.getByRole('button',{name:'Table density',exact:true}).click()
+ await page.getByRole('button',{name:'Compact table density',exact:true}).click()
  await page.keyboard.press('Escape')
- await expect(page.locator('html')).toHaveAttribute('data-theme','dark')
+ await expect(page.locator('html')).toHaveAttribute('data-density','compact')
  await page.reload()
- await expect(page.locator('html')).toHaveAttribute('data-theme','dark')
+ await expect(page.locator('html')).toHaveAttribute('data-theme','light')
  await page.getByRole('button',{name:'Collapse navigation',exact:true}).click()
  await expect(page.locator('.tube-shell')).toHaveAttribute('data-rail','compact')
  // Transition completion is observed, then pointer movement must not resize content.

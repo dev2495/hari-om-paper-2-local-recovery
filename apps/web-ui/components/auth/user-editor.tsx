@@ -15,21 +15,14 @@ import { Label } from "@/components/ui/label"
 import { PageHeader } from "@/components/workspace/page-header"
 import { ErrorState, LoadingState } from "@/components/workspace/query-state"
 import { RoleGate } from "@/components/workspace/role-gate"
+import { MATRIX_SCREENS, ROLE_BY_KEY, ROLE_DEFINITIONS, accessFor } from "@/lib/role-matrix"
+import { resolveLandingRole } from "@/lib/workspace"
 
 const inputClass = "mt-2 h-12 w-full rounded-xl border border-border bg-card px-4 text-foreground"
 
 const PRIVILEGED_ROLES = ["Owner", "Admin"]
-const FRIENDLY_ROLE_LABELS: Record<string, string> = {
-  Owner: "Owner",
-  Admin: "Admin",
-  PlantManager: "Plant Manager",
-  Planner: "Planner",
-  Store: "Store",
-  Dispatch: "Dispatch",
-  Sales: "Sales",
-  Operator: "Operator",
-  QC: "Quality Control",
-}
+const FRIENDLY_ROLE_LABELS: Record<string, string> = Object.fromEntries(ROLE_DEFINITIONS.map((role) => [role.key, role.label]))
+const ROLE_GROUPS = ["Management", "Commercial", "Production", "Quality", "Stores"] as const
 
 type RoleMeta = { label: string; summary: string; permissions: string[] }
 
@@ -165,6 +158,16 @@ export function UserEditor({ userId }: { userId?: string }) {
   const privileged = isPrivileged(form.role_names)
 
   const roleLabel = (role: string) => roleMeta[role]?.label || FRIENDLY_ROLE_LABELS[role] || role
+
+  const landingRole = form.role_names.length ? resolveLandingRole(form.role_names) : null
+  const landing = landingRole ? ROLE_BY_KEY[landingRole] : null
+  const screens = useMemo(
+    () => MATRIX_SCREENS.map((screen) => {
+      const levels = form.role_names.map((role) => accessFor(screen, role))
+      return { screen, level: levels.includes("work") ? "work" : levels.includes("view") ? "view" : null }
+    }).filter((row) => row.level),
+    [form.role_names],
+  )
 
   const effectivePermissions = useMemo(() => {
     const union = new Set<string>()
@@ -338,37 +341,46 @@ export function UserEditor({ userId }: { userId?: string }) {
               </div>
             </div>
             <p className="my-2 text-sm text-muted-foreground">
-              Assign one or more roles. Saving replaces the user&apos;s current roles. Owner and Admin include user
-              administration and all-plant access — selecting another role never silently grants either of these.
+              Tick one or more roles — access adds up (for example Store + Inward QC). Saving replaces the user&apos;s current roles.
+              Owner and Admin include user administration and all-plant access — selecting another role never grants either.{" "}
+              <Link href="/system/roles" className="font-semibold text-primary hover:underline">See what each role can do</Link>
             </p>
-            <div className="grid gap-3 sm:grid-cols-3">
-              {roles.map((role) => {
-                const active = form.role_names.includes(role)
-                const rolePrivileged = PRIVILEGED_ROLES.includes(role)
-                return (
-                  <label
-                    key={role}
-                    title={roleMeta[role]?.summary || undefined}
-                    className={`flex items-start gap-3 rounded-xl border p-3 transition ${
-                      active ? "border-signal-cyan-ink/40 bg-signal-cyan-soft/60" : "border-border"
-                    }`}
-                  >
-                    <input type="checkbox" className="mt-1" checked={active} onChange={() => toggleRole(role)} />
-                    <span>
-                      <span className="flex items-center gap-2 font-medium text-foreground">
-                        {roleLabel(role)}
-                        {rolePrivileged && (
-                          <Badge variant="warning">Admin</Badge>
-                        )}
-                      </span>
-                      {roleMeta[role]?.summary && (
-                        <span className="mt-1 block text-xs leading-5 text-muted-foreground">{roleMeta[role].summary}</span>
-                      )}
-                    </span>
-                  </label>
-                )
-              })}
-            </div>
+            {ROLE_GROUPS.map((group) => {
+              const groupRoles = roles.filter((role) => (ROLE_BY_KEY[role]?.group || "Production") === group)
+              if (!groupRoles.length) return null
+              return (
+                <div key={group} className="mt-3">
+                  <p className="mb-1.5 text-[11.5px] font-semibold uppercase tracking-wide text-muted-foreground">{group}</p>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {groupRoles.map((role) => {
+                      const active = form.role_names.includes(role)
+                      const rolePrivileged = PRIVILEGED_ROLES.includes(role)
+                      return (
+                        <label
+                          key={role}
+                          title={roleMeta[role]?.summary || undefined}
+                          className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition ${
+                            active ? "border-primary/50 bg-accent" : "border-border hover:border-foreground/20"
+                          }`}
+                        >
+                          <input type="checkbox" className="mt-1" checked={active} onChange={() => toggleRole(role)} />
+                          <span>
+                            <span className="flex items-center gap-2 font-medium text-foreground">
+                              {roleLabel(role)}
+                              {rolePrivileged && (
+                                <Badge variant="warning">All access</Badge>
+                              )}
+                            </span>
+                            <span className="mt-1 block text-xs leading-5 text-muted-foreground">{ROLE_BY_KEY[role]?.summary || roleMeta[role]?.summary}</span>
+                            {ROLE_BY_KEY[role] ? <span className="mt-1 block text-[11px] text-muted-foreground">Lands on: {ROLE_BY_KEY[role].landingLabel}</span> : null}
+                          </span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
             {!form.role_names.length && (
               <p className="mt-2 text-sm text-signal-rose-ink">Select at least one role before saving.</p>
             )}
@@ -381,15 +393,30 @@ export function UserEditor({ userId }: { userId?: string }) {
                   {privileged
                     ? "Includes user administration and all-plant access (Owner/Admin)."
                     : "Plant-scoped access. No user administration."}
+                  {landing ? <> Lands on <strong className="text-foreground">{landing.landingLabel}</strong> after sign-in.</> : null}
                 </p>
-                {effectivePermissions.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {effectivePermissions.map((permission) => (
-                      <Badge key={permission} variant="outline">
-                        {permission}
-                      </Badge>
+                {screens.length > 0 && (
+                  <ul className="mt-2 grid gap-x-4 gap-y-1 text-[12.5px] sm:grid-cols-2">
+                    {screens.map(({ screen, level }) => (
+                      <li key={screen.href} className="flex items-center gap-2 text-foreground">
+                        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${level === "work" ? "bg-signal-emerald-ink" : "bg-signal-cyan-ink"}`} aria-hidden="true" />
+                        {screen.screen}
+                        <span className="text-[11px] text-muted-foreground">{level === "work" ? "works in" : "view"}</span>
+                      </li>
                     ))}
-                  </div>
+                  </ul>
+                )}
+                {effectivePermissions.length > 0 && (
+                  <details className="mt-2">
+                    <summary className="cursor-pointer text-xs font-semibold text-muted-foreground">Service permissions ({effectivePermissions.length})</summary>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {effectivePermissions.map((permission) => (
+                        <Badge key={permission} variant="outline">
+                          {permission}
+                        </Badge>
+                      ))}
+                    </div>
+                  </details>
                 )}
               </div>
             )}

@@ -77,6 +77,12 @@ async def upsert_item_quality_profile(item_id: str, request: Request, token: str
     return await proxy_to_service(INVENTORY_SERVICE_URL, f"/items/{item_id}/quality-profile", request, token)
 
 
+@router.put("/items/{item_id}/quality-profile/tolerances")
+async def adjust_item_quality_tolerances(item_id: str, request: Request, token: str = Depends(get_token)):
+    """Masters: re-band QC's existing inward-QC parameters (min/max only)."""
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/items/{item_id}/quality-profile/tolerances", request, token)
+
+
 @router.post("/items/{item_id}/quality-profile/copy-template")
 async def copy_item_quality_template(item_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(INVENTORY_SERVICE_URL, f"/items/{item_id}/quality-profile/copy-template", request, token)
@@ -125,7 +131,7 @@ async def create_inward(request: Request, token: str = Depends(get_token)):
         title="Raw material inward recorded",
         message="Stores recorded new inbound stock.",
         href="/inventory",
-        recipient_roles=["Owner", "Admin", "Store", "Planner", "PlantManager", "Operator"],
+        recipient_roles=["Owner", "Admin", "Store", "Planner", "PlantManager", "Operator", "GRN", "InwardQC"],
     )
     return response
 
@@ -155,7 +161,7 @@ async def create_issue(request: Request, token: str = Depends(get_token)):
         title="Inventory issue recorded",
         message="Material was issued from stores into production.",
         href="/inventory",
-        recipient_roles=["Owner", "Admin", "Store", "PlantManager", "Operator", "Planner"],
+        recipient_roles=["Owner", "Admin", "Store", "PlantManager", "Operator", "Planner", "RMIssue"],
     )
     return response
 
@@ -649,7 +655,7 @@ async def create_reel_inward(request: Request, token: str = Depends(get_token)):
         title="Reel inward recorded",
         message="New reels are available in inventory.",
         href="/inventory",
-        recipient_roles=["Owner", "Admin", "Store", "PlantManager", "Operator"],
+        recipient_roles=["Owner", "Admin", "Store", "PlantManager", "Operator", "GRN", "InwardQC"],
     )
     return response
 
@@ -687,7 +693,7 @@ async def slit_coil(request: Request, token: str = Depends(get_token)):
         title="Coil slitting recorded",
         message="Slit coils are available for production issue.",
         href="/inventory/reels/issue",
-        recipient_roles=["Owner", "Admin", "Store", "PlantManager", "Operator"],
+        recipient_roles=["Owner", "Admin", "Store", "PlantManager", "Operator", "RMIssue"],
     )
     return response
 
@@ -702,7 +708,7 @@ async def create_reel_scan_event(reel_id: str, request: Request, token: str = De
         title="Reel scan captured",
         message=f"Reel {reel_id} changed tracked state or location.",
         href="/inventory",
-        recipient_roles=["Owner", "Admin", "Store", "PlantManager", "Operator"],
+        recipient_roles=["Owner", "Admin", "Store", "PlantManager", "Operator", "RMIssue"],
         payload={"reel_id": reel_id},
     )
     return response
@@ -733,7 +739,7 @@ async def create_reel_issue(request: Request, token: str = Depends(get_token)):
         title="Reel issue recorded",
         message="A reel variance or issue now needs follow-up.",
         href="/inventory",
-        recipient_roles=["Owner", "Admin", "Store", "PlantManager", "Operator"],
+        recipient_roles=["Owner", "Admin", "Store", "PlantManager", "Operator", "RMIssue"],
     )
     return response
 
@@ -753,7 +759,7 @@ async def close_reel_issue(issue_id: str, request: Request, token: str = Depends
         title="Reel issue closed",
         message=f"Reel issue {issue_id} was resolved.",
         href="/inventory",
-        recipient_roles=["Owner", "Admin", "Store", "PlantManager", "Operator"],
+        recipient_roles=["Owner", "Admin", "Store", "PlantManager", "Operator", "RMIssue"],
         payload={"issue_id": issue_id},
     )
     return response
@@ -775,7 +781,7 @@ async def upsert_quality_template(request: Request, token: str = Depends(get_tok
         title=f"QC parameter updated: {payload.get('label') or payload.get('parameter_key') or 'parameter'}",
         message="An inward QC parameter list was changed.",
         href="/quality",
-        recipient_roles=["Owner", "Admin", "PlantManager", "QC", "Store"],
+        recipient_roles=["Owner", "Admin", "PlantManager", "QC", "Store", "InwardQC"],
         payload={"template_id": str(payload.get("id") or "")},
     )
     return response
@@ -802,7 +808,7 @@ async def create_inventory_quality_inspection(request: Request, token: str = Dep
         title=f"Inventory QC {payload.get('status') or 'recorded'}",
         message="A held inward item was inspected and its stock status was updated.",
         href="/quality",
-        recipient_roles=["Owner", "Admin", "PlantManager", "QC", "Store"],
+        recipient_roles=["Owner", "Admin", "PlantManager", "QC", "Store", "InwardQC", "GRN"],
         payload={
             "inspection_id": str(payload.get("id") or ""),
             "entity_id": str(payload.get("entity_id") or ""),
@@ -833,7 +839,7 @@ async def create_inventory_quality_concession(request: Request, token: str = Dep
         title="Quality concession recorded",
         message="A FAIL inspection received a permissioned concession. Measured status remains FAIL.",
         href="/quality",
-        recipient_roles=["Owner", "Admin", "QC", "Store"],
+        recipient_roles=["Owner", "Admin", "QC", "Store", "InwardQC"],
         payload={
             "inspection_id": str(payload.get("inspection_id") or ""),
             "plant_id": request.headers.get("X-Plant-ID"),
@@ -860,7 +866,7 @@ async def return_rejected_lot_to_supplier(request: Request, token: str = Depends
             else f"{payload.get('returned_qty') or ''} written out of stock. Deduct it when the supplier invoice arrives."
         ),
         href="/purchase/discrepancies" if payload.get("claim_id") else "/quality/incoming",
-        recipient_roles=["Owner", "Admin", "PlantManager", "Accounts", "Purchase", "QC", "Store"],
+        recipient_roles=["Owner", "Admin", "PlantManager", "Accounts", "Purchase", "QC", "Store", "InwardQC", "GRN"],
         payload={
             "entity_id": str(payload.get("entity_id") or ""),
             "claim_id": str(payload.get("claim_id") or ""),

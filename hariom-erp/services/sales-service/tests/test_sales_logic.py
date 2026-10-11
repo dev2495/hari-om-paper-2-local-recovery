@@ -11,7 +11,9 @@ from src.routers.sales_orders import (
     _serialize_line,
     _sync_release_status,
     carry_forward_lot_split,
+    format_order_no,
     next_counter_seq,
+    order_month_key,
 )
 from src.utils.auth import require_role
 
@@ -28,6 +30,14 @@ def test_order_number_counter_jumps_past_preexisting_max():
     assert next_counter_seq(48, 51) == 52
     assert next_counter_seq(60, 51) == 61
     assert next_counter_seq(0, 0) == 1
+
+
+def test_short_order_number_follows_the_plant_month():
+    assert format_order_no("2610", 1) == "SO/26/10/01"
+    assert format_order_no("2610", 123) == "SO/26/10/123"
+    # 31 Oct 20:00 UTC is already 1 Nov in the plant (IST).
+    assert order_month_key(datetime(2026, 10, 31, 20, 0)) == "2611"
+    assert order_month_key(datetime(2026, 10, 31, 12, 0)) == "2610"
 
 
 def test_sales_line_rejects_nonpositive_qty_and_negative_rate():

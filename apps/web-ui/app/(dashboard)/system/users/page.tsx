@@ -125,6 +125,7 @@ export default function UsersPage() {
       <section className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card/85 p-2 shadow-lg shadow-slate-900/5">
         {[
           { href: "/system/users", label: "Users", icon: Users2, active: true },
+          { href: "/system/roles", label: "Roles & access", icon: Shield, active: false },
           { href: "/system/plants", label: "Plants", icon: Building2, active: false },
           { href: "/system/machines", label: "Machines", icon: Factory, active: false },
           { href: "/system/locations", label: "Locations", icon: Building2, active: false },

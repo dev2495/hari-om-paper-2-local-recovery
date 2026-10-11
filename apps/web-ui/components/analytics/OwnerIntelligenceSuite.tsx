@@ -171,11 +171,11 @@ export function OwnerIntelligenceSuite({ mode = "dashboard", className }: OwnerI
           <div className="grid gap-3 sm:grid-cols-3">
             <label className="text-[11.5px] font-semibold text-muted-foreground">
               From
-              <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className="mt-2 h-10 rounded-2xl border border-border/15 bg-card/10 px-3 text-sm text-white outline-none" />
+              <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className="mt-2 h-10 rounded-2xl border border-border/15 bg-card px-3 text-sm text-foreground outline-none" />
             </label>
             <label className="text-[11.5px] font-semibold text-muted-foreground">
               To
-              <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} className="mt-2 h-10 rounded-2xl border border-border/15 bg-card/10 px-3 text-sm text-white outline-none" />
+              <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} className="mt-2 h-10 rounded-2xl border border-border/15 bg-card px-3 text-sm text-foreground outline-none" />
             </label>
             <div className="rounded-2xl border border-border/10 bg-card/10 px-4 py-3">
               <p className="text-[11.5px] font-semibold text-muted-foreground">Scope</p>

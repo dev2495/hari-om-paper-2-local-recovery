@@ -11,6 +11,10 @@ LANDING_PRIORITY = [
     "Store",
     "Dispatch",
     "Sales",
+    # Narrow desk roles (client request 2026-10-11): each owns one store/quality desk.
+    "InwardQC",
+    "GRN",
+    "RMIssue",
     "Operator",
 ]
 
@@ -35,6 +39,9 @@ ROLE_TO_LANDING = {
     "SOMaker": "Sales",
     "SOApprover": "Sales",
     "QC": "QC",
+    "InwardQC": "InwardQC",
+    "GRN": "GRN",
+    "RMIssue": "RMIssue",
 }
 
 LEGACY_ROLE_NAMES = sorted({role for role in ROLE_TO_LANDING if role not in BUSINESS_ROLE_SET})
@@ -48,6 +55,9 @@ LANDING_LABELS = {
     "Store": "Store",
     "Dispatch": "Dispatch",
     "Sales": "Sales",
+    "InwardQC": "Inward QC",
+    "GRN": "GRN / Goods Receipt",
+    "RMIssue": "Raw Material Issue",
     "Operator": "Operator",
 }
 
@@ -129,6 +139,18 @@ ROLE_CAPABILITIES = {
         "summary": "Finished-goods readiness, challans, dispatch validation, and customer handoff.",
         "permissions": ["dispatch:create", "dispatch:approve", "dispatch:validate", "reports:view"],
     },
+    "InwardQC": {
+        "summary": "Incoming (inward) QC only: inspect received reels and lots against the approved material standards, release or reject them.",
+        "permissions": ["qc:inspect:incoming", "qc:hold:create", "reports:view"],
+    },
+    "GRN": {
+        "summary": "Goods receipt only: receive supplier deliveries against approved POs, weigh reels/coils, print labels and keep the GRN register.",
+        "permissions": ["inventory:inward", "inventory:grn", "reports:view"],
+    },
+    "RMIssue": {
+        "summary": "Raw material issue only: issue reels and materials to job cards and machines, take returns, and trace issued stock.",
+        "permissions": ["inventory:issue", "inventory:reserve", "reports:view"],
+    },
     "Operator": {
         "summary": "QR scan, assigned job card, and simple floor input only.",
         "permissions": ["operator:scan", "production:entry"],
@@ -142,6 +164,9 @@ OVERRIDE_RIGHTS = [
     {"key": "qc", "label": "Quality control rights", "roles": ["QC"]},
     {"key": "store", "label": "Inventory and stock-close rights", "roles": ["Store"]},
     {"key": "dispatch", "label": "Dispatch rights", "roles": ["Dispatch"]},
+    {"key": "inward_qc", "label": "Inward QC rights", "roles": ["InwardQC"]},
+    {"key": "grn", "label": "Goods receipt (GRN) rights", "roles": ["GRN"]},
+    {"key": "rm_issue", "label": "Raw material issue rights", "roles": ["RMIssue"]},
     {"key": "operator", "label": "QR operator rights", "roles": ["Operator"]},
     {"key": "reports", "label": "Reports and analytics visibility", "roles": ["Owner"]},
     {"key": "system", "label": "System setup rights", "roles": ["Admin"]},

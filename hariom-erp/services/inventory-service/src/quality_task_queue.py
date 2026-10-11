@@ -59,7 +59,7 @@ def enqueue_incoming_qc_task(
             "title": f"Incoming QC: GRN {grn_no}",
             "message": f"{lot_kind} received on GRN {grn_no}{f' (PO {po_no})' if po_no else ''} requires QC within 24 hours and stays held until accepted.",
             "href": "/quality/incoming",
-            "recipient_roles": ["QC"],
+            "recipient_roles": ["QC", "InwardQC"],
             "role_context": "QC",
         },
     }

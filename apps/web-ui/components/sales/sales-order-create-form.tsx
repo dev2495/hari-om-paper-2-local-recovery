@@ -18,7 +18,8 @@ import {
   isCustomerPoOrigin,
 } from "@/lib/sales-order-entry"
 
-type ColorRow = { key: string; color_id: string; color: string; qty: string }
+/** One parchment colour of a line. Blank rate = the line's Rate / Pc applies. */
+type ColorRow = { key: string; color_id: string; color: string; qty: string; rate: string }
 
 type SalesLineForm = {
   localId: string
@@ -145,9 +146,24 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
   const saving = createOrder.isPending || updateOrder.isPending
 
   const approvedSpecs = useMemo(
-    () => (Array.isArray(specs) ? specs : []).filter((spec: any) => spec.status === "approved" && spec.active),
+    () => (Array.isArray(specs) ? specs : []).filter((spec: any) => String(spec.status || "").toLowerCase() === "approved" && spec.active !== false),
     [specs],
   )
+  // Specs that exist but cannot be ordered yet: shown (disabled) so a missing approval is visible
+  // instead of the spec silently not appearing in the order.
+  const pendingSpecs = useMemo(
+    () => (Array.isArray(specs) ? specs : []).filter((spec: any) => String(spec.status || "").toLowerCase() !== "approved" && spec.active !== false && !["rejected", "superseded", "archived", "inactive"].includes(String(spec.status || "").toLowerCase())),
+    [specs],
+  )
+  const [showAllCustomerSpecs, setShowAllCustomerSpecs] = useState(false)
+  const selectedCustomer = useMemo(() => (customers || []).find((customer: any) => String(customer.id) === form.customer_id), [customers, form.customer_id])
+  const specForCustomer = (spec: any) => {
+    if (!form.customer_id || showAllCustomerSpecs) return true
+    if (spec?.customer_id && String(spec.customer_id) === form.customer_id) return true
+    const norm = (value: unknown) => String(value || "").trim().toLowerCase().replace(/\s+/g, " ")
+    const name = norm(selectedCustomer?.name)
+    return Boolean(name) && [spec?.customer_name, spec?.customer_name_snapshot].some((value) => norm(value) === name)
+  }
 
   const selectedSpecs = useMemo(() => {
     const map = new Map<string, any>()
@@ -199,8 +215,9 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                       color_id: String(split.color_id || ""),
                       color: String(split.color || ""),
                       qty: split.qty == null ? "" : String(Math.round(Number(split.qty))),
+                      rate: split.rate_per_pc == null ? "" : String(split.rate_per_pc),
                     }))
-                  : [{ key: `c-${index}-0`, color_id: "", color: "", qty: "" }])
+                  : [{ key: `c-${index}-0`, color_id: "", color: "", qty: "", rate: "" }])
               : [],
             rate_per_pc: line.rate_per_pc == null ? "" : String(line.rate_per_pc),
             qty: line.qty == null ? "" : String(line.qty),
@@ -253,7 +270,7 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                 ? { parchment_color: "", parchment_color_id: "", color_rows: [] }
                 : {}),
               ...(field === "parchment_required" && value && !line.color_rows.length
-                ? { color_rows: [{ key: `c-${Date.now()}`, color_id: "", color: "", qty: "" }] }
+                ? { color_rows: [{ key: `c-${Date.now()}`, color_id: "", color: "", qty: "", rate: "" }] }
                 : {}),
             }
           : line,
@@ -316,7 +333,7 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
     setForm((current) => ({
       ...current,
       lines: current.lines.map((line) =>
-        line.localId === localId ? { ...line, color_rows: [...line.color_rows, { key: `c-${Date.now()}`, color_id: "", color: "", qty: "" }] } : line,
+        line.localId === localId ? { ...line, color_rows: [...line.color_rows, { key: `c-${Date.now()}`, color_id: "", color: "", qty: "", rate: "" }] } : line,
       ),
     }))
   }
@@ -331,8 +348,20 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
   /** Rows the server will store. A single colored row with no qty covers the whole line. */
   function colorSplitsFor(line: SalesLineForm) {
     const rows = line.color_rows.filter((row) => row.color)
-    if (rows.length === 1 && !rows[0].qty) return [{ color: rows[0].color, color_id: rows[0].color_id || null, qty: Number(line.qty || 0) }]
-    return rows.filter((row) => Number(row.qty) > 0).map((row) => ({ color: row.color, color_id: row.color_id || null, qty: Number(row.qty) }))
+    const rateOf = (row: ColorRow) => (row.rate.trim() === "" ? null : Number(row.rate))
+    if (rows.length === 1 && !rows[0].qty) return [{ color: rows[0].color, color_id: rows[0].color_id || null, qty: Number(line.qty || 0), rate_per_pc: rateOf(rows[0]) }]
+    return rows.filter((row) => Number(row.qty) > 0).map((row) => ({ color: row.color, color_id: row.color_id || null, qty: Number(row.qty), rate_per_pc: rateOf(row) }))
+  }
+
+  /** Line value: each colour at its own rate (or the line rate); undecided qty at the line rate. */
+  function lineValue(line: SalesLineForm) {
+    const qty = Number(line.qty || 0)
+    const lineRate = line.rate_per_pc.trim() === "" ? null : Number(line.rate_per_pc)
+    const splits = line.parchment_required ? colorSplitsFor(line) : []
+    if (lineRate == null && !splits.some((row) => row.rate_per_pc != null)) return null
+    const assigned = splits.reduce((sum, row) => sum + row.qty, 0)
+    const coloured = splits.reduce((sum, row) => sum + row.qty * Number(row.rate_per_pc ?? lineRate ?? 0), 0)
+    return coloured + Math.max(0, qty - assigned) * Number(lineRate ?? 0)
   }
 
   function addLine() {
@@ -362,7 +391,9 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
       if (line.parchment_required) {
         const colored = line.color_rows.filter((row) => row.color)
         const assigned = colorSplitsFor(line).reduce((sum, row) => sum + row.qty, 0)
-        if (line.color_rows.some((row) => Number(row.qty) > 0 && !row.color)) {
+        if (line.color_rows.some((row) => row.rate.trim() !== "" && !(Number(row.rate) >= 0))) {
+          errors[`parchment_color:${line.localId}`] = `Line ${index + 1}: a colour rate must be 0 or more.`
+        } else if (line.color_rows.some((row) => Number(row.qty) > 0 && !row.color)) {
           errors[`parchment_color:${line.localId}`] = `Line ${index + 1}: pick a color for every quantity row.`
         } else if (colored.length > 1 && colored.some((row) => !Number(row.qty))) {
           errors[`parchment_color:${line.localId}`] = `Line ${index + 1}: with more than one color, enter the qty of each color.`
@@ -608,13 +639,36 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                         onChange={(event) => updateSpec(line.localId, event.target.value)}
                         className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm"
                       >
-                        <option value="">Select approved spec</option>
-                        {approvedSpecs.map((spec: any) => (
+                        <option value="">{form.customer_id && !showAllCustomerSpecs ? "Select this customer's approved spec" : "Select approved spec"}</option>
+                        {approvedSpecs.filter((spec: any) => specForCustomer(spec) || spec.id === line.approved_spec_id).map((spec: any) => (
                           <option key={spec.id} value={spec.id}>
                             {specLabel(spec)}
                           </option>
                         ))}
+                        {pendingSpecs.some((spec: any) => specForCustomer(spec)) ? (
+                          <optgroup label="Not approved yet — approve in Specifications first">
+                            {pendingSpecs.filter((spec: any) => specForCustomer(spec)).map((spec: any) => (
+                              <option key={spec.id} value={spec.id} disabled>
+                                {specLabel(spec)} · {String(spec.status || "draft").toUpperCase()}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ) : null}
                       </select>
+                      {(() => {
+                        if (!form.customer_id) return <p className="text-[11.5px] text-muted-foreground">Pick the customer first to see their specifications.</p>
+                        const approvedCount = approvedSpecs.filter((spec: any) => specForCustomer(spec)).length
+                        const pendingCount = pendingSpecs.filter((spec: any) => specForCustomer(spec)).length
+                        return (
+                          <p className="text-[11.5px] text-muted-foreground">
+                            {approvedCount} approved{pendingCount ? <> · <Link href="/specifications" className="font-semibold text-signal-amber-ink underline-offset-2 hover:underline">{pendingCount} waiting for approval</Link></> : null}
+                            {" · "}
+                            <button type="button" className="font-semibold text-primary underline-offset-2 hover:underline" onClick={() => setShowAllCustomerSpecs((value) => !value)}>
+                              {showAllCustomerSpecs ? "Only this customer" : "Show all customers"}
+                            </button>
+                          </p>
+                        )
+                      })()}
                     </div>
                     <div className="space-y-1">
                       <label className="text-[12px] font-semibold text-muted-foreground">Product Code</label>
@@ -702,8 +756,13 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                               ))}
                             </div>
                           ) : null}
+                          {line.color_rows.length ? (
+                            <div className="grid grid-cols-[minmax(0,1fr)_96px_96px_36px] gap-2 px-0.5 text-[11px] font-semibold text-muted-foreground sm:grid-cols-[minmax(0,1fr)_110px_110px_120px_36px]" aria-hidden="true">
+                              <span>Colour</span><span className="text-right">Qty</span><span className="text-right">Rate / Pc</span><span className="hidden text-right sm:block">Amount</span><span />
+                            </div>
+                          ) : null}
                           {line.color_rows.map((row, rowIndex) => (
-                            <div key={row.key} className="grid grid-cols-[minmax(0,1fr)_110px_36px] items-center gap-2">
+                            <div key={row.key} className="grid grid-cols-[minmax(0,1fr)_96px_96px_36px] items-center gap-2 sm:grid-cols-[minmax(0,1fr)_110px_110px_120px_36px]">
                               <select
                                 data-testid={index === 0 && rowIndex === 0 ? "sales-orders:parchment" : undefined}
                                 aria-label={`Line ${lineNumber} color ${rowIndex + 1}`}
@@ -726,6 +785,25 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                                 onChange={(event) => updateColorRow(line.localId, row.key, { qty: event.target.value })}
                                 className="h-10 w-full rounded-lg border border-input bg-card px-2.5 text-right text-[13px] tabular-nums"
                               />
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                inputMode="decimal"
+                                aria-label={`Line ${lineNumber} color ${rowIndex + 1} rate per piece`}
+                                title="Rate / Pc of this colour. Leave blank to use the line rate."
+                                value={row.rate}
+                                placeholder={line.rate_per_pc ? `₹${line.rate_per_pc}` : "Rate"}
+                                onChange={(event) => updateColorRow(line.localId, row.key, { rate: event.target.value })}
+                                className="h-10 w-full rounded-lg border border-input bg-card px-2.5 text-right text-[13px] tabular-nums"
+                              />
+                              <span className="hidden text-right text-[12.5px] font-semibold tabular-nums text-foreground sm:block" aria-label={`Line ${lineNumber} color ${rowIndex + 1} amount`}>
+                                {(() => {
+                                  const rowQty = Number(row.qty || (line.color_rows.length === 1 ? line.qty : 0) || 0)
+                                  const rowRate = row.rate.trim() !== "" ? Number(row.rate) : line.rate_per_pc.trim() !== "" ? Number(line.rate_per_pc) : null
+                                  return rowQty > 0 && rowRate != null ? `₹${(rowQty * rowRate).toLocaleString("en-IN", { maximumFractionDigits: 2 })}` : "—"
+                                })()}
+                              </span>
                               <button
                                 type="button"
                                 aria-label={`Remove color ${rowIndex + 1}`}
@@ -747,6 +825,15 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                       )
                     })() : null}
                   </div>
+                  {(() => {
+                    const value = lineValue(line)
+                    return (
+                      <div className="mt-3 flex flex-wrap items-center justify-end gap-x-4 gap-y-1 border-t border-border pt-3 text-[13px]" data-testid={index === 0 ? "sales-orders:line-value" : undefined}>
+                        <span className="text-muted-foreground">{Number(line.qty || 0).toLocaleString("en-IN")} pcs{line.parchment_required && line.color_rows.some((row) => row.rate.trim() !== "") ? " · colour-wise rates" : line.rate_per_pc ? ` × ₹${line.rate_per_pc}` : ""}</span>
+                        <span className="font-semibold tabular-nums text-foreground">Line value {value == null ? "—" : `₹${value.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`}</span>
+                      </div>
+                    )
+                  })()}
                 </section>
               )
             })}

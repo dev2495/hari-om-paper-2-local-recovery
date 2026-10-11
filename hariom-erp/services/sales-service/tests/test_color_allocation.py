@@ -7,6 +7,7 @@ from src.color_allocation import (
     ColorAllocationError,
     ColorSplit,
     color_summary,
+    line_commercials,
     normalize_color_splits,
     plan_color_release,
     released_by_color,
@@ -62,3 +63,25 @@ def test_edited_breakup_cannot_drop_below_released():
     with pytest.raises(ColorAllocationError, match="already has 2,000 pcs released"):
         validate_splits_cover_releases([ColorSplit("Blue", 1500)], released, line_no=1)
     validate_splits_cover_releases([ColorSplit("Blue", 2000), ColorSplit("Red", 10)], released)
+
+
+def test_colour_rates_value_each_colour_and_undecided_at_line_rate():
+    splits = normalize_color_splits(
+        [{"color": "Blue", "qty": 1000, "rate_per_pc": 52}, {"color": "Red", "qty": 500}],
+        line_qty=2000,
+    )
+    assert {s.color: s.rate_per_pc for s in splits} == {"Blue": 52.0, "Red": None}
+    summary = color_summary(2000, splits, {})
+    assert {row["color"]: row["rate_per_pc"] for row in summary["color_splits"]} == {"Blue": 52.0, "Red": None}
+    # Blue 1000 x 52 + Red 500 x 50 (line rate) + 500 undecided x 50
+    result = line_commercials(2000, 50, splits)
+    assert result["line_value"] == 102000.0
+    assert result["effective_rate_per_pc"] == 51.0
+
+
+def test_colour_rate_rules():
+    with pytest.raises(ColorAllocationError, match="cannot be negative"):
+        normalize_color_splits([{"color": "Blue", "qty": 10, "rate_per_pc": -1}], line_qty=10)
+    with pytest.raises(ColorAllocationError, match="different rates"):
+        normalize_color_splits([{"color": "Blue", "qty": 5, "rate_per_pc": 10}, {"color": "blue", "qty": 5, "rate_per_pc": 11}], line_qty=10)
+    assert line_commercials(10, None, [ColorSplit("Blue", 10)]) == {"line_value": None, "effective_rate_per_pc": None}

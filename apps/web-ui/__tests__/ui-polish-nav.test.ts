@@ -45,7 +45,7 @@ test("core operational routes wrap RoleGate", () => {
   assert.match(files.pending, /PlantManager/)
   assert.match(files.jobs, /"QC"/)
   assert.match(files.planning, /"Planner", "PlantManager"/)
-  assert.match(files.quality, /allow=\{\["QC", "PlantManager", "Store", "Dispatch", "Sales"\]\}/)
+  assert.match(files.quality, /allow=\{\["QC", "InwardQC", "PlantManager", "Store", "Dispatch", "Sales"\]\}/)
   assert.match(files.purchase, /"Store", "Planner", "PlantManager"/)
   assert.match(files.masters, /RoleGate/)
   assert.match(files.system, /allow=\{\["Owner", "Admin"\]\}/)

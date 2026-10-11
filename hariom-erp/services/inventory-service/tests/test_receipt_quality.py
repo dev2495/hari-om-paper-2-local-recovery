@@ -129,14 +129,14 @@ def _assert_one_task_per_reel_and_relay_notifies_qc(db, reel_ids, receipt_id):
         assert body['event_type'] == 'INCOMING_QC_TASK_DELIVERY'
         assert body['payload']['reel_id'] == str(reel_id) and 'batch_id' not in body['payload']
         assert body['payload']['receipt_id'] == str(receipt_id)
-        assert body['notify']['recipient_roles'] == ['QC'] and body['notify']['href'] == '/quality/incoming'
+        assert body['notify']['recipient_roles'] == ['QC', 'InwardQC'] and body['notify']['href'] == '/quality/incoming'
         event_ids.append(task['outbox_event_id'])
     assert len(set(event_ids)) == len(reel_ids)
     first = _AuthTransport()
     _run_relay(first)
     notices = {row['event_id']: row for row in first.notifications if row['event_id'] in event_ids}
     assert set(notices) == set(event_ids)
-    assert all(row['plant_id'] == PLANT and row['recipient_roles'] == ['QC'] for row in notices.values())
+    assert all(row['plant_id'] == PLANT and row['recipient_roles'] == ['QC', 'InwardQC'] for row in notices.values())
     assert {row['payload']['reel_id'] for row in notices.values()} == {str(reel_id) for reel_id in reel_ids}
     for reel_id, event_id in zip(reel_ids, event_ids):
         assert _outbox_task(db, event_id)[1] is not None

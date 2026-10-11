@@ -84,6 +84,7 @@ const WORKSPACE_LINKS = {
         { href: "/masters/contact-directory", label: "Contacts" },
         { href: "/masters/packaging", label: "Packaging" },
         { href: "/masters/tools", label: "Tools" },
+        { href: "/masters/inward-qc", label: "Inward QC" },
     ],
     system: [
         { href: "/system/users", label: "Users" },

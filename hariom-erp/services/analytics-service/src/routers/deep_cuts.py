@@ -186,13 +186,15 @@ def customer_360(
             row["customer_name"] = customer_names.get(cust_id) or row["customer_name"] or cust_id
             status = str(order.get("status") or "").upper()
             lines = [line for line in (order.get("lines") or []) if isinstance(line, dict)]
-            ordered_value = sum(_safe_float(line.get("qty")) * _safe_float(line.get("rate_per_pc")) for line in lines)
-            fulfilled_value = sum(_safe_float(line.get("fulfilled_qty")) * _safe_float(line.get("rate_per_pc")) for line in lines)
+            # Colour-wise rates: the sales line reports its qty-weighted effective rate.
+            line_rate = lambda line: _safe_float(line.get("effective_rate_per_pc") if line.get("effective_rate_per_pc") is not None else line.get("rate_per_pc"))  # noqa: E731
+            ordered_value = sum(_safe_float(line.get("qty")) * line_rate(line) for line in lines)
+            fulfilled_value = sum(_safe_float(line.get("fulfilled_qty")) * line_rate(line) for line in lines)
             open_value = max(0.0, ordered_value - fulfilled_value)
             due_dates = [_parse_dt(line.get("due_date")) for line in lines]
             promise = max((value for value in due_dates if value), default=None)
             dispatch_events = [
-                (_parse_dt(log.get("created_at")), _safe_float(log.get("qty")), _safe_float(line.get("rate_per_pc")))
+                (_parse_dt(log.get("created_at")), _safe_float(log.get("qty")), line_rate(line))
                 for line in lines
                 for log in (line.get("dispatch_logs") or [])
                 if isinstance(log, dict)

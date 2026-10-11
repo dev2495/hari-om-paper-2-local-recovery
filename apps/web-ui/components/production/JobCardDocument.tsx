@@ -38,10 +38,6 @@ const STAGES: StageName[] = ["SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING",
 const PLANNER_GATED_STAGES: StageName[] = ["SLITTING", "WINDER", "OVEN", "PROCESS"]
 const STAGES_REQUIRING_SHIFT: StageName[] = ["WINDER", "PROCESS"]
 const LATE_ENTRY_THRESHOLD_HOURS = 6
-// Start (A) / End (B) are written on the paper card at these stages and typed
-// in later; completion must carry them so actuals follow the floor, not typing.
-const CARD_TIMED_STAGES: StageName[] = ["SLITTING", "WINDER", "OVEN", "PROCESS"]
-
 function padTwo(value: number) {
   return String(value).padStart(2, "0")
 }
@@ -228,6 +224,7 @@ function blankProcessEntry() {
     end_time: "",
     cycle_time: "",
     shift_code: "",
+    produced_qty: "",
     process_qty: "",
     reject_qty: "",
     reject_reason: "",
@@ -709,25 +706,32 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
     const fallback = Number(bambooFallback || 0)
     return Number.isFinite(fallback) && fallback > 0 ? fallback : 0
   }
-  const displayWinderMeters = (metersValue: any, bambooFallback?: any) => {
-    const meters = Number(metersValue || 0)
-    if (Number.isFinite(meters) && meters > 0) return formatNumber(meters, 2)
-    const fallbackMeters = bambooToMeters(bambooFallback)
-    return fallbackMeters > 0 ? formatNumber(fallbackMeters, 2) : ""
+  /** Winder output is entered as a bamboo quantity; metres are only derived for legacy readers. */
+  const winderQty = (bambooValue: any, metersValue: any) => {
+    const bamboo = Number(bambooValue)
+    if (bambooValue !== "" && bambooValue != null && Number.isFinite(bamboo)) return bamboo
+    const derived = metersToBamboo(metersValue)
+    return derived > 0 ? derived : null
   }
   const normalizeWinderEntryForSubmit = (entry: any) => {
-    const producedMeters = entry.winding_meters_produced !== "" && entry.winding_meters_produced != null ? Number(entry.winding_meters_produced) : bambooToMeters(entry.bamboo_count_produced)
-    const acceptedMeters = entry.accepted_winding_meters !== "" && entry.accepted_winding_meters != null ? Number(entry.accepted_winding_meters) : bambooToMeters(entry.accepted_bamboo_count)
-    const rejectMeters = entry.reject_winding_meters !== "" && entry.reject_winding_meters != null ? Number(entry.reject_winding_meters) : bambooToMeters(entry.reject_bamboo_count)
+    const produced = winderQty(entry.bamboo_count_produced, entry.winding_meters_produced)
+    const accepted = winderQty(entry.accepted_bamboo_count, entry.accepted_winding_meters)
+    // Rejected is always produced − accepted (client rule), never typed.
+    const reject = produced != null && accepted != null ? Math.max(0, Number((produced - accepted).toFixed(4))) : null
+    const meters = (value: number | null) => (value != null && value > 0 ? bambooToMeters(value) : "")
     return {
       ...entry,
-      winding_meters_produced: Number.isFinite(producedMeters) && producedMeters > 0 ? producedMeters : "",
-      accepted_winding_meters: Number.isFinite(acceptedMeters) && acceptedMeters > 0 ? acceptedMeters : "",
-      reject_winding_meters: Number.isFinite(rejectMeters) && rejectMeters > 0 ? rejectMeters : "",
-      bamboo_count_produced: metersToBamboo(producedMeters, entry.bamboo_count_produced) || "",
-      accepted_bamboo_count: metersToBamboo(acceptedMeters, entry.accepted_bamboo_count) || "",
-      reject_bamboo_count: metersToBamboo(rejectMeters, entry.reject_bamboo_count) || "",
+      bamboo_count_produced: produced ?? "",
+      accepted_bamboo_count: accepted ?? "",
+      reject_bamboo_count: reject ?? "",
+      winding_meters_produced: meters(produced),
+      accepted_winding_meters: meters(accepted),
+      reject_winding_meters: meters(reject),
     }
+  }
+  const displayWinderQty = (bambooValue: any, metersValue: any, fallback?: any) => {
+    const qty = winderQty(bambooValue, metersValue) ?? (fallback != null && fallback !== "" ? Number(fallback) : null)
+    return qty != null && Number.isFinite(qty) && qty > 0 ? formatNumber(qty, 2) : ""
   }
   const parchmentFamily = documentSnapshot?.header?.parchment_family || "-"
   const parchmentPattern = documentSnapshot?.header?.parchment_pattern || documentSnapshot?.header?.color || "-"
@@ -837,6 +841,71 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
         // Cycle Time (B-A) is derived from the card times, never typed.
         next.cycle_time = cycleTimeFromCard(next.start_time, next.end_time)
       }
+      return { ...current, entry_snapshot: next }
+    })
+  }
+
+  /** Rejected is always produced − accepted (client rule); "over" when accepted exceeds produced. */
+  function derivedReject(producedValue: any, acceptedValue: any): number | "over" | null {
+    if (producedValue === "" || producedValue == null || acceptedValue === "" || acceptedValue == null) return null
+    const produced = Number(producedValue)
+    const accepted = Number(acceptedValue)
+    if (!Number.isFinite(produced) || !Number.isFinite(accepted)) return null
+    if (accepted > produced + 1e-9) return "over"
+    return Number((produced - accepted).toFixed(4))
+  }
+
+  function rejectText(producedValue: any, acceptedValue: any) {
+    const reject = derivedReject(producedValue, acceptedValue)
+    return reject === null ? "—" : reject === "over" ? "Check" : formatNumber(reject, 2)
+  }
+
+  /** Process "produced" pieces; older entries only saved accepted + reject, so derive it from those. */
+  function processProduced(entry: any) {
+    if (entry?.produced_qty !== "" && entry?.produced_qty != null) return entry.produced_qty
+    if (entry?.process_qty !== "" && entry?.process_qty != null && entry?.reject_qty !== "" && entry?.reject_qty != null) {
+      return String(Number(entry.process_qty) + Number(entry.reject_qty))
+    }
+    return ""
+  }
+
+  function updateProcessQty(field: "produced_qty" | "process_qty", value: string) {
+    updateStageForm("PROCESS", (current) => {
+      const next: any = { ...(current.entry_snapshot || {}) }
+      if (next.produced_qty === "" || next.produced_qty == null) next.produced_qty = processProduced(next)
+      next[field] = value
+      const reject = derivedReject(next.produced_qty, next.process_qty)
+      next.reject_qty = typeof reject === "number" ? String(reject) : ""
+      return { ...current, entry_snapshot: next }
+    })
+  }
+
+  /** Blocks a save whose accepted quantity is more than what was produced. */
+  function quantityProblem(stage: StageName): string | null {
+    const entry: any = stageForms[stage]?.entry_snapshot || {}
+    if (stage === "WINDER" && derivedReject(winderQty(entry.bamboo_count_produced, entry.winding_meters_produced), winderQty(entry.accepted_bamboo_count, entry.accepted_winding_meters)) === "over") {
+      return "WINDER: accepted quantity cannot be more than produced."
+    }
+    if (stage === "OVEN" && derivedReject(entry.bamboo_count_in, entry.bamboo_count_out) === "over") {
+      return "OVEN: bamboo out cannot be more than bamboo in."
+    }
+    if (stage === "PROCESS" && derivedReject(processProduced(entry), entry.process_qty) === "over") {
+      return "PROCESS: accepted quantity cannot be more than produced."
+    }
+    return null
+  }
+
+  /** Winder produced/accepted are bamboo quantities; rejected follows as produced − accepted. */
+  function updateWinderQty(field: "bamboo_count_produced" | "accepted_bamboo_count", value: string) {
+    updateStageForm("WINDER", (current) => {
+      const next: any = { ...(current.entry_snapshot || {}), [field]: value }
+      const produced = next.bamboo_count_produced === "" || next.bamboo_count_produced == null ? null : Number(next.bamboo_count_produced)
+      const accepted = next.accepted_bamboo_count === "" || next.accepted_bamboo_count == null ? null : Number(next.accepted_bamboo_count)
+      next.reject_bamboo_count = produced != null && accepted != null && Number.isFinite(produced) && Number.isFinite(accepted) ? String(Math.max(0, produced - accepted)) : ""
+      // Typed quantities replace any metres saved by an older draft.
+      next.winding_meters_produced = ""
+      next.accepted_winding_meters = ""
+      next.reject_winding_meters = ""
       return { ...current, entry_snapshot: next }
     })
   }
@@ -1093,6 +1162,9 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
         ...base,
         input_qty: entry.bamboo_count_in !== "" ? Number(entry.bamboo_count_in) : base.input_qty,
         output_qty: entry.bamboo_count_out !== "" ? Number(entry.bamboo_count_out) : 0,
+        ...(typeof derivedReject(entry.bamboo_count_in, entry.bamboo_count_out) === "number"
+          ? { scrap_qty: derivedReject(entry.bamboo_count_in, entry.bamboo_count_out) as number }
+          : {}),
         ...(checks.hasReadings
           ? {
               quality_checks: {
@@ -1147,24 +1219,6 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
     }
   }
 
-  function cardTimeProblem(stage: StageName, saveMode: "draft" | "complete"): string | null {
-    const form = stageForms[stage] || {}
-    const entry = form.entry_snapshot || {}
-    const start = parseStageTime(entry.start_time)
-    const end = parseStageTime(entry.end_time)
-    if (saveMode === "complete" && CARD_TIMED_STAGES.includes(stage) && (!start || !end) && !String(form.override_reason || "").trim()) {
-      return `Enter the Start (A) and End (B) times written on the ${stage} section of the job card.`
-    }
-    if (start && end && end < start) {
-      return `${stage} End (B) cannot be before Start (A). Check the date on the card.`
-    }
-    const futureLimit = Date.now() + 10 * 60 * 1000
-    if ((start && start.getTime() > futureLimit) || (end && end.getTime() > futureLimit)) {
-      return `${stage} card time is in the future. Enter the time written on the job card.`
-    }
-    return null
-  }
-
   function showStageWarnings(response: any) {
     const warnings = response?.data?.warnings ?? response?.warnings
     if (Array.isArray(warnings) && warnings.length) {
@@ -1187,9 +1241,11 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
         return
       }
     }
-    const timeProblem = cardTimeProblem(stage, saveMode)
-    if (timeProblem) {
-      showToast(timeProblem, "error")
+    // Card times never block an entry (client decision 2026-10-11); the server returns
+    // odd times as warnings for time reconciliation instead.
+    const qtyProblem = quantityProblem(stage)
+    if (qtyProblem) {
+      showToast(qtyProblem, "error")
       return
     }
     try {
@@ -1269,9 +1325,9 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
           return
         }
       }
-      const timeProblem = cardTimeProblem(stage, "complete")
-      if (timeProblem) {
-        showToast(`${timeProblem} Nothing was saved.`, "error")
+      const qtyProblem = quantityProblem(stage)
+      if (qtyProblem) {
+        showToast(`${qtyProblem} Nothing was saved.`, "error")
         return
       }
     }
@@ -1529,25 +1585,25 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
         {renderWholeCardEntry()}
         <section className="overflow-hidden rounded-[2rem] border border-border bg-card shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
           <div className="grid gap-0 xl:grid-cols-[minmax(0,1.55fr)_24rem]">
-            <div className="border-b border-border bg-card px-6 py-6 text-white lg:border-b-0 lg:border-r">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-cyan-100">Production Execution</div>
+            <div className="border-b border-border bg-card px-6 py-6 text-foreground lg:border-b-0 lg:border-r">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary">Production Execution</div>
               <h1 className="mt-2 text-3xl font-semibold tracking-tight">{card?.job_card_ref || card?.id}</h1>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-200/80">
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
                 Shop-floor view driven from the saved manufacturing matrix. Assigned winder, bamboo target, recipe path, and current stage logging stay on one card so the operator and supervisor are reading the same truth.
               </p>
               <div className="mt-5 grid gap-3 md:grid-cols-3 xl:grid-cols-4">
-                <div><div className="text-[11px] uppercase tracking-[0.16em] text-cyan-100/70">Customer</div><div className="mt-1 text-sm font-semibold">{documentSnapshot?.header?.customer_name || "-"}</div></div>
-                <div><div className="text-[11px] uppercase tracking-[0.16em] text-cyan-100/70">Product</div><div className="mt-1 text-sm font-semibold">{documentSnapshot?.header?.product_code || card?.product_code || "-"}</div></div>
-                <div><div className="text-[11px] uppercase tracking-[0.16em] text-cyan-100/70">Spec Ref</div><div className="mt-1 text-sm font-semibold">{specReference}</div></div>
-                <div><div className="text-[11px] uppercase tracking-[0.16em] text-cyan-100/70">Size</div><div className="mt-1 text-sm font-semibold">{documentSnapshot?.header?.product_size_label || "-"}</div></div>
-                <div><div className="text-[11px] uppercase tracking-[0.16em] text-cyan-100/70">Current Stage</div><div className="mt-1 text-sm font-semibold">{currentStage}</div></div>
-                <div><div className="text-[11px] uppercase tracking-[0.16em] text-cyan-100/70">Release Qty</div><div className="mt-1 text-sm font-semibold">{formatNumber(card?.released_qty || card?.planned_qty, 0)} pcs</div></div>
-                <div><div className="text-[11px] uppercase tracking-[0.16em] text-cyan-100/70">Assigned Winder</div><div className="mt-1 text-sm font-semibold">{selectedWinderLabel}</div></div>
-                <div><div className="text-[11px] uppercase tracking-[0.16em] text-cyan-100/70">Pcs / Bamboo</div><div className="mt-1 text-sm font-semibold">{formatNumber(documentSnapshot?.header?.pcs_per_bamboo, 0)}</div></div>
-                <div><div className="text-[11px] uppercase tracking-[0.16em] text-cyan-100/70">Bamboo Length</div><div className="mt-1 text-sm font-semibold">{formatNumber(selectedBambooLength, 0)} mm</div></div>
-                <div><div className="text-[11px] uppercase tracking-[0.16em] text-cyan-100/70">Parchment</div><div className="mt-1 text-sm font-semibold">{parchmentPattern}</div></div>
-                <div><div className="text-[11px] uppercase tracking-[0.16em] text-cyan-100/70">Release Lot</div><div className="mt-1 text-sm font-semibold">{card?.release_lot_id ? String(card.release_lot_id).slice(0, 8) : "-"}</div></div>
-                <div><div className="text-[11px] uppercase tracking-[0.16em] text-cyan-100/70">Sales Line</div><div className="mt-1 text-sm font-semibold">{card?.sales_order_line_id ? String(card.sales_order_line_id).slice(0, 8) : "-"}</div></div>
+                <div><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Customer</div><div className="mt-1 text-sm font-semibold">{documentSnapshot?.header?.customer_name || "-"}</div></div>
+                <div><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Product</div><div className="mt-1 text-sm font-semibold">{documentSnapshot?.header?.product_code || card?.product_code || "-"}</div></div>
+                <div><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Spec Ref</div><div className="mt-1 text-sm font-semibold">{specReference}</div></div>
+                <div><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Size</div><div className="mt-1 text-sm font-semibold">{documentSnapshot?.header?.product_size_label || "-"}</div></div>
+                <div><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Current Stage</div><div className="mt-1 text-sm font-semibold">{currentStage}</div></div>
+                <div><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Release Qty</div><div className="mt-1 text-sm font-semibold">{formatNumber(card?.released_qty || card?.planned_qty, 0)} pcs</div></div>
+                <div><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Assigned Winder</div><div className="mt-1 text-sm font-semibold">{selectedWinderLabel}</div></div>
+                <div><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Pcs / Bamboo</div><div className="mt-1 text-sm font-semibold">{formatNumber(documentSnapshot?.header?.pcs_per_bamboo, 0)}</div></div>
+                <div><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Bamboo Length</div><div className="mt-1 text-sm font-semibold">{formatNumber(selectedBambooLength, 0)} mm</div></div>
+                <div><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Parchment</div><div className="mt-1 text-sm font-semibold">{parchmentPattern}</div></div>
+                <div><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Release Lot</div><div className="mt-1 text-sm font-semibold">{card?.release_lot_id ? String(card.release_lot_id).slice(0, 8) : "-"}</div></div>
+                <div><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Sales Line</div><div className="mt-1 text-sm font-semibold">{card?.sales_order_line_id ? String(card.sales_order_line_id).slice(0, 8) : "-"}</div></div>
               </div>
             </div>
             <div className="grid gap-3 bg-card px-6 py-6">
@@ -1896,8 +1952,8 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
           {renderOperatorPicker(stage, "Operator Name", "operator_name")}
           {renderSimpleField(stage, "Supervisor Sign", "supervisor_sign")}
           {renderSimpleField(stage, "QC Sign", "qc_sign")}
-          {renderSimpleField(stage, "Start Time (A) — from card", "start_time", "datetime-local")}
-          {renderSimpleField(stage, "End Time (B) — from card", "end_time", "datetime-local")}
+          {renderSimpleField(stage, "Start Time (A) — optional", "start_time", "datetime-local")}
+          {renderSimpleField(stage, "End Time (B) — optional", "end_time", "datetime-local")}
           {renderCycleTime(stage)}
           {renderSimpleField(stage, "Parent Reel ID", "parent_reel_id")}
           {renderSimpleField(stage, "Child Reel IDs", "child_reel_ids_text")}
@@ -2214,8 +2270,8 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
           {renderOperatorPicker(stage, "Operator Name", "operator_name")}
           {renderSimpleField(stage, "Supervisor Sign", "supervisor_sign")}
           {renderSimpleField(stage, "QC Sign", "qc_sign")}
-          {renderSimpleField(stage, "Start Time (A) — from card", "start_time", "datetime-local")}
-          {renderSimpleField(stage, "End Time (B) — from card", "end_time", "datetime-local")}
+          {renderSimpleField(stage, "Start Time (A) — optional", "start_time", "datetime-local")}
+          {renderSimpleField(stage, "End Time (B) — optional", "end_time", "datetime-local")}
           {renderCycleTime(stage)}
           {renderToolAssignment(stage)}
           {renderShiftPicker(stage)}
@@ -2225,34 +2281,45 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
         <table className="mt-3 w-full border-collapse text-sm">
           <thead>
             <tr className="bg-muted text-left">
-              <th className="border border-border px-2 py-2">Meters Produced</th>
-              <th className="border border-border px-2 py-2">Accepted Meters</th>
-              <th className="border border-border px-2 py-2">Reject Meters</th>
+              <th className="border border-border px-2 py-2">Produced Qty <span className="font-normal text-muted-foreground">(bamboo)</span></th>
+              <th className="border border-border px-2 py-2">Accepted Qty <span className="font-normal text-muted-foreground">(bamboo)</span></th>
+              <th className="border border-border px-2 py-2">Rejected Qty <span className="font-normal text-muted-foreground">(auto)</span></th>
               <th className="border border-border px-2 py-2">Reject Reason Code</th>
             </tr>
           </thead>
           <tbody>
-            <tr>
-              {stageEditable(stage) ? (
-                <>
-                  <td className="border border-border px-2 py-2"><TextInput type="number" value={displayWinderMeters(entry.winding_meters_produced, entry.bamboo_count_produced)} onChange={(next) => updateSnapshotField(stage, "winding_meters_produced", next)} /></td>
-                  <td className="border border-border px-2 py-2"><TextInput type="number" value={displayWinderMeters(entry.accepted_winding_meters, entry.accepted_bamboo_count)} onChange={(next) => updateSnapshotField(stage, "accepted_winding_meters", next)} /></td>
-                  <td className="border border-border px-2 py-2"><TextInput type="number" value={displayWinderMeters(entry.reject_winding_meters, entry.reject_bamboo_count)} onChange={(next) => updateSnapshotField(stage, "reject_winding_meters", next)} /></td>
-                  <td className="border border-border px-2 py-2"><TextInput value={entry.reject_reason_code} onChange={(next) => updateSnapshotField(stage, "reject_reason_code", next)} /></td>
-                </>
-              ) : (
-                <>
-                  <td className="border border-border px-2 py-2">{displayWinderMeters(entry.winding_meters_produced, entry.bamboo_count_produced)}</td>
-                  <td className="border border-border px-2 py-2">{displayWinderMeters(entry.accepted_winding_meters, entry.accepted_bamboo_count)}</td>
-                  <td className="border border-border px-2 py-2">{displayWinderMeters(entry.reject_winding_meters, entry.reject_bamboo_count)}</td>
-                  <td className="border border-border px-2 py-2">{entry.reject_reason_code || ""}</td>
-                </>
-              )}
-            </tr>
+            {(() => {
+              const produced = winderQty(entry.bamboo_count_produced, entry.winding_meters_produced)
+              const accepted = winderQty(entry.accepted_bamboo_count, entry.accepted_winding_meters)
+              const rejected = produced != null && accepted != null ? Math.max(0, produced - accepted) : null
+              const overAccepted = produced != null && accepted != null && accepted > produced
+              return (
+                <tr>
+                  {stageEditable(stage) ? (
+                    <>
+                      <td className="border border-border px-2 py-2"><TextInput type="number" value={entry.bamboo_count_produced !== "" && entry.bamboo_count_produced != null ? entry.bamboo_count_produced : produced ?? ""} testId="winder-produced-qty" onChange={(next) => updateWinderQty("bamboo_count_produced", next)} /></td>
+                      <td className="border border-border px-2 py-2">
+                        <TextInput type="number" value={entry.accepted_bamboo_count !== "" && entry.accepted_bamboo_count != null ? entry.accepted_bamboo_count : accepted ?? ""} testId="winder-accepted-qty" onChange={(next) => updateWinderQty("accepted_bamboo_count", next)} />
+                        {overAccepted ? <p className="mt-1 text-xs font-semibold text-signal-rose-ink">Accepted cannot be more than produced.</p> : null}
+                      </td>
+                      <td className="border border-border bg-muted px-2 py-2 font-semibold tabular-nums text-foreground" data-testid="winder-rejected-qty">{rejected != null ? formatNumber(rejected, 2) : "—"}</td>
+                      <td className="border border-border px-2 py-2"><TextInput value={entry.reject_reason_code} onChange={(next) => updateSnapshotField(stage, "reject_reason_code", next)} /></td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="border border-border px-2 py-2">{produced != null ? formatNumber(produced, 2) : ""}</td>
+                      <td className="border border-border px-2 py-2">{accepted != null ? formatNumber(accepted, 2) : ""}</td>
+                      <td className="border border-border px-2 py-2">{rejected != null ? formatNumber(rejected, 2) : ""}</td>
+                      <td className="border border-border px-2 py-2">{entry.reject_reason_code || ""}</td>
+                    </>
+                  )}
+                </tr>
+              )
+            })()}
           </tbody>
         </table>
         <div className="mt-2 text-xs font-semibold text-muted-foreground">
-          Bamboo equivalent: produced {formatNumber(metersToBamboo(entry.winding_meters_produced, entry.bamboo_count_produced), 2)} · accepted {formatNumber(metersToBamboo(entry.accepted_winding_meters, entry.accepted_bamboo_count), 2)} · reject {formatNumber(metersToBamboo(entry.reject_winding_meters, entry.reject_bamboo_count), 2)}
+          Rejected = Produced − Accepted.{pcsPerBamboo > 0 ? ` Pieces equivalent: produced ${formatNumber((winderQty(entry.bamboo_count_produced, entry.winding_meters_produced) || 0) * pcsPerBamboo, 0)} · accepted ${formatNumber((winderQty(entry.accepted_bamboo_count, entry.accepted_winding_meters) || 0) * pcsPerBamboo, 0)} pcs (${formatNumber(pcsPerBamboo, 0)} pcs/bamboo).` : ""}
         </div>
 
         <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Dimension Readings (Height, not Length)</div>
@@ -2370,8 +2437,8 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
           {renderOperatorPicker(stage, "Operator Name", "operator_name")}
           {renderSimpleField(stage, "Supervisor Sign", "supervisor_sign")}
           {renderSimpleField(stage, "QC Sign", "qc_sign")}
-          {renderSimpleField(stage, "Start Time (A) — from card", "start_time", "datetime-local")}
-          {renderSimpleField(stage, "End Time (B) — from card", "end_time", "datetime-local")}
+          {renderSimpleField(stage, "Start Time (A) — optional", "start_time", "datetime-local")}
+          {renderSimpleField(stage, "End Time (B) — optional", "end_time", "datetime-local")}
           {renderCycleTime(stage)}
           {renderShiftPicker(stage)}
           {renderToolAssignment(stage)}
@@ -2381,21 +2448,27 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
         <table className="mt-3 w-full border-collapse text-sm">
           <thead>
             <tr className="bg-muted text-left">
-              <th className="border border-border px-2 py-2">Bamboo Count In</th>
-              <th className="border border-border px-2 py-2">Bamboo Count Out</th>
+              <th className="border border-border px-2 py-2">Bamboo Qty In <span className="font-normal text-muted-foreground">(produced)</span></th>
+              <th className="border border-border px-2 py-2">Bamboo Qty Out <span className="font-normal text-muted-foreground">(accepted)</span></th>
+              <th className="border border-border px-2 py-2">Rejected Qty <span className="font-normal text-muted-foreground">(auto)</span></th>
             </tr>
           </thead>
           <tbody>
             <tr>
               {stageEditable(stage) ? (
                 <>
-                  <td className="border border-border px-2 py-2"><TextInput type="number" value={entry.bamboo_count_in} onChange={(next) => updateSnapshotField(stage, "bamboo_count_in", next)} /></td>
-                  <td className="border border-border px-2 py-2"><TextInput type="number" value={entry.bamboo_count_out} onChange={(next) => updateSnapshotField(stage, "bamboo_count_out", next)} /></td>
+                  <td className="border border-border px-2 py-2"><TextInput type="number" value={entry.bamboo_count_in} testId="oven-in-qty" onChange={(next) => updateSnapshotField(stage, "bamboo_count_in", next)} /></td>
+                  <td className="border border-border px-2 py-2">
+                    <TextInput type="number" value={entry.bamboo_count_out} testId="oven-out-qty" onChange={(next) => updateSnapshotField(stage, "bamboo_count_out", next)} />
+                    {derivedReject(entry.bamboo_count_in, entry.bamboo_count_out) === "over" ? <p className="mt-1 text-xs font-semibold text-signal-rose-ink">Out cannot be more than in.</p> : null}
+                  </td>
+                  <td className="border border-border bg-muted px-2 py-2 font-semibold tabular-nums text-foreground" data-testid="oven-rejected-qty">{rejectText(entry.bamboo_count_in, entry.bamboo_count_out)}</td>
                 </>
               ) : (
                 <>
                   <td className="border border-border px-2 py-2">{entry.bamboo_count_in || ""}</td>
                   <td className="border border-border px-2 py-2">{entry.bamboo_count_out || ""}</td>
+                  <td className="border border-border px-2 py-2">{rejectText(entry.bamboo_count_in, entry.bamboo_count_out)}</td>
                 </>
               )}
             </tr>
@@ -2430,8 +2503,8 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
           {renderOperatorPicker(stage, "Operator Name", "operator_name")}
           {renderSimpleField(stage, "Supervisor Sign", "supervisor_sign")}
           {renderSimpleField(stage, "QC Sign", "qc_sign")}
-          {renderSimpleField(stage, "Start Time (A) — from card", "start_time", "datetime-local")}
-          {renderSimpleField(stage, "End Time (B) — from card", "end_time", "datetime-local")}
+          {renderSimpleField(stage, "Start Time (A) — optional", "start_time", "datetime-local")}
+          {renderSimpleField(stage, "End Time (B) — optional", "end_time", "datetime-local")}
           {renderCycleTime(stage)}
           {renderShiftPicker(stage)}
         </div>
@@ -2440,8 +2513,9 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
         <table className="mt-3 w-full border-collapse text-sm">
           <thead>
             <tr className="bg-muted text-left">
-              <th className="border border-border px-2 py-2">Process Qty</th>
-              <th className="border border-border px-2 py-2">Reject Qty</th>
+              <th className="border border-border px-2 py-2">Produced Qty <span className="font-normal text-muted-foreground">(pcs)</span></th>
+              <th className="border border-border px-2 py-2">Accepted Qty <span className="font-normal text-muted-foreground">(pcs)</span></th>
+              <th className="border border-border px-2 py-2">Rejected Qty <span className="font-normal text-muted-foreground">(auto)</span></th>
               <th className="border border-border px-2 py-2">Reject Reason</th>
             </tr>
           </thead>
@@ -2449,20 +2523,26 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             <tr>
               {stageEditable(stage) ? (
                 <>
-                  <td className="border border-border px-2 py-2"><TextInput type="number" value={entry.process_qty} onChange={(next) => updateSnapshotField(stage, "process_qty", next)} /></td>
-                  <td className="border border-border px-2 py-2"><TextInput type="number" value={entry.reject_qty} onChange={(next) => updateSnapshotField(stage, "reject_qty", next)} /></td>
+                  <td className="border border-border px-2 py-2"><TextInput type="number" value={processProduced(entry)} testId="process-produced-qty" onChange={(next) => updateProcessQty("produced_qty", next)} /></td>
+                  <td className="border border-border px-2 py-2">
+                    <TextInput type="number" value={entry.process_qty} testId="process-accepted-qty" onChange={(next) => updateProcessQty("process_qty", next)} />
+                    {derivedReject(processProduced(entry), entry.process_qty) === "over" ? <p className="mt-1 text-xs font-semibold text-signal-rose-ink">Accepted cannot be more than produced.</p> : null}
+                  </td>
+                  <td className="border border-border bg-muted px-2 py-2 font-semibold tabular-nums text-foreground" data-testid="process-rejected-qty">{rejectText(processProduced(entry), entry.process_qty)}</td>
                   <td className="border border-border px-2 py-2"><TextInput value={entry.reject_reason} onChange={(next) => updateSnapshotField(stage, "reject_reason", next)} /></td>
                 </>
               ) : (
                 <>
+                  <td className="border border-border px-2 py-2">{processProduced(entry)}</td>
                   <td className="border border-border px-2 py-2">{entry.process_qty || ""}</td>
-                  <td className="border border-border px-2 py-2">{entry.reject_qty || ""}</td>
+                  <td className="border border-border px-2 py-2">{rejectText(processProduced(entry), entry.process_qty)}</td>
                   <td className="border border-border px-2 py-2">{entry.reject_reason || ""}</td>
                 </>
               )}
             </tr>
           </tbody>
         </table>
+        <p className="mt-2 text-xs font-semibold text-muted-foreground">Rejected = Produced − Accepted.</p>
 
         <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Process QC measurements</div>
         {renderStageQc("PROCESS")}
@@ -2743,9 +2823,9 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             <table className="w-full border-collapse text-sm">
               <thead>
                 <tr className="bg-muted text-left">
-                  <th className="border border-border px-2 py-2">Output Meters</th>
-                  <th className="border border-border px-2 py-2">Accepted Meters</th>
-                  <th className="border border-border px-2 py-2">Reject Meters</th>
+                  <th className="border border-border px-2 py-2">Produced Qty (bamboo)</th>
+                  <th className="border border-border px-2 py-2">Accepted Qty (bamboo)</th>
+                  <th className="border border-border px-2 py-2">Rejected Qty (bamboo)</th>
                   <th className="border border-border px-2 py-2">Rejection Code</th>
                   <th className="border border-border px-2 py-2">Start</th>
                   <th className="border border-border px-2 py-2">End</th>
@@ -2754,9 +2834,9 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
               </thead>
               <tbody>
                 <tr>
-                  <td className="border border-border px-2 py-2">{displayWinderMeters(winderPrintEntry.winding_meters_produced, winderPrintEntry.bamboo_count_produced || winderPrintStage?.input_qty)}</td>
-                  <td className="border border-border px-2 py-2">{displayWinderMeters(winderPrintEntry.accepted_winding_meters, winderPrintEntry.accepted_bamboo_count || winderPrintStage?.output_qty)}</td>
-                  <td className="border border-border px-2 py-2">{displayWinderMeters(winderPrintEntry.reject_winding_meters, winderPrintEntry.reject_bamboo_count || winderPrintStage?.scrap_qty)}</td>
+                  <td className="border border-border px-2 py-2">{displayWinderQty(winderPrintEntry.bamboo_count_produced, winderPrintEntry.winding_meters_produced, winderPrintStage?.input_qty)}</td>
+                  <td className="border border-border px-2 py-2">{displayWinderQty(winderPrintEntry.accepted_bamboo_count, winderPrintEntry.accepted_winding_meters, winderPrintStage?.output_qty)}</td>
+                  <td className="border border-border px-2 py-2">{displayWinderQty(winderPrintEntry.reject_bamboo_count, winderPrintEntry.reject_winding_meters, winderPrintStage?.scrap_qty)}</td>
                   <td className="border border-border px-2 py-2">{winderPrintEntry.reject_reason_code || "-"}</td>
                   <td className="border border-border px-2 py-2">{winderPrintEntry.start_time || "-"}</td>
                   <td className="border border-border px-2 py-2">{winderPrintEntry.end_time || "-"}</td>
@@ -3212,9 +3292,9 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
                 const accepted = Number(winderPrintEntry.accepted_bamboo_count || 0)
                 return (
                   <tr key={`winder-row-${index}`} className="jc-row-entry">
-                    <td className="jc-value jc-actual">{first ? displayWinderMeters(winderPrintEntry.winding_meters_produced, winderPrintEntry.bamboo_count_produced) : ""}</td>
-                    <td className="jc-value jc-actual">{first ? displayWinderMeters(winderPrintEntry.reject_winding_meters, winderPrintEntry.reject_bamboo_count) : ""}</td>
-                    <td className="jc-value jc-actual">{first ? displayWinderMeters(winderPrintEntry.accepted_winding_meters, winderPrintEntry.accepted_bamboo_count) : ""}</td>
+                    <td className="jc-value jc-actual">{first ? displayWinderQty(winderPrintEntry.bamboo_count_produced, winderPrintEntry.winding_meters_produced) : ""}</td>
+                    <td className="jc-value jc-actual">{first ? displayWinderQty(winderPrintEntry.reject_bamboo_count, winderPrintEntry.reject_winding_meters) : ""}</td>
+                    <td className="jc-value jc-actual">{first ? displayWinderQty(winderPrintEntry.accepted_bamboo_count, winderPrintEntry.accepted_winding_meters) : ""}</td>
                     <td className="jc-value jc-actual">{first && accepted && pcsPerBamboo ? num(accepted * pcsPerBamboo, 0) : ""}</td>
                     <td className="jc-value jc-actual">{first ? cardTime(winderPrintEntry.start_time) : ""}</td>
                     <td className="jc-value jc-actual">{first ? cardTime(winderPrintEntry.end_time) : ""}</td>

@@ -57,7 +57,7 @@ async def approve_purchase_order(po_id: str, request: Request, token: str = Depe
         title=f"Purchase order approved: {payload.get('po_no') or po_id}",
         message="Stores can now receive GRN against this PO.",
         href="/purchase",
-        recipient_roles=["Owner", "Admin", "Store", "PlantManager"],
+        recipient_roles=["Owner", "Admin", "Store", "PlantManager", "GRN"],
         payload={"purchase_order_id": po_id},
     )
     return response

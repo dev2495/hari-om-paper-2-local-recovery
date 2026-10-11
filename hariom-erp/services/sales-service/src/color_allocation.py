@@ -12,6 +12,7 @@ unassigned balance, so the invariants always hold:
 
 from __future__ import annotations
 
+import math
 import uuid
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional
@@ -35,6 +36,8 @@ class ColorSplit:
     color: str
     qty: float
     color_id: Optional[uuid.UUID] = None
+    # Commercial rate of this colour; None means the line's own rate applies.
+    rate_per_pc: Optional[float] = None
 
     @property
     def key(self) -> str:
@@ -62,9 +65,23 @@ def normalize_color_splits(raw: Iterable[Any] | None, *, line_qty: float, line_n
             continue
         if not color:
             raise ColorAllocationError(f"{prefix}every color row needs a color")
-        split = ColorSplit(color=color, qty=qty, color_id=color_id)
+        rate_raw = data.get("rate_per_pc")
+        rate: Optional[float] = None
+        if rate_raw not in (None, ""):
+            try:
+                rate = float(rate_raw)
+            except (TypeError, ValueError) as exc:
+                raise ColorAllocationError(f"{prefix}{color} rate is not a number") from exc
+            if not math.isfinite(rate) or rate < 0:
+                raise ColorAllocationError(f"{prefix}{color} rate cannot be negative")
+        split = ColorSplit(color=color, qty=qty, color_id=color_id, rate_per_pc=rate)
         if split.key in merged:
-            merged[split.key].qty += qty
+            existing = merged[split.key]
+            if rate is not None and existing.rate_per_pc is not None and abs(existing.rate_per_pc - rate) > EPS:
+                raise ColorAllocationError(f"{prefix}{color} is entered twice with different rates")
+            existing.qty += qty
+            if existing.rate_per_pc is None:
+                existing.rate_per_pc = rate
         else:
             merged[split.key] = split
     total = sum(split.qty for split in merged.values())
@@ -140,9 +157,30 @@ def color_summary(line_qty: float, splits: list[ColorSplit], released: dict[str,
                 "color": split.color,
                 "color_id": str(split.color_id) if split.color_id else None,
                 "qty": round(split.qty, 2),
+                "rate_per_pc": round(split.rate_per_pc, 4) if split.rate_per_pc is not None else None,
                 "released_qty": round(done, 2),
                 "open_qty": round(max(0.0, split.qty - done), 2),
             }
         )
     assigned = sum(split.qty for split in splits)
     return {"color_splits": rows, "unassigned_color_qty": round(max(0.0, float(line_qty or 0.0) - assigned), 2)}
+
+
+def line_commercials(line_qty: float, line_rate: Optional[float], splits: list[ColorSplit]) -> dict[str, Any]:
+    """Line value with colour-wise rates: each colour at its own rate (or the line rate),
+    the undecided balance at the line rate. ``effective_rate_per_pc`` is the weighted rate."""
+    qty = float(line_qty or 0.0)
+    base = float(line_rate) if line_rate is not None else None
+    if base is None and not any(split.rate_per_pc is not None for split in splits):
+        return {"line_value": None, "effective_rate_per_pc": None}
+    value = 0.0
+    assigned = 0.0
+    for split in splits:
+        rate = split.rate_per_pc if split.rate_per_pc is not None else base
+        value += float(split.qty) * float(rate or 0.0)
+        assigned += float(split.qty)
+    value += max(0.0, qty - assigned) * float(base or 0.0)
+    return {
+        "line_value": round(value, 2),
+        "effective_rate_per_pc": round(value / qty, 4) if qty > EPS else base,
+    }

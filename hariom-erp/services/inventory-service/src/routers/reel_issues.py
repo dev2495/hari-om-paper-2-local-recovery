@@ -189,7 +189,7 @@ def create_reel_issue(
     payload: ReelIssueCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Store", "PlantManager"])),
+    current_user: dict = Depends(require_role(["Store", "PlantManager", "RMIssue"])),
 ):
     reel = db.query(PaperReel).filter(
         PaperReel.id == payload.reel_id,
@@ -341,7 +341,7 @@ def close_reel_issue(
     payload: ReelIssueClosePayload,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Store", "PlantManager"])),
+    current_user: dict = Depends(require_role(["Store", "PlantManager", "RMIssue"])),
 ):
     issue = db.query(ReelIssue).filter(
         ReelIssue.id == issue_id,

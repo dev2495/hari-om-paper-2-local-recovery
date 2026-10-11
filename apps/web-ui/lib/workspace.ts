@@ -1,3 +1,5 @@
+import { ROLE_BY_KEY } from "./role-matrix"
+
 export type LandingRole =
   | "Owner"
   | "Admin"
@@ -7,6 +9,9 @@ export type LandingRole =
   | "Store"
   | "Dispatch"
   | "Sales"
+  | "InwardQC"
+  | "GRN"
+  | "RMIssue"
   | "Operator"
 
 type QuickAction = {
@@ -24,10 +29,13 @@ export const LANDING_LABELS: Record<LandingRole, string> = {
   Store: "Store",
   Dispatch: "Dispatch",
   Sales: "Sales",
+  InwardQC: "Inward QC",
+  GRN: "GRN / Goods Receipt",
+  RMIssue: "Raw Material Issue",
   Operator: "Operator",
 }
 
-export const ROLE_PRIORITY: LandingRole[] = ["Owner", "Admin", "PlantManager", "QC", "Planner", "Store", "Dispatch", "Sales", "Operator"]
+export const ROLE_PRIORITY: LandingRole[] = ["Owner", "Admin", "PlantManager", "QC", "Planner", "Store", "Dispatch", "Sales", "InwardQC", "GRN", "RMIssue", "Operator"]
 
 // Legacy role aliases are normalized here only so old auth/session rows land on a canonical workspace.
 // User-facing navigation policy should use the condensed role matrix above.
@@ -46,6 +54,9 @@ export const ROLE_TO_LANDING: Record<string, LandingRole> = {
   Sales: "Sales",
   SOMaker: "Sales",
   SOApprover: "Sales",
+  InwardQC: "InwardQC",
+  GRN: "GRN",
+  RMIssue: "RMIssue",
   Operator: "Operator",
 }
 
@@ -59,17 +70,10 @@ export function rolesForSwitcher(roles: string[] = []) {
   return ROLE_PRIORITY.filter((role) => unique.includes(role))
 }
 
+/** Each role lands on its own desk (see lib/role-matrix.ts for the full role definitions). */
 export function landingPathForRole(role: string | null | undefined) {
   const landingRole = ROLE_TO_LANDING[String(role || "")] || resolveLandingRole(role ? [role] : [])
-  if (landingRole === "Owner") return "/landing/owner"
-  if (landingRole === "Admin") return "/landing/admin"
-  if (landingRole === "QC") return "/landing/qc"
-  if (landingRole === "Planner") return "/planning/board/winder"
-  if (landingRole === "PlantManager") return "/planning/tracker"
-  if (landingRole === "Sales") return "/sales-orders"
-  if (landingRole === "Store") return "/inventory"
-  if (landingRole === "Dispatch") return "/logistics/dispatch"
-  return "/dashboard"
+  return ROLE_BY_KEY[landingRole]?.landing || "/dashboard"
 }
 
 export const LANDING_QUICK_ACTIONS: Record<LandingRole, QuickAction[]> = {
@@ -120,6 +124,24 @@ export const LANDING_QUICK_ACTIONS: Record<LandingRole, QuickAction[]> = {
     { href: "/sales-orders", label: "Sales Orders", detail: "Approve, release, and track line items." },
     { href: "/sales-orders?due=week", label: "Due this week", detail: "Open orders with lines due in the next 7 days." },
     { href: "/reports/sales", label: "Sales Reports", detail: "Track OTIF and delayed commitments." },
+  ],
+  InwardQC: [
+    { href: "/quality/incoming", label: "Incoming inspections", detail: "Inspect received reels and lots, then release or reject them." },
+    { href: "/quality/material-standards", label: "Material standards", detail: "The inward QC checks and tolerances for each material." },
+    { href: "/purchase/receipts", label: "GRN register", detail: "See which receipts are waiting for QC." },
+    { href: "/quality/results", label: "Results & holds", detail: "Rejected lots and their return to supplier." },
+  ],
+  GRN: [
+    { href: "/purchase/inward", label: "Goods inward", detail: "Receive against an approved PO and weigh each reel or coil." },
+    { href: "/purchase/receipts", label: "GRN register & labels", detail: "Saved receipts, pending invoices and label reprints." },
+    { href: "/purchase/supplier-deliveries", label: "Supplier deliveries", detail: "What is expected to arrive and when." },
+    { href: "/inventory", label: "Stock overview", detail: "Received stock by material and location." },
+  ],
+  RMIssue: [
+    { href: "/inventory/reels/issue", label: "Reel issue", detail: "Scan and issue reels to a winder and shift; close with returned weight." },
+    { href: "/inventory/production-issue", label: "Material issue", detail: "Issue adhesive, parchment and packing to a job card." },
+    { href: "/inventory/genealogy", label: "Genealogy", detail: "Trace where every issued reel went." },
+    { href: "/inventory", label: "Stock overview", detail: "What is available to issue." },
   ],
   Operator: [
     { href: "/production/supervisor-entry", label: "QR / Stage Entry", detail: "Scan job card and enter stage output." },

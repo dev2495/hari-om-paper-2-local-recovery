@@ -3397,21 +3397,21 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
                   </div>
                   <div className="grid border-t border-border/10 sm:grid-cols-2 xl:grid-cols-6" data-testid="spec-sheet-preview-rail">
                     <div className="border-border/10 px-4 py-3 xl:border-r">
-                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-muted-foreground">Paper total</p>
+                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-[#9bb7bd]">Paper total</p>
                       <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-white">{livePaperTotal.toFixed(2)} g</p>
-                      <p className="mt-1 text-[10px] text-muted-foreground">Actual selected papers</p>
+                      <p className="mt-1 text-[10px] text-[#9bb7bd]">Actual selected papers</p>
                     </div>
                     <div className="border-t border-border/10 px-4 py-3 sm:border-l sm:border-t-0 xl:border-l-0 xl:border-r">
-                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-muted-foreground">ID / OD delta</p>
+                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-[#9bb7bd]">ID / OD delta</p>
                       <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-white">
                         {liveIdDeltaMm >= 0 ? "+" : ""}{liveIdDeltaMm.toFixed(2)} / {liveOdDeltaMm >= 0 ? "+" : ""}{liveOdDeltaMm.toFixed(2)} mm
                       </p>
                       <p className="mt-1 text-[10px] text-emerald-300">Modeled geometry vs client ID / OD</p>
                     </div>
                     <div className="border-t border-border/10 px-4 py-3 xl:border-r xl:border-t-0">
-                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-muted-foreground">Main paper GSM helper</p>
+                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-[#9bb7bd]">Main paper GSM helper</p>
                       <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-white">{mainPaperGsmGuide.toFixed(0)} GSM <span className="text-sm text-[#86d2bb]">±50</span></p>
-                      <p className="mt-1 text-[10px] leading-4 text-muted-foreground">{wetBambooThicknessMm.toFixed(3)} mm ÷ 0.142 · display guide only</p>
+                      <p className="mt-1 text-[10px] leading-4 text-[#9bb7bd]">{wetBambooThicknessMm.toFixed(3)} mm ÷ 0.142 · display guide only</p>
                     </div>
                     <div className="border-t border-border/10 bg-[#173b47] px-4 py-3 sm:border-l xl:border-l-0 xl:border-r xl:border-t-0">
                       <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-cyan-100/70">{measuredDryTube > 0 ? "Measured dry" : "Dry model variance"}</p>
@@ -3429,7 +3429,7 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
                       <p className="mt-1 text-[10px] text-cyan-100/70">{selectedBambooLengthMm.toFixed(0)} mm bamboo · {usableBambooLengthMm.toFixed(0)} mm usable</p>
                     </div>
                   </div>
-                  {hasRecipeSelection ? <p className="border-t border-border/10 px-4 py-2.5 text-[10px] leading-4 text-muted-foreground">Wet target {targetWetTube.toFixed(2)} g − combined additions {targetTotalAdditionsWeight.toFixed(2)} g = wet paper target {targetPaperWeight.toFixed(2)} g. Current geometric paper is {livePaperTotal.toFixed(2)} g; weights are never auto-scaled.</p> : null}
+                  {hasRecipeSelection ? <p className="border-t border-border/10 px-4 py-2.5 text-[10px] leading-4 text-[#9bb7bd]">Wet target {targetWetTube.toFixed(2)} g − combined additions {targetTotalAdditionsWeight.toFixed(2)} g = wet paper target {targetPaperWeight.toFixed(2)} g. Current geometric paper is {livePaperTotal.toFixed(2)} g; weights are never auto-scaled.</p> : null}
                 </div>
 
                 <div className="overflow-x-auto rounded-xl border border-[#d7dfdc]">
@@ -4046,9 +4046,9 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
             {releaseBlockers.length ? releaseBlockers.join(" · ") : currentStatus === "approved" ? "Owner approved · live for production" : "All business checks pass"}
           </p>
           <div className="flex shrink-0 items-center gap-3 border-l border-border/10 pl-3 text-[10px]">
-            <span><span className="text-muted-foreground">Paper</span> <strong>{livePaperTotal.toFixed(2)} g</strong></span>
-            <span><span className="text-muted-foreground">Wet / dry</span> <strong>{liveWetTube.toFixed(2)} / {liveDryTube.toFixed(2)} g</strong></span>
-            <span className={Math.abs(liveDryDelta) <= DELTA_ABS_G ? "text-emerald-300" : "text-rose-300"}><span className="text-muted-foreground">Variance</span> <strong>{liveDryDelta >= 0 ? "+" : ""}{liveDryDelta.toFixed(2)} g</strong></span>
+            <span><span className="text-[#9bb7bd]">Paper</span> <strong>{livePaperTotal.toFixed(2)} g</strong></span>
+            <span><span className="text-[#9bb7bd]">Wet / dry</span> <strong>{liveWetTube.toFixed(2)} / {liveDryTube.toFixed(2)} g</strong></span>
+            <span className={Math.abs(liveDryDelta) <= DELTA_ABS_G ? "text-emerald-300" : "text-rose-300"}><span className="text-[#9bb7bd]">Variance</span> <strong>{liveDryDelta >= 0 ? "+" : ""}{liveDryDelta.toFixed(2)} g</strong></span>
             <span className="rounded bg-card/10 px-2 py-1 font-bold">±{DELTA_ABS_G} g</span>
           </div>
         </div>

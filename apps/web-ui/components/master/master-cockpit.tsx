@@ -69,14 +69,15 @@ export function MasterHero({
     emerald:
       "radial-gradient(120% 90% at 0% 0%, rgba(4,120,87,0.22), transparent 50%), radial-gradient(80% 70% at 100% 0%, rgba(245,158,11,0.14), transparent 55%), linear-gradient(135deg, hsl(var(--foreground)) 0%, hsl(var(--chart-7)) 60%, hsl(var(--chart-7)) 100%)",
   }
+  // Chips sit on the dark hero, so they always use light text (grey/dark text was unreadable here).
   const toneCls = (t?: string) =>
     t === "ok"
-      ? "border-signal-emerald-line/40 bg-emerald-400/15 text-muted-foreground"
+      ? "border-emerald-300/40 bg-emerald-400/20 text-emerald-50"
       : t === "warn"
-        ? "border-signal-amber-line/40 bg-amber-400/15 text-muted-foreground"
+        ? "border-amber-300/40 bg-amber-400/20 text-amber-50"
         : t === "critical"
-          ? "border-signal-rose-line/40 bg-rose-400/15 text-muted-foreground"
-          : "border-border/30 bg-card/10 text-white/90"
+          ? "border-rose-300/40 bg-rose-400/20 text-rose-50"
+          : "border-white/30 bg-white/10 text-white"
   return (
     <section
       className="relative overflow-hidden rounded-xl px-6 py-7 text-white shadow-[0_25px_70px_rgba(15,23,42,0.18)]"
@@ -394,7 +395,7 @@ export function DetailDrawer({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md p-1.5 text-white/80 transition hover:bg-card/10 hover:text-white"
+              className="rounded-md p-1.5 text-white/80 transition hover:bg-white/10 hover:text-white"
               aria-label="Close drawer"
             >
               <X className="h-4 w-4" />
@@ -409,10 +410,10 @@ export function DetailDrawer({
                 className={cn(
                   "rounded-full border px-2 py-0.5 text-[11.5px] font-semibold",
                   c.tone === "critical"
-                    ? "border-signal-rose-line/50 bg-rose-400/20 text-muted-foreground"
+                    ? "border-rose-300/50 bg-rose-400/20 text-rose-50"
                     : c.tone === "warn"
-                      ? "border-signal-amber-line/50 bg-amber-400/20 text-muted-foreground"
-                      : "border-signal-emerald-line/50 bg-emerald-400/20 text-muted-foreground",
+                      ? "border-amber-300/50 bg-amber-400/20 text-amber-50"
+                      : "border-emerald-300/50 bg-emerald-400/20 text-emerald-50",
                 )}
               >
                 {c.label}

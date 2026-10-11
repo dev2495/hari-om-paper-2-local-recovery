@@ -90,6 +90,9 @@ const ROLE_KPIS: Record<LandingRole, KpiKey[]> = {
   QC: ["qcPass", "qcHolds", "blocked", "activeCards"],
   Store: ["inventoryValue", "lowStock", "dispatchReady", "qcHolds"],
   Dispatch: ["dispatchReady", "dispatchQty", "otif", "overdue"],
+  InwardQC: ["qcPass", "qcHolds", "lowStock", "inventoryValue"],
+  GRN: ["inventoryValue", "lowStock", "qcHolds", "activeCards"],
+  RMIssue: ["activeCards", "lowStock", "inventoryValue", "produced"],
   Operator: ["activeCards", "overdue", "produced", "qcHolds"],
 }
 
@@ -103,6 +106,9 @@ const ROLE_CHARTS: Record<LandingRole, ChartKey[]> = {
   QC: ["quality", "pipeline"],
   Store: ["inventory", "output"],
   Dispatch: ["orderFlow", "pipeline"],
+  InwardQC: ["quality", "inventory"],
+  GRN: ["inventory"],
+  RMIssue: ["inventory", "pipeline"],
   Operator: ["pipeline", "output"],
 }
 

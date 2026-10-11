@@ -345,6 +345,7 @@ function LineTracker({
             <strong className="text-foreground tabular-nums">{fmt(qty)} pcs</strong> · due {formatDate(line.due_date)}
             {nextCallOff ? <> · next delivery <strong className="text-foreground">{formatDate(nextCallOff.delivery_date, "DD MMM")}</strong> ({fmt(nextCallOff.quantity)})</> : null}
             {line.rate_per_pc ? ` · ₹${Number(line.rate_per_pc).toLocaleString("en-IN")}/pc` : ""}
+            {line.line_value != null ? <> · value <strong className="text-foreground tabular-nums">₹{Number(line.line_value).toLocaleString("en-IN", { maximumFractionDigits: 2 })}</strong></> : null}
           </p>
         </div>
         {onRelease && unreleased > 0 ? (
@@ -454,6 +455,7 @@ function ColorsTab({ line, editable, qty, splits }: { line: any; editable: boole
             <li key={split.color} className="flex items-center gap-2 rounded-md bg-[hsl(var(--surface-2))] px-2 py-1.5 text-[12.5px]">
               <ColorChip color={split.color} />
               <span className="ml-auto tabular-nums">{fmt(split.qty)}</span>
+              <span className="w-24 text-right text-[11.5px] tabular-nums text-muted-foreground" title={split.rate_per_pc == null ? "Line rate applies" : "Colour rate"}>{split.rate_per_pc != null ? `₹${Number(split.rate_per_pc).toLocaleString("en-IN")}/pc` : line.rate_per_pc ? `₹${Number(line.rate_per_pc).toLocaleString("en-IN")}/pc (line)` : "—"}</span>
               <span className="w-28 text-right text-[11.5px] tabular-nums text-muted-foreground">{fmt(split.released_qty)} rel · {fmt(split.open_qty)} open</span>
             </li>
           ))}
@@ -608,14 +610,14 @@ function ColorEditor({ line, onDone }: { line: any; onDone: () => void }) {
   const update = useUpdateLineColors()
   const { data: parchments } = useParchments()
   const options = (Array.isArray(parchments) ? parchments : []).filter((row: any) => row?.color_name && row?.id && !String(row.id).startsWith("vendor:"))
-  const [rows, setRows] = useState<Array<{ key: string; color: string; color_id: string | null; qty: string; released: number }>>(
-    (Array.isArray(line.color_splits) ? line.color_splits : []).map((split: any, index: number) => ({ key: `r${index}`, color: split.color, color_id: split.color_id || null, qty: String(Math.round(Number(split.qty || 0))), released: Number(split.released_qty || 0) })),
+  const [rows, setRows] = useState<Array<{ key: string; color: string; color_id: string | null; qty: string; rate: string; released: number }>>(
+    (Array.isArray(line.color_splits) ? line.color_splits : []).map((split: any, index: number) => ({ key: `r${index}`, color: split.color, color_id: split.color_id || null, qty: String(Math.round(Number(split.qty || 0))), rate: split.rate_per_pc == null ? "" : String(split.rate_per_pc), released: Number(split.released_qty || 0) })),
   )
   const total = rows.reduce((sum, row) => sum + Number(row.qty || 0), 0)
   const over = total > Number(line.qty || 0)
   const save = async () => {
     try {
-      await update.mutateAsync({ lineId: String(line.id), colorSplits: rows.filter((row) => row.color && Number(row.qty) > 0).map((row) => ({ color: row.color, color_id: row.color_id, qty: Number(row.qty) })) })
+      await update.mutateAsync({ lineId: String(line.id), colorSplits: rows.filter((row) => row.color && Number(row.qty) > 0).map((row) => ({ color: row.color, color_id: row.color_id, qty: Number(row.qty), rate_per_pc: row.rate.trim() === "" ? null : Number(row.rate) })) })
       showToast("Colors saved.", "success")
       onDone()
     } catch (error) {
@@ -625,7 +627,7 @@ function ColorEditor({ line, onDone }: { line: any; onDone: () => void }) {
   return (
     <div className="mt-2 space-y-2">
       {rows.map((row) => (
-        <div key={row.key} className="grid grid-cols-[minmax(0,1fr)_110px_32px] items-center gap-2">
+        <div key={row.key} className="grid grid-cols-[minmax(0,1fr)_96px_96px_32px] items-center gap-2">
           <select
             aria-label="Color"
             value={row.color_id || row.color}
@@ -641,13 +643,14 @@ function ColorEditor({ line, onDone }: { line: any; onDone: () => void }) {
             {options.map((option: any) => <option key={option.id} value={option.id}>{option.display_name || option.color_name}</option>)}
           </select>
           <input type="number" min={row.released} aria-label="Color qty" value={row.qty} onChange={(event) => setRows((current) => current.map((entry) => (entry.key === row.key ? { ...entry, qty: event.target.value } : entry)))} className="h-9 w-full rounded-lg border border-input bg-card px-2 text-right text-[13px] tabular-nums" />
+          <input type="number" min={0} step="0.01" aria-label="Color rate per piece" title="Rate / Pc of this colour. Blank = line rate." placeholder={line.rate_per_pc ? `₹${line.rate_per_pc}` : "Rate"} value={row.rate} onChange={(event) => setRows((current) => current.map((entry) => (entry.key === row.key ? { ...entry, rate: event.target.value } : entry)))} className="h-9 w-full rounded-lg border border-input bg-card px-2 text-right text-[13px] tabular-nums" />
           <button type="button" aria-label="Remove color" disabled={row.released > 0} onClick={() => setRows((current) => current.filter((entry) => entry.key !== row.key))} className="grid h-8 w-8 place-items-center rounded-md text-muted-foreground hover:bg-signal-rose-soft hover:text-signal-rose-ink disabled:opacity-30">
             <Trash2 className="h-3.5 w-3.5" />
           </button>
         </div>
       ))}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <button type="button" onClick={() => setRows((current) => [...current, { key: `r${Date.now()}`, color: "", color_id: null, qty: "", released: 0 }])} className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-primary hover:underline">
+        <button type="button" onClick={() => setRows((current) => [...current, { key: `r${Date.now()}`, color: "", color_id: null, qty: "", rate: "", released: 0 }])} className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-primary hover:underline">
           <Plus className="h-3.5 w-3.5" />Add color
         </button>
         <span className={cn("text-[12px] tabular-nums", over ? "font-semibold text-signal-rose-ink" : "text-muted-foreground")}>

@@ -85,6 +85,21 @@ const LANDING_COPY: Record<LandingRole, LandingCopy> = {
     title: "Finished goods readiness, challan pressure, and handoff exceptions",
     description: "See newly created FG, pending challans, blocked dispatches, and what must leave next.",
   },
+  InwardQC: {
+    badge: "Inward QC Workspace",
+    title: "Incoming lots waiting for inspection, rejected lots, and the material standards they are checked against",
+    description: "Inspect each received reel or lot, release it to stock or reject it. Customer returns and production QC stay with the QC team.",
+  },
+  GRN: {
+    badge: "Goods Receipt Workspace",
+    title: "Supplier deliveries to receive, weigh and label",
+    description: "Receive against approved POs, record each reel or coil weight, print labels and keep the GRN register complete for QC and accounts.",
+  },
+  RMIssue: {
+    badge: "Raw Material Issue Workspace",
+    title: "Reels and materials to issue to machines and job cards",
+    description: "Scan and issue reels to the winder and shift, issue adhesive, parchment and packing to job cards, and close issues with returned weight.",
+  },
   Operator: {
     badge: "Operator Workspace",
     title: "QR scan work, assigned stages, and simple input actions for the floor",
@@ -101,6 +116,9 @@ const ROLE_ICONS = {
   Store: Warehouse,
   Dispatch: Truck,
   Sales: ShoppingCart,
+  InwardQC: FlaskConical,
+  GRN: PackageCheck,
+  RMIssue: Warehouse,
   Operator: Wrench,
 } satisfies Record<LandingRole, any>
 

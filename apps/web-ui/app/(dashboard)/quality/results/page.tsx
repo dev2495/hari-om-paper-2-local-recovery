@@ -129,7 +129,7 @@ export default function QualityResultsPage() {
   }
 
   return (
-    <RoleGate allow={["QC", "PlantManager", "Store", "Dispatch", "Sales"]}>
+    <RoleGate allow={["QC", "InwardQC", "PlantManager", "Store", "Dispatch", "Sales"]}>
       <div className="space-y-6" data-testid="quality-results-page">
         <ExecutiveHero
           appearance={MODULE_APPEARANCES.analytics}

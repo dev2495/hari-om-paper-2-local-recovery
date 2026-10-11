@@ -506,6 +506,8 @@ export const inventoryApi = {
   upsertItemQualityProfile: (id: string, data: any) => api.put(`/api/inventory/items/${id}/quality-profile`, data),
   copyItemQualityTemplate: (id: string, data?: any) => api.post(`/api/inventory/items/${id}/quality-profile/copy-template`, data || {}),
   approveItemQualityProfile: (id: string, data: any) => api.post(`/api/inventory/items/${id}/quality-profile/approve`, data),
+  adjustItemQualityTolerances: (id: string, data: { expected_revision: number; adjustments: Array<{ code: string; min: number | null; max: number | null }>; note?: string }) =>
+    api.put(`/api/inventory/items/${id}/quality-profile/tolerances`, data),
   deleteItem: (id: string) => api.delete(`/api/inventory/items/${id}`),
   getBalances: () => api.get("/api/inventory/balance"),
   getItemBalance: (itemId: string) => api.get(`/api/inventory/balance/${itemId}`),

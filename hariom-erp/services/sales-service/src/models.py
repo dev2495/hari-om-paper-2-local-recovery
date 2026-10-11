@@ -104,6 +104,8 @@ class SalesOrderLineColor(Base):
     color_id = Column(UUID(as_uuid=True), nullable=True)
     color = Column(String(100), nullable=False)
     qty = Column(Float, nullable=False)
+    # Commercial rate of this colour (₹/pc); NULL means the line's rate applies.
+    rate_per_pc = Column(Float, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     line = relationship("SalesOrderLine", back_populates="color_splits")

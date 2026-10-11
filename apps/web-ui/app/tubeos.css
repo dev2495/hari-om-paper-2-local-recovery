@@ -521,3 +521,32 @@ a.tube-kpi:hover .tube-kpi-icon, button:hover > .tube-kpi .tube-kpi-icon { trans
 .planner-workload-panel[data-collapsed="true"] { width:min(310px,calc(100vw - 16px)); }
 @media print { .planner-workload-panel { display:none!important; } }
 
+
+/* Client round 2026-10-11 — the current page must never be clipped.
+ * Breadcrumb: the current crumb keeps its full name; parent crumbs shrink first and the group crumb
+ * hides when the top bar is crowded. Rail: the active module and its sub-pages stay reachable. */
+.tube-crumbs li:last-child { flex-shrink: 0; max-width: 260px; }
+.tube-crumbs li:last-child > :is(a, span) { max-width: 260px; }
+@media (max-width: 1535px) { .tube-crumbs li:first-child:not(:last-child) { display: none; } }
+.tube-navigation { scroll-padding-block: 48px; }
+.tube-subnav { margin-bottom: 4px; }
+.tube-subnav .tube-nav-link { min-height: 26px; padding: 3px 8px; }
+@media (min-width: 1024px) {
+  /* Collapsed rail: the nav scrolls inside the 64px column (no hidden 252px scrollbar off to the side). */
+  .tube-shell[data-rail="compact"] .tube-rail:not(:hover):not(:focus-within) .tube-navigation { scrollbar-width: none; }
+  .tube-shell[data-rail="compact"] .tube-rail:not(:hover):not(:focus-within) .tube-navigation::-webkit-scrollbar { display: none; }
+  .tube-shell[data-rail="compact"] .tube-navigation { scrollbar-gutter: auto; overflow-y: auto; }
+}
+
+/* Disabled buttons (client round 2026-10-11): a faded teal button with white text read as "white text".
+ * Any disabled filled button becomes a neutral grey chip with dark-grey text instead of a washed-out colour,
+ * and other disabled buttons keep a readable minimum opacity. */
+:is(button, a, [role="button"]):is(:disabled, [aria-disabled="true"]):is(.erp-btn-primary, [class*="bg-primary"], [class*="bg-slate-9"], [class*="bg-teal-"], [class*="bg-emerald-6"], [class*="bg-emerald-7"], [class*="bg-cyan-6"], [class*="bg-cyan-7"]) {
+  background: hsl(var(--muted)) !important;
+  background-image: none !important;
+  color: hsl(var(--muted-foreground)) !important;
+  border-color: hsl(var(--border)) !important;
+  box-shadow: none !important;
+  opacity: 1 !important;
+}
+:is(button, [role="button"]):disabled:not(:is(.erp-btn-primary, [class*="bg-primary"])) { opacity: .6 !important; }

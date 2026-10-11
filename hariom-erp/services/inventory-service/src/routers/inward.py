@@ -254,7 +254,7 @@ def create_inward(
     inward: InwardCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Store", "Admin"])),
+    current_user: dict = Depends(require_role(["Store", "Admin", "GRN"])),
 ):
     if get_settings().PROCUREMENT_V2_ENFORCED and inward.reference_type.strip().upper() == "PURCHASE":
         raise HTTPException(

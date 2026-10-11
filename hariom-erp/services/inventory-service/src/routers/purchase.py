@@ -1304,7 +1304,7 @@ def update_receipt_line_qc(
     payload: ReceiptQcPayload,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Owner", "Admin", "Store", "PlantManager", "QC"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Store", "PlantManager", "QC", "InwardQC"])),
 ):
     line = (
         db.query(PurchaseReceiptLine)
@@ -1428,7 +1428,7 @@ def allocate_receipt_line_schedule(
     payload: ReceiptScheduleAllocate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Owner", "Admin", "Store", "PlantManager"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Store", "PlantManager", "GRN"])),
 ):
     receipt_line = (
         db.query(PurchaseReceiptLine)
@@ -1527,7 +1527,7 @@ def attach_receipt_evidence(
     payload: ReceiptEvidenceCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Store", "PlantManager", "Owner", "QC"])),
+    current_user: dict = Depends(require_role(["Admin", "Store", "PlantManager", "Owner", "QC", "GRN", "InwardQC"])),
 ):
     kind = payload.kind.strip().upper()
     if kind not in {"TEST_REPORT", "CHALLAN"}:

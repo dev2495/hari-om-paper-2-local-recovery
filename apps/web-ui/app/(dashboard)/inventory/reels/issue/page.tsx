@@ -215,7 +215,7 @@ export default function ReelIssuePage() {
   const busy = createIssue.isPending || closeIssue.isPending || slitCoil.isPending
 
   return (
-    <RoleGate allow={["Store", "PlantManager"]}>
+    <RoleGate allow={["Store", "PlantManager", "RMIssue"]}>
       <ProcurementShell
         eyebrow="Stores / production issue"
         title="Issue paper to production"

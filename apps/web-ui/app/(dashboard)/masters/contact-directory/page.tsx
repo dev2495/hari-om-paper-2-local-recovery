@@ -39,7 +39,7 @@ export default function ContactDirectoryPage() {
               onClick={() => setFilter("ALL")}
               className={`rounded-2xl border px-4 py-3 text-left transition ${filter === "ALL" ? "border-primary bg-primary text-primary-foreground" : "border-border bg-muted text-muted-foreground"}`}
             >
-              <p className="text-[11.5px] font-semibold opacity-70">All</p>
+              <p className="text-[11.5px] font-semibold text-muted-foreground">All</p>
               <p className="mt-2 text-2xl font-semibold">{rows.length}</p>
             </button>
             <button
@@ -47,7 +47,7 @@ export default function ContactDirectoryPage() {
               onClick={() => setFilter("CUSTOMER")}
               className={`rounded-2xl border px-4 py-3 text-left transition ${filter === "CUSTOMER" ? "border-signal-cyan-ink/40 bg-primary text-primary-foreground" : "border-border bg-muted text-muted-foreground"}`}
             >
-              <p className="text-[11.5px] font-semibold opacity-70">Customers</p>
+              <p className="text-[11.5px] font-semibold text-muted-foreground">Customers</p>
               <p className="mt-2 text-2xl font-semibold">{customerCount}</p>
             </button>
             <button
@@ -55,7 +55,7 @@ export default function ContactDirectoryPage() {
               onClick={() => setFilter("VENDOR")}
               className={`rounded-2xl border px-4 py-3 text-left transition ${filter === "VENDOR" ? "border-signal-cyan-ink/40 bg-primary text-primary-foreground" : "border-border bg-muted text-muted-foreground"}`}
             >
-              <p className="text-[11.5px] font-semibold opacity-70">Vendors</p>
+              <p className="text-[11.5px] font-semibold text-muted-foreground">Vendors</p>
               <p className="mt-2 text-2xl font-semibold">{vendorCount}</p>
             </button>
           </div>

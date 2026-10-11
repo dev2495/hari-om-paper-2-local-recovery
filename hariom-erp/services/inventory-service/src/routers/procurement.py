@@ -265,7 +265,7 @@ def preview_receipt(
     payload: GovernedReceiptCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Store", "PlantManager"])),
+    current_user: dict = Depends(require_role(["Store", "PlantManager", "GRN"])),
 ):
     _validate_receipt(payload, db, plant_id)
     order = db.query(PurchaseOrder).filter(PurchaseOrder.id == payload.purchase_order_id, PurchaseOrder.plant_id == plant_id).first()
@@ -309,7 +309,7 @@ def post_governed_receipt(
     payload: GovernedReceiptCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Store", "PlantManager"])),
+    current_user: dict = Depends(require_role(["Store", "PlantManager", "GRN"])),
 ):
     _validate_receipt(payload, db, plant_id)
     fingerprint = canonical_hash(payload.model_dump(mode="json", exclude={"request_id"}))
@@ -598,7 +598,7 @@ def attach_invoice_to_receipt(
     payload: AttachInvoiceRequest,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Store", "PlantManager"])),
+    current_user: dict = Depends(require_role(["Store", "PlantManager", "GRN"])),
 ):
     """Attach a delayed invoice and run the same approved-revision comparison.
 
@@ -1864,7 +1864,7 @@ def _saved_lot_labels(db, plant_id, lot_ids):
 
 @router.post("/label-jobs")
 def create_label_job(payload: LabelJobCreate, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant),
-                     current_user: dict = Depends(require_role(["Store", "PlantManager"]))):
+                     current_user: dict = Depends(require_role(["Store", "PlantManager", "GRN"]))):
     request_fingerprint = canonical_hash(payload.model_dump(mode="json", exclude={"request_id"}))
     replay = db.query(LabelPrintJob).filter(LabelPrintJob.plant_id == plant_id, LabelPrintJob.request_id == payload.request_id).first()
     if replay:

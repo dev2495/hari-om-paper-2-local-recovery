@@ -60,21 +60,20 @@ class ReconcileCardTimesTests(unittest.TestCase):
         self.assertFalse(record["late_entry"])
         self.assertEqual(warnings, [])
 
-    def test_end_before_start_is_rejected(self):
-        with self.assertRaises(HTTPException) as ctx:
-            self._reconcile(card_start=NOW - timedelta(hours=1), card_end=NOW - timedelta(hours=2))
-        self.assertEqual(ctx.exception.status_code, 400)
+    def test_end_before_start_warns_without_blocking(self):
+        record, warnings = self._reconcile(card_start=NOW - timedelta(hours=1), card_end=NOW - timedelta(hours=2))
+        self.assertIsNone(record["cycle_time_minutes"])
+        self.assertTrue(any("before start time" in w for w in warnings))
 
-    def test_future_time_is_rejected(self):
-        with self.assertRaises(HTTPException):
-            self._reconcile(card_end=NOW + timedelta(hours=1))
+    def test_future_time_warns_without_blocking(self):
+        record, warnings = self._reconcile(card_end=NOW + timedelta(hours=1))
+        self.assertEqual(record["time_source"], "CARD")
+        self.assertTrue(any("later than the entry time" in w for w in warnings))
 
-    def test_completion_without_card_times_needs_override(self):
-        with self.assertRaises(HTTPException):
-            self._reconcile(card_start=None, card_end=None)
-        record, warnings = self._reconcile(card_start=None, card_end=None, override_reason="card lost")
+    def test_completion_without_card_times_is_allowed_with_warning(self):
+        record, warnings = self._reconcile(card_start=None, card_end=None)
         self.assertEqual(record["time_source"], "SYSTEM_ENTRY")
-        self.assertTrue(warnings)
+        self.assertTrue(any("without card times" in w for w in warnings))
 
     def test_packing_does_not_require_card_times(self):
         record, _ = self._reconcile(stage="PACKING", card_start=None, card_end=None)

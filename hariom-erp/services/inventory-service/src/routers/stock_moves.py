@@ -121,7 +121,7 @@ def issue_batch_to_wip(
     payload: WipIssueCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Store", "PlantManager", "Production"])),
+    current_user: dict = Depends(require_role(["Admin", "Store", "PlantManager", "Production", "RMIssue"])),
 ):
     batch = db.query(StockBatch).filter(
         StockBatch.id == payload.batch_id,

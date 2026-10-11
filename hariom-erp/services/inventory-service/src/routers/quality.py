@@ -583,7 +583,7 @@ def list_quality_templates(
     material_type: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "Store", "Production"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "Store", "Production", "InwardQC"])),
 ):
     plant_id = authorized_plant_ids(plant_scope)[0] if not plant_scope.get("scope_all") else authorized_plant_ids(plant_scope)[0]
     if material_type:
@@ -647,7 +647,7 @@ def _incoming_deadline(created_at):
 def list_pending_quality(
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "Store", "Production"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "Store", "Production", "InwardQC"])),
 ):
     plant_filter = authorized_plant_ids(plant_scope)
     rows: list[PendingQualityItem] = []
@@ -867,7 +867,7 @@ def return_rejected_lot_to_supplier(
     payload: SupplierReturnCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "Store"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "Store", "GRN"])),
 ):
     """Send a QC-failed / rejected inward lot back to the supplier.
 
@@ -1059,11 +1059,12 @@ def create_quality_inspection(
     payload: QualityInspectionCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "Store"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "Store", "InwardQC"])),
 ):
-    quality_roles = {"QC", "Owner", "Admin"}
+    # Inward QC is the incoming-material desk: received lots (BATCH/REEL) only, never customer returns.
+    quality_roles = {"QC", "Owner", "Admin"} | ({"InwardQC"} if payload.entity_type in {"BATCH", "REEL"} else set())
     if not quality_roles.intersection(current_user.get("actual_roles", current_user.get("roles")) or []) or not quality_roles.intersection(current_user.get("roles") or []):
-        raise HTTPException(status_code=403, detail="Incoming inspection requires QC, Owner or Admin access")
+        raise HTTPException(status_code=403, detail="Incoming inspection requires QC, Inward QC, Owner or Admin access")
     stock_status: Optional[str] = None
     batch: Optional[StockBatch] = None
     reel: Optional[PaperReel] = None
@@ -1487,7 +1488,7 @@ def create_quality_concession(
     payload: QualityConcessionCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Owner", "QC", "PlantManager"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "QC", "PlantManager", "InwardQC"])),
 ):
     inspection = (
         db.query(InventoryQualityInspection)
@@ -1789,7 +1790,7 @@ def list_quality_concessions(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "Store", "Production", "Dispatch", "Sales"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "Store", "Production", "Dispatch", "Sales", "InwardQC"])),
 ):
     plant_filter = authorized_plant_ids(plant_scope)
     query = db.query(InventoryQualityConcession).filter(InventoryQualityConcession.plant_id.in_(plant_filter))
@@ -1833,7 +1834,7 @@ def list_quality_inspections(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "Store", "Production", "Dispatch", "Sales"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "Store", "Production", "Dispatch", "Sales", "InwardQC"])),
 ):
     plant_filter = authorized_plant_ids(plant_scope)
     query = db.query(InventoryQualityInspection).filter(InventoryQualityInspection.plant_id.in_(plant_filter))
@@ -1870,7 +1871,7 @@ def consume_destructive_sample(
     payload: DestructiveSampleConsume,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "InwardQC"])),
 ):
     from ..services.stock_calc import get_batch_balance, get_usable_item_qty
 
@@ -1957,7 +1958,7 @@ def quality_analytics(
     date_to: Optional[date] = Query(default=None),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "Planner", "Store", "Purchase", "Sales"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "Planner", "Store", "Purchase", "Sales", "InwardQC"])),
 ):
     """Incoming reject rate by supplier and material, and customer returns by customer and reason.
 

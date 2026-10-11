@@ -68,7 +68,7 @@ def create_issue(
     issue: IssueCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Store", "Admin"])),
+    current_user: dict = Depends(require_role(["Store", "Admin", "RMIssue"])),
 ):
     reason_code = str(issue.reason_code or "").strip().upper()
     if reason_code not in MANUAL_REASON_CODES:
@@ -220,7 +220,7 @@ def _returned_quantity(db, plant_id, issue_id):
 
 
 @router.get("/returnable")
-def list_returnable_issues(db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(require_role(["Store", "Admin"]))):
+def list_returnable_issues(db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(require_role(["Store", "Admin", "RMIssue"]))):
     issues = db.query(StockTransaction, ItemMaster, StockBatch).join(ItemMaster, ItemMaster.id == StockTransaction.item_id).join(
         StockBatch, StockBatch.id == StockTransaction.batch_id).filter(
         StockTransaction.plant_id == plant_id, StockTransaction.transaction_type == TransactionType.ISSUE_PRODUCTION,
@@ -241,7 +241,7 @@ def list_returnable_issues(db: Session = Depends(get_db), plant_id: str = Depend
 
 
 @router.post("/returns")
-def return_from_production(payload: ProductionReturnCreate, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(require_role(["Store", "Admin"]))):
+def return_from_production(payload: ProductionReturnCreate, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(require_role(["Store", "Admin", "RMIssue"]))):
     fingerprint = canonical_hash(payload.model_dump(mode="json", exclude={"request_id"}))
     db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": f"production-return:{plant_id}:{payload.request_id}"})
     existing = db.query(StockTransaction).filter(StockTransaction.plant_id == plant_id,

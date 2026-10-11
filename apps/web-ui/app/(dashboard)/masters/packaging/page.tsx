@@ -168,7 +168,7 @@ export default function PackagingMasterPage() {
                     : "border-border bg-muted text-muted-foreground hover:bg-card"
                 }`}
               >
-                <p className="text-[12px] font-semibold opacity-70">{item.label}</p>
+                <p className="text-[12px] font-semibold text-muted-foreground">{item.label}</p>
                 <p className="mt-2 text-2xl font-semibold">{counts[item.key]}</p>
               </button>
             ))}

@@ -83,7 +83,7 @@ def _manual_checks(payload, db, plant_id):
 
 
 @router.post("/manual-receipts/preview")
-def preview_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(require_role(["Store", "PlantManager"]))):
+def preview_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(require_role(["Store", "PlantManager", "GRN"]))):
     rows = _manual_checks(payload, db, plant_id)
     return {"receipt_kind": "MANUAL", "commercial_status": "INVOICE_PENDING" if payload.invoice_pending else "MANUAL_REVIEW",
             "lines": [{"item_code": item.item_code, "uom": _enum(item.uom), "quantity_kg": float(qty), "physical_unit_count": len(requested.lots), "invoice_rate": requested.invoice_rate} for requested, item, qty, _ in rows],
@@ -99,7 +99,7 @@ def _queue_qc_task(db: Session, lot, *, plant_id: str, receipt: PurchaseReceipt,
 
 
 @router.post("/manual-receipts")
-def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(require_role(["Store", "PlantManager"]))):
+def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(require_role(["Store", "PlantManager", "GRN"]))):
     fingerprint = canonical_hash(payload.model_dump(mode="json", exclude={"request_id"}))
     existing = db.query(PurchaseReceipt).filter_by(plant_id=plant_id, request_id=payload.request_id).first()
     if existing:

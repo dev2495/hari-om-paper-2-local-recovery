@@ -171,6 +171,9 @@ export const ROLE_WORK_QUEUES: Record<string, QueueItem[]> = {
   QC: [Q.holds, Q.blocked, Q.priority],
   Dispatch: [Q.dispatch, Q.overdue],
   Store: [Q.open, Q.priority, Q.dispatch],
+  InwardQC: [Q.holds],
+  GRN: [Q.open],
+  RMIssue: [Q.priority, Q.open],
   Operator: [Q.priority, Q.open],
 }
 

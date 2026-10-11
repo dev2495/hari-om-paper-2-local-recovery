@@ -53,7 +53,7 @@ export default function IncomingQualityPage() {
   const { showToast } = useApp()
   const { user } = useAuth()
   const roles = useMemo(() => new Set([user?.role, ...(user?.roles || [])].filter(Boolean) as string[]), [user?.role, user?.roles])
-  const canInspect = roles.has("QC") || roles.has("Owner") || roles.has("Admin")
+  const canInspect = roles.has("QC") || roles.has("InwardQC") || roles.has("Owner") || roles.has("Admin")
   const canConcede = roles.has("Owner") || roles.has("Admin") || (user?.permissions || []).includes("qc:disposition:approve")
   const canReturn = ["Owner", "Admin", "PlantManager", "Store"].some((role) => roles.has(role))
   const searchParams = useSearchParams()
@@ -207,7 +207,7 @@ export default function IncomingQualityPage() {
   }
 
   return (
-    <RoleGate allow={["QC", "Store", "PlantManager"]}>
+    <RoleGate allow={["QC", "InwardQC", "Store", "PlantManager"]}>
       <div className="space-y-6" data-testid="quality-incoming-page">
         <ExecutiveHero
           appearance={MODULE_APPEARANCES.analytics}

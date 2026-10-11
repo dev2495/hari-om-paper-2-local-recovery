@@ -182,7 +182,8 @@ def notify_machine_assigned(response: Response, request: Request, token: str, jo
             title=f"{ref} scheduled for {stage_label(stage)}",
             message=f"{_describe(card) or 'Job card'} is on the machine plan{f' ({when})' if when else ''}. Prepare material and start when due.",
             href=f"/production/job-cards/{job_card_id}",
-            recipient_roles=["Operator", "PlantManager", "Store"],
+            # Raw Material Issue prepares the material for the scheduled card.
+            recipient_roles=["Operator", "PlantManager", "Store", "RMIssue"],
             role_context="Operator",
             plant_id=str(card.get("plant_id") or plant_hint or "") or None,
             payload={"job_card_id": job_card_id, "stage": stage, "action": "start", "priority": "info"},

@@ -256,7 +256,7 @@ def create_reel_inward(
     payload: ReelInwardCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Store", "PlantManager"])),
+    current_user: dict = Depends(require_role(["Store", "PlantManager", "GRN"])),
 ):
     if get_settings().PROCUREMENT_V2_ENFORCED:
         raise HTTPException(
@@ -461,7 +461,7 @@ def slit_reel(
     payload: ReelSlitCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Store", "PlantManager"])),
+    current_user: dict = Depends(require_role(["Store", "PlantManager", "RMIssue"])),
 ):
     """Record slitting output for a reel that was issued to the slitting section.
 
@@ -637,7 +637,7 @@ def create_reel_scan_event(
     payload: ReelScanCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Store", "PlantManager", "Operator"])),
+    current_user: dict = Depends(require_role(["Store", "PlantManager", "Operator", "RMIssue", "GRN"])),
 ):
     plant_uuid = _to_uuid(plant_id)
     reel = db.query(PaperReel).filter(

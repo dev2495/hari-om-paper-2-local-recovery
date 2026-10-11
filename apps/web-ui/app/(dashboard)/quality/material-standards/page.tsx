@@ -17,7 +17,7 @@ export default function MaterialStandards() {
   const rows = (Array.isArray(items.data) ? items.data : []).filter((row:any) => row.type !== "FINISHED_GOOD")
   const item = rows.find((row:any) => row.id === id)
   const canApprove = (user?.roles || []).some((role:string) => ["Owner","Admin"].includes(role))
-  return <RoleGate allow={["QC"]}><ProcurementShell eyebrow="Quality" title="Incoming material standards" description="Set checks and tolerance bands for each RM or PM. Approved revisions are frozen on receipt; later changes do not rewrite the lot's QC rules.">
+  return <RoleGate allow={["QC", "InwardQC"]}><ProcurementShell eyebrow="Quality" title="Incoming material standards" description="Set checks and tolerance bands for each RM or PM. Approved revisions are frozen on receipt; later changes do not rewrite the lot's QC rules.">
     <QualityDeskNav /><RequestErrors errors={[items.error,save.error,copy.error,approve.error]} />
     <WorkPanel title="Material QC profile" description="QC prepares the parameters. Owner or Admin approves a revision before it governs new inward stock.">
       <Field label="Material"><select className={fieldClass} value={id} onChange={(event)=>setId(event.target.value)}><option value="">Select material</option>{rows.map((row:any)=><option key={row.id} value={row.id}>{row.item_code} · {row.name}</option>)}</select></Field>

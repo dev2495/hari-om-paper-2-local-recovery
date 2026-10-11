@@ -218,3 +218,64 @@ def apply_profile_exemption(
     payload["approved_at"] = datetime.utcnow().isoformat()
     payload["approved_snapshot"] = {key: value for key, value in payload.items() if key not in {"approved_snapshot", "history"}}
     return payload
+
+
+_NUMERIC_INPUTS = frozenset({"number", "numeric", "measured", ""})
+
+
+def apply_tolerance_adjustment(
+    current: Optional[dict[str, Any]],
+    adjustments: list[dict[str, Any]],
+    *,
+    expected_revision: int,
+    note: Optional[str] = None,
+) -> dict[str, Any]:
+    """Masters may only re-band the parameters QC already defined (client rule 2026-10-11).
+
+    QC owns *which* checks exist (codes, method, unit, type). This changes only the
+    min/max of existing numeric parameters and returns a new pending revision; the
+    previously approved snapshot keeps governing receipts until Owner/Admin approval.
+    """
+    profile = dict(current or {})
+    parameters = [dict(row) for row in (profile.get("parameters") or []) if isinstance(row, dict)]
+    if not parameters:
+        raise ProfileLifecycleError(
+            "QC has not set the inward QC parameters for this material yet. Ask QC to set them in Quality > Material standards first.",
+            code="QC_PARAMETERS_MISSING",
+            status_code=409,
+        )
+    if int(expected_revision) != int(profile.get("revision") or 1):
+        raise ProfileLifecycleError("The QC profile changed. Reload before saving.", code="STALE_REVISION", status_code=409)
+    if not adjustments:
+        raise ProfileLifecycleError("Change at least one tolerance.", code="NO_CHANGE")
+    by_code = {str(row.get("code") or row.get("parameter_key") or "").strip(): row for row in parameters}
+    changed: list[str] = []
+    for item in adjustments:
+        code = str((item or {}).get("code") or "").strip()
+        row = by_code.get(code)
+        if row is None:
+            raise ProfileLifecycleError(
+                f"{code or 'Parameter'} is not one of QC's parameters for this material; only QC can add parameters.",
+                code="UNKNOWN_PARAMETER",
+            )
+        input_type = str(row.get("input_type") or "number").strip().lower()
+        if input_type not in _NUMERIC_INPUTS:
+            raise ProfileLifecycleError(f"{row.get('label') or code} is not a measured number; it has no tolerance band.", code="NOT_NUMERIC")
+        lower = None if item.get("min") in (None, "") else _finite(item.get("min"))
+        upper = None if item.get("max") in (None, "") else _finite(item.get("max"))
+        if (item.get("min") not in (None, "") and lower is None) or (item.get("max") not in (None, "") and upper is None):
+            raise ProfileLifecycleError(f"{row.get('label') or code}: enter numbers only.", code="INVALID_NUMBER")
+        if lower is None and upper is None and row.get("required", True) is not False and row.get("applicable") is not False:
+            raise ProfileLifecycleError(f"{row.get('label') or code}: keep a min and/or max.", code="BAND_REQUIRED")
+        if lower is not None and upper is not None and lower > upper:
+            raise ProfileLifecycleError(f"{row.get('label') or code}: min {lower:g} is above max {upper:g}.", code="INVERTED_BAND")
+        if row.get("min") != lower or row.get("max") != upper:
+            row["min"], row["max"] = lower, upper
+            changed.append(code)
+    if not changed:
+        raise ProfileLifecycleError("No tolerance changed.", code="NO_CHANGE")
+    incoming = {key: value for key, value in profile.items() if key not in {"history", "approved_snapshot", "approved_by", "approved_at"}}
+    incoming["parameters"] = parameters
+    incoming["revision"] = profile.get("revision")
+    incoming["last_adjustment"] = {"source": "MASTERS", "parameters": changed, "note": (note or "").strip() or None}
+    return apply_profile_save(profile, incoming, requested_status="pending_review")

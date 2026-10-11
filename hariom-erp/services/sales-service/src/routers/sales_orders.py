@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from math import isfinite, isclose
 from typing import List, Optional
 import logging
@@ -27,6 +28,7 @@ from ..color_allocation import (
     ColorSplit,
     color_key,
     color_summary,
+    line_commercials,
     normalize_color_splits,
     plan_color_release,
     released_by_color,
@@ -75,6 +77,8 @@ class LineColorInput(BaseModel):
     color: str = Field(..., min_length=1, max_length=100)
     color_id: Optional[uuid.UUID] = None
     qty: float = Field(..., ge=0)
+    # Rate of this colour (₹/pc). Blank = the line's Rate / Pc applies.
+    rate_per_pc: Optional[float] = Field(default=None, ge=0)
 
 
 class SalesOrderLineInput(BaseModel):
@@ -261,6 +265,9 @@ class SalesOrderLineResponse(BaseModel):
     parchment_color_id: Optional[uuid.UUID] = None
     parchment_color: Optional[str]
     rate_per_pc: Optional[float]
+    # Colour-wise commercials: each colour at its own rate, undecided qty at the line rate.
+    line_value: Optional[float] = None
+    effective_rate_per_pc: Optional[float] = None
     qty: float
     due_date: date
     earliest_delivery_date: Optional[date] = None
@@ -354,9 +361,11 @@ def _serialize_line(line: SalesOrderLine) -> dict:
     parchment_color = getattr(line, "parchment_color", None) if parchment_required else None
     parchment_color_id = getattr(line, "parchment_color_id", None) if parchment_required else None
     schedules = list(getattr(line, "delivery_schedules", []) or [])
-    colors = color_summary(line.qty, _line_splits(line), released_by_color(release_lots)) if parchment_required else {"color_splits": [], "unassigned_color_qty": 0.0}
+    line_splits = _line_splits(line) if parchment_required else []
+    colors = color_summary(line.qty, line_splits, released_by_color(release_lots)) if parchment_required else {"color_splits": [], "unassigned_color_qty": 0.0}
     return {
         **colors,
+        **line_commercials(line.qty, line.rate_per_pc, line_splits),
         "id": line.id,
         "line_no": int(line.line_no or 1),
         "approved_spec_id": line.approved_spec_id,
@@ -446,15 +455,31 @@ def _serialize_order(order: SalesOrder) -> dict:
     }
 
 
-def existing_order_seq_max(db: Session, date_part: str) -> int:
-    """Highest ``NNNN`` already persisted for ``SO-{date_part}-NNNN``."""
+ORDER_NO_TIMEZONE = ZoneInfo("Asia/Kolkata")
+
+
+def order_month_key(moment: Optional[datetime] = None) -> str:
+    """``YYMM`` of the plant-local month (orders are numbered per calendar month in IST)."""
+    local = moment or datetime.now(ORDER_NO_TIMEZONE)
+    if local.tzinfo is None:
+        local = local.replace(tzinfo=ZoneInfo("UTC")).astimezone(ORDER_NO_TIMEZONE)
+    return local.strftime("%y%m")
+
+
+def format_order_no(month_key: str, seq: int) -> str:
+    """Short reference like job cards: ``SO/26/10/01`` (series restarts monthly, grows past 99)."""
+    return f"SO/{month_key[:2]}/{month_key[2:]}/{int(seq):02d}"
+
+
+def existing_order_seq_max(db: Session, month_key: str) -> int:
+    """Highest ``NN`` already persisted for ``SO/YY/MM/NN`` in this month."""
     value = db.execute(
         text(
-            "SELECT COALESCE(MAX(CAST(substring(order_no FROM 13) AS INTEGER)), 0) "
+            "SELECT COALESCE(MAX(CAST(split_part(order_no, '/', 4) AS INTEGER)), 0) "
             "FROM sales_orders "
-            "WHERE order_no LIKE :pfx"
+            "WHERE order_no LIKE :pfx AND split_part(order_no, '/', 4) ~ '^[0-9]+$'"
         ),
-        {"pfx": f"SO-{date_part}-%"},
+        {"pfx": f"SO/{month_key[:2]}/{month_key[2:]}/%"},
     ).scalar()
     return int(value or 0)
 
@@ -466,19 +491,19 @@ def next_counter_seq(current_last_seq: int | None, max_existing: int) -> int:
 
 
 def _next_order_no(db: Session) -> str:
-    """Allocate the next ``SO-YYYYMMDD-NNNN`` reference atomically.
+    """Allocate the next short ``SO/YY/MM/NN`` reference atomically.
 
-    A single counter row per date key is incremented with an atomic upsert that
-    returns the new value, so concurrent creates can never collide on the same
-    sequence number. The upsert also jumps past any ``sales_orders.order_no``
-    values minted before the counter existed, otherwise UniqueViolation 500s
-    appear once the counter lags the live table.
+    One counter row per month (key ``M`` + ``YYMM``; the older per-day ``YYYYMMDD`` rows
+    of the long ``SO-YYYYMMDD-NNNN`` format stay untouched) is incremented with an atomic
+    upsert that returns the new value, so concurrent creates can never collide. The upsert
+    also jumps past any order already carrying a number of this month.
     """
-    date_part = datetime.utcnow().strftime("%Y%m%d")
-    max_existing = existing_order_seq_max(db, date_part)
+    month_key = order_month_key()
+    counter_key = f"M{month_key}"
+    max_existing = existing_order_seq_max(db, month_key)
     stmt = (
         pg_insert(SalesOrderNumberCounter)
-        .values(date_key=date_part, last_seq=next_counter_seq(None, max_existing))
+        .values(date_key=counter_key, last_seq=next_counter_seq(None, max_existing))
         .on_conflict_do_update(
             index_elements=[SalesOrderNumberCounter.date_key],
             set_={
@@ -488,7 +513,7 @@ def _next_order_no(db: Session) -> str:
         .returning(SalesOrderNumberCounter.last_seq)
     )
     seq = db.execute(stmt).scalar_one()
-    return f"SO-{date_part}-{int(seq):04d}"
+    return format_order_no(month_key, int(seq))
 
 
 DEFAULT_EXPIRY_DAYS = 45
@@ -633,7 +658,7 @@ def _apply_line_fields(target: SalesOrderLine, incoming: SalesOrderLineInput, in
 
 def _line_splits(line: SalesOrderLine) -> list[ColorSplit]:
     return [
-        ColorSplit(color=row.color, qty=float(row.qty or 0.0), color_id=row.color_id)
+        ColorSplit(color=row.color, qty=float(row.qty or 0.0), color_id=row.color_id, rate_per_pc=getattr(row, "rate_per_pc", None))
         for row in (getattr(line, "color_splits", None) or [])
     ]
 
@@ -647,10 +672,11 @@ def _write_line_splits(line: SalesOrderLine, splits: list[ColorSplit]) -> None:
     for key, split in wanted.items():
         row = existing.get(key)
         if row is None:
-            line.color_splits.append(SalesOrderLineColor(color=split.color, color_id=split.color_id, qty=round(split.qty, 4)))
+            line.color_splits.append(SalesOrderLineColor(color=split.color, color_id=split.color_id, qty=round(split.qty, 4), rate_per_pc=split.rate_per_pc))
         else:
             row.qty = round(split.qty, 4)
             row.color = split.color
+            row.rate_per_pc = split.rate_per_pc
     # Line-level color stays meaningful for older screens: the single color, or none when mixed.
     if len(splits) == 1:
         line.parchment_color, line.parchment_color_id = splits[0].color, splits[0].color_id
@@ -676,7 +702,7 @@ def _apply_color_splits(target: SalesOrderLine, incoming: SalesOrderLineInput, i
             splits = [ColorSplit(color=target.parchment_color, qty=float(incoming.qty), color_id=target.parchment_color_id)]
         else:
             splits = normalize_color_splits(
-                [{"color": row.color, "color_id": row.color_id, "qty": row.qty} for row in (target.color_splits or [])],
+                [{"color": row.color, "color_id": row.color_id, "qty": row.qty, "rate_per_pc": getattr(row, "rate_per_pc", None)} for row in (target.color_splits or [])],
                 line_qty=incoming.qty,
                 line_no=line_no,
             )

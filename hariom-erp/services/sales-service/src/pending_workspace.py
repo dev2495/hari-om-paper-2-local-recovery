@@ -15,6 +15,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session, joinedload
 
+from .color_allocation import ColorSplit, line_commercials
 from .due_risk import (
     DUE_RISK_OVERDUE,
     DUE_RISK_PRIORITY,
@@ -108,7 +109,13 @@ def serialize_pending_line(line: Any, order: Any, today: date) -> dict[str, Any]
     schedules = _schedules(line)
     scheduled = active_schedule_qty(schedules)
     remaining_schedule = remaining_to_schedule(line, schedules)
-    rate = float(line.rate_per_pc or 0.0)
+    # Colour-wise rates: the line's effective (qty-weighted) rate values the outstanding qty.
+    commercials = line_commercials(qty, line.rate_per_pc, [
+        ColorSplit(color=row.color, qty=float(row.qty or 0.0), color_id=row.color_id, rate_per_pc=getattr(row, "rate_per_pc", None))
+        for row in (getattr(line, "color_splits", None) or [])
+    ] if getattr(line, "parchment_required", False) else [])
+    effective_rate = commercials["effective_rate_per_pc"]
+    rate = float(effective_rate if effective_rate is not None else (line.rate_per_pc or 0.0))
     due = earliest_pending_delivery(line)
     risk = classify_due_risk(due, today)
     missing = remaining_schedule > 1e-9
@@ -129,7 +136,7 @@ def serialize_pending_line(line: Any, order: Any, today: date) -> dict[str, Any]
         "scheduled_qty": round(scheduled, 2),
         "released_not_scheduled_qty": round(max(0.0, released - scheduled), 2),
         "remaining_to_schedule_qty": round(remaining_schedule, 2),
-        "rate_per_pc": round(rate, 4) if line.rate_per_pc is not None else None,
+        "rate_per_pc": round(rate, 4) if (line.rate_per_pc is not None or effective_rate is not None) else None,
         "outstanding_value": round(outstanding * rate, 2),
         "missing_schedule": missing,
         "wip_qty": None,
@@ -323,6 +330,7 @@ def load_open_orders(db: Session, plant_scope: dict) -> list[SalesOrder]:
             joinedload(SalesOrder.lines).joinedload(SalesOrderLine.release_lots),
             joinedload(SalesOrder.lines).joinedload(SalesOrderLine.delivery_schedules),
             joinedload(SalesOrder.lines).joinedload(SalesOrderLine.dispatch_logs),
+            joinedload(SalesOrder.lines).joinedload(SalesOrderLine.color_splits),
         ).filter(SalesOrder.status != SalesOrderStatus.CLOSED),
         SalesOrder.plant_id,
         plant_scope,

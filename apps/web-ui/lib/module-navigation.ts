@@ -50,6 +50,10 @@ export const MODULE_NAVIGATION: Record<string, ModuleLink[]> = {
       "href": "/masters/packaging"
     },
     {
+      "name": "Inward QC tolerances",
+      "href": "/masters/inward-qc"
+    },
+    {
       "name": "Physical tools",
       "href": "/masters/tools"
     },
@@ -90,6 +94,10 @@ export const MODULE_NAVIGATION: Record<string, ModuleLink[]> = {
     {
       "name": "Users",
       "href": "/system/users"
+    },
+    {
+      "name": "Roles & access",
+      "href": "/system/roles"
     },
     {
       "name": "Plants",

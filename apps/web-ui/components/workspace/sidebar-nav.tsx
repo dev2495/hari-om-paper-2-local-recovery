@@ -74,10 +74,31 @@ export function SidebarNav({
     }
   }, [currentHref, pathname, compact, groups, measure])
 
+  // Inside a module the rail can be taller than the screen: keep the current page (or its module)
+  // scrolled into view so it is never hidden below the fold or under the user card.
+  const scroller = useRef<HTMLElement | null>(null)
+  useLayoutEffect(() => {
+    const nav = scroller.current
+    if (!nav) return
+    const reveal = () => {
+      const target = (nav.querySelector('[data-level="sub"][aria-current="page"]') || nav.querySelector('[data-level="top"][aria-current="page"]')) as HTMLElement | null
+      if (!target) return
+      const navBox = nav.getBoundingClientRect()
+      const box = target.getBoundingClientRect()
+      const margin = 48
+      if (box.top >= navBox.top + margin && box.bottom <= navBox.bottom - margin) return
+      nav.scrollTop += box.top - navBox.top - nav.clientHeight / 2 + box.height / 2
+    }
+    reveal()
+    // Groups open with a short height transition; reveal again once they have settled.
+    const timer = window.setTimeout(reveal, 320)
+    return () => window.clearTimeout(timer)
+  }, [currentHref, pathname, compact])
+
   const style = (box: Box): CSSProperties | undefined => (box ? { transform: `translateY(${box.top}px)`, height: box.height } : undefined)
 
   return (
-    <nav className="tube-navigation" aria-label={mobile ? "Mobile workspaces" : "Workspaces"} onMouseLeave={() => setHover(null)}>
+    <nav ref={scroller} className="tube-navigation" aria-label={mobile ? "Mobile workspaces" : "Workspaces"} onMouseLeave={() => setHover(null)}>
       <div ref={canvas} className="tube-nav-canvas">
         <span className="tube-nav-spotlight" data-visible={Boolean(hover)} style={style(hover)} aria-hidden="true" />
         <span className="tube-nav-active" data-visible={Boolean(active)} style={style(active)} aria-hidden="true" />
