@@ -11,6 +11,7 @@ import { Field, MessageBar, ProcurementShell, WorkPanel, fieldClass, primaryButt
 import { LabelPrintControls } from "@/components/procurement/label-print-controls"
 import { LotLabels } from "@/components/procurement/lot-labels"
 import { RoleGate } from "@/components/workspace/role-gate"
+import { IssueDeskTabs } from "@/components/procurement/issue-desk-tabs"
 import { useCloseReelIssue, useCreateReelIssue, useReelIssues, useReels, useSlitCoil } from "@/hooks/use-inventory"
 import { useMachines } from "@/hooks/use-production"
 import { businessDate } from "@/lib/business-date"
@@ -220,6 +221,7 @@ export default function ReelIssuePage() {
         eyebrow="Stores / production issue"
         title="Issue paper to production"
         description="Reels go to slitting first. Each output coil gets its own label and can then be issued to production. Received coils go directly to production after QC."
+        actions={<IssueDeskTabs />}
       >
         {notice ? <MessageBar tone={notice.tone}>{notice.text}</MessageBar> : null}
         {reelsQuery.isError || issuesQuery.isError ? <MessageBar tone="error">Stock could not load. Refresh before issuing.</MessageBar> : null}

@@ -19,6 +19,14 @@ export function setStoredPlant(plantId: string | null) {
   } catch { /* Storage is an optional preference, never an authentication dependency. */ }
 }
 
+/** Download links are plain <a href>, so they cannot carry the X-Plant-ID header the services
+ * require; put the active plant in the query string instead (every service accepts plant_id there). */
+export function downloadUrl(path: string) {
+  const plant = getStoredPlant()
+  if (!plant || plant === "ALL") return path
+  return `${path}${path.includes("?") ? "&" : "?"}plant_id=${encodeURIComponent(plant)}`
+}
+
 function withPlantHeader(plantId?: string) {
   if (!plantId) return undefined
   return {
@@ -610,7 +618,7 @@ export const purchaseApi = {
   approveManualReceipt: (id: string, data: any) => api.post(`/api/purchase/v2/receipts/${id}/approve-manual`, data),
   getOrders: (params?: { q?: string; status?: string; limit?: number; offset?: number }) => api.get("/api/purchase/orders", { params }),
   getOrder: (id: string) => api.get(`/api/purchase/orders/${id}`),
-  orderPdfUrl: (id: string, revision?: number) => `/api/purchase/orders/${id}/pdf${revision ? `?revision_no=${revision}` : ""}`,
+  orderPdfUrl: (id: string, revision?: number) => downloadUrl(`/api/purchase/orders/${id}/pdf${revision ? `?revision_no=${revision}` : ""}`),
   createOrder: (data: any) => api.post("/api/purchase/orders", data),
   submitOrder: (id: string, data: any) => api.post(`/api/purchase/orders/${id}/submit`, data),
   approveOrder: (id: string, data: any) => api.post(`/api/purchase/orders/${id}/approve`, data),
@@ -634,7 +642,7 @@ export const purchaseApi = {
   getDiscrepancies: (params?: any) => api.get("/api/purchase/v2/discrepancies", { params }),
   actOnDiscrepancy: (id: string, data: any) => api.post(`/api/purchase/v2/discrepancies/${id}/action`, data),
   getDebitNotes: () => api.get("/api/purchase/v2/debit-notes"),
-  debitNotePdfUrl: (id: string) => `/api/purchase/v2/debit-notes/${id}/pdf`,
+  debitNotePdfUrl: (id: string) => downloadUrl(`/api/purchase/v2/debit-notes/${id}/pdf`),
   createDebitNote: (data: any) => api.post("/api/purchase/v2/debit-notes", data),
   actOnDebitNote: (id: string, data: any) => api.post(`/api/purchase/v2/debit-notes/${id}/action`, data),
   settleDebitNote: (id: string, data: any) => api.post(`/api/purchase/v2/debit-notes/${id}/settlements`, data),
@@ -656,12 +664,12 @@ export const purchaseApi = {
   createRmCostDraft: (data: any) => api.post("/api/purchase/v2/rm-costing/drafts", data),
   activateRmCostVersion: (id: string, data: any) => api.post(`/api/purchase/v2/rm-costing/versions/${id}/activate`, data),
   restoreRmCostVersion: (id: string, data: any) => api.post(`/api/purchase/v2/rm-costing/versions/${id}/restore-as-draft`, data),
-  labelJobPdfUrl: (id: string) => `/api/purchase/v2/label-jobs/${id}/pdf`,
+  labelJobPdfUrl: (id: string) => downloadUrl(`/api/purchase/v2/label-jobs/${id}/pdf`),
   createLabelJob: (data: any) => api.post("/api/purchase/v2/label-jobs", data),
   getLot: (id: string) => api.get(`/api/purchase/v2/lots/${id}`),
-  registerPdfUrl: (name: string, paper: "A3" | "A4" = "A3") => `/api/purchase/v2/registers/${name}/pdf?paper=${paper}`,
+  registerPdfUrl: (name: string, paper: "A3" | "A4" = "A3") => downloadUrl(`/api/purchase/v2/registers/${name}/pdf?paper=${paper}`),
   getRegister: (name: string) => api.get(`/api/purchase/v2/registers/${name}`),
-  registerExportUrl: (name: string, format: "csv" | "xlsx" = "xlsx") => `/api/purchase/v2/registers/${name}/export.${format}`,
+  registerExportUrl: (name: string, format: "csv" | "xlsx" = "xlsx") => downloadUrl(`/api/purchase/v2/registers/${name}/export.${format}`),
 }
 
 export const dispatchApi = {

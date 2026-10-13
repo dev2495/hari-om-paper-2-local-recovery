@@ -2032,7 +2032,14 @@ def approve_sales_order(
 
     actor = str(current_user.get("actual_sub") or current_user.get("sub") or "").strip().lower()
     if str(order.created_by or "").strip().lower() == actor:
-        raise HTTPException(status_code=403, detail="A different authorized person must approve this sales order")
+        # Maker-checker: switching role on the same login is still the same person.
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"This order was created by {order.created_by}, so the same person cannot approve it — "
+                "switching role does not change who you are. Sign in as a different Owner, Admin, Sales or Planner user to approve."
+            ),
+        )
     order.status = SalesOrderStatus.APPROVED
     order.approved_by = actor
     order.approved_at = datetime.utcnow()

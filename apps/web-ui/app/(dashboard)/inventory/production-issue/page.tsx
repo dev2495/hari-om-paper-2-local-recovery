@@ -1,6 +1,7 @@
 "use client"
 
 import { BulkMaterialReturns } from "@/components/procurement/bulk-material-returns"
+import { IssueDeskTabs } from "@/components/procurement/issue-desk-tabs"
 import { useDeferredValue, useEffect, useMemo, useState } from "react"
 import { ArrowRight, Barcode, PackageCheck, RefreshCw, Search } from "lucide-react"
 
@@ -127,7 +128,9 @@ export default function InventoryProductionIssuePage() {
     const pending = pendingBatchId.toUpperCase()
     const matched = itemBatches.find((batch: any) =>
       String(batch.batch_id || "").toUpperCase() === pending ||
-      String(batch.batch_no || "").toUpperCase() === pending
+      String(batch.batch_no || "").toUpperCase() === pending ||
+      String(batch.inward_no || "").toUpperCase() === pending ||
+      String(batch.grn_no || "").toUpperCase() === pending
     )
     if (!matched) return
     setFormData((current) => ({ ...current, batch_id: matched.batch_id }))
@@ -173,7 +176,9 @@ export default function InventoryProductionIssuePage() {
 
     const matched = itemBatches.find((batch: any) =>
       String(batch.batch_id || "").toUpperCase() === scanCode ||
-      String(batch.batch_no || "").toUpperCase() === scanCode
+      String(batch.batch_no || "").toUpperCase() === scanCode ||
+      String(batch.inward_no || "").toUpperCase() === scanCode ||
+      String(batch.grn_no || "").toUpperCase() === scanCode
     )
     if (!matched) {
       setBatchScanMessage(formData.item_id ? "Batch not available for the selected material." : "Select material first or scan the printed batch QR.")
@@ -221,6 +226,7 @@ export default function InventoryProductionIssuePage() {
 
   return (
     <div className="space-y-6" data-testid="inventory-production-issue-form">
+      <IssueDeskTabs />
       <section className="tube-hero-card animate-enter-up">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
@@ -299,14 +305,14 @@ export default function InventoryProductionIssuePage() {
 
           {isWipMode ? (
             <div className="space-y-2">
-              <label className="text-sm font-medium text-muted-foreground">Batch / Lot</label>
+              <label className="text-sm font-medium text-muted-foreground">Amigo inward number (GRN / label)</label>
               <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
                 <div className="flex h-11 items-center gap-2 rounded-xl border border-border bg-card px-3">
                   <Barcode className="h-4 w-4 text-muted-foreground" />
                   <input
                     value={batchScan}
                     onChange={(event) => setBatchScan(event.target.value)}
-                    placeholder="Scan batch QR or enter batch no"
+                    placeholder="Scan the inward label QR or type the inward / GRN number"
                     className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
                   />
                 </div>
@@ -327,7 +333,7 @@ export default function InventoryProductionIssuePage() {
                 <option value="">{itemBalanceQuery.isLoading ? "Loading batches..." : "Select available batch"}</option>
                 {itemBatches.map((batch: any) => (
                   <option key={batch.batch_id} value={batch.batch_id}>
-                    {batch.batch_no || batch.batch_id} - {Number(batch.available_qty ?? 0).toLocaleString("en-IN")} available - {batch.stock_status}
+                    {batch.inward_no || batch.grn_no || batch.batch_no || batch.batch_id}{batch.inward_no && batch.batch_no && batch.inward_no !== batch.batch_no ? ` (batch ${batch.batch_no})` : ""} - {Number(batch.available_qty ?? 0).toLocaleString("en-IN")} available - {batch.stock_status}
                   </option>
                 ))}
               </select>
@@ -454,7 +460,7 @@ export default function InventoryProductionIssuePage() {
 
         {isWipMode && selectedBatch ? (
           <div className="rounded-2xl border border-signal-emerald-line bg-signal-emerald-soft px-4 py-3 text-sm text-signal-emerald-ink">
-            Batch <span className="font-semibold">{selectedBatch.batch_no || selectedBatch.batch_id}</span> has{" "}
+            Inward <span className="font-semibold">{selectedBatch.inward_no || selectedBatch.grn_no || selectedBatch.batch_no || selectedBatch.batch_id}</span> has{" "}
             {Number(selectedBatch.available_qty ?? 0).toLocaleString("en-IN")} available at {selectedBatch.location || "store"}.
           </div>
         ) : null}

@@ -970,7 +970,14 @@ def approve_purchase_order(
     actor = _actor(current_user).strip().lower()
     makers = {str(revision.created_by or "").strip().lower(), str(revision.submitted_by or "").strip().lower()}
     if actor in makers:
-        raise HTTPException(status_code=403, detail="A different authorized person must approve this purchase order revision")
+        # Maker-checker: switching role on the same login is still the same person.
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"This revision was prepared by {revision.submitted_by or revision.created_by}, so the same person cannot approve it — "
+                "switching role does not change who you are. Sign in as a different Owner to approve."
+            ),
+        )
     order.status = "APPROVED"
     order.approved_by = _actor(current_user)
     order.approved_at = datetime.utcnow()

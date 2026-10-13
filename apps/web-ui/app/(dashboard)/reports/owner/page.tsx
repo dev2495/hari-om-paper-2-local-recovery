@@ -1,5 +1,7 @@
 "use client"
 
+import { downloadUrl } from "@/lib/api"
+
 import { Download, FileText } from "lucide-react"
 
 import { ReportHero } from "@/components/reports/primitives"
@@ -29,11 +31,11 @@ function OwnerPackPage() {
             accent="cyan"
           >
             <div className="mt-4 flex flex-wrap gap-2">
-              <a href="/api/analytics/reports/owner-pack/pdf?download=1" className="erp-btn-primary" rel="noopener" target="_blank">
+              <a href={downloadUrl("/api/analytics/reports/owner-pack/pdf?download=1")} className="erp-btn-primary" rel="noopener" target="_blank">
                 <Download className="h-4 w-4" />
                 Export PDF
               </a>
-              <a href="/api/analytics/reports/owner-pack/html" className="erp-btn-secondary" rel="noopener" target="_blank">
+              <a href={downloadUrl("/api/analytics/reports/owner-pack/html")} className="erp-btn-secondary" rel="noopener" target="_blank">
                 <FileText className="h-4 w-4" />
                 Open printable pack
               </a>

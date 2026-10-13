@@ -6,12 +6,12 @@ import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { Pagination } from "@/components/ui/pagination"
 import { ErrorState, LoadingState } from "@/components/workspace/query-state"
 import { useQuery } from "@tanstack/react-query"
-import { AlertTriangle, Boxes, FileCheck2, PackageCheck, Plus, Scale } from "lucide-react"
+import { AlertTriangle, Boxes, ClipboardList, FileCheck2, PackageCheck, Plus, Scale } from "lucide-react"
 
 import { EmptyState } from "@/components/erp/shell"
 import { ProcurementShell, StateBadge, SummaryCard, WorkPanel, fieldClass, primaryButton, secondaryButton } from "@/components/procurement/procurement-shell"
 import { useAuth } from "@/context/AuthContext"
-import { purchaseApi } from "@/lib/api"
+import { api, purchaseApi } from "@/lib/api"
 import type { PurchaseOrder } from "@/lib/procurement-types"
 
 const rows = (data: any): PurchaseOrder[] => data?.data?.items || []
@@ -63,6 +63,8 @@ function PurchaseRegister() {
   const items = rows(orders.data)
   const total = orders.data?.data?.total || 0
   const summary = orders.data?.data?.summary
+  const requisitions = useQuery({ queryKey: ["purchase-requisitions", activePlant, "SUBMITTED"], enabled: Boolean(activePlant && activePlant !== "ALL"), queryFn: () => api.get("/api/purchase/requisitions", { params: { status: "SUBMITTED" } }) })
+  const pendingRequisitions = (requisitions.data?.data?.items || []).length
   const awaiting = summary?.awaiting_approval
   const approved = summary?.receivable
   const openQuantity = summary ? Object.entries(summary.open_by_uom || {}).map(([uom,qty]) => `${Number(qty).toLocaleString("en-IN")} ${uom}`).join(" + ") || "0" : "—"
@@ -71,9 +73,10 @@ function PurchaseRegister() {
     <ProcurementShell eyebrow="Procurement control book" title="Purchase orders"
       description="Review commitments, approve revisions and receive against the correct order. Search and totals include every matching order in this plant."
       actions={<><Link href="/purchase/new" className={primaryButton}><Plus className="h-4 w-4" /> New purchase order</Link><a href={purchaseApi.registerExportUrl("po-lines")} className={secondaryButton}>Export full register</a></>}>
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <Link href="/purchase/requisitions" className="block"><SummaryCard label="Requisitions to approve" value={requisitions.isSuccess ? pendingRequisitions : "—"} detail="Submitted requests waiting for the Owner" icon={ClipboardList} tone={pendingRequisitions ? "amber" : "slate"} /></Link>
         <SummaryCard label="Purchase orders" value={orders.isSuccess ? total : "—"} detail="Matching orders across every page" icon={FileCheck2} tone="slate" />
-        <SummaryCard label="Awaiting approval" value={awaiting ?? "—"} detail="Maker-checker decisions pending" icon={AlertTriangle} tone="amber" />
+        <Link href="/purchase/approvals" className="block"><SummaryCard label="POs awaiting approval" value={awaiting ?? "—"} detail="Maker-checker decisions pending" icon={AlertTriangle} tone="amber" /></Link>
         <SummaryCard label="Receivable" value={approved ?? "—"} detail="Approved POs with stock handoff" icon={PackageCheck} tone="emerald" />
         <SummaryCard label="Open requirement" value={openQuantity} detail="Open by unit; excludes cancelled and rejected orders" icon={Scale} tone="cyan" />
       </section>

@@ -35,6 +35,7 @@ def create(a,db,job,stage='WINDER',**kw):
     values.update(kw);return a.create_entry(job.id,a.EntryInput(**values),db,PLANT,USER)
 
 def winding_samples():return [{'sample_id':str(uuid.uuid4()),'readings':{'id':76.3,'od':82,'height':1560,'weight':130,'cs':165}} for _ in range(2)]
+def oven_samples():return [{'sample_id':str(uuid.uuid4()),'readings':{'pre_weight':1000,'post_weight':910,'pre_moisture':10,'post_moisture':8,'cs':420}} for _ in range(2)]
 
 def test_rejected_excess_production_still_requires_variance_reason(card):
     a,db,job=card
@@ -158,7 +159,8 @@ def test_material_issue_cannot_be_attributed_to_two_cards(card,monkeypatch):
 
 def test_continuous_oven_before_winding_close_and_double_input(card):
     a,db,job=card
-    create(a,db,job,produced=5,accepted=4,details={'reject_reason':'One rejected'})
+    # Each winding batch must pass its own QC before Oven may take it (client rule 2026-10-13).
+    create(a,db,job,produced=5,accepted=4,details={'reject_reason':'One rejected'},samples=winding_samples())
     create(a,db,job,'OVEN',produced=3,accepted=2,input_quantity=3,details={'reject_reason':'One oven reject'})
     assert a.stage_row(db,job,'WINDER').status=='RUNNING'
     assert a.available(db,job,'OVEN')==1
@@ -191,8 +193,8 @@ def test_request_replay_and_total_mode(card):
 
 def test_process_conservation_and_carryover(card):
     a,db,job=card
-    create(a,db,job,produced=3,accepted=3)
-    create(a,db,job,'OVEN',produced=3,accepted=3,input_quantity=3)
+    create(a,db,job,produced=3,accepted=3,samples=winding_samples())
+    create(a,db,job,'OVEN',produced=3,accepted=3,input_quantity=3,samples=oven_samples())
     create(a,db,job,'PROCESS',produced=12,accepted=12,input_quantity=2,carry_out_pcs=7,cutting_loss_pcs=1,details={'carryover_reason':'Uncut pieces held','reject_reason':'Trim'})
     assert a.flow(db,job)['stages'][2]['carryover_pcs']==7
     create(a,db,job,'PROCESS',produced=7,accepted=7,input_quantity=0,carry_in_pcs=7,details={'carryover_reason':'Finish held pieces'})
@@ -232,7 +234,7 @@ def test_whole_card_batch_rolls_back_entries_allocations_and_receipts(card):
     a,db,job=card
     from src.entry_models import StageEntry,InputAllocation,EntryReceipt
     def item(stage,produced,input_qty):
-        return {'entry':{'request_id':'ignored-inner-key','stage':stage,'business_date':date.today(),'shift_code':'SHIFT_A','operator_id':uuid.uuid4(),'produced':produced,'accepted':produced,'input_quantity':input_qty,'submit':True}}
+        return {'entry':{'request_id':'ignored-inner-key','stage':stage,'business_date':date.today(),'shift_code':'SHIFT_A','operator_id':uuid.uuid4(),'produced':produced,'accepted':produced,'input_quantity':input_qty,'submit':True,'samples':winding_samples() if stage=='WINDER' else []}}
     body=a.BatchInput(request_id=str(uuid.uuid4()),steps=[item('WINDER',5,0),item('OVEN',6,6)])
     with pytest.raises(HTTPException) as err:a.batch_entries(job.id,body,db,PLANT,USER)
     assert err.value.status_code==409
@@ -251,3 +253,25 @@ def test_missing_accepted_is_rejected_before_submission(card):
     payload=a.EntryInput(request_id=str(uuid.uuid4()),stage='WINDER',business_date=date.today(),shift_code='SHIFT_A',operator_id=uuid.uuid4(),produced=5,details={'reject_reason':'Reject all'},submit=True)
     with pytest.raises(HTTPException) as err:a.create_entry(job.id,payload,db,PLANT,USER)
     assert err.value.status_code==422
+
+
+def test_next_stage_takes_only_qc_cleared_batches_unless_supervisor_overrides(card):
+    a,db,job=card
+    # Winding batch 1: 5 produced, no QC yet. Oven may not take it.
+    create(a,db,job,produced=5,accepted=5)
+    assert a.available(db,job,'OVEN')==0 and a.awaiting_qc(db,job,'OVEN')==5
+    with pytest.raises(HTTPException) as err:create(a,db,job,'OVEN',produced=3,accepted=3,input_quantity=3)
+    assert err.value.status_code==409 and err.value.detail['code']=='UPSTREAM_AWAITING_QC' and err.value.detail['awaiting_qc']==5;db.rollback()
+    # Winding batch 2 with passing QC readings: only this batch is available to Oven.
+    create(a,db,job,produced=4,accepted=4,samples=winding_samples())
+    assert a.available(db,job,'OVEN')==4 and a.awaiting_qc(db,job,'OVEN')==5
+    create(a,db,job,'OVEN',produced=4,accepted=4,input_quantity=4)
+    assert a.available(db,job,'OVEN')==0
+    # Supervisor override with a reason may draw on the batch still awaiting QC; the reason is kept.
+    create(a,db,job,'OVEN',produced=2,accepted=2,input_quantity=2,details={'qc_gate_override_reason':'Supervisor checked the winding batch physically'})
+    assert a.available(db,job,'OVEN',override=True)==3 and a.awaiting_qc(db,job,'OVEN')==3
+    flow=a.flow(db,job);oven=next(s for s in flow['stages'] if s['stage']=='OVEN')
+    assert oven['available_from_upstream']==0 and oven['awaiting_qc_from_upstream']==3 and oven['upstream_has_qc']
+    with pytest.raises(HTTPException) as denied:
+        a.create_entry(job.id,a.EntryInput(request_id=str(uuid.uuid4()),stage='OVEN',business_date=date.today(),shift_code='SHIFT_A',operator_id=uuid.uuid4(),produced=1,accepted=1,input_quantity=1,submit=True,details={'qc_gate_override_reason':'x'}),db,PLANT,{'sub':'op','roles':['Operator'],'allowed_plants':[PLANT]})
+    assert denied.value.status_code==403;db.rollback()

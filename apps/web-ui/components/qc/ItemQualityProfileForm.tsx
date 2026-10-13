@@ -361,6 +361,36 @@ export function ItemQualityProfileForm({
         >
           Add parameter
         </button>
+        {masterNominals.length ? (
+          <button
+            type="button"
+            data-testid="item-qc-fill-from-master"
+            disabled={saving || !item}
+            title="Sets each matching check's min/max around the paper master value (GSM ±4 %, BF ±2, ply bond ±10 %). Edit afterwards if QC wants a tighter band."
+            onClick={() => {
+              const defaults: Record<string, (value: number) => number> = { gsm: (v) => v * 0.04, bf: () => 2, plybond: (v) => v * 0.1, bulk: (v) => v * 0.05 }
+              const round = (value: number) => Math.round(value * 1000) / 1000
+              const key = (value: unknown) => String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "")
+              let touched = 0
+              patchProfile((current: any) => {
+                const rows = [...(current.parameters || [])]
+                for (const nominal of masterNominals) {
+                  const index = rows.findIndex((row: any) => key(row.code) === key(nominal.code))
+                  const tolerance = (defaults[key(nominal.code)] || ((v: number) => v * 0.05))(nominal.value)
+                  const band = { min: round(nominal.value - tolerance), max: round(nominal.value + tolerance), unit: nominal.unit || rows[index]?.unit || "" }
+                  if (index >= 0) rows[index] = { ...rows[index], ...band, applicable: true }
+                  else rows.push({ ...blankRow(), code: nominal.code, label: nominal.label, ...band })
+                  touched += 1
+                }
+                return { ...current, parameters: rows }
+              })
+              setSavedMessage(`${touched} check${touched === 1 ? "" : "s"} set from the paper master. Review the bands, then save.`)
+            }}
+            className="rounded-xl border border-primary/40 bg-accent px-3 py-2 text-sm font-semibold text-primary disabled:opacity-50"
+          >
+            Fill bands from paper master
+          </button>
+        ) : null}
         <button
           type="button"
           disabled={saving || !item || !onCopyTemplate}

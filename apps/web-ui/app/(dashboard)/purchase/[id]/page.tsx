@@ -4,7 +4,7 @@ import Link from "next/link"
 import { useState } from "react"
 import { useParams } from "next/navigation"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Ban, Clock3, PencilLine, Printer, Send } from "lucide-react"
+import { Ban, CheckCircle2, Clock3, PackageCheck, PencilLine, Printer, Send, XCircle } from "lucide-react"
 
 import { EmptyState } from "@/components/erp/shell"
 import { Field, MessageBar, ProcurementShell, QuantityLotStrip, StateBadge, WorkPanel, fieldClass, primaryButton, secondaryButton } from "@/components/procurement/procurement-shell"
@@ -14,7 +14,9 @@ import type { PurchaseOrder } from "@/lib/procurement-types"
 
 export default function PurchaseOrderDetailPage() {
   const params = useParams<{ id: string }>()
-  const { activePlant } = useAuth()
+  const { activePlant, user } = useAuth()
+  const roles = new Set([user?.role, ...(user?.roles || [])].filter(Boolean) as string[])
+  const isOwner = roles.has("Owner")
   const queryClient = useQueryClient()
   const [reason, setReason] = useState("")
   const [notice, setNotice] = useState<{ tone: "success" | "error"; text: string } | null>(null)
@@ -25,6 +27,8 @@ export default function PurchaseOrderDetailPage() {
   const refresh = () => { queryClient.invalidateQueries({ queryKey: ["purchase-v2"] }); queryClient.invalidateQueries({ queryKey: ["purchase"] }) }
   const submit = useMutation({ mutationFn: () => purchaseApi.submitOrder(params.id, { expected_version: order?.version, reason: reason || "Ready for commercial approval" }), onSuccess: () => { setNotice({ tone: "success", text: "Revision submitted for independent approval." }); refresh() }, onError: (error: any) => setNotice({ tone: "error", text: error?.response?.data?.detail || error.message }) })
   const shortClose = useMutation({ mutationFn: () => purchaseApi.shortCloseOrder(order!.id, { expected_version: order!.version, reason, lines: [] }), onSuccess: () => { setNotice({ tone: "success", text: "All remaining quantities were short-closed with the saved reason." }); setReason(""); refresh() }, onError: (error: any) => setNotice({ tone: "error", text: error?.response?.data?.detail || error.message }) })
+  const approve = useMutation({ mutationFn: () => purchaseApi.approveOrder(order!.id, { expected_version: order!.version, reason: reason || "Commercial terms verified" }), onSuccess: () => { setNotice({ tone: "success", text: "Purchase order approved. Stores can now receive against it." }); setReason(""); refresh() }, onError: (error: any) => setNotice({ tone: "error", text: error?.response?.data?.detail || error.message }) })
+  const reject = useMutation({ mutationFn: () => purchaseApi.rejectOrder(order!.id, { expected_version: order!.version, reason }), onSuccess: () => { setNotice({ tone: "success", text: "Revision sent back with your reason." }); setReason(""); refresh() }, onError: (error: any) => setNotice({ tone: "error", text: error?.response?.data?.detail || error.message }) })
   const cancel = useMutation({ mutationFn: () => purchaseApi.cancelOrder(order!.id, { expected_version: order!.version, reason }), onSuccess: () => { setNotice({ tone: "success", text: "Unreceived purchase order cancelled with history preserved." }); setReason(""); refresh() }, onError: (error: any) => setNotice({ tone: "error", text: error?.response?.data?.detail || error.message }) })
 
   if (!activePlant || activePlant === "ALL") return <ProcurementShell eyebrow="Purchasing" title="Purchase order" description="Select the purchase order plant.">{null}</ProcurementShell>
@@ -43,7 +47,15 @@ export default function PurchaseOrderDetailPage() {
   return (
     <ProcurementShell eyebrow={`${order.po_no} · Revision ${order.current_revision_no}`} title={`${order.supplier_name} purchase order`}
       description="The printed document, approval decision, inward allocation and future revisions all refer to this saved commercial record."
-      actions={<><a className={secondaryButton} href={purchaseApi.orderPdfUrl(order.id, order.current_revision_no)} target="_blank" rel="noreferrer"><Printer className="h-4 w-4" /> Saved PDF</a>{!['RECEIVED','CANCELLED','SHORT_CLOSED'].includes(order.status) ? <Link className={secondaryButton} href={`/purchase/${order.id}/edit`}><PencilLine className="h-4 w-4" /> Edit / vendor change</Link> : null}</>}>
+      actions={<>
+        {order.status === "DRAFT" ? <button type="button" className={primaryButton} disabled={submit.isPending} onClick={() => submit.mutate()}><Send className="h-4 w-4" /> Submit for approval</button> : null}
+        {order.status === "SUBMITTED" && isOwner ? <button type="button" className={primaryButton} disabled={approve.isPending} onClick={() => approve.mutate()}><CheckCircle2 className="h-4 w-4" /> Approve PO</button> : null}
+        {order.status === "SUBMITTED" && !isOwner ? <span className="rounded-lg border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-[12.5px] font-medium text-signal-amber-ink">Waiting for Owner approval</span> : null}
+        {['APPROVED','PARTIALLY_RECEIVED'].includes(order.status) ? <Link className={primaryButton} href={`/purchase/inward?po=${order.id}&vendor=${order.supplier_id}`}><PackageCheck className="h-4 w-4" /> Receive goods (GRN)</Link> : null}
+        <button type="button" className={secondaryButton} onClick={() => window.print()}><Printer className="h-4 w-4" /> Print PO</button>
+        <a className={secondaryButton} href={purchaseApi.orderPdfUrl(order.id, order.current_revision_no)} target="_blank" rel="noreferrer">Saved PDF</a>
+        {!['RECEIVED','CANCELLED','SHORT_CLOSED'].includes(order.status) ? <Link className={secondaryButton} href={`/purchase/${order.id}/edit`}><PencilLine className="h-4 w-4" /> Edit / vendor change</Link> : null}
+      </>}>
       {notice ? <MessageBar tone={notice.tone}>{notice.text}</MessageBar> : null}
       <QuantityLotStrip ordered={quantityByUnit("ordered")} received={quantityByUnit("received")} open={quantityByUnit("open")}
         lots={order.lines.reduce((sum, line) => sum + Number(line.received_unit_count || 0), 0)}
@@ -63,7 +75,7 @@ export default function PurchaseOrderDetailPage() {
       <section className="grid gap-4 xl:grid-cols-[minmax(0,0.6fr)_minmax(0,1.4fr)]">
         <WorkPanel title="Approval control" description="The submitting person cannot approve the same revision.">
           <StateBadge value={order.status} />
-          {order.status === "DRAFT" ? <div className="mt-4 space-y-3"><Field label="Submission note"><input className={fieldClass} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ready for commercial check" /></Field><button className={primaryButton} disabled={submit.isPending} onClick={() => submit.mutate()}><Send className="h-4 w-4" /> Submit for approval</button></div> : <p className="mt-4 text-sm leading-6 text-muted-foreground">Use the Approval Inbox for approve/reject decisions and content-hash protection.</p>}
+          {order.status === "DRAFT" ? <div className="mt-4 space-y-3"><Field label="Submission note"><input className={fieldClass} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ready for commercial check" /></Field><button className={primaryButton} disabled={submit.isPending} onClick={() => submit.mutate()}><Send className="h-4 w-4" /> Submit for approval</button></div> : order.status === "SUBMITTED" && isOwner ? <div className="mt-4 space-y-3"><Field label="Decision reason"><input className={fieldClass} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="What was checked, or why it is sent back" /></Field><div className="flex flex-wrap gap-2"><button className={primaryButton} disabled={approve.isPending} onClick={() => approve.mutate()}><CheckCircle2 className="h-4 w-4" /> Approve</button><button className={secondaryButton} disabled={reject.isPending || reason.trim().length < 3} onClick={() => reject.mutate()}><XCircle className="h-4 w-4" /> Reject with reason</button></div></div> : order.status === "SUBMITTED" ? <p className="mt-4 text-sm leading-6 text-muted-foreground">Submitted. The Owner approves it from the top of this page or from PO approvals; the submitter cannot approve their own revision.</p> : <p className="mt-4 text-sm leading-6 text-muted-foreground">Flow: requisition (tools / other) → PO → Owner approval → Goods inward &amp; GRN → Incoming QC.</p>}
           {['APPROVED','PARTIALLY_RECEIVED'].includes(order.status) ? <div className="mt-5 space-y-3 border-t border-border pt-4"><Field label="Close reason"><input className={fieldClass} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why the open quantities will not arrive" /></Field><button className={secondaryButton} disabled={reason.trim().length < 3 || shortClose.isPending} onClick={() => shortClose.mutate()}><Ban className="h-4 w-4" /> Short-close remaining quantities</button></div> : null}
           {['DRAFT','SUBMITTED','REJECTED','APPROVED'].includes(order.status) && order.lines.every((line) => line.qty_received === 0) ? <div className="mt-3"><button className={secondaryButton} disabled={reason.trim().length < 3 || cancel.isPending} onClick={() => cancel.mutate()}><Ban className="h-4 w-4" /> Cancel unreceived PO</button></div> : null}
         </WorkPanel>

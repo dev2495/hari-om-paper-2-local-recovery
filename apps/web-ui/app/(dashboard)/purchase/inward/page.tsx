@@ -5,6 +5,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type { KeyboardEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Plus, Trash2, ArrowRight, PackageCheck } from "lucide-react"
+import { useSearchParams } from "next/navigation"
 import { Field, MessageBar, ProcurementShell, WorkPanel, fieldClass, primaryButton, secondaryButton } from "@/components/procurement/procurement-shell"
 import { LabelPrintControls } from "@/components/procurement/label-print-controls"
 import { LotLabels } from "@/components/procurement/lot-labels"
@@ -29,8 +30,22 @@ export default function PurchaseInwardPage() {
   const items: any[] = Array.isArray(itemsQuery.data) ? itemsQuery.data.filter((item: any) => item.type !== "FINISHED_GOOD") : []
   const receivable = useQuery({ queryKey: ["purchase-v2", "receivable", activePlant], enabled: Boolean(activePlant && activePlant !== "ALL"), queryFn: () => purchaseApi.getReceivableLines() })
   const available: ReceivableLine[] = receivable.data?.data?.items || []
+  const searchParams = useSearchParams()
   const [mode, setMode] = useState<"PO" | "MANUAL">("PO")
   const [vendorId, setVendorId] = useState(""); const [poId, setPoId] = useState("")
+  // Opened from a PO ("Receive goods"): preselect its vendor, PO and, when given, the material line.
+  const prefill = useRef(false)
+  useEffect(() => {
+    if (prefill.current || !available.length) return
+    const wantedPo = searchParams.get("po"); const wantedLine = searchParams.get("line")
+    if (!wantedPo) return
+    const row = available.find((item) => item.po_id === wantedPo)
+    if (!row) { prefill.current = true; setNotice({ tone: "info", text: "That purchase order has nothing open to receive (fully received, not approved yet, or closed)." }); return }
+    prefill.current = true
+    setMode("PO"); setVendorId(row.supplier_id); setPoId(row.po_id)
+    setLines([{ ...newLine(), po_line_id: wantedLine && available.some((item) => item.po_line_id === wantedLine) ? wantedLine : "" }])
+    setNotice({ tone: "info", text: `Receiving against ${row.po_no} · ${row.supplier_name}. Vendor and PO are filled from the purchase order.` })
+  }, [available, searchParams])
   const [lines, setLines] = useState<Line[]>([newLine()])
   const [invoice, setInvoice] = useState({ invoice_no: "", invoice_date: businessDate(), pending: false, reason: "" })
   const [notice, setNotice] = useState<{ tone: "success" | "error" | "info"; text: string } | null>(null)
@@ -121,6 +136,7 @@ export default function PurchaseInwardPage() {
     <fieldset disabled={busy} className="contents">
     <WorkPanel title="Vendor & receipt source">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"><Field label="Receipt source"><select className={fieldClass} value={mode} onChange={(event) => { setMode(event.target.value as typeof mode); reset() }}><option value="PO">Against approved system PO</option><option value="MANUAL">Manual GRN · without PO</option></select></Field><Field label="Vendor"><select className={fieldClass} value={vendorId} onChange={(event) => { setVendorId(event.target.value); setPoId(""); reset() }}><option value="">Select vendor</option>{vendors.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></Field>{mode === "PO" ? <Field label="Approved purchase order"><select className={fieldClass} value={poId} disabled={!vendorId} onChange={(event) => { setPoId(event.target.value); reset() }}><option value="">Select approved PO</option>{poOptions.map((row) => <option key={row.po_id} value={row.po_id}>{row.po_no} · revision {row.revision_no}</option>)}</select></Field> : <Field label="Reason for no PO"><input className={fieldClass} value={invoice.reason} onChange={(event) => setInvoice({ ...invoice, reason: event.target.value })} placeholder="e.g. approved urgent local purchase" /></Field>}<Field label="Inward date · automatic"><input className={fieldClass} disabled value={businessDate()} /></Field></div>
+      <p className="mt-3 text-[12.5px] leading-5 text-muted-foreground"><strong className="text-foreground">Weights:</strong> <strong>Net kg</strong> is the paper alone — it goes to stock and is what the PO and invoice are settled on. <strong>Gross kg</strong> is the reel as weighed with core and wrapper; <strong>Tare</strong> is core + wrapper, so Net = Gross − Tare. Enter net (or gross + tare); gross/tare are optional.</p>
       {mode === "MANUAL" ? <p className="mt-3 text-sm text-signal-amber-ink">Manual stock requires invoice and independent approval. QC clearance remains a separate step.</p> : vendorId && !poOptions.length && !receivable.isLoading ? <p className="mt-3 text-sm text-signal-amber-ink">No approved open PO for this vendor. Complete PO approval or choose Manual GRN.</p> : null}
     </WorkPanel>
     <WorkPanel title="Supplier invoice"><div className="grid gap-4 md:grid-cols-3"><Field label="Invoice number"><input className={fieldClass} disabled={invoice.pending} value={invoice.invoice_no} onChange={(event) => setInvoice({ ...invoice, invoice_no: event.target.value })} /></Field><Field label="Invoice date"><input className={fieldClass} type="date" disabled={invoice.pending} value={invoice.invoice_date} onChange={(event) => setInvoice({ ...invoice, invoice_date: event.target.value })} /></Field><label className="flex min-h-11 items-center gap-3 self-end text-sm"><input type="checkbox" checked={invoice.pending} onChange={(event) => setInvoice({ ...invoice, pending: event.target.checked })} /> Challan received · invoice pending</label></div></WorkPanel>

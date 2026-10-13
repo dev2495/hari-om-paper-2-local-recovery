@@ -639,15 +639,26 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                         onChange={(event) => updateSpec(line.localId, event.target.value)}
                         className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm"
                       >
-                        <option value="">{form.customer_id && !showAllCustomerSpecs ? "Select this customer's approved spec" : "Select approved spec"}</option>
-                        {approvedSpecs.filter((spec: any) => specForCustomer(spec) || spec.id === line.approved_spec_id).map((spec: any) => (
-                          <option key={spec.id} value={spec.id}>
-                            {specLabel(spec)}
-                          </option>
-                        ))}
-                        {pendingSpecs.some((spec: any) => specForCustomer(spec)) ? (
+                        <option value="">{form.customer_id ? "Select approved spec" : "Select approved spec (pick the customer first)"}</option>
+                        {form.customer_id && !showAllCustomerSpecs && approvedSpecs.some((spec: any) => specForCustomer(spec)) ? (
+                          <optgroup label="This customer's approved specs">
+                            {approvedSpecs.filter((spec: any) => specForCustomer(spec)).map((spec: any) => (
+                              <option key={spec.id} value={spec.id}>{specLabel(spec)}</option>
+                            ))}
+                          </optgroup>
+                        ) : null}
+                        {(() => {
+                          const others = approvedSpecs.filter((spec: any) => showAllCustomerSpecs || !form.customer_id || !specForCustomer(spec))
+                          if (!others.length) return null
+                          return form.customer_id && !showAllCustomerSpecs ? (
+                            <optgroup label="Other approved specs (all customers)">
+                              {others.map((spec: any) => <option key={spec.id} value={spec.id}>{specLabel(spec)}</option>)}
+                            </optgroup>
+                          ) : others.map((spec: any) => <option key={spec.id} value={spec.id}>{specLabel(spec)}</option>)
+                        })()}
+                        {pendingSpecs.length ? (
                           <optgroup label="Not approved yet — approve in Specifications first">
-                            {pendingSpecs.filter((spec: any) => specForCustomer(spec)).map((spec: any) => (
+                            {pendingSpecs.map((spec: any) => (
                               <option key={spec.id} value={spec.id} disabled>
                                 {specLabel(spec)} · {String(spec.status || "draft").toUpperCase()}
                               </option>
@@ -658,13 +669,13 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                       {(() => {
                         if (!form.customer_id) return <p className="text-[11.5px] text-muted-foreground">Pick the customer first to see their specifications.</p>
                         const approvedCount = approvedSpecs.filter((spec: any) => specForCustomer(spec)).length
-                        const pendingCount = pendingSpecs.filter((spec: any) => specForCustomer(spec)).length
+                        const pendingCount = pendingSpecs.length
                         return (
                           <p className="text-[11.5px] text-muted-foreground">
-                            {approvedCount} approved{pendingCount ? <> · <Link href="/specifications" className="font-semibold text-signal-amber-ink underline-offset-2 hover:underline">{pendingCount} waiting for approval</Link></> : null}
+                            {approvedCount} approved for this customer · {approvedSpecs.length} approved in total{pendingCount ? <> · <Link href="/specifications" className="font-semibold text-signal-amber-ink underline-offset-2 hover:underline">{pendingCount} not approved yet</Link></> : null}
                             {" · "}
                             <button type="button" className="font-semibold text-primary underline-offset-2 hover:underline" onClick={() => setShowAllCustomerSpecs((value) => !value)}>
-                              {showAllCustomerSpecs ? "Only this customer" : "Show all customers"}
+                              {showAllCustomerSpecs ? "Group by customer" : "Flat list"}
                             </button>
                           </p>
                         )

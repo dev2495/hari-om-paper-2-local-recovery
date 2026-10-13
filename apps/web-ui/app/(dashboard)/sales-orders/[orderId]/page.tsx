@@ -31,6 +31,7 @@ import { ErrorState, LoadingState } from "@/components/workspace/query-state"
 import { ReleaseToQueueDialog } from "@/components/sales/release-to-queue-dialog"
 import { LineDeliveryEditor } from "@/components/sales/line-delivery-editor"
 import { useApp } from "@/context/AppContext"
+import { useAuth } from "@/context/AuthContext"
 import { apiErrorText, useOrderProductionTrail, useUpdateLineColors } from "@/hooks/use-lifecycle"
 import { useCustomers, useParchments } from "@/hooks/use-master-data"
 import { usePlanningJobCards } from "@/hooks/use-production"
@@ -91,6 +92,7 @@ export default function SalesOrderDetailPage() {
   const params = useParams()
   const orderId = String(params?.orderId || "")
   const { showToast } = useApp()
+  const { user } = useAuth()
   const [selectedLineIds, setSelectedLineIds] = useState<string[]>([])
   const [releaseOpen, setReleaseOpen] = useState(false)
   const [sheetJobId, setSheetJobId] = useState<string | null>(null)
@@ -163,6 +165,9 @@ export default function SalesOrderDetailPage() {
             {canApprove ? <Link href={`/sales-orders/${order.id}/edit`} className="erp-btn-secondary"><Pencil className="h-4 w-4" />Edit</Link> : null}
             <button type="button" className="erp-btn-secondary" onClick={() => window.print()}><Printer className="h-4 w-4" />Print</button>
             <Link href={`/planning/board?section=winder&order_id=${order.id}&view=calendar`} className="erp-btn-secondary">Planner<ArrowRight className="h-4 w-4" /></Link>
+            {canApprove && String(order.created_by || "").toLowerCase() === String(user?.email || "").toLowerCase() ? (
+              <span className="rounded-lg border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-[12.5px] font-medium text-signal-amber-ink" title="Maker-checker: the person who created the order cannot approve it, even after switching role.">You created this order — another user approves it</span>
+            ) : null}
             {canApprove || canRelease ? (
               <button
                 type="button"

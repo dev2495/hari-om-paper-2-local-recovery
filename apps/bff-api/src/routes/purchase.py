@@ -307,8 +307,36 @@ async def patch_supplier_schedule(schedule_id: str, request: Request, token: str
 
 @router.api_route("/requisitions", methods=["GET", "POST"])
 async def requisitions(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/purchase/requisitions", request, token)
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/purchase/requisitions", request, token)
+    if request.method == "POST":
+        payload = response_body_json(response) or {}
+        # The Owner decides requisitions: tell them a request is waiting (step 1 of purchasing).
+        await emit_from_response(
+            response,
+            token=token,
+            event_type="PURCHASE_REQUISITION_SUBMITTED",
+            title=f"Requisition to approve: {payload.get('pr_no') or 'PR'}",
+            message=f"{payload.get('item_name') or 'Material'} · {payload.get('quantity')} {payload.get('uom') or ''} requested by {payload.get('requested_by') or 'an employee'}. Approve or reject it in PO approvals.",
+            href="/purchase/approvals",
+            recipient_roles=["Owner"],
+            role_context="Owner",
+            payload={"requisition_id": str(payload.get("id") or ""), "priority": "action"},
+        )
+    return response
 
 @router.post("/requisitions/{requisition_id}/decision")
 async def requisition_decision(requisition_id: str, request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/purchase/requisitions/{requisition_id}/decision", request, token)
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/purchase/requisitions/{requisition_id}/decision", request, token)
+    payload = response_body_json(response) or {}
+    decision = str(payload.get("status") or "").upper()
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="PURCHASE_REQUISITION_DECIDED",
+        title=f"Requisition {payload.get('pr_no') or ''} {decision.lower() or 'decided'}",
+        message=(f"{payload.get('item_name') or 'Material'}: {decision.title()}. " + ("Purchasing can now create the linked PO." if decision == "APPROVED" else str(payload.get("decision_reason") or ""))).strip(),
+        href="/purchase/requisitions",
+        recipient_roles=["Owner", "Admin", "Store", "PlantManager", "Planner"],
+        payload={"requisition_id": requisition_id, "decision": decision},
+    )
+    return response

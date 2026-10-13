@@ -482,11 +482,12 @@ export function Modal({
   const sizeCls = size === "lg" ? "max-w-2xl" : size === "sm" ? "max-w-md" : "max-w-xl"
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground px-4 py-8"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/55 px-4 py-8"
       onClick={onClose}
     >
       <div
-        className={cn("w-full max-h-[88vh] overflow-hidden rounded-[1.4rem] border border-border bg-card shadow-[0_30px_80px_rgba(15,23,42,0.25)]", sizeCls)}
+        className={cn("w-full max-h-[88vh] overflow-hidden rounded-[1.4rem] border border-border bg-white text-foreground shadow-[0_30px_80px_rgba(15,23,42,0.25)]", sizeCls)}
+        style={{ colorScheme: "light" }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
@@ -541,7 +542,7 @@ export function LabeledInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground focus:border-signal-cyan-line focus:outline-none"
+        className="rounded-md border border-border bg-white px-3 py-2 text-sm font-medium text-foreground focus:border-signal-cyan-line focus:outline-none"
       />
       {hint ? <span className="text-[10.5px] text-muted-foreground">{hint}</span> : null}
     </label>

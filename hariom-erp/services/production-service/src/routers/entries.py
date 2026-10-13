@@ -112,20 +112,56 @@ def previous(job,stage):
     return routing[index-1] if index else None
 
 
-def available(db,job,stage):
+QC_GATE_OVERRIDE_KEY="qc_gate_override_reason"
+
+
+def stage_has_qc(job,stage):
+    profile=((job.spec_snapshot or {}).get("qc_profile") or {}).get("stages") or {}
+    return any(p.get("applicable",True) for p in (profile.get(stage) or {}).get("parameters") or [])
+
+
+def qc_cleared_ids(db,job,stage):
+    """Entries of ``stage`` whose batch may feed the next stage (client rule 2026-10-13):
+    the batch's own QC must read PASS before the next stage may take it. A stage with no
+    QC parameters clears on submission; a FAIL whose hold was released is cleared too."""
+    rows=entries(db,job,stage)
+    if not stage_has_qc(job,stage):return {e.id for e in rows}
+    released={str(i.sample_id) for i,h in db.query(QualityInspection,QualityHold).join(QualityHold,QualityHold.source_inspection_id==QualityInspection.id).filter(QualityInspection.job_card_id==job.id,QualityInspection.stage_type==stage,QualityHold.status=="RELEASED").all()}
+    return {e.id for e in rows if (e.evaluation or {}).get("verdict") in ("PASS","OBSERVATION_ONLY") or str(e.id) in released}
+
+
+def source_balances(db,job,upstream):
+    """(entry, open accepted qty) for every submitted upstream entry, oldest first."""
+    sources=entries(db,job,upstream)
+    if not sources:return []
+    ids=[e.id for e in sources]
+    consumed=dict(db.query(InputAllocation.source_entry_id,func.sum(InputAllocation.quantity)).filter(InputAllocation.source_entry_id.in_(ids)).group_by(InputAllocation.source_entry_id).all())
+    disposed=dict(db.query(ResidualWip.source_entry_id,func.sum(ResidualWip.quantity)).filter(ResidualWip.source_entry_id.in_(ids),ResidualWip.status!="REVERSED").group_by(ResidualWip.source_entry_id).all())
+    return [(e,e.accepted-int(consumed.get(e.id,0))-int(disposed.get(e.id,0))) for e in sources]
+
+
+def available(db,job,stage,override=False):
+    """Open upstream quantity this stage may take now. Without ``override`` only QC-cleared
+    batches count; the balance awaiting QC is reported separately by ``awaiting_qc``."""
     upstream=previous(job,stage)
     if not upstream or (stage=="WINDER" and upstream=="SLITTING"):return None
     prior=stage_row(db,job,upstream)
     if (upstream,stage) not in CONTINUOUS and prior.status!="COMPLETED":return 0
     if planning._movement_blocking_holds(db,db.query(QualityHold).filter_by(job_card_id=job.id).all()):return 0
-    sources=entries(db,job,upstream)
-    consumed=db.query(func.coalesce(func.sum(InputAllocation.quantity),0)).filter(InputAllocation.source_entry_id.in_([e.id for e in sources])).scalar() if sources else 0
-    disposed=db.query(func.coalesce(func.sum(ResidualWip.quantity),0)).filter(ResidualWip.source_entry_id.in_([e.id for e in sources]),ResidualWip.status!="REVERSED").scalar() if sources else 0
-    return sum(e.accepted for e in sources)-int(consumed)-int(disposed)
+    cleared=qc_cleared_ids(db,job,upstream)
+    return sum(open_qty for e,open_qty in source_balances(db,job,upstream) if override or e.id in cleared)
+
+
+def awaiting_qc(db,job,stage):
+    """Upstream quantity produced but not yet QC-cleared for ``stage`` (0 when there is no upstream)."""
+    upstream=previous(job,stage)
+    if not upstream or (stage=="WINDER" and upstream=="SLITTING"):return 0
+    cleared=qc_cleared_ids(db,job,upstream)
+    return sum(max(0,open_qty) for e,open_qty in source_balances(db,job,upstream) if e.id not in cleared)
 
 
 def entry_dict(e):
-    return {"id":str(e.id),"stage":e.stage,"entry_no":e.entry_no,"status":e.status,"kind":e.kind,"business_date":e.business_date,"shift_code":e.shift_code,"operator_id":str(e.operator_id) if e.operator_id else None,"operator_name":e.operator_name,"operator_code":e.operator_code,"segment_id":str(e.segment_id) if e.segment_id else None,"machine_id":str(e.machine_id) if e.machine_id else None,"produced":e.produced,"accepted":e.accepted,"rejected":e.rejected,"input_quantity":e.input_quantity,"cutting_loss_pcs":e.cutting_loss_pcs,"carry_in_pcs":e.carry_in_pcs,"carry_out_pcs":e.carry_out_pcs,"samples":e.samples,"evaluation":e.evaluation,"details":e.details,"row_version":e.row_version,"created_at":e.created_at,"created_by":e.created_by}
+    return {"id":str(e.id),"qc_cleared":(e.evaluation or {}).get("verdict") in ("PASS","OBSERVATION_ONLY"),"qc_gate_override":bool(str((e.details or {}).get(QC_GATE_OVERRIDE_KEY) or "").strip()),"stage":e.stage,"entry_no":e.entry_no,"status":e.status,"kind":e.kind,"business_date":e.business_date,"shift_code":e.shift_code,"operator_id":str(e.operator_id) if e.operator_id else None,"operator_name":e.operator_name,"operator_code":e.operator_code,"segment_id":str(e.segment_id) if e.segment_id else None,"machine_id":str(e.machine_id) if e.machine_id else None,"produced":e.produced,"accepted":e.accepted,"rejected":e.rejected,"input_quantity":e.input_quantity,"cutting_loss_pcs":e.cutting_loss_pcs,"carry_in_pcs":e.carry_in_pcs,"carry_out_pcs":e.carry_out_pcs,"samples":e.samples,"evaluation":e.evaluation,"details":e.details,"row_version":e.row_version,"created_at":e.created_at,"created_by":e.created_by}
 
 
 def residual_dict(r):
@@ -167,10 +203,12 @@ def flow(db,job):
         target=int(snapshot.get("effective_target",planned_in_stage_units(stage,job.planned_qty,planning._pcs_per_bamboo_from_snapshot(job.spec_snapshot or {}))))
         accepted=int(shipped) if stage=="DISPATCH" else int(row.output_qty or 0) if stage=="SLITTING" else sum(e.accepted for e in actual)
         produced=accepted if stage in ("SLITTING","DISPATCH") else sum(e.produced for e in actual);blockers=[]
-        cap=None
+        cap=None;waiting=0
         if upstream and not (stage=="WINDER" and upstream=="SLITTING"):
             source=[e for e in all_entries if e.stage==upstream and e.status=="SUBMITTED"]
-            cap=0 if blocked or not upstream_closed and (upstream,stage) not in CONTINUOUS else sum(e.accepted-int(used.get(e.id,0)) for e in source)
+            cleared=qc_cleared_ids(db,job,upstream)
+            waiting=sum(max(0,e.accepted-int(used.get(e.id,0))) for e in source if e.id not in cleared)
+            cap=0 if blocked or not upstream_closed and (upstream,stage) not in CONTINUOUS else sum(e.accepted-int(used.get(e.id,0)) for e in source if e.id in cleared)
         if blocked:blockers.append("Resolve blocking QC holds")
         if not upstream_closed:blockers.append("Previous stage must close before this stage closes")
         if drafts:blockers.append(f"{drafts} draft entries remain")
@@ -183,7 +221,7 @@ def flow(db,job):
             status="COMPLETED" if packed>0 and accepted+retained>=packed or snapshot.get("all_qc_rejected") else "RUNNING" if accepted>0 else row.status
             cap=max(0,packed-accepted-retained);blockers=[] if status=="COMPLETED" else ["Complete shipment through Logistics Dispatch"]
         stage_segments=[s for s in segments if s.stage_type==stage]
-        states.append({"stage":stage,"status":status,"unit":stage_unit(stage),"target":target,"produced_total":produced,"accepted_total":accepted,"rejected_total":produced-accepted,"input_total":accepted if stage=="DISPATCH" else sum(e.input_quantity for e in actual),"cutting_loss_total":sum(e.cutting_loss_pcs for e in actual),"carryover_pcs":sum(e.carry_out_pcs-e.carry_in_pcs for e in actual),"available_from_upstream":cap,"input_unit":stage_unit(upstream) if upstream else None,"qc":readiness,"draft_count":drafts,"can_close":status!="COMPLETED" and stage not in ("SLITTING","DISPATCH") and not blockers,"blockers":blockers,"row_version":int(snapshot.get("row_version",1)),"supervisor_name":snapshot.get("supervisor_name"),"closed_at":snapshot.get("closed_at"),"residual_quantity":snapshot.get("residual_quantity"),"residual_disposition":snapshot.get("residual_disposition"),"segments":[{"id":str(s.id),"machine_id":str(s.machine_id) if s.machine_id else None,"plan_date":s.plan_date,"shift_code":s.shift_code,"status":s.status,**planning._planner_gate_context(current_stage=stage,active_stage=row,active_segment=s)} for s in stage_segments]})
+        states.append({"stage":stage,"status":status,"unit":stage_unit(stage),"target":target,"produced_total":produced,"accepted_total":accepted,"rejected_total":produced-accepted,"input_total":accepted if stage=="DISPATCH" else sum(e.input_quantity for e in actual),"cutting_loss_total":sum(e.cutting_loss_pcs for e in actual),"carryover_pcs":sum(e.carry_out_pcs-e.carry_in_pcs for e in actual),"available_from_upstream":cap,"awaiting_qc_from_upstream":waiting,"upstream_has_qc":bool(upstream and stage_has_qc(job,upstream)),"input_unit":stage_unit(upstream) if upstream else None,"qc":readiness,"draft_count":drafts,"can_close":status!="COMPLETED" and stage not in ("SLITTING","DISPATCH") and not blockers,"blockers":blockers,"row_version":int(snapshot.get("row_version",1)),"supervisor_name":snapshot.get("supervisor_name"),"closed_at":snapshot.get("closed_at"),"residual_quantity":snapshot.get("residual_quantity"),"residual_disposition":snapshot.get("residual_disposition"),"segments":[{"id":str(s.id),"machine_id":str(s.machine_id) if s.machine_id else None,"plan_date":s.plan_date,"shift_code":s.shift_code,"status":s.status,**planning._planner_gate_context(current_stage=stage,active_stage=row,active_segment=s)} for s in stage_segments]})
         if stage=="DISPATCH":states[-1].update({"retained_fg_qty":retained,"surplus_settlement":snapshot.get("surplus_settlement"),"dispatchable_qty":packed,"max_ship_qty":max(0,shipping_allowance(job,packed,row)-accepted),**qc_excluded_quantities(job,packing_record,stage_map.get("QC")),"all_qc_rejected":bool(snapshot.get("all_qc_rejected"))})
     pending=db.query(func.count(CompletionEffect.id)).filter(CompletionEffect.job_card_id==job.id,CompletionEffect.status.in_(["PENDING","RUNNING","FAILED"])).scalar()
     return {"job_card_id":str(job.id),"season":(job.spec_snapshot or {}).get("season"),"recipe_revision":((job.material_plan_snapshot or {}).get("recipe_snapshot") or {}).get("season_revision"),"stages":states,"pending_effects":pending,"residual_wip":[residual_dict(r) for r in residuals],"final_samples":[{"sample_id":i.sample_id,"status":i.status,"readings":i.readings,"qc_name":i.created_by,"recorded_at":i.created_at,"workflow_status":(i.evaluation or {}).get("workflow_status")} for i in inspections if i.stage_type=="QC"],"active_stages":[s["stage"] for s in states if s["status"]=="RUNNING"]}
@@ -370,7 +408,8 @@ def allocate(db,job,e):
     if e.stage=="WINDER" and upstream=="SLITTING":
         if stage_row(db,job,"SLITTING").status!="COMPLETED":raise HTTPException(409,"Complete the Slitting material preparation first")
         return
-    available_input=available(db,job,e.stage)
+    override=bool(str((e.details or {}).get(QC_GATE_OVERRIDE_KEY) or "").strip())
+    available_input=available(db,job,e.stage,override=override)
     if e.stage=="PROCESS":
         pcs=planning._pcs_per_bamboo_from_snapshot(job.spec_snapshot or {})
         prior=entries(db,job,"PROCESS")
@@ -380,15 +419,26 @@ def allocate(db,job,e):
         if (e.carry_out_pcs or e.carry_in_pcs) and not str(e.details.get("carryover_reason") or "").strip():raise HTTPException(422,"Carryover reason required")
     elif e.carry_in_pcs or e.carry_out_pcs or e.cutting_loss_pcs:raise HTTPException(422,"Cutting loss/carryover are Process-only")
     elif e.input_quantity!=e.produced:raise HTTPException(422,"Input quantity must equal produced quantity for this stage")
-    if e.input_quantity>available_input:raise HTTPException(409,{"code":"UPSTREAM_SHORT","available":available_input,"unit":stage_unit(upstream)})
+    if e.input_quantity>available_input:
+        waiting=awaiting_qc(db,job,e.stage) if not override else 0
+        raise HTTPException(409,{"code":"UPSTREAM_SHORT" if not waiting else "UPSTREAM_AWAITING_QC","available":available_input,"awaiting_qc":waiting,"unit":stage_unit(upstream),"message":(f"Only {available_input} {stage_unit(upstream)} of {label_stage(upstream)} output is QC-cleared; {waiting} more is waiting for {label_stage(upstream)} QC. Record that batch's QC first, or a supervisor can override with a reason." if waiting else f"Only {available_input} {stage_unit(upstream)} of {label_stage(upstream)} output is available.")})
+    cleared=qc_cleared_ids(db,job,upstream)
     remaining=e.input_quantity
-    for source in entries(db,job,upstream):
-        consumed=int(db.query(func.coalesce(func.sum(InputAllocation.quantity),0)).filter_by(source_entry_id=source.id).scalar())
-        consumed+=int(db.query(func.coalesce(func.sum(ResidualWip.quantity),0)).filter(ResidualWip.source_entry_id==source.id,ResidualWip.status!="REVERSED").scalar())
-        take=min(remaining,source.accepted-consumed)
-        if take>0:db.add(InputAllocation(job_card_id=job.id,source_entry_id=source.id,consumer_entry_id=e.id,quantity=take));remaining-=take
+    # Cleared batches are consumed first, oldest first; an override may then draw on batches still awaiting QC.
+    balances=source_balances(db,job,upstream)
+    for pass_cleared in (True,False):
+        for source,open_qty in balances:
+            if (source.id in cleared)!=pass_cleared:continue
+            if not pass_cleared and not override:break
+            take=min(remaining,open_qty)
+            if take>0:db.add(InputAllocation(job_card_id=job.id,source_entry_id=source.id,consumer_entry_id=e.id,quantity=take));remaining-=take
+            if remaining==0:break
         if remaining==0:break
     if remaining:raise HTTPException(409,"Upstream allocation changed")
+
+
+def label_stage(stage):
+    return {"WINDER":"Winding","OVEN":"Oven","PROCESS":"Process","PACKING":"Packing","QC":"Final QC"}.get(stage,stage.title())
 
 
 def dispose_residual(db,job,stage,disposition,reason,user):
@@ -478,6 +528,7 @@ def create_entry(card_id:uuid.UUID,payload:EntryInput,db:Session=Depends(get_db)
     roles=set(user.get("roles",[]))
     if "QC" in roles and not roles & {"Owner","Admin","PlantManager"} and payload.kind!="QC_ONLY":raise HTTPException(403,"QC may add observations only")
     if "Operator" in roles and payload.submit and not roles & {"Owner","Admin","PlantManager"}:raise HTTPException(403,"Operator submission is not enabled; save a draft for supervisor review")
+    if str((payload.details or {}).get(QC_GATE_OVERRIDE_KEY) or "").strip() and not roles & {"Owner","Admin","PlantManager"}:raise HTTPException(403,"Only a plant supervisor, Admin or Owner may take batches that are still awaiting QC")
     preliminary=card(db,card_id,plant);cached=replay(db,preliminary,payload,"entry_create")
     if cached:return cached
     if payload.submit and payload.kind=="PRODUCTION" and not {"produced","accepted"}<=payload.model_fields_set:raise HTTPException(422,"Quantity produced and accepted quantity are mandatory")

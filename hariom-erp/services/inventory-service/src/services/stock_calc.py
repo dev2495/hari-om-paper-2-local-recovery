@@ -368,6 +368,9 @@ def get_item_batches(item_id: str, db: Session) -> List[Dict]:
             {
                 "batch_id": str(batch.id),
                 "batch_no": batch.batch_no,
+                # The number printed on the inward label (what the floor calls the "Amigo inward number").
+                "inward_no": (lambda meta: meta.get("label_code") or (meta.get("saved_label") or {}).get("label_code") or (meta.get("saved_label") or {}).get("code") or meta.get("grn_no"))(batch.inward_metadata or {}),
+                "grn_no": (batch.inward_metadata or {}).get("grn_no"),
                 "spec_id": str(batch.spec_id) if batch.spec_id else None,
                 "received_qty": batch.received_qty,
                 "unit_cost": round(float(getattr(batch, "unit_cost", 0.0) or 0.0), 4),
