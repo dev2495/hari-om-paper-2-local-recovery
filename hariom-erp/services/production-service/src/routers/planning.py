@@ -6118,7 +6118,8 @@ def get_planning_job_card(
     job_card_id: uuid.UUID,
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Sales", "Dispatch", "Store", "QC", "RMIssue"])),
+    # Operators read the card they scan on the floor; their entries stay drafts until a supervisor submits.
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Sales", "Dispatch", "Store", "QC", "RMIssue", "Operator"])),
 ):
     query = (
         db.query(JobCard, SalesOrder)

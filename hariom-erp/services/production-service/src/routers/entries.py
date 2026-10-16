@@ -140,6 +140,19 @@ def source_balances(db,job,upstream):
     return [(e,e.accepted-int(consumed.get(e.id,0))-int(disposed.get(e.id,0))) for e in sources]
 
 
+def batch_hold(db,hold):
+    """A hold raised by one batch's own QC failure holds that batch only: the batch is not
+    QC-cleared, so the next stage cannot take it, while the card's other batches keep moving.
+    Holds on the card itself still stop all movement; any blocking hold still stops stage close."""
+    if not hold.source_inspection_id:return False
+    inspection=db.get(QualityInspection,hold.source_inspection_id)
+    return bool(inspection and inspection.entry_mode=="CONTINUOUS" and (inspection.evaluation or {}).get("entry_id"))
+
+
+def card_blocking_holds(db,holds):
+    return [hold for hold in planning._movement_blocking_holds(db,holds) if not batch_hold(db,hold)]
+
+
 def available(db,job,stage,override=False):
     """Open upstream quantity this stage may take now. Without ``override`` only QC-cleared
     batches count; the balance awaiting QC is reported separately by ``awaiting_qc``."""
@@ -147,7 +160,7 @@ def available(db,job,stage,override=False):
     if not upstream or (stage=="WINDER" and upstream=="SLITTING"):return None
     prior=stage_row(db,job,upstream)
     if (upstream,stage) not in CONTINUOUS and prior.status!="COMPLETED":return 0
-    if planning._movement_blocking_holds(db,db.query(QualityHold).filter_by(job_card_id=job.id).all()):return 0
+    if card_blocking_holds(db,db.query(QualityHold).filter_by(job_card_id=job.id).all()):return 0
     cleared=qc_cleared_ids(db,job,upstream)
     return sum(open_qty for e,open_qty in source_balances(db,job,upstream) if override or e.id in cleared)
 
@@ -174,7 +187,7 @@ def flow(db,job):
     segments=db.query(JobCardStageSegment).filter_by(job_card_id=job.id).all()
     all_entries=db.query(StageEntry).filter_by(job_card_id=job.id).order_by(StageEntry.entry_no).all()
     holds=db.query(QualityHold).filter_by(job_card_id=job.id).all()
-    blocked=bool(planning._movement_blocking_holds(db,holds))
+    blocked=bool(planning._movement_blocking_holds(db,holds));card_blocked=bool(card_blocking_holds(db,holds))
     disposed={h.source_inspection_id:str(h.id) for h in holds if h.status=="RELEASED"}
     inspections=db.query(QualityInspection).filter_by(job_card_id=job.id).order_by(QualityInspection.created_at).all()
     shipments=db.query(Dispatch).filter_by(job_card_id=job.id,status="SEALED").all()
@@ -208,8 +221,8 @@ def flow(db,job):
             source=[e for e in all_entries if e.stage==upstream and e.status=="SUBMITTED"]
             cleared=qc_cleared_ids(db,job,upstream)
             waiting=sum(max(0,e.accepted-int(used.get(e.id,0))) for e in source if e.id not in cleared)
-            cap=0 if blocked or not upstream_closed and (upstream,stage) not in CONTINUOUS else sum(e.accepted-int(used.get(e.id,0)) for e in source if e.id in cleared)
-        if blocked:blockers.append("Resolve blocking QC holds")
+            cap=0 if card_blocked or not upstream_closed and (upstream,stage) not in CONTINUOUS else sum(e.accepted-int(used.get(e.id,0)) for e in source if e.id in cleared)
+        if blocked:blockers.append("Resolve blocking QC holds (QC results / holds) before closing")
         if not upstream_closed:blockers.append("Previous stage must close before this stage closes")
         if drafts:blockers.append(f"{drafts} draft entries remain")
         if not readiness["ready"]:blockers.append("Required QC samples or dispositions incomplete")
@@ -244,6 +257,11 @@ def finish(db,job,payload,action,user,response):
     return result
 
 
+# Who may be named on an entry. Any active employee can be the operator who ran the
+# machine (as on the original job card); a stage close names a supervisor or manager.
+EMPLOYEE_ROLES={"operator":None,"supervisor":{"supervisor","manager"}}
+
+
 def employee(employee_id,user,plant,role=None):
     if not employee_id:raise HTTPException(422,f"{role or 'Employee'} is required")
     url=os.getenv("MASTERDATA_SERVICE_URL","http://127.0.0.1:18002")
@@ -251,7 +269,9 @@ def employee(employee_id,user,plant,role=None):
         response=httpx.get(f"{url}/master/employees/{employee_id}",headers={"Authorization":f"Bearer {user.get('token','')}","X-Plant-ID":plant},timeout=8)
         response.raise_for_status();row=response.json()
     except (httpx.HTTPError,ValueError) as exc:raise HTTPException(503,"Could not validate the selected employee") from exc
-    if not row.get("active",row.get("is_active",False)) or role and str(row.get("role") or "").lower()!=role:raise HTTPException(422,f"Select an active {role}")
+    allowed=EMPLOYEE_ROLES.get(role,{role}) if role else None
+    if not row.get("active",row.get("is_active",False)):raise HTTPException(422,f"Select an active {role or 'employee'}")
+    if allowed and str(row.get("role") or "").strip().lower() not in allowed:raise HTTPException(422,f"Select an active {role}: Masters › Employees role must be {' or '.join(sorted((r.title() for r in allowed),reverse=True))}")
     return row
 
 
@@ -636,17 +656,20 @@ def submit_entry(card_id:uuid.UUID,entry_id:uuid.UUID,payload:Mutation,db:Sessio
 
 
 @router.post("/job-cards/{card_id}/entries/{entry_id}/observations")
-def save_observations(card_id:uuid.UUID,entry_id:uuid.UUID,payload:Observations,db:Session=Depends(get_db),plant:str=Depends(get_current_plant),user:dict=Depends(require_role(["QC","Owner","Admin"]))):
+def save_observations(card_id:uuid.UUID,entry_id:uuid.UUID,payload:Observations,db:Session=Depends(get_db),plant:str=Depends(get_current_plant),user:dict=Depends(require_role(["QC","Owner","Admin","PlantManager"]))):
     job=card(db,card_id,plant,True);prior=replay(db,job,payload,f"observations:{entry_id}")
     if prior:return prior
     e=db.query(StageEntry).filter_by(id=entry_id,job_card_id=job.id).first()
     if not e:raise HTTPException(404,"Entry not found")
     if e.status=="VOID":raise HTTPException(409,"Voided observations cannot be revised")
-    if payload.expected_version!=e.row_version or not payload.reason.strip():raise HTTPException(409,"Current version and correction reason required")
+    if payload.expected_version!=e.row_version:raise HTTPException(409,"This entry changed after you opened it; reopen QC on it and enter the readings again")
+    # First readings on a batch need no reason; changing readings already recorded is a correction.
+    reason=payload.reason.strip() or ("" if e.samples else "QC readings recorded")
+    if not reason:raise HTTPException(422,"Give the reason for correcting QC readings already recorded on this batch")
     e.samples=payload.samples
     if payload.instrument is not None:e.details={**(e.details or {}),"instrument":payload.instrument}
     e.row_version+=1;inspect(db,job,e,user)
-    db.add(EntryRevision(entry_id=e.id,row_version=e.row_version,payload=jsonable_encoder(entry_dict(e)),actor=user["sub"],reason=payload.reason));db.flush()
+    db.add(EntryRevision(entry_id=e.id,row_version=e.row_version,payload=jsonable_encoder(entry_dict(e)),actor=user["sub"],reason=reason));db.flush()
     return finish(db,job,payload,f"observations:{entry_id}",user,{"entry":entry_dict(e),"flow":flow(db,job)})
 
 

@@ -239,3 +239,56 @@ def test_import_approved_with_and_without_recipe(document):
     assert second['status']=='approved' and second['recipe_pending'] and second['recipe_approved_seasons']==[]
     blockers=a.read_blockers(uuid.UUID(second['spec_id']),db,plant,USER)
     assert any('recipe' in b.lower() for b in blockers['production']['ROY']['blockers'])
+
+
+def test_duplicate_customer_specs_move_without_reapproval(document,monkeypatch):
+    a,db,result,body,paper=document
+    from src.models import SpecificationSheet
+    from src.season_models import RecipeBinding, SpecReadiness, OverlayVersion
+    plant=result['spec']['plant_id'];duplicate=str(uuid.uuid4());customer=str(uuid.uuid4())
+    names={duplicate:{'id':duplicate,'name':'Alok Industries Limited','active':True},customer:{'id':customer,'name':'ALOK INDUSTRIES LTD.','active':True}}
+    monkeypatch.setattr(a,'master_customer',lambda cid,user,plant:names[str(cid)])
+    calls=[]
+    class Moved:
+        status_code=200
+        def json(self):return {'moved':2,'lines':['l1','l2']}
+    monkeypatch.setattr(a.httpx,'post',lambda url,**kw:calls.append((url,kw['json'])) or Moved())
+    def imported(owner,tube,row):
+        spec={**body.spec,'customer_id':owner,'customer_name':names[owner]['name'],'customer_name_snapshot':names[owner]['name'],'tube_size_id':tube}
+        return uuid.UUID(a.import_approved(a.ImportDocument(request_id=str(uuid.uuid4()),import_key=f'merge-row-{row}',spec=spec,recipes={'ROY':body.recipes['ROY']},note='Workbook'),db,plant,USER)['spec_id'])
+    shared=str(uuid.uuid4())
+    kept=imported(customer,shared,1)          # the customer's own spec, made before the import
+    moved=imported(duplicate,str(uuid.uuid4()),2)
+    copy=imported(duplicate,shared,3)          # the workbook copy of a product the customer already has
+    before={r.season:(r.ready,r.details['blockers']) for r in db.query(SpecReadiness).filter_by(spec_id=moved).all()}
+    hashes={b.season:b.approved_context for b in db.query(RecipeBinding).filter_by(spec_id=moved).all()}
+    payload=a.CustomerReassign(request_id=str(uuid.uuid4()),from_customer_id=duplicate,to_customer_id=customer)
+    out=a.reassign_customer(payload,db,plant,USER)
+    assert out['moved']==2 and set(out['spec_ids'])=={str(moved),str(copy)}
+    assert out['retired_duplicates']==[{'spec_id':str(copy),'kept_spec_id':str(kept),'order_lines_moved':2}]
+    assert calls==[(calls[0][0],{'from_spec_id':str(copy),'to_spec_id':str(kept)})] and calls[0][0].endswith('/sales-orders/spec-supersede')
+    db.expire_all()
+    spec=db.get(SpecificationSheet,moved)
+    assert str(spec.customer_id)==customer and spec.customer_name==spec.customer_name_snapshot=='ALOK INDUSTRIES LTD.'
+    # Same spec, same revision, recipe approvals still valid: nothing to re-approve.
+    assert spec.status=='approved' and spec.active and spec.write_revision==1
+    assert {b.season:b.approved_context for b in db.query(RecipeBinding).filter_by(spec_id=moved).all()}==hashes
+    assert {r.season:(r.ready,r.details['blockers']) for r in db.query(SpecReadiness).filter_by(spec_id=moved).all()}==before
+    retired=db.get(SpecificationSheet,copy)
+    assert retired.status=='obsolete' and not retired.active and str(retired.customer_id)==customer
+    assert db.get(SpecificationSheet,kept).status=='approved' and db.get(SpecificationSheet,kept).active
+    # A retry replays; a new run finds nothing left to move.
+    assert a.reassign_customer(payload,db,plant,USER)==out
+    again=a.reassign_customer(a.CustomerReassign(request_id=str(uuid.uuid4()),from_customer_id=duplicate,to_customer_id=customer),db,plant,USER)
+    assert again['moved']==0 and again['retired_duplicates']==[]
+    # Guard rails: inactive target, same customer, duplicate with its own QC overlay.
+    names[duplicate]['active']=False
+    with pytest.raises(HTTPException) as err:a.reassign_customer(a.CustomerReassign(request_id=str(uuid.uuid4()),from_customer_id=customer,to_customer_id=duplicate),db,plant,USER)
+    assert err.value.status_code==422
+    with pytest.raises(HTTPException) as err:a.reassign_customer(a.CustomerReassign(request_id=str(uuid.uuid4()),from_customer_id=customer,to_customer_id=customer),db,plant,USER)
+    assert err.value.status_code==422
+    names[duplicate]['active']=True
+    db.add(OverlayVersion(plant_id=plant,target_type='CUSTOMER',target_id=uuid.UUID(duplicate),season='BOTH',version=1,status='PUBLISHED',rules=[],fingerprint='x'*64,reason='Customer drawing'));db.commit()
+    with pytest.raises(HTTPException) as err:a.reassign_customer(a.CustomerReassign(request_id=str(uuid.uuid4()),from_customer_id=duplicate,to_customer_id=customer),db,plant,USER)
+    assert err.value.status_code==409 and err.value.detail['code']=='CUSTOMER_OVERLAY'
+    db.rollback();db.query(OverlayVersion).filter_by(target_id=uuid.UUID(duplicate)).delete();db.commit()

@@ -82,3 +82,46 @@ def test_other_plants_lines_are_never_touched(db):
     assert result['moved'] == 0
     db.expire_all()
     assert db.get(SalesOrderLine, line).approved_spec_id == old
+
+
+def _order(db, line):
+    return db.get(SalesOrderLine, line).sales_order
+
+
+def test_duplicate_customer_orders_move_to_the_real_customer(db):
+    line = _line(db, uuid.uuid4())
+    order = _order(db, line)
+    duplicate, customer = order.customer_id, uuid.uuid4()
+    payload = so.CustomerReassignPayload(from_customer_id=duplicate, to_customer_id=customer)
+    preview = so.reassign_customer_orders(payload.model_copy(update={'dry_run': True}), db=db, plant_id=PLANT, current_user=USER)
+    assert preview == {'moved': 1, 'orders': [order.order_no], 'dry_run': True}
+    db.expire_all()
+    assert _order(db, line).customer_id == duplicate
+    moved = so.reassign_customer_orders(payload, db=db, plant_id=PLANT, current_user=USER)
+    assert moved['moved'] == 1
+    db.expire_all()
+    assert _order(db, line).customer_id == customer
+    assert so.reassign_customer_orders(payload, db=db, plant_id=PLANT, current_user=USER)['moved'] == 0
+    # Other plants are never touched.
+    assert so.reassign_customer_orders(so.CustomerReassignPayload(from_customer_id=customer, to_customer_id=duplicate), db=db, plant_id='PLANT-SOMEWHERE-ELSE', current_user=USER)['moved'] == 0
+
+
+def test_orders_production_built_job_cards_from_stay_and_stop_the_move(db):
+    from src.models import SalesOrderReleaseLot
+    line = _line(db, uuid.uuid4())
+    duplicate = _order(db, line).customer_id
+    so.bulk_release_sales_order_lines([so.BulkReleaseLinePayload(line_id=line, release_qty=400, winder_machine_id=uuid.uuid4())], db=db, plant_id=PLANT, current_user=USER)
+    payload = so.CustomerReassignPayload(from_customer_id=duplicate, to_customer_id=uuid.uuid4())
+    # A lot production never picked up does not stop the move.
+    assert so.reassign_customer_orders(payload.model_copy(update={'dry_run': True}), db=db, plant_id=PLANT, current_user=USER)['moved'] == 1
+    lot = db.query(SalesOrderReleaseLot).filter(SalesOrderReleaseLot.sales_order_line_id == line).one()
+    lot.job_card_id = uuid.uuid4()
+    db.commit()
+    with pytest.raises(HTTPException) as err:
+        so.reassign_customer_orders(payload, db=db, plant_id=PLANT, current_user=USER)
+    assert err.value.status_code == 409 and err.value.detail['code'] == 'CUSTOMER_IN_PRODUCTION'
+    db.rollback(); db.expire_all()
+    assert _order(db, line).customer_id == duplicate
+    with pytest.raises(HTTPException) as err:
+        so.reassign_customer_orders(so.CustomerReassignPayload(from_customer_id=duplicate, to_customer_id=duplicate), db=db, plant_id=PLANT, current_user=USER)
+    assert err.value.status_code == 422

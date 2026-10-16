@@ -7,6 +7,8 @@ import { ColorChip, JobCardNo, LifecycleBadge } from "@/components/production/li
 import { useApp } from "@/context/AppContext"
 import { apiErrorText, newRequestId, useJobCardLifecycle, useRunningEntry, type JobCardLifecycle } from "@/hooks/use-lifecycle"
 import { cn } from "@/lib/utils"
+import { usePlanningJobCard } from "@/hooks/use-production"
+import { SeasonFloorLog } from "./season-floor-log"
 
 const fmt = (value: number | null | undefined) => Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 1 })
 
@@ -23,7 +25,10 @@ function currentShift() {
  */
 export function LiveFloorLog({ jobCardId }: { jobCardId: string }) {
   const query = useJobCardLifecycle(jobCardId)
+  const cardQuery = usePlanningJobCard(jobCardId)
   const data = query.data
+  // Seasonal cards log each run as a batch entry (continuous entries), not as a running total.
+  if (cardQuery.data?.spec_snapshot?.entry_model === "V2") return <SeasonFloorLog card={cardQuery.data} />
   if (query.isLoading) return <div className="skeleton h-40 rounded-xl" />
   if (!data) return null
   const flow = data.stages.filter((stage) => stage.stage === "WINDER" || stage.stage === "OVEN")

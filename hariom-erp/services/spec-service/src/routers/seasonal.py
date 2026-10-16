@@ -686,6 +686,66 @@ def import_approved(payload: ImportDocument,db: Session=Depends(get_db),plant: s
     return complete(db,key,content,result,user,"spec_imported_approved",note,spec_ids=[spec.id])
 
 
+class CustomerReassign(Command):
+    from_customer_id: uuid.UUID
+    to_customer_id: uuid.UUID
+
+
+def master_customer(customer_id, user, plant):
+    url=os.getenv("MASTERDATA_SERVICE_URL","http://127.0.0.1:18002")
+    try:
+        response=httpx.get(f"{url}/master/customers/{customer_id}",headers={"Authorization":f"Bearer {user.get('token','')}","X-Plant-ID":plant},timeout=8)
+    except httpx.HTTPError as exc:
+        raise HTTPException(503,"Could not check the customer in masterdata") from exc
+    if response.status_code==404:raise HTTPException(422,f"Customer {customer_id} is not a customer of this plant")
+    if response.status_code>=400:raise HTTPException(503,f"Could not check the customer in masterdata (answered {response.status_code})")
+    return response.json()
+
+
+@router.post("/specs/reassign-customer")
+def reassign_customer(payload: CustomerReassign,db: Session=Depends(get_db),plant: str=Depends(get_current_plant),user: dict=Depends(require_role(["Owner","Admin"]))):
+    """Correct a duplicate customer record: its specifications move to the customer they belong to.
+
+    Only the customer link changes. Spec ids, versions, revisions and recipe approvals stay
+    as they are (a recipe approval does not depend on the customer), so nothing needs
+    re-approval. A moved approved specification that the customer already has approved
+    (same tube size, weight and C.S.) is retired as a duplicate, exactly as the import
+    skips a sheet row the customer already has; open order lines on it move to the
+    customer's own specification. Customer QC overlays are not merged: the command refuses
+    while the duplicate customer still has one.
+    """
+    key=f"reassign-customer:{plant}:{payload.request_id}"
+    prior=receipt(db,key,payload.model_dump())
+    if prior:return prior
+    if payload.from_customer_id==payload.to_customer_id:raise HTTPException(422,"Choose two different customers")
+    source=master_customer(payload.from_customer_id,user,plant);target=master_customer(payload.to_customer_id,user,plant)
+    if not target.get("active",target.get("is_active",True)):raise HTTPException(422,f"Customer {target.get('name')} is inactive; move specifications to an active customer")
+    name=str(target.get("name") or "").strip()
+    if not name:raise HTTPException(422,"The customer has no name in masterdata")
+    lock_state(db);prior=receipt(db,key,payload.model_dump())
+    if prior:return prior
+    overlays=db.query(OverlayVersion).filter(OverlayVersion.plant_id==plant,OverlayVersion.target_type=="CUSTOMER",OverlayVersion.target_id==payload.from_customer_id,OverlayVersion.status.in_(["DRAFT","PUBLISHED"])).count()
+    if overlays:raise HTTPException(409,{"code":"CUSTOMER_OVERLAY","message":f"{source.get('name')} has its own stage QC overlay. Recreate it on {name} and retire it before moving the specifications."})
+    specs=db.query(SpecificationSheet).filter(SpecificationSheet.plant_id==plant,SpecificationSheet.customer_id==payload.from_customer_id).order_by(SpecificationSheet.created_at).with_for_update().all()
+    moved_ids=[spec.id for spec in specs]
+    for spec in specs:
+        spec.customer_id=payload.to_customer_id;spec.customer_name=name;spec.customer_name_snapshot=name;spec.updated_at=datetime.utcnow()
+    db.flush()
+    retired=[]
+    for spec in specs:
+        if not spec.active or spec.status!="approved":continue
+        kept=duplicate_approved(db,spec,plant)
+        if kept is None or kept.id in moved_ids:continue
+        handed=hand_over_sales_lines(spec,kept,user,plant)
+        spec.status="obsolete";spec.active=False;spec.updated_at=datetime.utcnow()
+        for recipe in spec.recipes:
+            if recipe.status=="approved":recipe.status="obsolete"
+        retired.append({"spec_id":str(spec.id),"kept_spec_id":str(kept.id),"order_lines_moved":int((handed or {}).get("moved") or 0)})
+    db.flush()
+    result={"from_customer":{"id":str(payload.from_customer_id),"name":source.get("name")},"to_customer":{"id":str(payload.to_customer_id),"name":name},"moved":len(specs),"spec_ids":[str(i) for i in moved_ids],"retired_duplicates":retired}
+    return complete(db,key,payload.model_dump(),result,user,"spec_customer_reassigned",payload.note or f"Duplicate customer {source.get('name')} merged into {name}",spec_ids=moved_ids)
+
+
 def load_visible_spec(db,spec_id,plant):
     if not isinstance(plant,dict):return load_spec(db,spec_id,plant)
     spec=apply_plant_scope(db.query(SpecificationSheet).filter_by(id=spec_id),SpecificationSheet.plant_id,plant).first()

@@ -1606,6 +1606,58 @@ def supersede_spec_on_open_lines(
     return {"moved": len(rows), "lines": [str(line.id) for line, _order in rows]}
 
 
+class CustomerReassignPayload(BaseModel):
+    from_customer_id: uuid.UUID
+    to_customer_id: uuid.UUID
+    dry_run: bool = False
+
+
+@router.post("/customer-reassign")
+def reassign_customer_orders(
+    payload: CustomerReassignPayload,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Owner", "Admin"])),
+):
+    """Correct a duplicate customer record: its orders move to the customer they belong to.
+
+    Production keeps its own copy of the customer once it builds a job card from a
+    lot, so an order with such a lot stops the move; a lot production never picked
+    up simply moves with its order. Idempotent: a repeat finds no orders left.
+    """
+    if payload.from_customer_id == payload.to_customer_id:
+        raise HTTPException(status_code=422, detail="Choose two different customers")
+    orders = (
+        db.query(SalesOrder)
+        .options(joinedload(SalesOrder.lines).joinedload(SalesOrderLine.release_lots))
+        .filter(SalesOrder.plant_id.in_(accepted_persisted_plant_ids(plant_id)), SalesOrder.customer_id == payload.from_customer_id)
+        .with_for_update(of=SalesOrder)
+        .all()
+    )
+    released = sorted(
+        order.order_no
+        for order in orders
+        if any(lot.job_card_id and str(lot.status or "").lower() != "cancelled" for line in (order.lines or []) for lot in (line.release_lots or []))
+    )
+    if released:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "CUSTOMER_IN_PRODUCTION",
+                "message": f"Production already built job cards for orders {', '.join(released[:10])} under this customer; finish or close them, then merge.",
+                "orders": released,
+            },
+        )
+    result = {"moved": len(orders), "orders": sorted(order.order_no for order in orders), "dry_run": payload.dry_run}
+    if payload.dry_run:
+        db.rollback()
+        return result
+    for order in orders:
+        order.customer_id = payload.to_customer_id
+    db.commit()
+    return result
+
+
 @router.get("/delivery-calendar")
 def get_delivery_calendar(
     date_from: date = Query(...),

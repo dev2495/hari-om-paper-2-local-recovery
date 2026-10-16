@@ -59,12 +59,14 @@ function valueOrDash(value: unknown) {
 function DetailTable({
   title,
   rows,
+  className = "",
 }: {
   title: string
   rows: Array<{ label: string; value: string }>
+  className?: string
 }) {
   return (
-    <div className="spec-print-mini-table">
+    <div className={`spec-print-mini-table ${className}`.trim()}>
       <div className="spec-print-mini-heading">{title}</div>
       <dl>
         {rows.map((item) => (
@@ -254,7 +256,7 @@ export function SpecSheetPrint({ enabled, data, embedded = false }: SpecSheetPri
           <section className="spec-print-panel spec-print-operations" data-print-section="operations">
             <DetailTable title="Notch & tooling" rows={data.tooling} />
             <DetailTable title="Packing" rows={data.packing} />
-            {!embedded && data.qcStages?.length ? <DetailTable title="Stage QC tolerances" rows={data.qcStages} /> : null}
+            {!embedded && data.qcStages?.length ? <DetailTable title="Stage QC tolerances" rows={data.qcStages} className="spec-print-qc-table" /> : null}
           </section>
         </div>
 
@@ -567,6 +569,11 @@ export function SpecSheetPrint({ enabled, data, embedded = false }: SpecSheetPri
           flex-direction: column;
         }
         .spec-print-mini-table + .spec-print-mini-table { border-left: 1px solid #263740; }
+        /* Stage QC limits run across the full width under tooling and packing, one stage per line. */
+        .spec-print-operations:has(.spec-print-qc-table) { grid-template-rows: minmax(0, 1fr) auto; }
+        .spec-print-mini-table.spec-print-qc-table { grid-column: 1 / -1; border-left: 0; border-top: 1px solid #263740; }
+        .spec-print-sheet .spec-print-qc-table dl div { flex: none; grid-template-columns: 16mm 1fr; }
+        .spec-print-sheet .spec-print-qc-table dd { font-size: 6.2pt; }
         .spec-print-mini-heading {
           display: flex;
           min-height: 5.8mm;

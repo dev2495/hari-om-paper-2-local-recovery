@@ -20,7 +20,6 @@ import {
   useSaveStageDraft,
 } from "@/hooks/use-production"
 import { ContinuousJobCard } from "./ContinuousJobCard"
-import { SeasonJobCardPrint } from "./SeasonJobCardPrint"
 import { StageQcFields } from "@/components/qc/StageQcFields"
 import {
   collectStageQualityChecks,
@@ -667,6 +666,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
     (mandrelId ? mandrelLabelMap.get(mandrelId) : null) ||
     "-"
   const currentStage = (materialPreparationOnly ? "SLITTING" : card?.current_stage || "WINDER") as StageName
+  const seasonalCard = card?.spec_snapshot?.entry_model === "V2" && !materialPreparationOnly
   const plannerGateReady = Boolean(card?.planner_gate_ready ?? true)
   const plannerGateReason = card?.planner_gate_reason || ""
   const currentStageSegments = stageSegments.filter((segment: any) => segment.stage_type === currentStage && segment.status !== "COMPLETED" && segment.status !== "CANCELLED")
@@ -682,10 +682,20 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
     : Array.isArray(card?.spec_snapshot?.tooling_usage)
       ? card.spec_snapshot.tooling_usage
       : []
+  // Same sheet reference the spec sheet shows: mandrel code + I.D. x O.D. x length.
+  const sizeForReference = String(documentSnapshot?.header?.product_size_label || card?.spec_snapshot?.sales_order_line_size_label || "")
+    .replace(/mm/gi, "")
+    .trim()
+    .split(/\s*[xX×]\s*/)
+    .filter(Boolean)
+    .map((part) => (Number.isFinite(Number(part)) ? Number(part).toFixed(0) : part))
+  const derivedSpecReference =
+    mandrelLabel && mandrelLabel !== "-" && sizeForReference.length === 3 ? `${mandrelLabel}-${sizeForReference.join("X")}` : ""
   const specReference =
     documentSnapshot?.header?.spec_reference ||
     documentSnapshot?.setup_tooling?.spec_reference ||
     card?.spec_snapshot?.spec_reference ||
+    derivedSpecReference ||
     "-"
   const targetBambooCount = Number(documentSnapshot?.header?.target_bamboo_count || 0)
   const pcsPerBamboo = Number(documentSnapshot?.header?.pcs_per_bamboo || 0)
@@ -1580,9 +1590,9 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             </div>
           </div>
         ) : null}
-        {renderRestrictedPhysicalOutput()}
-        {renderLateQualityException()}
-        {renderWholeCardEntry()}
+        {seasonalCard ? null : renderRestrictedPhysicalOutput()}
+        {seasonalCard ? null : renderLateQualityException()}
+        {seasonalCard ? null : renderWholeCardEntry()}
         <section className="overflow-hidden rounded-[2rem] border border-border bg-card shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
           <div className="grid gap-0 xl:grid-cols-[minmax(0,1.55fr)_24rem]">
             <div className="border-b border-border bg-card px-6 py-6 text-foreground lg:border-b-0 lg:border-r">
@@ -1675,7 +1685,9 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
 
         <section className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_26rem]">
           <div className="space-y-4">
-            {wholeCard && mode === "supervisor" ? renderWholeCardSections() : (<>
+            {seasonalCard ? (
+              <ContinuousJobCard key={card?.id} card={card} embedded initialStage={currentStage === "SLITTING" ? undefined : currentStage} />
+            ) : wholeCard && mode === "supervisor" ? renderWholeCardSections() : (<>
             {renderSegmentSelector(currentStage)}
             <section className="rounded-[1.35rem] border border-border bg-card p-4 shadow-sm">
               <div className="flex items-start justify-between gap-3">
@@ -3969,9 +3981,19 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
     return <div className="rounded-xl border border-signal-rose-line bg-signal-rose-soft p-8 text-sm text-signal-rose-ink">Unable to load job card.</div>
   }
 
-  if (card.spec_snapshot?.entry_model === "V2" && !materialPreparationOnly) {
-    if (mode === "print") return <SeasonJobCardPrint card={card}/>
-    return <ContinuousJobCard card={card} />
+  if (seasonalCard) {
+    // Seasonal cards keep the same job card layout; only stage logging uses continuous entries.
+    if (mode === "print") {
+      return (
+        <>
+          {renderReleasePrintLayout()}
+          <div className="jc-season-annex mx-auto max-w-6xl" style={{ breakBefore: "page" }}>
+            <ContinuousJobCard card={card} print />
+          </div>
+        </>
+      )
+    }
+    return renderCompactExecutionLayout()
   }
 
   if (mode === "print") {

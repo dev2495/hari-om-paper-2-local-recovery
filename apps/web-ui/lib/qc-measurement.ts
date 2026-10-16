@@ -194,9 +194,27 @@ export function qcRowActions(args: {
   return actions
 }
 
+/** Seasonal limits that follow another reading of the same sample, e.g. oven post-weight 8–10% below pre-weight. */
+export function relativeLimitText(rule: any): string | null {
+  if (!rule?.dynamic) return null
+  const lower = rule.lower?.[0]
+  const upper = rule.upper?.[0]
+  if (!lower || !upper || lower.ref !== upper.ref || !String(lower.ref).startsWith("SAMPLE.") || lower.offset || upper.offset) {
+    return "computed from this sample's other readings"
+  }
+  const source = String(lower.ref).slice(7).replace("_", "-")
+  const lo = Math.round((1 - Number(upper.factor)) * 1000) / 10
+  const hi = Math.round((1 - Number(lower.factor)) * 1000) / 10
+  if (lo >= 0 && hi >= 0) return `${lo}–${hi}% below this sample's ${source}`
+  return `${Number(lower.factor)}× to ${Number(upper.factor)}× this sample's ${source}`
+}
+
 export function formatAllowedRange(rule: Pick<QcParameterRule, "min" | "max" | "unit" | "applicable"> | null | undefined) {
   if (!rule) return "Not applicable"
   if (rule.applicable === false) return "NOT APPLICABLE"
+  if ((rule as any).mode === "RECORD_ONLY") return "Record reading (no limit)"
+  const relative = relativeLimitText(rule)
+  if (relative && rule.min == null && rule.max == null) return `Allowed: ${relative}`
   if (rule.min == null && rule.max == null) return "Allowed: not configured"
   const unit = rule.unit ? ` ${rule.unit}` : ""
   if (rule.min != null && rule.max != null) return `Allowed: ${rule.min}–${rule.max}${unit}`
@@ -535,8 +553,9 @@ export function qcPrintStageRows(profile: any): Array<{ label: string; value: st
   const rows = (Object.keys(QC_STAGE_PARAMETERS) as QcStageKey[]).map((stage) => {
     const parameters = Array.isArray(profile.stages?.[stage]?.parameters) ? profile.stages[stage].parameters : []
     const parts = parameters
-      .filter((row: any) => row && row.applicable !== false && (row.min != null || row.max != null))
+      .filter((row: any) => row && row.applicable !== false && (row.min != null || row.max != null || relativeLimitText(row)))
       .map((row: any) => {
+        if (row.min == null && row.max == null) return `${row.label || row.code} ${relativeLimitText(row)}`
         const unit = row.unit ? ` ${row.unit}` : ""
         const band =
           row.min != null && row.max != null ? `${row.min}–${row.max}` : row.min != null ? `≥${row.min}` : `≤${row.max}`

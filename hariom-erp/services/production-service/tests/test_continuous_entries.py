@@ -212,6 +212,23 @@ def test_sample_correction_keeps_revision_and_duplicate_block(card):
     with pytest.raises(HTTPException):create(a,db,job,samples=changed)
     db.rollback()
 
+def test_first_batch_qc_needs_no_reason_but_a_correction_does(card):
+    a,db,job=card
+    e=create(a,db,job)['entry']
+    assert e['evaluation']['verdict']!='PASS'
+    first=a.save_observations(job.id,uuid.UUID(e['id']),a.Observations(request_id=str(uuid.uuid4()),expected_version=e['row_version'],samples=winding_samples()),db,PLANT,USER)['entry']
+    assert first['evaluation']['verdict']=='PASS'
+    history=a.entry_history(job.id,uuid.UUID(e['id']),db,PLANT,USER)
+    assert history[0]['reason']=='QC readings recorded'
+    with pytest.raises(HTTPException) as err:
+        a.save_observations(job.id,uuid.UUID(e['id']),a.Observations(request_id=str(uuid.uuid4()),expected_version=first['row_version'],samples=winding_samples()),db,PLANT,USER)
+    assert err.value.status_code==422
+    db.rollback()
+    with pytest.raises(HTTPException) as err:
+        a.save_observations(job.id,uuid.UUID(e['id']),a.Observations(request_id=str(uuid.uuid4()),expected_version=e['row_version'],reason='late',samples=winding_samples()),db,PLANT,USER)
+    assert err.value.status_code==409
+    db.rollback()
+
 def test_parent_lock_blocks_concurrent_writer(card):
     from src.database import SessionLocal
     a,db,job=card;other=SessionLocal()
@@ -275,3 +292,27 @@ def test_next_stage_takes_only_qc_cleared_batches_unless_supervisor_overrides(ca
     with pytest.raises(HTTPException) as denied:
         a.create_entry(job.id,a.EntryInput(request_id=str(uuid.uuid4()),stage='OVEN',business_date=date.today(),shift_code='SHIFT_A',operator_id=uuid.uuid4(),produced=1,accepted=1,input_quantity=1,submit=True,details={'qc_gate_override_reason':'x'}),db,PLANT,{'sub':'op','roles':['Operator'],'allowed_plants':[PLANT]})
     assert denied.value.status_code==403;db.rollback()
+
+
+def test_a_failed_batch_holds_only_itself_not_the_passing_batches(card):
+    a,db,job=card
+    # Batch 1 fails winding QC (I.D. far out): it is held and cannot feed the oven.
+    bad=[{'sample_id':str(uuid.uuid4()),'readings':{'id':70.0,'od':82,'height':1560,'weight':130,'cs':165}} for _ in range(2)]
+    failed=create(a,db,job,produced=3,accepted=3,samples=bad)['entry']
+    assert failed['evaluation']['verdict']=='FAIL' and not failed['qc_cleared']
+    assert a.available(db,job,'OVEN')==0 and a.awaiting_qc(db,job,'OVEN')==3
+    # Batch 2 passes: the oven may take it although batch 1 is on hold.
+    create(a,db,job,produced=4,accepted=4,samples=winding_samples())
+    assert a.available(db,job,'OVEN')==4
+    oven=next(s for s in a.flow(db,job)['stages'] if s['stage']=='OVEN')
+    assert oven['available_from_upstream']==4 and oven['awaiting_qc_from_upstream']==3
+    create(a,db,job,'OVEN',produced=4,accepted=4,input_quantity=4)
+    # The failed batch still stops the winding stage from closing until QC decides.
+    winding=next(s for s in a.flow(db,job)['stages'] if s['stage']=='WINDER')
+    assert any('Resolve blocking QC holds' in b for b in winding['blockers'])
+    # A hold on the card itself (not from one batch) still stops all movement.
+    from src.models import QualityHold
+    db.add(QualityHold(plant_id=job.plant_id,job_card_id=job.id,stage_type='WINDER',reason='Customer complaint hold',status='HOLD',created_by='qc'));db.flush()
+    create(a,db,job,produced=2,accepted=2,samples=winding_samples())
+    assert a.available(db,job,'OVEN')==0
+    db.rollback()
