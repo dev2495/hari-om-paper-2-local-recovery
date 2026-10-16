@@ -6,7 +6,7 @@ import { CheckCircle2, ChevronRight, ClipboardCheck, Hourglass, Search, ShieldCh
 
 import { Field, MessageBar, ProcurementShell, SummaryCard, WorkPanel, fieldClass, primaryButton, secondaryButton } from "@/components/procurement/procurement-shell"
 import { useAuth } from "@/context/AuthContext"
-import { useAdjustItemQualityTolerances, useApproveItemQualityProfile, useInventoryItems } from "@/hooks/use-inventory"
+import { useAdjustItemQualityTolerances, useApproveItemQualityProfile, useCopyItemQualityTemplate, useInventoryItems } from "@/hooks/use-inventory"
 import { cn } from "@/lib/utils"
 
 type Band = { min: string; max: string }
@@ -63,7 +63,7 @@ function stateOf(item: any) {
   const profile = profileOf(item)
   const parameters = parametersOf(profile)
   const status = String(profile?.status || profile?.setup_status || "").toLowerCase()
-  if (!parameters.length) return { key: "missing", label: "Waiting for QC", tone: "amber" as const }
+  if (!parameters.length) return { key: "missing", label: "No checks yet", tone: "amber" as const }
   if (status === "approved") return { key: "approved", label: `Approved · rev ${profile?.revision || 1}`, tone: "emerald" as const }
   if (status === "pending_review" || status === "complete") return { key: "pending", label: `Awaiting approval · rev ${profile?.revision || 1}`, tone: "cyan" as const }
   return { key: "draft", label: `QC draft · rev ${profile?.revision || 1}`, tone: "slate" as const }
@@ -82,6 +82,19 @@ export default function InwardQcTolerancesPage() {
   const items = useInventoryItems()
   const adjust = useAdjustItemQualityTolerances()
   const approve = useApproveItemQualityProfile()
+  const copyTemplate = useCopyItemQualityTemplate()
+  async function startFromChecklist(item: any) {
+    try {
+      const saved: any = await copyTemplate.mutateAsync({ id: item.id })
+      const profile = profileOf(saved?.data || saved) || profileOf(item)
+      const initial: Record<string, Band> = {}
+      parametersOf(profile).forEach((row: any) => { initial[String(row.code)] = { min: row.min == null ? "" : String(row.min), max: row.max == null ? "" : String(row.max) } })
+      setBands(initial)
+      setMessage({ tone: "success", text: `${item.item_code}: standard ${TYPE_LABELS[String(item.type)] || item.type} checks added. Enter the min/max below and save; an Owner/Admin then approves.` })
+    } catch (error) {
+      setMessage({ tone: "error", text: errorText(error) })
+    }
+  }
   const [type, setType] = useState("ALL")
   const [stateFilter, setStateFilter] = useState("ALL")
   const [search, setSearch] = useState("")
@@ -161,7 +174,7 @@ export default function InwardQcTolerancesPage() {
         <SummaryCard label="Approved" value={counts.approved} detail="Materials whose inward checks are live." icon={ShieldCheck} tone="emerald" />
         <SummaryCard label="Awaiting approval" value={counts.pending} detail="Adjusted tolerances waiting for Owner/Admin." icon={Hourglass} tone="cyan" />
         <SummaryCard label="QC drafting" value={counts.draft} detail="QC is still preparing the checks." icon={ClipboardCheck} tone="slate" />
-        <SummaryCard label="Waiting for QC" value={counts.missing} detail="QC has not set parameters yet — nothing to adjust." icon={CheckCircle2} tone="amber" />
+        <SummaryCard label="No checks yet" value={counts.missing} detail="Start these from the standard checklist below." icon={CheckCircle2} tone="amber" />
       </div>
 
       <WorkPanel title="Materials" description="Open a material to see QC's parameters, the tolerances in force, and adjust them.">
@@ -213,7 +226,10 @@ export default function InwardQcTolerancesPage() {
                 {open ? (
                   <div className="space-y-3 border-t border-border bg-[hsl(var(--surface-2))] px-3 py-3">
                     {!parameters.length ? (
-                      <MessageBar tone="info">QC has not set the inward checks for this material yet. Once QC adds them in <Link className="font-semibold underline" href="/quality/material-standards">Quality → Material standards</Link>, the tolerances can be adjusted here.</MessageBar>
+                      <div className="space-y-2">
+                        <MessageBar tone="info">No inward checks on this material yet. Start from the standard {TYPE_LABELS[String(item.type)] || String(item.type || "").replaceAll("_", " ")} checklist (the checks QC agreed: {String(item.type) === "RAW_PAPER" ? "GSM, width, reel weight, moisture, thickness, BF, polybond, remark" : String(item.type) === "ADHESIVE" ? "viscosity, solid %, pH, remark" : String(item.type) === "PARCHMENT" ? "GSM, colour, weight, remark" : "as per QC template"}), set the min/max here, and an Owner/Admin approves. QC can change the list of checks in <Link className="font-semibold underline" href="/quality/material-standards">Quality → Material standards</Link>.</MessageBar>
+                        <button type="button" className={primaryButton} disabled={copyTemplate.isPending} data-testid={`inward-qc-start-${item.item_code}`} onClick={() => void startFromChecklist(item)}>{copyTemplate.isPending ? "Adding…" : "Use the standard checklist"}</button>
+                      </div>
                     ) : (
                       <>
                         <div className="overflow-x-auto rounded-lg border border-border bg-card">

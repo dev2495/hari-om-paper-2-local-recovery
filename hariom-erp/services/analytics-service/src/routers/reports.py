@@ -173,6 +173,7 @@ def _load_scope_snapshot(token: str, plant_scope: dict) -> dict[str, Any]:
     quality_inspections: list[dict[str, Any]] = []
     quality_holds: list[dict[str, Any]] = []
     ready_jobs: list[dict[str, Any]] = []
+    flagged_entries: list[dict[str, Any]] = []
     inventory_health: dict[str, dict[str, Any]] = {}
 
     for plant_id in plant_ids:
@@ -219,6 +220,9 @@ def _load_scope_snapshot(token: str, plant_scope: dict) -> dict[str, Any]:
         ready_jobs.extend(
             [{**row, "plant_id": plant_id} for row in (service_get(f"{PRODUCTION_SERVICE_URL}/dispatch/ready-jobs/", token, plant_id=plant_id) or [])]
         )
+        flagged_entries.extend(
+            [{**row, "plant_id": plant_id} for row in (service_get(f"{PRODUCTION_SERVICE_URL}/entries/flagged", token, plant_id=plant_id) or [])]
+        )
         machines.extend(
             [{**row, "plant_id": plant_id} for row in (service_get(f"{MASTER_DATA_SERVICE_URL}/master/machines/", token, plant_id=plant_id) or [])]
         )
@@ -227,6 +231,7 @@ def _load_scope_snapshot(token: str, plant_scope: dict) -> dict[str, Any]:
         "plants": plants,
         "plants_by_id": plants_by_id,
         "job_cards": job_cards,
+        "flagged_entries": flagged_entries,
         "orders": orders,
         "machines": machines,
         "balances": balances,
@@ -643,7 +648,12 @@ def _exception_report(snapshot: dict[str, Any], sales_report: dict[str, Any], in
             "overstock_items": len(inventory_report["risk_items"]["overstock"]),
             "blocked_jobs": len(production_report["blocked_rows"]),
             "active_qc_holds": len([row for row in snapshot["quality_holds"] if str(row.get("status") or "").upper() == "HOLD"]),
+            "unscheduled_entries": len(snapshot.get("flagged_entries") or []),
         },
+        "unscheduled_entries": [
+            {k: row.get(k) for k in ("job_card_no", "customer", "stage", "entry_no", "business_date", "shift_code", "operator_name", "produced", "accepted", "entered_by", "entered_at", "reason", "job_card_id", "plant_id")}
+            for row in (snapshot.get("flagged_entries") or [])[:50]
+        ],
         "delayed_orders": sales_report["delayed_rows"],
         "low_stock": inventory_report["risk_items"]["low_stock"],
         "overstock": inventory_report["risk_items"]["overstock"],

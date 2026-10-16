@@ -20,6 +20,8 @@ import {
   useSaveStageDraft,
 } from "@/hooks/use-production"
 import { ContinuousJobCard } from "./ContinuousJobCard"
+import { entryApiForPlant } from "@/lib/season-api"
+import { useQuery } from "@tanstack/react-query"
 import { StageQcFields } from "@/components/qc/StageQcFields"
 import {
   collectStageQualityChecks,
@@ -667,6 +669,34 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
     "-"
   const currentStage = (materialPreparationOnly ? "SLITTING" : card?.current_stage || "WINDER") as StageName
   const seasonalCard = card?.spec_snapshot?.entry_model === "V2" && !materialPreparationOnly
+  // Seasonal cards: the printed card rows are the saved batch entries (one row per run, one reading row per sample).
+  const seasonEntriesQuery = useQuery({
+    queryKey: ["continuous-entries-print", card?.id],
+    queryFn: async () => {
+      const api = entryApiForPlant(String(card?.plant_id || ""))
+      const all: any[] = []
+      let offset = 0
+      let total = 1
+      while (offset < total && offset < 500) {
+        const { data } = await api.list(String(card?.id), undefined, offset, 100)
+        all.push(...(data?.entries || []))
+        total = Number(data?.total || 0)
+        offset += 100
+      }
+      return all.filter((e: any) => e.status === "SUBMITTED").sort((a: any, b: any) => a.entry_no - b.entry_no)
+    },
+    enabled: Boolean(seasonalCard && card?.id && mode === "print"),
+  })
+  const seasonEntries: any[] = seasonEntriesQuery.data || []
+  const v2Rows = (stage: string) => seasonEntries.filter((e: any) => e.stage === stage && e.kind !== "QC_ONLY")
+  const tidy = (value: any) => (typeof value === "number" || (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))) ? String(Number(Number(value).toFixed(3))) : value)
+  const v2Samples = (stage: string) => seasonEntries.filter((e: any) => e.stage === stage).flatMap((e: any) => (e.samples || []).map((sample: any) => ({ ...Object.fromEntries(Object.entries(sample.readings || {}).map(([k, v]) => [k, tidy(v)])), entry_no: e.entry_no })))
+  const v2People = (stage: string) => {
+    const rows = v2Rows(stage)
+    const names = (key: (e: any) => any) => Array.from(new Set(rows.map(key).filter(Boolean))).join(", ")
+    return { operator: names((e) => e.operator_name), helper: names((e) => e.details?.helper_name) }
+  }
+  const v2Machine = (stage: string) => { const row = v2Rows(stage).find((e: any) => e.machine_id); return row ? machineLabelMap.get(String(row.machine_id)) || "" : "" }
   const plannerGateReady = Boolean(card?.planner_gate_ready ?? true)
   const plannerGateReason = card?.planner_gate_reason || ""
   const currentStageSegments = stageSegments.filter((segment: any) => segment.stage_type === currentStage && segment.status !== "COMPLETED" && segment.status !== "CANCELLED")
@@ -3283,12 +3313,12 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             <tbody>
               <SectionBand
                 dateLabel="Date" dateHi="तारीख" dateValue={winderPlan.date}
-                title={`Winder No. ${winderPrintEntry.winder_no || winderPlan.machineLabel || ""}`.trim()} titleHi="वाइंडर"
+                title={`Winder No. ${winderPrintEntry.winder_no || (seasonalCard && v2Machine("WINDER")) || winderPlan.machineLabel || ""}`.trim()} titleHi="वाइंडर"
                 shiftLabel="Shift" shiftHi="शिफ्ट" shiftValue={winderPlan.shiftLabel}
               />
               <PeopleRows
                 labels={[["Operator Name", "ऑपरेटर नेम"], ["Pattiwala Name", "पट्टीवाला नेम"], ["Supervisor Sign", "सुपरवाइजर साइन"], ["QC Sign", "क्यूसी साइन"]]}
-                values={[winderPrintEntry.operator_name, winderPrintEntry.pattiwala_name || winderPrintEntry.helper_name, winderPrintEntry.supervisor_sign, winderPrintEntry.qc_sign]}
+                values={seasonalCard ? [v2People("WINDER").operator, v2People("WINDER").helper, "", ""] : [winderPrintEntry.operator_name, winderPrintEntry.pattiwala_name || winderPrintEntry.helper_name, winderPrintEntry.supervisor_sign, winderPrintEntry.qc_sign]}
               />
               <tr className="jc-row-label">
                 <td className="jc-label"><L en="Output Qty" hi="आउटपुट क्वांटिटी" /></td>
@@ -3299,9 +3329,23 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
                 <td className="jc-label"><L en="End Time (B)" hi="एंड टाइम" /></td>
                 <td className="jc-label" colSpan={2}><L en="Cycle Time (B-A)" hi="साइकिल टाइम" /></td>
               </tr>
-              {Array.from({ length: 2 }, (_, index) => {
+              {Array.from({ length: seasonalCard ? Math.min(6, Math.max(2, v2Rows("WINDER").length)) : 2 }, (_, index) => {
                 const first = index === 0
+                const run = seasonalCard ? v2Rows("WINDER")[index] : null
                 const accepted = Number(winderPrintEntry.accepted_bamboo_count || 0)
+                if (seasonalCard) {
+                  return (
+                    <tr key={`winder-row-${index}`} className="jc-row-entry" data-testid={run ? "print-winder-run" : undefined}>
+                      <td className="jc-value jc-actual">{run ? `${num(run.produced, 0)}${run.details?.unscheduled_entry ? " †" : ""}` : ""}</td>
+                      <td className="jc-value jc-actual">{run ? `${num(run.rejected, 0)}${run.details?.reject_code ? ` ${run.details.reject_code}` : ""}` : ""}</td>
+                      <td className="jc-value jc-actual">{run ? num(run.accepted, 0) : ""}</td>
+                      <td className="jc-value jc-actual">{run && pcsPerBamboo ? num(Number(run.accepted) * pcsPerBamboo, 0) : ""}</td>
+                      <td className="jc-value jc-actual">{run ? cardTime(run.details?.start_time) : ""}</td>
+                      <td className="jc-value jc-actual">{run ? cardTime(run.details?.end_time) : ""}</td>
+                      <td className="jc-value jc-actual" colSpan={2}>{run ? [cycleTimeFromCard(run.details?.start_time, run.details?.end_time), run.business_date ? dateOnly(run.business_date) : "", run.shift_code ? String(run.shift_code).replace("SHIFT_", "") : ""].filter(Boolean).join(" · ") : ""}</td>
+                    </tr>
+                  )
+                }
                 return (
                   <tr key={`winder-row-${index}`} className="jc-row-entry">
                     <td className="jc-value jc-actual">{first ? displayWinderQty(winderPrintEntry.bamboo_count_produced, winderPrintEntry.winding_meters_produced) : ""}</td>
@@ -3352,8 +3396,8 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
                 <td className="jc-value"><Req value={num(manufacturingSpec?.winder_pre_dry_cs)} hint={allowed(winderQcRules, "cs", "pre-dry")} /></td>
                 <td className="jc-value"><Req value="" hint={allowed(winderQcRules, "pasting", "visual · OK / NG")} /></td>
               </tr>
-              {Array.from({ length: 4 }, (_, index) => {
-                const reading = winderReadings[index] || {}
+              {Array.from({ length: seasonalCard ? Math.min(8, Math.max(4, v2Samples("WINDER").length)) : 4 }, (_, index) => {
+                const reading = (seasonalCard ? v2Samples("WINDER")[index] : winderReadings[index]) || {}
                 return (
                   <tr key={`winder-sample-${index}`} className="jc-row-sample" data-testid="print-winder-sample">
                     <td className="jc-value"><W value={reading.id} testId={`winder-id-${index}`} /></td>
@@ -3374,7 +3418,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             <tbody>
               <SectionBand
                 dateLabel="Date" dateHi="तारीख" dateValue={ovenPlan.date}
-                title={`Oven ${ovenPrintEntry.oven_no || ovenPlan.machineLabel || ""}`.trim()} titleHi="ओवन"
+                title={`Oven ${ovenPrintEntry.oven_no || (seasonalCard && v2Machine("OVEN")) || ovenPlan.machineLabel || ""}`.trim()} titleHi="ओवन"
                 shiftLabel="Shift" shiftHi="शिफ्ट" shiftValue={ovenPlan.shiftLabel}
               />
               <tr className="jc-row-label" data-testid="print-page-oven">
@@ -3386,8 +3430,22 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
                 <td className="jc-label"><L en="End Time (B)" hi="एंड टाइम" /></td>
                 <td className="jc-label" colSpan={2}><L en="Cycle Time (B-A)" hi="साइकिल टाइम" /></td>
               </tr>
-              {Array.from({ length: 3 }, (_, index) => {
+              {Array.from({ length: seasonalCard ? Math.min(6, Math.max(3, v2Rows("OVEN").length)) : 3 }, (_, index) => {
                 const first = index === 0 && (ovenPrintStage?.status === "COMPLETED" || Boolean(ovenPrintEntry.bamboo_count_in))
+                const run = seasonalCard ? v2Rows("OVEN")[index] : null
+                if (seasonalCard) {
+                  return (
+                    <tr key={`oven-row-${index}`} className="jc-row-entry" data-testid={run ? "print-oven-run" : undefined}>
+                      <td className="jc-value jc-actual">{run ? `${num(run.accepted, 0)}${run.rejected ? ` (−${num(run.rejected, 0)})` : ""}${run.details?.unscheduled_entry ? " †" : ""}` : ""}</td>
+                      <td className="jc-value jc-actual">{run ? run.operator_name || "" : ""}</td>
+                      <td className="jc-value jc-actual"></td>
+                      <td className="jc-value jc-actual"></td>
+                      <td className="jc-value jc-actual">{run ? cardTime(run.details?.start_time) : ""}</td>
+                      <td className="jc-value jc-actual">{run ? cardTime(run.details?.end_time) : ""}</td>
+                      <td className="jc-value jc-actual" colSpan={2}>{run ? [cycleTimeFromCard(run.details?.start_time, run.details?.end_time), run.business_date ? dateOnly(run.business_date) : "", run.shift_code ? String(run.shift_code).replace("SHIFT_", "") : ""].filter(Boolean).join(" · ") : ""}</td>
+                    </tr>
+                  )
+                }
                 return (
                   <tr key={`oven-row-${index}`} className="jc-row-entry">
                     <td className="jc-value jc-actual">{first ? ovenPrintEntry.bamboo_count_out || ovenPrintEntry.bamboo_count_in || num(ovenPrintStage?.output_qty, 0) : ""}</td>
@@ -3412,14 +3470,16 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
                 <td className="jc-value" colSpan={2}><Req value="" hint={allowed(ovenQcRules, "pre_moisture", "before oven")} testId="allowed-pre_moisture" /></td>
                 <td className="jc-value" colSpan={2}><Req value={range(clientSpec?.moisture, 1) ? `${range(clientSpec?.moisture, 1)} %` : num(clientSpec?.moisture?.avg, 1)} hint={allowed(ovenQcRules, "post_moisture", "after oven")} testId="allowed-post_moisture" /></td>
               </tr>
-              {Array.from({ length: 3 }, (_, index) => {
+              {Array.from({ length: seasonalCard ? Math.min(6, Math.max(3, v2Samples("OVEN").length)) : 3 }, (_, index) => {
                 const first = index === 0 && ovenReadingEntered
+                const sample = seasonalCard ? v2Samples("OVEN")[index] || {} : null
+                const value = (key: keyof typeof ovenReading) => (sample ? sample[key] ?? "" : first ? ovenReading[key] : "")
                 return (
                   <tr key={`oven-sample-${index}`} className="jc-row-sample" data-testid={index === 0 ? "print-oven-pair" : undefined}>
-                    <td className="jc-value" colSpan={2}><W value={first ? ovenReading.pre_weight : ""} testId={index === 0 ? "oven-pre-weight" : undefined} /></td>
-                    <td className="jc-value" colSpan={2}><W value={first ? ovenReading.post_weight : ""} testId={index === 0 ? "oven-post-weight" : undefined} /></td>
-                    <td className="jc-value" colSpan={2}><W value={first ? ovenReading.pre_moisture : ""} testId={index === 0 ? "oven-pre-moisture" : undefined} /></td>
-                    <td className="jc-value" colSpan={2}><W value={first ? ovenReading.post_moisture : ""} testId={index === 0 ? "oven-post-moisture" : undefined} /></td>
+                    <td className="jc-value" colSpan={2}><W value={value("pre_weight")} testId={index === 0 ? "oven-pre-weight" : undefined} /></td>
+                    <td className="jc-value" colSpan={2}><W value={value("post_weight")} testId={index === 0 ? "oven-post-weight" : undefined} /></td>
+                    <td className="jc-value" colSpan={2}><W value={value("pre_moisture")} testId={index === 0 ? "oven-pre-moisture" : undefined} /></td>
+                    <td className="jc-value" colSpan={2}><W value={value("post_moisture")} testId={index === 0 ? "oven-post-moisture" : undefined} /></td>
                   </tr>
                 )
               })}
@@ -3432,12 +3492,12 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             <tbody>
               <SectionBand
                 dateLabel="Date" dateHi="तारीख" dateValue={processPlan.date}
-                title={`Process Line ${processPrintEntry.process_line_no || processPlan.machineLabel || ""}`.trim()} titleHi="प्रोसेस लाइन"
+                title={`Process Line ${processPrintEntry.process_line_no || (seasonalCard && v2Machine("PROCESS")) || processPlan.machineLabel || ""}`.trim()} titleHi="प्रोसेस लाइन"
                 shiftLabel="Shift" shiftHi="शिफ्ट" shiftValue={processPlan.shiftLabel}
               />
               <PeopleRows
                 labels={[["Operator Name", "ऑपरेटर नेम"], ["Packing Name", "पैकिंग नेम"], ["Supervisor Sign", "सुपरवाइजर साइन"], ["QC Sign", "क्यूसी साइन"]]}
-                values={[processPrintEntry.operator_name, packingPrintEntry.packer_name || packingPrintEntry.operator_name, packingPrintEntry.supervisor_sign || processPrintEntry.supervisor_sign, qcPrintEntry.qc_sign || processPrintEntry.qc_sign]}
+                values={seasonalCard ? [v2People("PROCESS").operator, v2People("PROCESS").helper || v2People("PACKING").operator, "", ""] : [processPrintEntry.operator_name, packingPrintEntry.packer_name || packingPrintEntry.operator_name, packingPrintEntry.supervisor_sign || processPrintEntry.supervisor_sign, qcPrintEntry.qc_sign || processPrintEntry.qc_sign]}
               />
               <tr className="jc-row-label">
                 <td className="jc-label"><L en="Total Oven Qty" hi="ओवन क्वांटिटी" /></td>
@@ -3448,10 +3508,25 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
                 <td className="jc-label"><L en="End Time (B)" hi="एंड टाइम" /></td>
                 <td className="jc-label" colSpan={2}><L en="Cycle Time (B-A)" hi="साइकिल टाइम" /></td>
               </tr>
-              {Array.from({ length: 2 }, (_, index) => {
+              {Array.from({ length: seasonalCard ? Math.min(6, Math.max(2, v2Rows("PROCESS").length)) : 2 }, (_, index) => {
                 const first = index === 0 && processPrintStage?.status === "COMPLETED"
                 const processQty = Number(processPrintEntry.process_qty || processPrintStage?.output_qty || 0)
                 const rejectQty = Number(processPrintEntry.reject_qty || processPrintStage?.scrap_qty || 0)
+                const run = seasonalCard ? v2Rows("PROCESS")[index] : null
+                if (seasonalCard) {
+                  const rowCount = Math.min(6, Math.max(2, v2Rows("PROCESS").length))
+                  return (
+                    <tr key={`process-row-${index}`} className="jc-row-entry" data-testid={run ? "print-process-run" : undefined}>
+                      {index === 0 ? <td className="jc-value jc-actual" rowSpan={rowCount}>{num(v2Rows("OVEN").reduce((sum: number, e: any) => sum + Number(e.accepted || 0), 0), 0) || ""}</td> : null}
+                      <td className="jc-value jc-actual">{run ? `${num(run.produced, 0)}${run.input_quantity ? ` (${num(run.input_quantity, 0)} bamboo)` : ""}${run.details?.unscheduled_entry ? " †" : ""}` : ""}</td>
+                      <td className="jc-value jc-actual">{run ? `${num(run.rejected, 0)}${run.details?.reject_code ? ` ${run.details.reject_code}` : ""}` : ""}</td>
+                      <td className="jc-value jc-actual">{run ? num(run.accepted, 0) : ""}</td>
+                      <td className="jc-value jc-actual">{run ? cardTime(run.details?.start_time) : ""}</td>
+                      <td className="jc-value jc-actual">{run ? cardTime(run.details?.end_time) : ""}</td>
+                      <td className="jc-value jc-actual" colSpan={2}>{run ? [cycleTimeFromCard(run.details?.start_time, run.details?.end_time), run.business_date ? dateOnly(run.business_date) : "", run.shift_code ? String(run.shift_code).replace("SHIFT_", "") : ""].filter(Boolean).join(" · ") : ""}</td>
+                    </tr>
+                  )
+                }
                 return (
                   <tr key={`process-row-${index}`} className="jc-row-entry">
                     {index === 0 ? <td className="jc-value jc-actual" rowSpan={2}>{processPrintStage?.status === "COMPLETED" || ovenPrintStage?.status === "COMPLETED" ? num(ovenPrintStage?.output_qty, 0) : ""}</td> : null}
@@ -3484,8 +3559,8 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
                 <td className="jc-value"><Req value={setup.notch_distance || ""} hint={allowed(processQcRules, "notch_distance", "mm")} /></td>
                 <td className="jc-value"><Req value={setup.notch_depth || ""} hint={allowed(processQcRules, "notch_depth", "mm")} /></td>
               </tr>
-              {Array.from({ length: 6 }, (_, index) => {
-                const reading = index === 0 && hasProcessReading ? processReading : {}
+              {Array.from({ length: seasonalCard ? Math.min(8, Math.max(6, v2Samples("PROCESS").length)) : 6 }, (_, index) => {
+                const reading = seasonalCard ? v2Samples("PROCESS")[index] || {} : index === 0 && hasProcessReading ? processReading : {}
                 return (
                   <tr key={`process-sample-${index}`} className="jc-row-sample" data-testid="print-process-sample">
                     <td className="jc-value"><W value={reading.id} /></td>
@@ -3581,6 +3656,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
         </section>
 
         {/* ---------------- BACK: approved spec sheet for this job card ---------------- */}
+        {seasonalCard && seasonEntries.some((e: any) => e.details?.unscheduled_entry) ? <p className="jc-footnote">† Run logged before the planner placed this stage (shown to the owner under Reports › Exceptions).</p> : null}
         <section className="jc-page jc-back jc-spec-back" data-testid="print-page-spec">
           {card?.spec_id ? (
             <div className="jc-spec-rotate">

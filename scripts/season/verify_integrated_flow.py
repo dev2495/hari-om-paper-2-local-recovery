@@ -407,3 +407,96 @@ if os.getenv('SEASON_VERIFY_ROLES')=='1':
                 assert denied.status_code==403
             mark('Authenticated '+role+' permissions and cross-plant denials verified')
         finally:client.headers['Authorization']=owner_header
+
+if os.getenv('SEASON_VERIFY_FLOOR2')=='1':
+    # Client rules 2026-10-16: a released card can be run before the planner places it (flagged
+    # for the owner), one order is made in halves across shifts and days, the card is re-entered
+    # later, rejects carry a code, and the whole card reaches packing, FG, dispatch and consumption.
+    import time
+    def negative(service,method,path,body,expected=(409,422)):
+        response=client.request(method,f'http://127.0.0.1:{PORTS[service]}{path}',json=body)
+        assert response.status_code in expected,(path,response.status_code,response.text[:700])
+    if not state.get('half_order_id'):
+        order=req('sales','POST','/sales-orders',{'customer_id':customer['id'],'origin':'CUSTOMER_PO','po_number':'SEASON_ACCEPTANCE_HALF','po_date':date.today().isoformat(),'expiry_date':(date.today()+timedelta(days=90)).isoformat(),'lines':[{'approved_spec_id':state['spec_id'],'product_code':'SEASON_HALF','size_label':'76.4 x 81 x 150','parchment_required':False,'qty':100,'due_date':(date.today()+timedelta(days=14)).isoformat(),'rate_per_pc':4}]})
+        password='Verify-'+secrets.token_urlsafe(18)+'1aA!';email='season-half-'+uuid.uuid4().hex[:8]+'@example.com'
+        req('auth','POST','/users/',{'name':'Half order approver','email':email,'password':password,'role_names':['Admin'],'plant_id':PLANT,'allowed_plant_ids':[PLANT]})
+        other=httpx.post(f'http://127.0.0.1:{PORTS["auth"]}/auth/login',data={'username':email,'password':password},timeout=20);assert other.is_success
+        token=client.headers['Authorization'];client.headers['Authorization']='Bearer '+other.json()['access_token']
+        req('sales','POST',f'/sales-orders/{order["id"]}/approve');client.headers['Authorization']=token
+        mark('Half-order acceptance: 100 pcs order approved',half_order_id=order['id'],half_line_id=order['lines'][0]['id'])
+    if not state.get('half_job_id'):
+        lot=req('sales','POST',f'/sales-orders/lines/{state["half_line_id"]}/release',{'release_qty':50,'winder_machine_id':state['machine_WINDER']['id'],'release_lot_id':str(uuid.uuid4())})
+        result=req('production','POST',f'/sales-orders/{state["half_order_id"]}/release-sync',{'release_rows':[{'sales_order_line_id':state['half_line_id'],'release_lot_id':lot['id'],'winder_machine_id':state['machine_WINDER']['id'],'release_qty':50}]})
+        line=req('sales','GET',f'/sales-orders/{state["half_order_id"]}')['lines'][0]
+        assert line['release_remaining_qty']==50,line
+        mark('First half (50 of 100) released; 50 stays open on the order',half_lot_id=lot['id'],half_job_id=result['line_results'][0]['job_card_id'])
+    jid=state['half_job_id']
+    def flow():return req('production','GET',f'/job-cards/{jid}/flow')
+    def stage_state(stage):return next(s for s in flow()['stages'] if s['stage']==stage)
+    def readings(values):return [{'sample_id':str(uuid.uuid4()),'readings':values} for _ in range(2)]
+    def entry(stage,produced,accepted,input_qty=0,readings_values=None,**extra):
+        body=cmd(stage=stage,business_date=date.today().isoformat(),shift_code='SHIFT_A',operator_id=operator['id'],produced=produced,accepted=accepted,input_quantity=input_qty,samples=readings(readings_values) if readings_values else [],submit=True)
+        body.update(extra);return req('production','POST',f'/job-cards/{jid}/entries',body)['entry']
+    def close(stage,**extra):
+        return req('production','POST',f'/job-cards/{jid}/stages/{stage}/close',cmd(expected_version=stage_state(stage)['row_version'],supervisor_id=supervisor['id'],reason='Acceptance fixture material-issue exception',**extra))
+    card=req('production','GET',f'/job-cards/{jid}');profile=card['spec_snapshot']['qc_profile'];bamboo=profile['refs']['WINDING_LENGTH']
+    wread={'id':76.3,'od':82,'height':bamboo,'weight':state['target_weight']*10*1.1,'cs':165}
+    oread={'pre_weight':1000,'post_weight':910,'pre_moisture':10,'post_moisture':8,'cs':420}
+    pread={'id':76.4,'od':81,'height':150,'weight':state['target_weight'],'cs':420,'moisture':8}
+    if not state.get('half_unscheduled'):
+        winding=stage_state('WINDER')
+        assert not any(s['planner_gate_ready'] for s in winding['segments']),winding['segments']
+        # Shift A run on the released but unplanned card: accepted, flagged, and the stage is placed on that slot.
+        first=entry('WINDER',2,2,readings_values=wread,machine_id=state['machine_WINDER']['id'],details={'start_time':f'{date.today().isoformat()}T08:10','end_time':f'{date.today().isoformat()}T10:40','helper_name':'Pattiwala Ram'})
+        assert first['status']=='SUBMITTED' and first['details']['unscheduled_entry'],first['details']
+        winding=stage_state('WINDER')
+        assert winding['unscheduled_entries']==1 and any(s['planner_gate_ready'] and s['plan_date']==date.today().isoformat() and s['shift_code']=='SHIFT_A' for s in winding['segments']),winding['segments']
+        flagged=req('production','GET','/entries/flagged')
+        assert any(f['job_card_id']==jid and f['entry_no']==first['entry_no'] for f in flagged),flagged[:2]
+        exceptions=req('bff','GET','/api/analytics/reports/exceptions')
+        assert exceptions['summary']['unscheduled_entries']>=1 and any(r['job_card_id']==jid for r in exceptions['unscheduled_entries']),exceptions['summary']
+        mark('Run logged before planning is accepted, placed on its slot and shown to the owner',half_unscheduled=True)
+    if not state.get('half_shifts'):
+        # Shift B run with one reject and a rejection code; then the next day's run (re-entry later).
+        second=entry('WINDER',2,1,readings_values=wread,shift_code='SHIFT_B',details={'reject_reason':'Loose winding at end','reject_code':'WL','start_time':f'{date.today().isoformat()}T20:05','end_time':f'{date.today().isoformat()}T22:00'},reason='Loose winding at end')
+        assert second['rejected']==1 and second['details']['reject_code']=='WL' and 'unscheduled_entry' not in second['details']
+        negative('production','POST',f'/job-cards/{jid}/entries',cmd(stage='WINDER',business_date=date.today().isoformat(),shift_code='SHIFT_A',operator_id=operator['id'],produced=2,accepted=1,submit=True),(422,))
+        third=entry('WINDER',1,1,readings_values=wread,business_date=(date.today()-timedelta(days=1)).isoformat())
+        winding=stage_state('WINDER')
+        assert winding['produced_total']==5 and winding['accepted_total']==4 and winding['rejected_total']==1,winding
+        mark('Shift A, shift B (reject with code) and a later-day re-entry accumulate on one card',half_shifts=True)
+    if not state.get('half_wop'):
+        for stage,inputs,values in [('OVEN',4,oread),('PROCESS',4,pread)]:
+            made=4 if stage=='OVEN' else 40
+            entry(stage,made,made,inputs,readings_values=values,machine_id=state['machine_'+stage]['id'])
+        for stage in ('WINDER','OVEN','PROCESS'):
+            if stage_state(stage)['status']!='COMPLETED':close(stage,short_close=True)
+        process=stage_state('PROCESS');assert process['accepted_total']==40 and process['status']=='COMPLETED',process
+        mark('Oven and process consume only QC-cleared batches; short close carries 40 pcs forward',half_wop=True)
+    if not state.get('half_packed'):
+        entry('PACKING',40,40,40,machine_id=state['machine_PACKING']['id'])
+        close('PACKING',fg_item_id=state['fg_item_id'])
+        final={'id':76.4,'od':81,'length':150,'weight':state['target_weight'],'cs':420}
+        req('production','POST','/quality/inspections/import',{'rows':[{'job_card_id':jid,'stage_type':'QC','sample_id':str(uuid.uuid4()),'readings':final,'final_submission':True} for _ in range(2)]})
+        entry('QC',40,40,40);close('QC')
+        for _ in range(30):
+            record=req('production','GET',f'/job-cards/{jid}').get('packing_record') or {};stock=record.get('snapshot') or {}
+            if stock.get('inventory_batch_id'):break
+            time.sleep(1)
+        assert stock.get('inventory_batch_id'),'FG inward did not deliver'
+        mark('Packing, final QC and FG inward completed for the half card',half_packed=True,half_fg_batch_id=stock['inventory_batch_id'])
+    if not state.get('half_dispatched'):
+        sent=[]
+        for qty,challan in ((25,'SEASON_HALF_CH1'),(15,'SEASON_HALF_CH2')):
+            body={'job_card_id':jid,'dispatch_request_id':str(uuid.uuid4()),'status':'SEALED','fg_item_id':state['fg_item_id'],'fg_batch_id':state['half_fg_batch_id'],'dispatch_qty':qty,'dispatch_snapshot':{'date':date.today().isoformat(),'challan_no':challan,'vehicle_no':'GJ-05-1234','dispatch_qty':qty}}
+            sent.append(req('production','POST','/dispatch/',body))
+        line=req('sales','GET',f'/sales-orders/{state["half_order_id"]}')['lines'][0]
+        assert line['fulfilled_qty']==40,line
+        detail=req('production','GET',f'/job-cards/{jid}');assert detail['status']=='COMPLETED',detail['status']
+        mark('Two partial dispatches (25 + 15) fulfil the half card; order shows 40 of 100 shipped',half_dispatched=True,half_dispatch_ids=[d['id'] for d in sent])
+    if not state.get('half_second_release'):
+        lot=req('sales','POST',f'/sales-orders/lines/{state["half_line_id"]}/release',{'release_qty':50,'winder_machine_id':state['machine_WINDER']['id'],'release_lot_id':str(uuid.uuid4())})
+        result=req('production','POST',f'/sales-orders/{state["half_order_id"]}/release-sync',{'release_rows':[{'sales_order_line_id':state['half_line_id'],'release_lot_id':lot['id'],'winder_machine_id':state['machine_WINDER']['id'],'release_qty':50}]})
+        line=req('sales','GET',f'/sales-orders/{state["half_order_id"]}')['lines'][0]
+        assert line['release_remaining_qty']==0,line
+        mark('Second half released as its own card; nothing left to release',half_second_release=True,half_job2_id=result['line_results'][0]['job_card_id'])

@@ -1,5 +1,5 @@
 """Continuous physical production entry with a card-local allocation ledger."""
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 import math
 import calendar
@@ -9,7 +9,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import func, text
+from sqlalchemy import func, text, or_
 from sqlalchemy.orm import Session
 from ..database import get_db
 from ..dispatch_quantities import dispatchable_quantity, shipping_allowance, qc_excluded_quantities
@@ -234,7 +234,7 @@ def flow(db,job):
             status="COMPLETED" if packed>0 and accepted+retained>=packed or snapshot.get("all_qc_rejected") else "RUNNING" if accepted>0 else row.status
             cap=max(0,packed-accepted-retained);blockers=[] if status=="COMPLETED" else ["Complete shipment through Logistics Dispatch"]
         stage_segments=[s for s in segments if s.stage_type==stage]
-        states.append({"stage":stage,"status":status,"unit":stage_unit(stage),"target":target,"produced_total":produced,"accepted_total":accepted,"rejected_total":produced-accepted,"input_total":accepted if stage=="DISPATCH" else sum(e.input_quantity for e in actual),"cutting_loss_total":sum(e.cutting_loss_pcs for e in actual),"carryover_pcs":sum(e.carry_out_pcs-e.carry_in_pcs for e in actual),"available_from_upstream":cap,"awaiting_qc_from_upstream":waiting,"upstream_has_qc":bool(upstream and stage_has_qc(job,upstream)),"input_unit":stage_unit(upstream) if upstream else None,"qc":readiness,"draft_count":drafts,"can_close":status!="COMPLETED" and stage not in ("SLITTING","DISPATCH") and not blockers,"blockers":blockers,"row_version":int(snapshot.get("row_version",1)),"supervisor_name":snapshot.get("supervisor_name"),"closed_at":snapshot.get("closed_at"),"residual_quantity":snapshot.get("residual_quantity"),"residual_disposition":snapshot.get("residual_disposition"),"segments":[{"id":str(s.id),"machine_id":str(s.machine_id) if s.machine_id else None,"plan_date":s.plan_date,"shift_code":s.shift_code,"status":s.status,**planning._planner_gate_context(current_stage=stage,active_stage=row,active_segment=s)} for s in stage_segments]})
+        states.append({"stage":stage,"status":status,"unit":stage_unit(stage),"target":target,"unscheduled_entries":sum(1 for e in actual if (e.details or {}).get("unscheduled_entry")),"produced_total":produced,"accepted_total":accepted,"rejected_total":produced-accepted,"input_total":accepted if stage=="DISPATCH" else sum(e.input_quantity for e in actual),"cutting_loss_total":sum(e.cutting_loss_pcs for e in actual),"carryover_pcs":sum(e.carry_out_pcs-e.carry_in_pcs for e in actual),"available_from_upstream":cap,"awaiting_qc_from_upstream":waiting,"upstream_has_qc":bool(upstream and stage_has_qc(job,upstream)),"input_unit":stage_unit(upstream) if upstream else None,"qc":readiness,"draft_count":drafts,"can_close":status!="COMPLETED" and stage not in ("SLITTING","DISPATCH") and not blockers,"blockers":blockers,"row_version":int(snapshot.get("row_version",1)),"supervisor_name":snapshot.get("supervisor_name"),"closed_at":snapshot.get("closed_at"),"residual_quantity":snapshot.get("residual_quantity"),"residual_disposition":snapshot.get("residual_disposition"),"segments":[{"id":str(s.id),"machine_id":str(s.machine_id) if s.machine_id else None,"plan_date":s.plan_date,"shift_code":s.shift_code,"status":s.status,**planning._planner_gate_context(current_stage=stage,active_stage=row,active_segment=s)} for s in stage_segments]})
         if stage=="DISPATCH":states[-1].update({"retained_fg_qty":retained,"surplus_settlement":snapshot.get("surplus_settlement"),"dispatchable_qty":packed,"max_ship_qty":max(0,shipping_allowance(job,packed,row)-accepted),**qc_excluded_quantities(job,packing_record,stage_map.get("QC")),"all_qc_rejected":bool(snapshot.get("all_qc_rejected"))})
     pending=db.query(func.count(CompletionEffect.id)).filter(CompletionEffect.job_card_id==job.id,CompletionEffect.status.in_(["PENDING","RUNNING","FAILED"])).scalar()
     return {"job_card_id":str(job.id),"season":(job.spec_snapshot or {}).get("season"),"recipe_revision":((job.material_plan_snapshot or {}).get("recipe_snapshot") or {}).get("season_revision"),"stages":states,"pending_effects":pending,"residual_wip":[residual_dict(r) for r in residuals],"final_samples":[{"sample_id":i.sample_id,"status":i.status,"readings":i.readings,"qc_name":i.created_by,"recorded_at":i.created_at,"workflow_status":(i.evaluation or {}).get("workflow_status")} for i in inspections if i.stage_type=="QC"],"active_stages":[s["stage"] for s in states if s["status"]=="RUNNING"]}
@@ -314,6 +314,18 @@ def entry_machine(db,job,data,user,plant):
     return str(machine_id),machine
 
 
+def cover_stage_batches(db,job,e):
+    """A running-totals (whole-card) entry is the printed card entered afterwards: the card has one
+    readings block per stage, so its passing readings cover this stage's earlier batches that were
+    logged without readings. Batches with their own readings keep their own verdict."""
+    if (e.evaluation or {}).get("verdict") not in ("PASS","OBSERVATION_ONLY") or not e.samples:return
+    for other in entries(db,job,e.stage):
+        if other.id==e.id or other.samples or (other.evaluation or {}).get("verdict") not in (None,"NOT_MEASURED"):continue
+        other.evaluation={**(other.evaluation or {}),"verdict":"PASS","results":[],"covered_by_entry":str(e.id)}
+        other.details={**(other.details or {}),"qc_covered_by_entry":str(e.id),"qc_covered_entry_no":e.entry_no}
+    db.flush()
+
+
 def validate_entry(e,job):
     if e.kind not in ("PRODUCTION","QC_ONLY","DISPOSITION"):raise HTTPException(422,"Unknown entry kind")
     if e.accepted>e.produced:raise HTTPException(422,"Accepted cannot exceed produced")
@@ -360,6 +372,20 @@ def sync_totals(db,job,stage):
         if matched and segment.status!="COMPLETED":segment.status="RUNNING"
 
 
+def place_unscheduled_stage(db,job,stage,segment,e):
+    """Put an unplanned (or stale-planned) stage on the slot the floor actually ran it in."""
+    rows=[segment] if segment else [s for s in db.query(JobCardStageSegment).filter_by(job_card_id=job.id,stage_type=e.stage).all() if s.status not in ("COMPLETED","CANCELLED")]
+    for row in rows:
+        if e.machine_id and not row.machine_id:row.machine_id=e.machine_id
+        if not e.machine_id and row.machine_id:e.machine_id=row.machine_id
+        row.plan_date=e.business_date or row.plan_date;row.shift_code=e.shift_code or row.shift_code
+        if row.machine_id and row.shift_code and row.status in ("QUEUED","PLANNED","ASSIGNED"):row.status="ASSIGNED"
+    if rows and not e.segment_id:e.segment_id=rows[0].id
+    if not e.machine_id and stage.machine_id:e.machine_id=stage.machine_id
+    db.flush()
+    planning._sync_stage_row_from_segments(stage,planning._all_stage_segments(db,job.id,e.stage))
+
+
 def validate_setup(db,job,e):
     if e.kind=="QC_ONLY":return
     if e.stage=="DISPATCH":raise HTTPException(409,"Dispatch quantity is recorded through Logistics Dispatch")
@@ -376,11 +402,24 @@ def validate_setup(db,job,e):
     reference=segment or stage
     if not e.machine_id:e.machine_id=reference.machine_id
     gate=planning._planner_gate_context(current_stage=e.stage,active_stage=stage,active_segment=segment)
-    if not gate["planner_gate_ready"]:raise HTTPException(409,{"code":"PLANNER_SLOT_REQUIRED","message":gate["planner_gate_reason"]})
-    if segment and e.machine_id!=segment.machine_id:raise HTTPException(422,"Use the machine assigned to this segment")
+    if not gate["planner_gate_ready"]:
+        # Released cards may be run before the planner places them (client rule 2026-10-16):
+        # the entry is accepted, the stage takes this entry's date/shift/machine as its slot,
+        # and the entry carries a flag the owner sees in reports.
+        place_unscheduled_stage(db,job,stage,segment,e)
+        e.details={**(e.details or {}),"unscheduled_entry":{"reason":gate["planner_gate_reason"],"placed_on":e.business_date.isoformat() if e.business_date else None,"shift_code":e.shift_code,"machine_id":str(e.machine_id) if e.machine_id else None}}
+    elif segment and e.machine_id and e.machine_id!=segment.machine_id:
+        # The floor ran it on a machine other than the planned one (or the slot had none): the
+        # slot follows the machine actually used; a change of machine is flagged for the owner.
+        machine=planning._fetch_machine(e.machine_id,db.info.get("entry_user_token",""),str(job.plant_id))
+        if str(machine.get("department") or "").upper()!=e.stage or machine.get("is_active") is False:raise HTTPException(422,f"Choose an active {label_stage(e.stage)} machine")
+        if segment.machine_id:e.details={**(e.details or {}),"machine_changed":{"from":str(segment.machine_id),"to":str(e.machine_id)}}
+        segment.machine_id=e.machine_id;db.flush();planning._sync_stage_row_from_segments(stage,planning._all_stage_segments(db,job.id,e.stage))
+        db.info.setdefault("entry_machines",{})[str(e.machine_id)]=machine
     if e.machine_id and e.machine_id not in ([stage.machine_id]+[s.machine_id for s in db.query(JobCardStageSegment).filter_by(job_card_id=job.id,stage_type=e.stage).all()]):raise HTTPException(422,"Machine must be assigned to this stage")
     if e.machine_id:
         machine=db.info.get("entry_machines",{}).get(str(e.machine_id))
+        if not machine and (e.details or {}).get("unscheduled_entry"):machine=planning._fetch_machine(e.machine_id,db.info.get("entry_user_token",""),str(job.plant_id));db.info.setdefault("entry_machines",{})[str(e.machine_id)]=machine
         if not machine:raise HTTPException(409,"The machine assignment changed; refresh the scheduled segment")
         warnings=[]
         advice=planning._validate_machine_compatibility(machine,e.stage,job.spec_snapshot or {},str(job.plant_id))
@@ -525,6 +564,14 @@ def get_entries(card_id:uuid.UUID,stage:str|None=None,offset:int=Query(0,ge=0),l
     return {"entries":[entry_dict(e) for e in query.order_by(StageEntry.created_at.desc(),StageEntry.id).offset(offset).limit(limit).all()],"total":query.count()}
 
 
+@router.get("/entries/flagged")
+def flagged_entries(days:int=Query(30,ge=1,le=366),limit:int=Query(200,ge=1,le=500),db:Session=Depends(get_db),plant:str=Depends(get_current_plant),user:dict=Depends(require_role(["Owner","Admin","PlantManager","Planner"]))):
+    """Floor entries the owner should look at: runs logged before the planner placed the stage."""
+    since=datetime.utcnow()-timedelta(days=days)
+    rows=db.query(StageEntry,JobCard).join(JobCard,JobCard.id==StageEntry.job_card_id).filter(JobCard.plant_id==planning._to_uuid(plant),StageEntry.created_at>=since,StageEntry.status!="VOID",or_(StageEntry.details["unscheduled_entry"].isnot(None),StageEntry.details["machine_changed"].isnot(None))).order_by(StageEntry.created_at.desc()).limit(limit).all()
+    return [{"entry_id":str(e.id),"job_card_id":str(job.id),"job_card_no":job.job_card_no,"customer":(job.spec_snapshot or {}).get("customer_name_snapshot") or (job.spec_snapshot or {}).get("customer_name"),"stage":e.stage,"entry_no":e.entry_no,"business_date":e.business_date,"shift_code":e.shift_code,"operator_name":e.operator_name,"produced":e.produced,"accepted":e.accepted,"entered_by":e.created_by,"entered_at":e.created_at,"flag":"UNSCHEDULED" if (e.details or {}).get("unscheduled_entry") else "MACHINE_CHANGED","reason":(e.details or {}).get("unscheduled_entry",{}).get("reason") or ("Run on a different machine than planned" if (e.details or {}).get("machine_changed") else None)} for e,job in rows]
+
+
 @router.get("/job-cards/{card_id}/effects")
 def posting_effects(card_id:uuid.UUID,db:Session=Depends(get_db),plant:str=Depends(get_current_plant),user:dict=Depends(get_current_user)):
     job=card(db,card_id,plant)
@@ -555,7 +602,7 @@ def create_entry(card_id:uuid.UUID,payload:EntryInput,db:Session=Depends(get_db)
     operator=verified_employee(db,payload.operator_id,user,plant,"operator") if payload.submit and payload.kind in ("PRODUCTION","DISPOSITION") else None
     if payload.submit and not db.info.get("entry_batch"):
         machine_id,machine=entry_machine(db,preliminary,payload,user,plant)
-        db.info["entry_machines"]={machine_id:machine} if machine_id else {}
+        db.info["entry_machines"]={machine_id:machine} if machine_id else {};db.info["entry_user_token"]=user.get("token","")
     job=card(db,card_id,plant,True);prior=replay(db,job,payload,"entry_create")
     if prior:return prior
     row=stage_row(db,job,payload.stage)
@@ -577,6 +624,7 @@ def create_entry(card_id:uuid.UUID,payload:EntryInput,db:Session=Depends(get_db)
     db.add(e);db.flush()
     if payload.submit:
         validate_entry(e,job);validate_books(db,job,e);validate_setup(db,job,e);allocate(db,job,e);e.status="SUBMITTED";e.submitted_at=datetime.utcnow();inspect(db,job,e,user);db.flush();sync_totals(db,job,e.stage)
+        if payload.quantity_mode=="TOTAL":cover_stage_batches(db,job,e)
     db.add(EntryRevision(entry_id=e.id,row_version=e.row_version,payload=jsonable_encoder(entry_dict(e)),actor=user["sub"],reason=payload.reason or "Initial entry"));db.flush()
     return finish(db,job,payload,"entry_create",user,{"entry":entry_dict(e),"flow":flow(db,job)})
 

@@ -316,3 +316,65 @@ def test_a_failed_batch_holds_only_itself_not_the_passing_batches(card):
     create(a,db,job,produced=2,accepted=2,samples=winding_samples())
     assert a.available(db,job,'OVEN')==0
     db.rollback()
+
+
+def test_released_card_takes_entries_before_the_planner_places_it_and_flags_them(card):
+    a,db,job=card
+    from src.models import JobCardStage, JobCardStageSegment
+    # Winding released but never placed on the planner board: no date, no shift, no machine on its segment.
+    stage=next(s for s in job.stages if s.stage_type=='WINDER');machine=stage.machine_id
+    stage.plan_date=None;stage.shift_code=None;stage.machine_id=None
+    a.planning._fetch_machine=lambda machine_id,*args:{'id':str(machine_id),'plant_id':PLANT,'department':'WINDER','is_active':True,'capacity_value':0,'id_min_mm':70,'id_max_mm':90,'od_min_mm':70,'od_max_mm':100,'length_min_mm':100,'length_max_mm':2000}
+    segment=JobCardStageSegment(plant_id=job.plant_id,job_card_id=job.id,stage_type='WINDER',planned_qty=10,status='QUEUED');db.add(segment);db.flush()
+    gate=a.planning._planner_gate_context(current_stage='WINDER',active_stage=stage,active_segment=segment)
+    assert gate['planner_gate_ready'] is False
+    entry=create(a,db,job,produced=3,accepted=3,machine_id=machine,samples=winding_samples())['entry']
+    assert entry['status']=='SUBMITTED' and entry['details']['unscheduled_entry']['reason']
+    db.expire_all()
+    # The stage now sits on the slot it really ran in, so the next entry is a normal one.
+    assert segment.plan_date==date.today() and segment.shift_code=='SHIFT_A' and segment.machine_id==machine and segment.status in ('ASSIGNED','RUNNING')
+    assert stage.plan_date==date.today() and stage.machine_id==machine
+    again=create(a,db,job,produced=2,accepted=2)['entry']
+    assert 'unscheduled_entry' not in again['details']
+    flow=a.flow(db,job);winding=next(s for s in flow['stages'] if s['stage']=='WINDER')
+    assert winding['unscheduled_entries']==1
+    flagged=a.flagged_entries(30,200,db,PLANT,USER)
+    assert [f['entry_no'] for f in flagged if f['job_card_id']==str(job.id)]==[entry['entry_no']] and flagged[0]['flag']=='UNSCHEDULED'
+    db.rollback()
+
+
+def test_a_run_on_another_machine_of_the_department_moves_the_slot_and_is_flagged(card):
+    a,db,job=card
+    from src.models import JobCardStageSegment
+    stage=next(s for s in job.stages if s.stage_type=='WINDER');planned=stage.machine_id;other=uuid.uuid4();oven=uuid.uuid4()
+    segment=JobCardStageSegment(plant_id=job.plant_id,job_card_id=job.id,stage_type='WINDER',planned_qty=10,status='ASSIGNED',machine_id=planned,plan_date=date.today(),shift_code='SHIFT_A');db.add(segment);db.commit()
+    a.planning._fetch_machine=lambda machine_id,*args:{'id':str(machine_id),'plant_id':PLANT,'department':'OVEN' if machine_id==oven else 'WINDER','is_active':True,'capacity_value':0,'id_min_mm':70,'id_max_mm':90,'od_min_mm':70,'od_max_mm':100,'length_min_mm':100,'length_max_mm':2000}
+    with pytest.raises(HTTPException) as err:create(a,db,job,produced=2,accepted=2,machine_id=oven)
+    assert err.value.status_code==422;db.rollback()
+    moved=create(a,db,job,produced=2,accepted=2,machine_id=other,samples=winding_samples())['entry']
+    assert moved['details']['machine_changed']=={'from':str(planned),'to':str(other)}
+    db.expire_all()
+    assert segment.machine_id==other and stage.machine_id==other
+    assert [f['flag'] for f in a.flagged_entries(30,200,db,PLANT,USER) if f['job_card_id']==str(job.id)]==['MACHINE_CHANGED']
+    db.rollback()
+
+
+def test_whole_card_totals_entry_readings_cover_earlier_batches_without_readings(card):
+    a,db,job=card
+    # Two quick floor runs without readings, then the printed card is entered as running totals with readings.
+    first=create(a,db,job,produced=3,accepted=3)['entry'];second=create(a,db,job,produced=2,accepted=2)['entry']
+    assert a.available(db,job,'OVEN')==0 and a.awaiting_qc(db,job,'OVEN')==5
+    row=a.stage_row(db,job,'WINDER');version=int((row.actuals_snapshot or {}).get('row_version',1))
+    total=create(a,db,job,produced=10,accepted=10,quantity_mode='TOTAL',expected_version=version,samples=winding_samples())['entry']
+    assert total['produced']==5 and total['evaluation']['verdict']=='PASS'
+    listing=a.get_entries(job.id,'WINDER',0,50,db,PLANT,USER)['entries']
+    covered={e['entry_no']:e for e in listing}
+    assert covered[first['entry_no']]['qc_cleared'] and covered[second['entry_no']]['qc_cleared'] and covered[first['entry_no']]['details']['qc_covered_entry_no']==total['entry_no']
+    assert a.available(db,job,'OVEN')==10 and a.awaiting_qc(db,job,'OVEN')==0
+    # A batch that failed its own readings is not covered.
+    bad=[{'sample_id':str(uuid.uuid4()),'readings':{'id':70.0,'od':82,'height':1560,'weight':130,'cs':165}} for _ in range(2)]
+    failed=create(a,db,job,produced=1,accepted=1,samples=bad)['entry'];assert failed['evaluation']['verdict']=='FAIL'
+    row=a.stage_row(db,job,'WINDER');version=int((row.actuals_snapshot or {}).get('row_version',1))
+    create(a,db,job,produced=12,accepted=12,quantity_mode='TOTAL',expected_version=version,samples=winding_samples(),details={'overproduction_reason':'test'})
+    assert not next(e for e in a.get_entries(job.id,'WINDER',0,50,db,PLANT,USER)['entries'] if e['entry_no']==failed['entry_no'])['qc_cleared']
+    db.rollback()

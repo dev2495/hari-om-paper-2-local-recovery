@@ -244,11 +244,16 @@ async def material_demand(token, plant_id, start, end):
     if end < start or (end - start).days > 366:
         raise HTTPException(422, "Choose a planning horizon of at most 366 days")
     headers = {"Authorization": f"Bearer {token}", "X-Plant-ID": plant_id}
-    async def get(base, path, params=None):
+    async def get(base, path, params=None, tolerate=()):
         try:
             response = await http_client.get(f"{base}{path}", headers=headers, params=params)
         except httpx.RequestError as exc:
             raise HTTPException(502, "A demand source is unavailable; requirements were not calculated") from exc
+        if response.status_code in tolerate:
+            # The caller turns this into a per-line warning instead of failing the whole schedule.
+            try: detail = response.json().get("detail")
+            except ValueError: detail = None
+            return {"_error": detail if isinstance(detail, str) else (detail or {}).get("message") or f"HTTP {response.status_code}", "_status": response.status_code}
         if response.status_code >= 400:
             raise HTTPException(response.status_code if response.status_code in (401, 403,409) else 502, f"Demand source could not load {path}")
         return response.json()
@@ -376,9 +381,14 @@ async def material_demand(token, plant_id, start, end):
             if spec_id not in cache:
                 spec=await get(SPEC_URL,f"/specs/{spec_id}")
                 if spec.get("seasonal_model"):
-                    canonical=await get(SPEC_URL,f"/calculate/bom-for-spec/{spec_id}",{"season":season_state["active_season"],"expected_epoch":season_state["epoch"]})
-                    recipe={"id":canonical["recipe_id"],"version":canonical["recipe_revision"]}
-                    cache[spec_id]=((spec,recipe,canonical["bom"]),None) if canonical.get("completeness")=="OK" else (None,canonical.get("reason"))
+                    canonical=await get(SPEC_URL,f"/calculate/bom-for-spec/{spec_id}",{"season":season_state["active_season"],"expected_epoch":season_state["epoch"]},tolerate=(404,409))
+                    if canonical.get("_error"):
+                        # A live spec whose season recipe is still pending (e.g. imported from the client
+                        # workbook): the order is visible, its paper demand is not known yet.
+                        cache[spec_id]=(None,f"Paper recipe not approved for this season yet ({canonical['_error']}); add it on the spec sheet to include this line")
+                    else:
+                        recipe={"id":canonical["recipe_id"],"version":canonical["recipe_revision"]}
+                        cache[spec_id]=((spec,recipe,canonical["bom"]),None) if canonical.get("completeness")=="OK" else (None,canonical.get("reason"))
                     recipes=None
                 else:recipes=await get(SPEC_URL,f"/recipes/spec/{spec_id}",{"status":"approved"})
                 size = size_by_id.get(spec.get("tube_size_id"))

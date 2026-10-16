@@ -59,6 +59,7 @@ export const seasonApiForPlant=(plantId:string)=>makeSeasonApi({
 
 function makeEntryApi(client: Pick<typeof api, "get" | "post" | "patch">) { return {
   employees: () => client.get("/api/master/employees"),
+  machines: () => client.get("/api/production/machines"),
   items: () => client.get("/api/inventory/items"),
   locations: () => client.get("/api/inventory/locations"),
   reelIssues: (machineId:string) => client.get("/api/inventory/reel-issues",{params:{machine_id:machineId,status:"CLOSED",limit:500}}),
