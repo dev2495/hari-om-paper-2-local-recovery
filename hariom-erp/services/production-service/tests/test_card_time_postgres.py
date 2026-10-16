@@ -73,10 +73,6 @@ def test_late_winder_entry_keeps_card_times_and_is_reported(db):
 
     # Draft saved without times must not pin the start to the typing time.
     _post(db, job, stage='WINDER', save_mode='draft', shift_code='SHIFT_B', entry_snapshot={'operator_name': 'Ramesh'})
-    with pytest.raises(HTTPException) as missing:
-        _post(db, job, stage='WINDER', save_mode='complete', output_qty=190, reel_issue_ids=[uuid.uuid4()])
-    assert missing.value.status_code == 400
-    db.rollback()  # a rejected request never commits
 
     response = _post(
         db, job, stage='WINDER', save_mode='complete', output_qty=190, scrap_qty=10, input_qty=200,
@@ -141,13 +137,16 @@ def test_completion_hands_over_to_unplanned_next_stage(db):
     assert oven.input_qty == 200
 
 
-def test_future_card_time_is_rejected(db):
+def test_future_card_time_never_becomes_the_stage_time(db):
+    # Times are optional on the floor (client feedback); an impossible future card
+    # time is kept on the reconciliation record with a warning, never as the actual.
     job = _job_card(db)
     future = datetime.now(IST) + timedelta(hours=2)
-    with pytest.raises(HTTPException) as exc:
-        _post(db, job, stage='WINDER', save_mode='complete', output_qty=100, reel_issue_ids=[uuid.uuid4()],
-              start_time=(future - timedelta(hours=1)).isoformat(), end_time=future.isoformat())
-    assert exc.value.status_code == 400
+    response = _post(db, job, stage='WINDER', save_mode='complete', output_qty=100, reel_issue_ids=[uuid.uuid4()],
+                     start_time=(future - timedelta(hours=1)).isoformat(), end_time=future.isoformat())
+    assert response.warnings
+    stage = db.query(JobCardStage).filter_by(job_card_id=job.id, stage_type='WINDER').one()
+    assert stage.actual_end is None or stage.actual_end <= datetime.utcnow() + timedelta(minutes=5)
 
 
 def test_dispatch_history_feeds_job_card_print(db):

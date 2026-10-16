@@ -12,7 +12,7 @@ import { command, errorText, seasonApi, seasonApiForPlant, seasonLabel, type Sea
 import { specApi } from "@/lib/api"
 import { useCustomers } from "@/hooks/use-master-data"
 
-const references: Record<string, string> = { CUSTOMER_ID: "Customer minimum I.D.", CUSTOMER_OD: "Customer O.D.", CUSTOMER_LENGTH: "Customer length", CUSTOMER_WEIGHT: "Customer weight", CUSTOMER_CS: "Customer C.S.", MANDREL_DIAMETER: "Mandrel diameter", WINDING_LENGTH: "Bamboo length", MOISTURE_MIN: "Customer moisture minimum", MOISTURE_MAX: "Customer moisture maximum", CONST: "Fixed value", "SAMPLE.pre_weight": "Same sample pre-weight" }
+const references: Record<string, string> = { CUSTOMER_ID: "Customer I.D. (spec nominal)", CUSTOMER_OD: "Customer O.D.", CUSTOMER_LENGTH: "Customer length", CUSTOMER_WEIGHT: "Customer weight", CUSTOMER_CS: "Customer required C.S.", MANDREL_DIAMETER: "Mandrel diameter", WINDING_LENGTH: "Bamboo length", MOISTURE_MIN: "Customer moisture minimum", MOISTURE_MAX: "Customer moisture maximum", CONST: "Fixed value", "SAMPLE.pre_weight": "Same sample pre-weight" }
 const stages = ["WINDER", "OVEN", "PROCESS"]
 const stageLabel = (value: string) => value === "WINDER" ? "Winding" : value === "OVEN" ? "Oven" : "Process"
 const control = "h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

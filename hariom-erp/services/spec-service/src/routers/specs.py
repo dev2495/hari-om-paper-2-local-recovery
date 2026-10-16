@@ -262,6 +262,8 @@ class SpecResponse(BaseModel):
     write_revision: int = 1
     final_limits: Optional[Dict[str, Any]] = None
     dynamic_fields: List[DynamicFieldValueResponse]
+    # Seasonal specs: per-season production readiness (recipe/QC), from the write-time projection.
+    production_readiness: Optional[Dict[str, Any]] = None
 
 
 class SpecDefaultsPayload(BaseModel):
@@ -1135,7 +1137,21 @@ def get_specs(
     if active_only:
         query = query.filter(SpecificationSheet.active == True)
     specs = query.order_by(SpecificationSheet.created_at.desc()).all()
-    return [_serialize_spec(spec) for spec in specs]
+    from ..season_models import SpecReadiness
+
+    seasonal_ids = [spec.id for spec in specs if spec.seasonal_model]
+    readiness: Dict[uuid.UUID, Dict[str, Any]] = {}
+    for start in range(0, len(seasonal_ids), 500):
+        for row in db.query(SpecReadiness).filter(SpecReadiness.spec_id.in_(seasonal_ids[start:start + 500])).all():
+            details = row.details or {}
+            readiness.setdefault(row.spec_id, {})[row.season] = {"ready": bool(row.ready), "blockers": details.get("blockers") or []}
+    results = []
+    for spec in specs:
+        item = _serialize_spec(spec)
+        if spec.seasonal_model:
+            item["production_readiness"] = readiness.get(spec.id) or {}
+        results.append(item)
+    return results
 
 
 @router.get("/{spec_id}", response_model=SpecResponse)

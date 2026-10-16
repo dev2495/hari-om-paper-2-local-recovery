@@ -20,11 +20,11 @@ const count = (value: string) => value === "" ? 0 : Number(value)
 const selectClass = "h-10 w-full rounded-lg border border-border bg-background px-3 text-sm"
 const range = qcRangeLabel
 
-export function ContinuousJobCard({ card, print = false }: { card: any; print?: boolean }) {
+export function ContinuousJobCard({ card, print = false, initialStage }: { card: any; print?: boolean; initialStage?: string }) {
   const { user } = useAuth()
   const entryApi=entryApiForPlant(card.plant_id)
   const cache = useQueryClient()
-  const [stage, setStage] = useState("WINDER")
+  const [stage, setStage] = useState(initialStage || "WINDER")
   const [page, setPage] = useState(0)
   const [showForm, setShowForm] = useState(false)
   const [wholeCard,setWholeCard] = useState(false)

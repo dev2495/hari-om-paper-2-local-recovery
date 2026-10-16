@@ -147,10 +147,11 @@ if os.getenv('SEASON_VERIFY_FLOOR')=='1':
         f=floor();assert all(next(s for s in f['stages'] if s['stage']==x)['status']=='RUNNING' for x in ('WINDER','OVEN','PROCESS'))
         mark('Winding, Oven and Process overlap with bounded allocations',continuous_output=True)
     if not state.get('wop_complete'):
-        for stage,target,inputs in [('WINDER',10,0),('OVEN',10,10),('PROCESS',100,10)]:
+        # Batch-wise QC gate: every batch carries its own QC before the next stage may take it.
+        for stage,target,inputs,readings in [('WINDER',10,0,wread),('OVEN',10,10,oread),('PROCESS',100,10,pread)]:
             current=stage_state(stage)
             if current['produced_total']<target:
-                submit(stage,target,target,inputs,quantity_mode='TOTAL',expected_version=current['row_version'])
+                submit(stage,target,target,inputs,readings=readings,quantity_mode='TOTAL',expected_version=current['row_version'])
             if stage_state(stage)['status']!='COMPLETED':close(stage)
         mark('Cumulative totals post deltas; min-two QC and supervisor closure',wop_complete=True)
     if not state.get('packing_closed'):

@@ -325,6 +325,8 @@ export function useApproveSpec() {
       queryClient.invalidateQueries({ queryKey: ["specs"] })
       queryClient.invalidateQueries({ queryKey: ["spec", variables.specId] })
       queryClient.invalidateQueries({ queryKey: ["spec-sheet-document", variables.specId] })
+      queryClient.invalidateQueries({ queryKey: ["spec-season-blockers", variables.specId] })
+      queryClient.invalidateQueries({ queryKey: ["approved-specs"] })
     },
   })
 }
@@ -342,6 +344,32 @@ export function useSubmitSpecForReview() {
       queryClient.invalidateQueries({ queryKey: ["spec", variables.specId] })
       queryClient.invalidateQueries({ queryKey: ["spec-sheet-document", variables.specId] })
     },
+  })
+}
+
+export function useReturnSpecToDraft() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ specId }: { specId: string }) => {
+      const spec = (await specApi.getSpec(specId)).data
+      return seasonApi.returnToDraft(specId, command({ expected_version: spec.write_revision, note: "Returned to draft for changes" }))
+    },
+    onSuccess: (_response, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["spec-summary"] })
+      queryClient.invalidateQueries({ queryKey: ["specs"] })
+      queryClient.invalidateQueries({ queryKey: ["spec", variables.specId] })
+      queryClient.invalidateQueries({ queryKey: ["spec-sheet-document", variables.specId] })
+      queryClient.invalidateQueries({ queryKey: ["spec-season-blockers", variables.specId] })
+    },
+  })
+}
+
+/** Server-side readiness of a seasonal spec: what still blocks review/approval, and production readiness per season. */
+export function useSpecSeasonBlockers(specId?: string, enabled = true) {
+  return useQuery({
+    queryKey: ["spec-season-blockers", specId],
+    queryFn: async () => (await seasonApi.blockers(String(specId))).data,
+    enabled: Boolean(specId) && enabled,
   })
 }
 

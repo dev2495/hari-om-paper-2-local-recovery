@@ -26,32 +26,69 @@ USER={"sub":"season-test-owner","roles":["Owner"],"allowed_plants":["PLANT_A","P
 def command(api,**extra):return api.Command(request_id=str(uuid.uuid4()),**extra)
 
 
-def test_bootstrap_publish_and_independent_history(api):
+def winder_cs(rows):
+    return next(r for r in rows if r["stage"]=="WINDER" and r["parameter"]=="cs")
+
+
+def test_bootstrap_publishes_client_defaults_and_independent_history(api):
     a,db=api
     a.bootstrap(command(a),db,USER)
     roy=a.read_rules("ROY",db,USER);mon=a.read_rules("MONSOON",db,USER)
-    assert roy["draft"]["rules"]==mon["draft"]["rules"]
-    a.publish_rules(command(a,expected_version=1,note="Client approved rules"),"ROY",db,USER)
-    assert a.read_rules("ROY",db,USER)["published"]["version"]==1
-    assert a.read_rules("MONSOON",db,USER)["published"] is None
+    # Client defaults are active for both seasons without a manual publish.
+    assert roy["published"]["version"]==1 and mon["published"]["version"]==1
+    assert roy["draft"] is None and roy["published"]["rules"]==mon["published"]["rules"]
+    cs=winder_cs(roy["published"]["rules"])
+    assert cs["lower"]==[{"ref":"CUSTOMER_CS","factor":0.4,"offset":-10}] and cs["upper"]==[{"ref":"CUSTOMER_CS","factor":0.4,"offset":10}]
+    # Editing stays versioned and per season.
+    rows=roy["published"]["rules"];rows[0]={**rows[0],"min_readings":3}
+    a.save_rules(a.RuleDraft(request_id=str(uuid.uuid4()),rules=rows,note="Three winding I.D. samples"),"ROY",db,USER)
+    draft=a.read_rules("ROY",db,USER)["draft"]
+    assert draft["version"]==2
+    a.publish_rules(command(a,expected_version=draft["row_version"],note="Client approved change"),"ROY",db,USER)
+    assert a.read_rules("ROY",db,USER)["published"]["version"]==2
+    assert a.read_rules("MONSOON",db,USER)["published"]["version"]==1
+    assert [v["status"] for v in a.read_rules("ROY",db,USER)["versions"]]==["PUBLISHED","SUPERSEDED"]
+    # Restarting the service never re-publishes or reverts an edited standard.
+    assert a.ensure_default_rules(db)==[]
+    assert a.read_rules("ROY",db,USER)["published"]["version"]==2
+
+
+def test_legacy_winder_cs_template_is_corrected_as_a_new_version(api):
+    a,db=api
+    from src.season_models import RuleVersion
+    from season_quality import initial_rules, fingerprint
+    legacy=initial_rules();winder_cs(legacy)["lower"]=[{"ref":"CUSTOMER_CS","factor":0.4,"offset":10}]
+    db.add(RuleVersion(season="ROY",version=1,status="PUBLISHED",rules=legacy,fingerprint=fingerprint(legacy),change_note="first template",created_by="t"))
+    db.add(RuleVersion(season="MONSOON",version=1,status="DRAFT",rules=legacy,fingerprint=fingerprint(legacy),change_note="never published",created_by="t"))
+    db.commit()
+    published=a.ensure_default_rules(db)
+    assert {p["season"] for p in published}=={"ROY","MONSOON"}
+    roy=a.read_rules("ROY",db,USER);mon=a.read_rules("MONSOON",db,USER)
+    assert roy["published"]["version"]==2 and winder_cs(roy["published"]["rules"])["lower"][0]["offset"]==-10
+    assert [v["status"] for v in roy["versions"]]==["PUBLISHED","SUPERSEDED"]
+    # A never-published draft is corrected and published as is.
+    assert mon["published"]["version"]==1 and winder_cs(mon["published"]["rules"])["lower"][0]["offset"]==-10
+    assert a.ensure_default_rules(db)==[]
 
 
 def test_stale_draft_and_idempotency_payload(api):
     a,db=api;a.bootstrap(command(a),db,USER)
-    rows=a.read_rules("ROY",db,USER)["draft"]["rules"]
-    payload=a.RuleDraft(request_id=str(uuid.uuid4()),expected_version=1,rules=rows,note="draft")
+    rows=a.read_rules("ROY",db,USER)["published"]["rules"]
+    payload=a.RuleDraft(request_id=str(uuid.uuid4()),rules=rows,note="draft")
     first=a.save_rules(payload,"ROY",db,USER)
     assert a.save_rules(payload,"ROY",db,USER)==first
     with pytest.raises(HTTPException) as exc:a.save_rules(payload.model_copy(update={"note":"different"}),"ROY",db,USER)
     assert exc.value.status_code==409
     db.rollback()
+    a.save_rules(a.RuleDraft(request_id=str(uuid.uuid4()),expected_version=1,rules=rows,note="second"),"ROY",db,USER)
     with pytest.raises(HTTPException):a.save_rules(a.RuleDraft(request_id=str(uuid.uuid4()),expected_version=1,rules=rows,note="stale"),"ROY",db,USER)
 
 
 def test_switch_preview_and_epoch(api):
     a,db=api;a.bootstrap(command(a),db,USER)
     preview=a.preview_switch({"to":"MONSOON"},db,USER)
-    payload=a.Switch(request_id=str(uuid.uuid4()),expected_version=1,note="Monsoon starts",to="MONSOON",preview_fingerprint=preview["fingerprint"])
+    # Specs left by other contracts in this disposable DB may be blocked; acknowledging them is the documented path.
+    payload=a.Switch(request_id=str(uuid.uuid4()),expected_version=1,note="Monsoon starts",to="MONSOON",preview_fingerprint=preview["fingerprint"],acknowledge_blocked=preview["blocked_count"]>0)
     result=a.switch_season(payload,db,USER)
     assert result["epoch"]==2
     assert a.switch_season(payload,db,USER)==result
@@ -68,7 +105,6 @@ def document(api,monkeypatch):
         def json(self):return [{'id':paper,'active':True}]
     monkeypatch.setattr(a.httpx,'get',lambda *args,**kw:Response())
     a.bootstrap(command(a),db,USER)
-    for season in ('ROY','MONSOON'):a.publish_rules(command(a,expected_version=1,note='Confirmed client rules'),season,db,USER)
     layers=[{'paper_id':paper,'ply_no':i,'gsm_snapshot':300,'bf_snapshot':20,'bulk_snapshot':1} for i in (1,2,3)]
     preview=spec_math.compute_preview(mandrel_od_mm=76.3,tube_length_mm=150,papers=[spec_math.RecipePaper(paper_id=paper,gsm=300,bulk=1,ply_count=3)],target_dry_g=35,adhesive_percent=12.5,parchment_percent=0,parchment_allowed=False)
     target=round(preview.nominal_tube.dry_g,4)
@@ -86,14 +122,11 @@ def test_atomic_document_and_independent_unchanged_content(document):
     a.approve_spec(sid,command(a,expected_version=rev),db,plant,USER)
     before=a.read_document(sid,db,plant,USER)
     # A new spec geometry revision binds unchanged immutable paper content.
-    monkey=a._enforce_live_spec_edit_lock;a._enforce_live_spec_edit_lock=lambda *args:None
-    try:
-        changed=body.model_copy(update={'request_id':str(uuid.uuid4()),'expected_version':rev,'spec':{**body.spec,'required_cs':410,'target_tube_weight':body.spec['target_tube_weight']+0.5},'recipes':body.recipes})
-        saved=a.update_document(sid,changed,db,plant,USER)
-        assert saved['spec']['id']!=str(sid)
-        assert saved['recipes']['ROY']['id']==before['recipes']['ROY']['id']
-        assert saved['recipes']['MONSOON']['season_revision']==before['recipes']['MONSOON']['season_revision']
-    finally:a._enforce_live_spec_edit_lock=monkey
+    changed=body.model_copy(update={'request_id':str(uuid.uuid4()),'expected_version':rev,'spec':{**body.spec,'required_cs':410,'target_tube_weight':body.spec['target_tube_weight']+0.5},'recipes':body.recipes})
+    saved=a.update_document(sid,changed,db,plant,USER)
+    assert saved['spec']['id']!=str(sid)
+    assert saved['recipes']['ROY']['id']==before['recipes']['ROY']['id']
+    assert saved['recipes']['MONSOON']['season_revision']==before['recipes']['MONSOON']['season_revision']
 
 
 def test_bad_monsoon_rolls_back_entire_document(document):
@@ -110,3 +143,99 @@ def test_admin_cannot_toggle_global_season(api):
     a,db=api
     with pytest.raises(HTTPException) as err:a.preview_switch({'to':'MONSOON'},db,{**USER,'roles':['Admin']})
     assert err.value.status_code==403
+
+
+def test_live_spec_stays_live_until_revision_is_approved(document,monkeypatch):
+    a,db,result,body,paper=document
+    from src.models import SpecificationSheet
+    plant=result['spec']['plant_id'];sid=uuid.UUID(result['spec']['id']);rev=result['spec']['write_revision']
+    a.review_spec(sid,command(a,expected_version=rev),db,plant,USER)
+    a.approve_spec(sid,command(a,expected_version=rev),db,plant,USER)
+    revision=a.update_document(sid,body.model_copy(update={'request_id':str(uuid.uuid4()),'expected_version':rev,'spec':{**body.spec,'required_cs':420}}),db,plant,USER)
+    new_id=uuid.UUID(revision['spec']['id'])
+    db.expire_all();live=db.get(SpecificationSheet,sid)
+    # Sales can keep ordering on the live version while the revision is a draft.
+    assert live.status=='approved' and live.active
+    assert revision['spec']['status']=='draft'
+    # Only one open revision per live version.
+    with pytest.raises(HTTPException) as err:
+        a.update_document(sid,body.model_copy(update={'request_id':str(uuid.uuid4()),'expected_version':rev}),db,plant,USER)
+    assert err.value.status_code==409 and err.value.detail['code']=='REVISION_OPEN' and err.value.detail['spec_id']==str(new_id)
+    db.rollback()
+    blockers=a.read_blockers(sid,db,plant,USER)
+    assert blockers['open_revision']['id']==str(new_id)
+    # Review can be withdrawn back to draft.
+    new_rev=db.get(SpecificationSheet,new_id).write_revision
+    a.review_spec(new_id,command(a,expected_version=new_rev),db,plant,USER)
+    a.return_to_draft(new_id,command(a,expected_version=new_rev),db,plant,USER)
+    db.expire_all();assert db.get(SpecificationSheet,new_id).status=='draft'
+    a.review_spec(new_id,command(a,expected_version=new_rev),db,plant,USER)
+    calls=[]
+    class Moved:
+        status_code=200
+        def json(self):return {'moved':1,'lines':['x']}
+    monkeypatch.setattr(a.httpx,'post',lambda url,**kw:calls.append((url,kw['json'])) or Moved())
+    a.approve_spec(new_id,command(a,expected_version=new_rev),db,plant,USER)
+    db.expire_all()
+    assert db.get(SpecificationSheet,sid).status=='obsolete' and not db.get(SpecificationSheet,sid).active
+    assert db.get(SpecificationSheet,new_id).status=='approved'
+    assert calls and calls[0][0].endswith('/sales-orders/spec-supersede') and calls[0][1]=={'from_spec_id':str(sid),'to_spec_id':str(new_id)}
+
+
+def test_revision_approval_waits_for_lines_already_in_production(document,monkeypatch):
+    a,db,result,body,paper=document
+    from src.models import SpecificationSheet
+    plant=result['spec']['plant_id'];sid=uuid.UUID(result['spec']['id']);rev=result['spec']['write_revision']
+    a.review_spec(sid,command(a,expected_version=rev),db,plant,USER);a.approve_spec(sid,command(a,expected_version=rev),db,plant,USER)
+    revision=a.update_document(sid,body.model_copy(update={'request_id':str(uuid.uuid4()),'expected_version':rev,'spec':{**body.spec,'required_cs':430}}),db,plant,USER)
+    new_id=uuid.UUID(revision['spec']['id']);new_rev=revision['spec']['write_revision']
+    a.review_spec(new_id,command(a,expected_version=new_rev),db,plant,USER)
+    class Busy:
+        status_code=409
+        def json(self):return {'detail':{'code':'SPEC_IN_PRODUCTION','message':'SO-1 line 1 is released'}}
+    monkeypatch.setattr(a.httpx,'post',lambda url,**kw:Busy())
+    with pytest.raises(HTTPException) as err:a.approve_spec(new_id,command(a,expected_version=new_rev),db,plant,USER)
+    assert err.value.status_code==409 and err.value.detail['code']=='SPEC_IN_PRODUCTION'
+    db.rollback();db.expire_all()
+    assert db.get(SpecificationSheet,sid).status=='approved' and db.get(SpecificationSheet,sid).active
+
+
+def test_spec_sheet_qc_values_win_and_are_versioned(document):
+    a,db,result,body,paper=document
+    plant=result['spec']['plant_id'];sid=uuid.UUID(result['spec']['id'])
+    before=a.read_qc_overview(sid,db,plant,USER)
+    row=next(p for p in before['seasons']['ROY']['parameters'] if p['stage']=='WINDER' and p['parameter']=='cs')
+    assert (row['min'],row['max'],row['source'])==(150.0,170.0,'GLOBAL')
+    saved=a.save_spec_qc_values(sid,a.SpecQcValues(request_id=str(uuid.uuid4()),note='Customer drawing',values=[{'stage':'WINDER','parameter':'cs','min':155,'max':165}]),db,plant,USER)
+    for season in ('ROY','MONSOON'):
+        row=next(p for p in saved['seasons'][season]['parameters'] if p['stage']=='WINDER' and p['parameter']=='cs')
+        assert (row['min'],row['max'],row['source'])==(155.0,165.0,'SPEC_SHEET')
+    assert saved['overlay']['version']==1 and saved['values'][0]['min']==155.0
+    cleared=a.save_spec_qc_values(sid,a.SpecQcValues(request_id=str(uuid.uuid4()),values=[{'stage':'WINDER','parameter':'cs'}]),db,plant,USER)
+    row=next(p for p in cleared['seasons']['ROY']['parameters'] if p['stage']=='WINDER' and p['parameter']=='cs')
+    assert row['source']=='GLOBAL' and cleared['overlay'] is None
+    with pytest.raises(HTTPException) as err:
+        a.save_spec_qc_values(sid,a.SpecQcValues(request_id=str(uuid.uuid4()),values=[{'stage':'WINDER','parameter':'cs','min':200,'max':100}]),db,plant,USER)
+    assert err.value.status_code==422
+
+
+def test_import_approved_with_and_without_recipe(document):
+    a,db,result,body,paper=document
+    plant=result['spec']['plant_id']
+    spec={**body.spec,'customer_id':str(uuid.uuid4()),'tube_size_id':str(uuid.uuid4())}
+    payload=a.ImportDocument(request_id=str(uuid.uuid4()),import_key='wb-row-6',spec=spec,recipes={'ROY':body.recipes['ROY']},note='Client workbook')
+    first=a.import_approved(payload,db,plant,USER)
+    assert first['status']=='approved' and first['recipe_approved_seasons']==['MONSOON','ROY'] and not first['recipe_pending']
+    again=a.import_approved(payload,db,plant,USER)
+    assert again.pop('replayed') is True and again==first
+    doc=a.read_document(uuid.UUID(first['spec_id']),db,plant,USER)
+    assert doc['recipes']['ROY']['approved'] and doc['recipes']['MONSOON']['approved']
+    with pytest.raises(HTTPException) as err:
+        a.import_approved(payload.model_copy(update={'import_key':'wb-row-7','request_id':str(uuid.uuid4())}),db,plant,USER)
+    assert err.value.status_code==409 and err.value.detail['code']=='DUPLICATE_SPEC'
+    db.rollback()
+    pending={**spec,'tube_size_id':str(uuid.uuid4())}
+    second=a.import_approved(a.ImportDocument(request_id=str(uuid.uuid4()),import_key='wb-row-8',spec=pending,recipes={},note='Recipe pending'),db,plant,USER)
+    assert second['status']=='approved' and second['recipe_pending'] and second['recipe_approved_seasons']==[]
+    blockers=a.read_blockers(uuid.UUID(second['spec_id']),db,plant,USER)
+    assert any('recipe' in b.lower() for b in blockers['production']['ROY']['blockers'])

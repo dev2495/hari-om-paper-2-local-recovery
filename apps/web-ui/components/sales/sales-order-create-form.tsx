@@ -78,13 +78,33 @@ const INITIAL_FORM: SalesOrderForm = {
   lines: [createLine()],
 }
 
+function specSize(spec: any) {
+  const round = (value: number | null) => (value == null ? null : String(Math.round(value * 100) / 100))
+  const id = round(Number.isFinite(Number(spec?.id_min_mm)) && spec?.id_min_mm != null ? Number(spec.id_min_mm) : null)
+  const od = round(averageDimension(spec?.od_min_mm, spec?.od_max_mm))
+  const length = round(averageDimension(spec?.length_min_mm, spec?.length_max_mm))
+  return id && od && length ? `${id} × ${od} × ${length}` : null
+}
+
+/** Seasons in which an approved seasonal spec cannot be released to production yet (e.g. recipe pending). */
+export function specProductionGaps(spec: any): { season: string; blockers: string[] }[] {
+  const readiness = spec?.production_readiness
+  if (!spec?.seasonal_model || !readiness) return []
+  return Object.entries(readiness)
+    .filter(([, value]: any) => value && value.ready === false)
+    .map(([season, value]: any) => ({ season, blockers: (value.blockers || []).filter((b: string) => b !== "Specification approval required") }))
+    .filter((gap) => gap.blockers.length > 0)
+}
+
 function specLabel(spec: any) {
   const parts = [
     spec?.product_code,
-    spec?.customer_name,
-    spec?.size_label,
+    spec?.customer_name_snapshot || spec?.customer_name,
+    spec?.size_label || specSize(spec),
     spec?.required_cs ? `CS ${spec.required_cs}` : null,
     spec?.target_tube_weight ? `Wt ${spec.target_tube_weight}` : null,
+    spec?.version ? `v${spec.version}` : null,
+    specProductionGaps(spec).length ? "recipe/QC pending" : null,
   ].filter(Boolean)
   return parts.join(" · ") || String(spec?.id || "")
 }
@@ -666,6 +686,18 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                           </optgroup>
                         ) : null}
                       </select>
+                      {(() => {
+                        const chosen = line.approved_spec_id ? selectedSpecs.get(line.approved_spec_id) : null
+                        const gaps = specProductionGaps(chosen)
+                        if (!gaps.length) return null
+                        return (
+                          <p className="rounded-lg border border-signal-amber-line bg-signal-amber-soft px-2 py-1 text-[11.5px] text-signal-amber-ink" data-testid="sales-orders:spec-production-gap">
+                            Orders can be taken on this spec, but production release is blocked until it is completed —{" "}
+                            {gaps.map((gap) => `${gap.season === "MONSOON" ? "Monsoon" : "Rest of year"}: ${gap.blockers.join(", ")}`).join(" · ")}.{" "}
+                            <Link href={`/specifications/${chosen.id}`} className="font-semibold underline-offset-2 hover:underline">Open spec</Link>
+                          </p>
+                        )
+                      })()}
                       {(() => {
                         if (!form.customer_id) return <p className="text-[11.5px] text-muted-foreground">Pick the customer first to see their specifications.</p>
                         const approvedCount = approvedSpecs.filter((spec: any) => specForCustomer(spec)).length

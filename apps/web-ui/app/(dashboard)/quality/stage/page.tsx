@@ -11,7 +11,8 @@ import { RoleGate } from "@/components/workspace/role-gate"
 import { ErrorState, LoadingState } from "@/components/workspace/query-state"
 import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
-import { useAttachJobCardQcProfile, useCompleteJobCardQc, useCreateQualityInspection, useJobQcTemplate, usePlanningJobCards } from "@/hooks/use-production"
+import { useAttachJobCardQcProfile, useCompleteJobCardQc, useCreateQualityInspection, useJobQcTemplate, usePlanningJobCard, usePlanningJobCards } from "@/hooks/use-production"
+import { ContinuousJobCard } from "@/components/production/ContinuousJobCard"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
 import { frozenStageRules, inspectionProfileRevision, qcExceptionIssues, type QcStageKey } from "@/lib/qc-measurement"
 
@@ -230,6 +231,13 @@ export default function StageQualityPage() {
   const [attachError, setAttachError] = useState<{ code: string; message: string } | null>(null)
   const jobs = useMemo(() => asArray(jobCardsQuery.data), [jobCardsQuery.data])
   const selectedJob = jobs.find((job: any) => String(job.id) === selectedJobId) || null
+  const selectedCardQuery = usePlanningJobCard(selectedJobId || undefined)
+  const isSeasonalJob = (job: any) => job?.entry_model === "V2" || job?.spec_snapshot?.entry_model === "V2" || job?.spec_snapshot?.qc_profile?.source === "GLOBAL_RULES"
+  // Seasonal job cards (all new releases) use the continuous QC desk; older cards keep the legacy form.
+  const seasonalSelected = selectedJobId
+    ? Boolean(isSeasonalJob(selectedJob) || selectedCardQuery.data?.spec_snapshot?.entry_model === "V2")
+    : jobs.some(isSeasonalJob)
+  const [initialDeskStage, setInitialDeskStage] = useState<string | undefined>(undefined)
   const plantId = plantForJob(selectedJob) || (activePlant && activePlant.toUpperCase() !== "ALL" ? activePlant : undefined)
   const templateQuery = useJobQcTemplate(selectedJobId || undefined, stageType, plantId)
   const instrumentsQuery = useQcInstruments(plantId)
@@ -261,7 +269,10 @@ export default function StageQualityPage() {
     const job = params.get("job")
     const stage = String(params.get("stage") || "").toUpperCase()
     if (job) setSelectedJobId(job)
-    if (STAGES.some((item) => item.value === stage)) setStageType(stage as DeskStage)
+    if (STAGES.some((item) => item.value === stage)) {
+      setStageType(stage as DeskStage)
+      setInitialDeskStage(stage)
+    }
   }, [])
 
   useEffect(() => {
@@ -465,7 +476,56 @@ export default function StageQualityPage() {
     }
   }
 
-  if (snapshotProfile?.source === "GLOBAL_RULES") return <main className="space-y-5 p-4 sm:p-6"><QualityDeskNav/><h1 className="text-2xl font-semibold">Stage QC observations</h1><p className="text-muted-foreground">This card records distinct samples alongside continuous production entries. Oven pre/post readings stay paired on one physical sample.</p><select aria-label="Job card" value={selectedJobId} onChange={e=>setSelectedJobId(e.target.value)} className="h-12 w-full rounded-xl border border-border bg-card px-3">{jobs.map((job:any)=><option key={job.id} value={job.id}>{jobLabel(job)}</option>)}</select><Link className="inline-flex rounded-lg bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground" href={`/production/job-cards/${selectedJobId}/supervisor`}>Open continuous job card and QC</Link><details className="rounded-xl border border-border p-4"><summary className="cursor-pointer font-semibold">Calibrated instrument register</summary><div className="mt-4"><InstrumentRegister plantId={selectedJob?.plant_id || plantId} canEdit={canEditInstruments}/></div></details></main>
+  if (seasonalSelected) {
+    return (
+      <RoleGate allow={["QC", "PlantManager"]}>
+        <div className="space-y-5" data-testid="quality-stage-seasonal">
+          <QualityDeskNav />
+          <section className="space-y-3 rounded-2xl border border-border bg-card p-4">
+            <div>
+              <h1 className="text-xl font-semibold text-foreground">Stage QC</h1>
+              <p className="text-sm text-muted-foreground">
+                Pick a job card, choose the stage, then use <strong>QC</strong> on a production entry (or <strong>Add QC observations</strong>).
+                Each sample is checked against the tolerances frozen on the card. At least two samples per required parameter close a stage;
+                keep oven pre/post weights on the same sample.
+              </p>
+            </div>
+            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto] md:items-end">
+              <label className="space-y-1 text-sm">
+                <span className="text-[12px] font-semibold text-muted-foreground">Search</span>
+                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Job card, product or spec" className="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm" data-testid="quality-stage-seasonal-search" />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-[12px] font-semibold text-muted-foreground">Job card</span>
+                <select aria-label="Job card" value={selectedJobId} onChange={(event) => setSelectedJobId(event.target.value)} className="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm" data-testid="quality-stage-seasonal-job">
+                  <option value="">Choose a job card</option>
+                  {selectedJob && !filteredJobs.some((job: any) => String(job.id) === selectedJobId) ? <option value={selectedJobId}>{jobLabel(selectedJob)}</option> : null}
+                  {filteredJobs.map((job: any) => <option key={job.id} value={job.id}>{jobLabel(job)}</option>)}
+                </select>
+              </label>
+              {selectedJobId ? (
+                <Link className="inline-flex h-10 items-center justify-center rounded-xl border border-border px-4 text-sm font-semibold" href={`/production/job-cards/${selectedJobId}`}>
+                  Open full job card
+                </Link>
+              ) : null}
+            </div>
+          </section>
+          {selectedCardQuery.isLoading ? <LoadingState label="Loading job card for stage QC…" /> : null}
+          {selectedCardQuery.isError ? <ErrorState message="This job card could not be loaded." onRetry={() => { void selectedCardQuery.refetch() }} /> : null}
+          {!selectedJobId ? (
+            <div className="rounded-2xl border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground" data-testid="quality-stage-seasonal-empty">
+              Choose a job card above to record winding, oven, process or final QC.
+            </div>
+          ) : null}
+          {selectedJobId && selectedCardQuery.data ? <ContinuousJobCard key={`${selectedJobId}:${initialDeskStage || ""}`} card={selectedCardQuery.data} initialStage={initialDeskStage} /> : null}
+          <details className="rounded-xl border border-border bg-card p-4">
+            <summary className="cursor-pointer font-semibold">Calibrated instrument register</summary>
+            <div className="mt-4"><InstrumentRegister plantId={selectedJob?.plant_id || selectedCardQuery.data?.plant_id || plantId} canEdit={canEditInstruments} /></div>
+          </details>
+        </div>
+      </RoleGate>
+    )
+  }
   return (
     <RoleGate allow={["QC", "PlantManager"]}>
       <div className="space-y-6" data-testid="quality-stage-page">

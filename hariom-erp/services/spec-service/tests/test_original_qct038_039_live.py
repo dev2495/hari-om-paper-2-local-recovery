@@ -83,10 +83,10 @@ def _issue_job(spec_id, snapshot: dict):
                 INSERT INTO job_cards (
                     id, plant_id, sales_order_id, spec_id, spec_snapshot, routing_snapshot,
                     material_plan_snapshot, planned_qty, released_qty, status, current_stage,
-                    requires_slitting, created_at
+                    requires_slitting, is_emergency, returned_qty, missed_slot_count, missed_slot_open, created_at
                 ) VALUES (
                     :id, :plant, :oid, :sid, CAST(:snap AS jsonb), '{}'::jsonb, '{}'::jsonb,
-                    10, 10, 'IN_PROGRESS', 'WINDER', FALSE, NOW()
+                    10, 10, 'IN_PROGRESS', 'WINDER', FALSE, FALSE, 0, 0, FALSE, NOW()
                 )
                 """
             ),
@@ -185,13 +185,20 @@ def test_qct038_one_canonical_rule_rejects_dual_writes():
 
         stored.status = "approved"
         db.commit()
-        replacement = update_spec_final_limits(
-            spec_id,
-            FinalLimitsUpdate(id_min_mm=75.0, expected_revision=int(stored.write_revision or 1)),
-            db=db,
-            plant_id=PLANT,
-            current_user=ADMIN,
-        )
+        # Changing a live spec is Owner-only and checks open orders/running cards.
+        import src.routers.specs as specs_router
+        usage = specs_router._live_spec_usage
+        specs_router._live_spec_usage = lambda *args, **kwargs: {"open_lines": 0, "open_job_cards": 0}
+        try:
+            replacement = update_spec_final_limits(
+                spec_id,
+                FinalLimitsUpdate(id_min_mm=75.0, expected_revision=int(stored.write_revision or 1)),
+                db=db,
+                plant_id=PLANT,
+                current_user={**ADMIN, "role": "Owner", "roles": ["Owner"]},
+            )
+        finally:
+            specs_router._live_spec_usage = usage
         replacement_id = replacement["id"] if isinstance(replacement, dict) else replacement.id
         assert str(replacement_id) != str(spec_id)
         assert replacement["status"] == "draft"
@@ -253,13 +260,20 @@ def test_qct039_process_only_does_not_rewrite_recipe_or_contract():
         assert stored.id_min_mm == 76.0
         assert stored.target_tube_weight == 250.0
 
-        contractual = update_spec(
-            spec_id,
-            SpecUpdate(id_min_mm=74.5, expected_revision=int(stored.write_revision or 1)),
-            db=db,
-            plant_id=PLANT,
-            current_user=ADMIN,
-        )
+        # Changing a live spec is Owner-only and checks open orders/running cards.
+        import src.routers.specs as specs_router
+        usage = specs_router._live_spec_usage
+        specs_router._live_spec_usage = lambda *args, **kwargs: {"open_lines": 0, "open_job_cards": 0}
+        try:
+            contractual = update_spec(
+                spec_id,
+                SpecUpdate(id_min_mm=74.5, expected_revision=int(stored.write_revision or 1)),
+                db=db,
+                plant_id=PLANT,
+                current_user={**ADMIN, "role": "Owner", "roles": ["Owner"]},
+            )
+        finally:
+            specs_router._live_spec_usage = usage
         new_id = contractual["id"] if isinstance(contractual, dict) else contractual.id
         assert str(new_id) != str(spec_id)
         assert contractual["status"] == "draft"

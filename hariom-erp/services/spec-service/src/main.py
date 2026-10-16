@@ -212,6 +212,27 @@ with engine.begin() as connection:
         connection.execute(text(sql))
 
 
+def activate_default_season_rules() -> None:
+    """Client default seasonal QC rules are always published (both seasons)."""
+    import logging
+
+    from .database import SessionLocal
+
+    try:
+        with SessionLocal() as db:
+            seasonal.ensure_default_rules(db)
+            # Release-readiness is a write-time projection; recompute it once per
+            # start so a release with new readiness rules never shows stale state.
+            seasonal.lock_state(db)
+            seasonal.refresh_readiness(db)
+            db.commit()
+    except Exception:  # never block service start; the QC rules page can publish them
+        logging.getLogger("spec-service").exception("Could not activate default seasonal QC rules")
+
+
+activate_default_season_rules()
+
+
 @app.get("/")
 async def root() -> dict[str, object]:
     return {

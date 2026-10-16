@@ -16,7 +16,8 @@ export const command = (extra: Record<string, unknown> = {}) => ({ request_id: c
 export const errorText = (error: any): string => {
   const detail = error?.response?.data?.detail
   if (typeof detail === "string") return detail
-  if (detail?.blockers) return detail.blockers.map((v: any) => typeof v === "string" ? v : JSON.stringify(v)).join(" · ")
+  if (Array.isArray(detail)) return detail.map((v: any) => v?.msg ? `${(v.loc || []).filter((part: any) => part !== "body").join(" › ")}: ${v.msg}` : String(v)).join(" · ")
+  if (detail?.blockers) return `${detail.code === "SPEC_NOT_READY" ? "Not ready yet — " : ""}${detail.blockers.map((v: any) => typeof v === "string" ? v : v?.message || JSON.stringify(v)).join(" · ")}`
   if (detail?.missing) return detail.missing.map((v: any) => `${v.label || v.parameter}: ${v.have}/${v.need}`).join(" · ")
   return detail?.message || error?.message || "Could not complete this action"
 }
@@ -39,6 +40,10 @@ function makeSeasonApi(client: Pick<typeof api,"get"|"post"|"put">) { return {
   confirm: (id: string, season: Season, body: any) => client.post(`/api/spec/specifications/${id}/recipes/${season}/confirm`, body),
   review: (id: string, body: any) => client.post(`/api/spec/specifications/${id}/season-review`, body),
   approve: (id: string, body: any) => client.post(`/api/spec/specifications/${id}/season-approve`, body),
+  returnToDraft: (id: string, body: any) => client.post(`/api/spec/specifications/${id}/return-to-draft`, body),
+  blockers: (id: string) => client.get(`/api/spec/specifications/${id}/season-blockers`),
+  qcOverview: (id: string) => client.get(`/api/spec/specifications/${id}/qc-overview`),
+  saveSpecQc: (id: string, body: any) => client.put(`/api/spec/specifications/${id}/qc-spec-values`, body),
   resolved: (id: string, season: Season) => client.get(`/api/spec/specifications/${id}/qc-resolved`, { params: { season } }),
   recipeHistory: (id: string, season: Season) => client.get(`/api/spec/specifications/${id}/recipes/${season}/history`),
   revision: (id: string, season: Season, body: any) => client.put(`/api/spec/specifications/${id}/recipes/${season}/revision`, body),

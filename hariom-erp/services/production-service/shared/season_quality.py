@@ -50,7 +50,8 @@ def initial_rules():
     add("WINDER", "od", [term("CUSTOMER_OD", offset=.8)], [term("CUSTOMER_OD", offset=1.2)])
     add("WINDER", "height", [term("WINDING_LENGTH", offset=-15)], [term("WINDING_LENGTH", offset=15)])
     add("WINDER", "weight")
-    add("WINDER", "cs", [term("CUSTOMER_CS", .4)], [term("CUSTOMER_CS", .4, 10)])
+    # Client rule: required winding C.S. = customer C.S. / 2.5, within ±10 N.
+    add("WINDER", "cs", [term("CUSTOMER_CS", .4, -10)], [term("CUSTOMER_CS", .4, 10)])
     add("OVEN", "pre_weight")
     add("OVEN", "post_weight", [term("SAMPLE.pre_weight", .90)], [term("SAMPLE.pre_weight", .92)])
     add("OVEN", "pre_moisture")
@@ -128,11 +129,16 @@ def spec_references(spec, dynamic=None):
             return float((decimal(a) + decimal(b))/2) if a is not None and b is not None else positive(a or b)
         except RuleError:
             return None
+    def nominal(prefix):
+        band = ((spec.get("profile") or {}).get("dimensions") or {}).get(prefix+"_mm") or {}
+        return positive(band.get("avg"))
     return {
-        "CUSTOMER_ID": positive(spec.get("id_min_mm")),
+        # The customer's requirement: the nominal I.D. and required C.S. on the
+        # spec sheet; older specs without them fall back to the minimum limit.
+        "CUSTOMER_ID": nominal("id") or positive(spec.get("id_min_mm")),
         "CUSTOMER_OD": midpoint("od"), "CUSTOMER_LENGTH": midpoint("length"),
         "CUSTOMER_WEIGHT": positive(spec.get("target_tube_weight")) or (float((decimal(spec["weight_min_g"])+decimal(spec["weight_max_g"]))/2) if spec.get("weight_min_g") is not None and spec.get("weight_max_g") is not None else None),
-        "CUSTOMER_CS": positive(spec.get("cs_min_n")) or positive(spec.get("required_cs")),
+        "CUSTOMER_CS": positive(spec.get("required_cs")) or positive(spec.get("cs_min_n")),
         "MANDREL_DIAMETER": positive(spec.get("mandrel_diameter_mm")),
         "WINDING_LENGTH": positive(spec.get("selected_bamboo_length_mm") or dynamic.get("selected_bamboo_length_mm")),
         "MOISTURE_MIN": spec.get("moisture_min_pct"), "MOISTURE_MAX": spec.get("moisture_max_pct"),

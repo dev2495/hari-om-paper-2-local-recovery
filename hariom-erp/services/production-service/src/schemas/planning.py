@@ -408,6 +408,8 @@ class JobCardPlannerSummary(BaseModel):
     missed_slot_count: int = 0
     missed_slot_open: bool = False
     last_missed_slot: Optional[dict[str, Any]] = None
+    # "V2" = seasonal card (continuous entries, frozen seasonal QC); None = older card.
+    entry_model: Optional[str] = None
     id: UUID
     plant_id: UUID
     sales_order_id: UUID

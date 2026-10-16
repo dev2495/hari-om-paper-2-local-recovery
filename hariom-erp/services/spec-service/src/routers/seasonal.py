@@ -96,13 +96,14 @@ def receipt(db, key, payload):
     return None
 
 
-def complete(db, key, payload, response, user, action, note=""):
+def complete(db, key, payload, response, user, action, note="", spec_ids=None):
     result = jsonable_encoder(response)
     db.add(SeasonReceipt(operation_key=key, fingerprint=fingerprint(jsonable_encoder(payload)), response=result))
     db.add(SeasonEvent(action=action, actor=str(user["sub"]), note=note, payload=result))
     db.flush()
     if action not in ("production_season_switched","season_release_authorized","season_release_acknowledged"):
-        refresh_readiness(db)
+        # Spec-scoped commands refresh only the specs they touched.
+        refresh_readiness(db, spec_ids)
     db.commit()
     return result
 
@@ -236,16 +237,26 @@ def recipe_blockers(recipe, db, spec=None):
     return problems
 
 
-def refresh_readiness(db):
+def refresh_readiness(db, spec_ids=None):
     """Write-time projection; list filters and counts do not run recipe HTTP/math."""
-    for spec in db.query(SpecificationSheet).filter_by(seasonal_model=True).options(selectinload(SpecificationSheet.dynamic_values)).all():
+    query=db.query(SpecificationSheet).filter_by(seasonal_model=True).options(selectinload(SpecificationSheet.dynamic_values))
+    if spec_ids is not None:
+        query=query.filter(SpecificationSheet.id.in_([i for i in spec_ids if i]))
+    for spec in query.all():
         bindings={b.season:b for b in db.query(RecipeBinding).filter_by(spec_id=spec.id).all()}
+        common=common_release_blockers(spec)
         for season in SEASONS:
-            blockers=[];binding=bindings.get(season);recipe=db.get(RecipeHeader,binding.recipe_id) if binding else None
+            # Mirrors authorize_release: what would stop a job card being released now.
+            blockers=[];warnings=[];binding=bindings.get(season);recipe=db.get(RecipeHeader,binding.recipe_id) if binding else None
             confirmed=bool(recipe and binding.confirmed_hash==confirmation_hash(spec,recipe))
             if not spec.active or spec.status!="approved":blockers.append("Specification approval required")
+            blockers.extend(common)
             if not binding or not binding.approved:blockers.append("Season recipe approval required")
-            if recipe:blockers.extend(recipe_blockers(recipe,db,spec))
+            elif recipe and binding.approved_context!=confirmation_hash(spec,recipe):blockers.append("Approve the selected recipe for the current specification")
+            if recipe:
+                for problem in recipe_blockers(recipe,db,spec):
+                    # The weight model is a design check before approval; an approved recipe keeps it as a warning.
+                    (warnings if binding and binding.approved and problem.startswith("Modelled dry-weight") else blockers).append(problem)
             else:blockers.append("Recipe missing")
             if season=="MONSOON" and not confirmed and not (binding and binding.approved):blockers.append("Monsoon confirmation required")
             qc_ready=False
@@ -255,7 +266,7 @@ def refresh_readiness(db):
             except (HTTPException,ValueError,RuleError):blockers.append("Season QC rules are not ready")
             row=db.get(SpecReadiness,(spec.id,season))
             if not row:row=SpecReadiness(spec_id=spec.id,season=season);db.add(row)
-            row.ready=not blockers;row.details={"recipe_revision":recipe.season_revision if recipe else None,"recipe_approved":bool(binding and binding.approved),"draft_pending":bool(binding and binding.draft_recipe_id),"confirmed":confirmed,"qc_ready":qc_ready,"blockers":blockers};row.updated_at=datetime.utcnow()
+            row.ready=not blockers;row.details={"recipe_revision":recipe.season_revision if recipe else None,"recipe_approved":bool(binding and binding.approved),"draft_pending":bool(binding and binding.draft_recipe_id),"confirmed":confirmed,"qc_ready":qc_ready,"blockers":blockers,"warnings":warnings};row.updated_at=datetime.utcnow()
 
 
 @router.get("/specs/summary")
@@ -300,7 +311,7 @@ def bulk_confirm(payload:BulkConfirm,db:Session=Depends(get_db),plant:str=Depend
         recipe=db.get(RecipeHeader,binding.draft_recipe_id or binding.recipe_id);blockers=recipe_blockers(recipe,db,spec)
         if blockers:raise HTTPException(409,{"spec_id":str(spec.id),"blockers":blockers})
         binding.confirmed_hash=confirmation_hash(spec,recipe);binding.confirmed_by=user["sub"];binding.confirmed_at=datetime.utcnow();result.append(str(spec.id))
-    return complete(db,key,payload.model_dump(),{"confirmed":result},user,"monsoon_bulk_confirmed",payload.note)
+    return complete(db,key,payload.model_dump(),{"confirmed":result},user,"monsoon_bulk_confirmed",payload.note,spec_ids=[uuid.UUID(i) for i in result])
 
 
 @router.get("/season")
@@ -315,11 +326,83 @@ def bootstrap(payload: Command, db: Session = Depends(get_db), user: dict = Depe
     key = f"bootstrap:{payload.request_id}"
     prior = receipt(db, key, payload.model_dump())
     if prior: return prior
-    for season in SEASONS:
-        if not db.query(RuleVersion).filter_by(season=season).first():
-            rules = initial_rules()
-            db.add(RuleVersion(season=season, version=1, status="DRAFT", rules=rules, fingerprint=fingerprint(rules), change_note="Client rules 2026-10-03; process ±0.2 mm and paired oven samples confirmed", created_by=user["sub"]))
+    ensure_default_rules(db, actor=str(user["sub"]))
+    state = lock_state(db)
     return complete(db, key, payload.model_dump(), {"initialized": True, "active_season": state.active_season, "epoch": state.epoch}, user, "season_initialized")
+
+
+def _legacy_winder_cs(row):
+    """The first shipped template had winding C.S. min = C.S./2.5 + 10 (a zero-width band)."""
+    if (row.get("stage"), row.get("parameter")) != ("WINDER", "cs"):
+        return False
+    lower = row.get("lower") or []
+    try:
+        return len(lower) == 1 and lower[0].get("ref") == "CUSTOMER_CS" and float(lower[0].get("factor", 1)) == 0.4 and float(lower[0].get("offset", 0)) == 10
+    except (TypeError, ValueError):
+        return False
+
+
+def corrected_rules(rows):
+    fixed = deepcopy(rows)
+    changed = False
+    for row in fixed:
+        if _legacy_winder_cs(row):
+            row["lower"] = [{"ref": "CUSTOMER_CS", "factor": 0.4, "offset": -10}]
+            changed = True
+    return fixed, changed
+
+
+def ensure_default_rules(db, actor="system"):
+    """The client's seasonal rules are published and active for both seasons.
+
+    Later edits stay versioned (draft -> publish). Idempotent; safe at every start.
+    """
+    lock_state(db)
+    published_now = []
+    for season in SEASONS:
+        published = db.query(RuleVersion).filter_by(scope_id="ORGANIZATION", season=season, status="PUBLISHED").first()
+        draft = db.query(RuleVersion).filter_by(scope_id="ORGANIZATION", season=season, status="DRAFT").first()
+        if draft:
+            rows, fixed = corrected_rules(draft.rules)
+            if fixed:
+                draft.rules, draft.fingerprint = rows, fingerprint(rows)
+                draft.row_version += 1
+        if published:
+            rows, fixed = corrected_rules(published.rules)
+            if not fixed:
+                continue
+            note = "Client rule correction: required winding C.S. = customer C.S. / 2.5 within ±10"
+        else:
+            rows = None
+            if draft:
+                try:
+                    rows = validate_rules(draft.rules)
+                except RuleError:
+                    rows = None
+            if rows is not None:
+                draft.status = "PUBLISHED"; draft.published_at = datetime.utcnow(); draft.published_by = actor
+                draft.change_note = draft.change_note or "Client default seasonal QC rules"
+                db.flush(); published_now.append(rule_dict(draft))
+                continue
+            rows = initial_rules()
+            note = "Client default seasonal QC rules (active by default; edit and publish a new version to change)"
+        head = db.query(func.max(RuleVersion.version)).filter_by(scope_id="ORGANIZATION", season=season).scalar() or 0
+        if draft:
+            # Keep the open draft the newest version in history.
+            draft.version = head + 2
+            db.flush()
+        if published:
+            published.status = "SUPERSEDED"
+            db.flush()
+        row = RuleVersion(season=season, version=head + 1, status="PUBLISHED", rules=rows, fingerprint=fingerprint(rows), change_note=note, created_by=actor, published_by=actor, published_at=datetime.utcnow())
+        db.add(row); db.flush()
+        published_now.append(rule_dict(row))
+    if published_now:
+        db.add(SeasonEvent(action="qc_rules_published", actor=actor, note="Client default seasonal QC rules active", payload=jsonable_encoder(published_now)))
+        db.flush()
+        refresh_readiness(db)
+    db.commit()
+    return published_now
 
 
 @router.get("/qc-rules")
@@ -353,7 +436,12 @@ def impact(db, season, candidate):
     specs = db.query(SpecificationSheet).filter_by(active=True, seasonal_model=True).options(selectinload(SpecificationSheet.dynamic_values)).all()
     blocked = []
     for spec in specs:
-        profile = resolved(db, spec, season, candidate)
+        try:
+            profile = resolved(db, spec, season, candidate)
+        except (ValueError, TypeError, RuleError) as exc:
+            # One incomplete specification must not stop a rule publication.
+            blocked.append({"spec_id": str(spec.id), "customer": spec.customer_name, "plant_id": spec.plant_id, "unresolved": [{"message": f"Specification data incomplete: {exc}"}], "conflicts": []})
+            continue
         if profile["unresolved"] or profile["conflicts"]:
             blocked.append({"spec_id": str(spec.id), "customer": spec.customer_name, "plant_id": spec.plant_id, "unresolved": profile["unresolved"], "conflicts": profile["conflicts"]})
     return {"specs_checked": len(specs), "blocked_count": len(blocked), "blocked": blocked[:50]}
@@ -449,6 +537,155 @@ def read_document(spec_id: uuid.UUID, db: Session=Depends(get_db), plant: dict=D
     return document_dict(db,load_visible_spec(db,spec_id,plant))
 
 
+def spec_sheet_overlay(db,spec):
+    return db.query(OverlayVersion).filter_by(plant_id=spec.plant_id,target_type="SPEC",target_id=spec.lineage_id or spec.id,season="BOTH",status="PUBLISHED").first()
+
+
+def constant_bound(terms):
+    """A spec-sheet value is a single fixed number; anything else is a formula override."""
+    if not terms:return None,False
+    if len(terms)==1 and terms[0].get("ref")=="CONST":
+        try:return float(terms[0].get("offset",0)),False
+        except (TypeError,ValueError):return None,True
+    return None,True
+
+
+def qc_overview_dict(db,spec):
+    overlay=spec_sheet_overlay(db,spec)
+    sources={}
+    for row in db.query(OverlayVersion).filter(OverlayVersion.plant_id==spec.plant_id,OverlayVersion.status=="PUBLISHED").all():
+        sources[str(row.id)]="SPEC_SHEET" if overlay and row.id==overlay.id else ("CUSTOMER" if row.target_type=="CUSTOMER" else "SPEC_OVERRIDE")
+    values=[]
+    for row in (overlay.rules if overlay else []):
+        low,low_formula=constant_bound(row.get("lower"));high,high_formula=constant_bound(row.get("upper"))
+        values.append({"stage":row["stage"],"parameter":row["parameter"],"label":row.get("label"),"unit":row.get("unit"),"min":low,"max":high,"formula":low_formula or high_formula})
+    seasons={}
+    for season in SEASONS:
+        try:profile=resolved(db,spec,season)
+        except HTTPException as exc:
+            seasons[season]={"error":exc.detail if isinstance(exc.detail,str) else (exc.detail or {}).get("message","Season QC rules are not published"),"parameters":[]}
+            continue
+        except (ValueError,TypeError,RuleError) as exc:
+            seasons[season]={"error":f"Specification data is incomplete: {exc}","parameters":[]}
+            continue
+        parameters=[]
+        for stage in ("WINDER","OVEN","PROCESS"):
+            for rule in profile["stages"].get(stage,{}).get("parameters",[]):
+                parameters.append({"stage":stage,"parameter":rule["code"],"label":rule["label"],"unit":rule["unit"],"mode":rule["mode"],"min":rule["min"],"max":rule["max"],"dynamic":rule.get("dynamic",False),"lower":rule.get("lower") if rule.get("dynamic") else None,"upper":rule.get("upper") if rule.get("dynamic") else None,"min_readings":rule["min_readings"],"applicable":rule["applicable"],"source":sources.get(str(rule.get("overlay_id")),"GLOBAL") if rule.get("overlay_id") else "GLOBAL","overlay_version":rule.get("overlay_version")})
+        seasons[season]={"rule_set_version":profile["provenance"].get("rule_set_version"),"parameters":parameters,"unresolved":profile["unresolved"],"conflicts":profile["conflicts"]}
+    return {"spec_id":str(spec.id),"lineage_id":str(spec.lineage_id or spec.id),"seasonal_model":bool(spec.seasonal_model),"overlay":{"id":str(overlay.id),"version":overlay.version,"reason":overlay.reason,"published_by":overlay.published_by,"published_at":overlay.published_at} if overlay else None,"values":values,"seasons":seasons}
+
+
+@router.get("/specs/{spec_id}/qc-overview")
+def read_qc_overview(spec_id: uuid.UUID,db: Session=Depends(get_db),plant: dict=Depends(get_current_plant_scope),user: dict=Depends(get_current_user)):
+    return qc_overview_dict(db,load_visible_spec(db,spec_id,plant))
+
+
+class SpecQcValue(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    stage: str
+    parameter: str
+    min: float | None = None
+    max: float | None = None
+
+
+class SpecQcValues(Command):
+    values: list[SpecQcValue] = Field(default_factory=list, max_length=40)
+
+
+@router.put("/specs/{spec_id}/qc-spec-values")
+def save_spec_qc_values(spec_id: uuid.UUID,payload: SpecQcValues,db: Session=Depends(get_db),plant: str=Depends(get_current_plant),user: dict=Depends(require_role(["Owner","Admin"]))):
+    """Stage QC values written on the spec sheet win over customer and global rules.
+
+    Stored as the specification's published overlay (both seasons), so every
+    change is versioned and released job cards keep the values they froze.
+    """
+    lock_state(db);key=f"spec-qc:{plant}:{payload.request_id}";prior=receipt(db,key,payload.model_dump())
+    if prior:return prior
+    spec=load_spec(db,spec_id,plant,True)
+    if not spec.active or spec.status=="obsolete":raise HTTPException(409,"This version is no longer live. Open the current version.")
+    if not spec.seasonal_model:raise HTTPException(409,"This older specification keeps its own stage QC profile. Save it once from the spec sheet to move it to seasonal rules.")
+    globals_=[published_rules(db,season) for season in SEASONS]
+    base={(r["stage"],r["parameter"]):r for r in globals_[0].rules}
+    current=spec_sheet_overlay(db,spec)
+    rows={(r["stage"],r["parameter"]):r for r in (current.rules if current else [])}
+    for value in payload.values:
+        k=(value.stage,value.parameter)
+        if k not in base:raise HTTPException(422,f"Unknown stage parameter {value.stage}/{value.parameter}")
+        label=f"{value.stage.title()} {base[k]['label']}"
+        if value.min is None and value.max is None:rows.pop(k,None);continue
+        for bound_value in (value.min,value.max):
+            if bound_value is not None and (bound_value!=bound_value or bound_value in (float("inf"),float("-inf")) or bound_value<0):raise HTTPException(422,f"{label}: enter a positive number")
+        if value.min is not None and value.max is not None and value.min>value.max:raise HTTPException(422,f"{label}: minimum {value.min:g} is above maximum {value.max:g}")
+        b=base[k]
+        rows[k]={"rule_id":f"{value.stage}:{value.parameter}","stage":value.stage,"parameter":value.parameter,"mode":"BAND","lower":[{"ref":"CONST","factor":1,"offset":value.min}] if value.min is not None else [],"upper":[{"ref":"CONST","factor":1,"offset":value.max}] if value.max is not None else [],"required":True,"min_readings":b["min_readings"],"gating":b["gating"],"non_waivable":b.get("non_waivable",False),"applicability":b.get("applicability","ALWAYS"),"on_missing_ref":"BLOCK","requires_instrument":b.get("requires_instrument",False)}
+    clean=checked_rules(list(rows.values()),True)
+    note=payload.note.strip() or "Stage QC values set on the spec sheet"
+    target=spec.lineage_id or spec.id
+    if current:current.status="SUPERSEDED";db.flush()
+    created=None
+    if clean:
+        version=(db.query(func.max(OverlayVersion.version)).filter_by(plant_id=plant,target_type="SPEC",target_id=target,season="BOTH").scalar() or 0)+1
+        created=OverlayVersion(plant_id=plant,target_type="SPEC",target_id=target,season="BOTH",version=version,status="PUBLISHED",rules=clean,fingerprint=fingerprint(clean),reason=note,loosens=any(potentially_loosens(g.rules,clean) for g in globals_),created_by=user["sub"],published_by=user["sub"],published_at=datetime.utcnow())
+        db.add(created);db.flush();created.parent_fingerprint=overlay_parent_basis(db,created)
+    db.flush()
+    lineage=[r.id for r in db.query(SpecificationSheet.id).filter(SpecificationSheet.plant_id==plant,or_(SpecificationSheet.lineage_id==target,SpecificationSheet.id==target)).all()]
+    return complete(db,key,payload.model_dump(),qc_overview_dict(db,spec),user,"spec_qc_values_saved",note,spec_ids=lineage)
+
+
+class ImportDocument(Document):
+    import_key: str = Field(min_length=3, max_length=120)
+
+
+@router.post("/specs/import-approved")
+def import_approved(payload: ImportDocument,db: Session=Depends(get_db),plant: str=Depends(get_current_plant),user: dict=Depends(require_role(["Owner","Admin"]))):
+    """Load a client-approved specification (workbook import) straight to approved.
+
+    The client's approval is recorded as the import event. Recipes that were
+    supplied are approved for both seasons; a specification whose recipe is still
+    pending is approved for sales but production release stays blocked until a
+    recipe revision is approved. Release-time checks are unchanged.
+    """
+    key=f"import:{plant}:{payload.import_key}"
+    # The sheet row (import_key) is the idempotency key, not the per-call request id.
+    content=payload.model_dump(exclude={"request_id"})
+    def imported_before():
+        prior=db.query(SeasonReceipt).filter_by(operation_key=key).first()
+        if not prior:return None
+        if prior.fingerprint==fingerprint(jsonable_encoder(content)):return {**(prior.response or {}),"replayed":True}
+        raise HTTPException(409,{"code":"ALREADY_IMPORTED","spec_id":(prior.response or {}).get("spec_id"),"message":"This sheet row was already imported (with different content). Change that specification in the spec sheet instead."})
+    prior=imported_before()
+    if prior:return prior
+    ensure_default_rules(db)
+    data=payload.spec
+    try:
+        identity=(uuid.UUID(str(data["customer_id"])),uuid.UUID(str(data["tube_size_id"])),float(data["required_cs"]),float(data["target_tube_weight"]))
+    except (KeyError,TypeError,ValueError) as exc:
+        raise HTTPException(422,"Customer, tube size, required C.S. and tube weight are required") from exc
+    duplicate=db.query(SpecificationSheet).filter(SpecificationSheet.plant_id==plant,SpecificationSheet.active==True,SpecificationSheet.status=="approved",SpecificationSheet.customer_id==identity[0],SpecificationSheet.tube_size_id==identity[1],SpecificationSheet.required_cs==identity[2],SpecificationSheet.target_tube_weight==identity[3]).first()
+    if duplicate:
+        raise HTTPException(409,{"code":"DUPLICATE_SPEC","spec_id":str(duplicate.id),"message":"An approved specification already exists for this customer, tube size, weight and C.S."})
+    note=payload.note.strip() or "Client specification workbook import"
+    document=Document(request_id=("import-"+fingerprint([plant,payload.import_key]))[:100],spec=payload.spec,recipes=payload.recipes,trial=payload.trial,note=note)
+    saved=save_document_command(document,db,plant,user)
+    lock_state(db)
+    prior=imported_before()
+    if prior:return prior
+    spec=load_spec(db,uuid.UUID(str(saved["spec"]["id"])),plant,True)
+    approved=[]
+    for binding in db.query(RecipeBinding).filter_by(spec_id=spec.id).all():
+        recipe=db.get(RecipeHeader,binding.recipe_id)
+        if not recipe.layers:continue
+        recipe.status="approved";recipe.approved_by=user["sub"]
+        binding.confirmed_hash=confirmation_hash(spec,recipe);binding.confirmed_by=user["sub"];binding.confirmed_at=datetime.utcnow()
+        binding.approved=True;binding.approved_context=confirmation_hash(spec,recipe);approved.append(binding.season)
+    spec.status="approved";spec.approved_by=user["sub"];spec.approved_cs=spec.required_cs;spec.updated_at=datetime.utcnow()
+    db.flush()
+    warnings=seasonal_blockers(db,spec)
+    result={"spec_id":str(spec.id),"status":spec.status,"version":spec.version,"recipe_approved_seasons":sorted(approved),"recipe_pending":len(approved)<len(SEASONS),"warnings":warnings}
+    return complete(db,key,content,result,user,"spec_imported_approved",note,spec_ids=[spec.id])
+
+
 def load_visible_spec(db,spec_id,plant):
     if not isinstance(plant,dict):return load_spec(db,spec_id,plant)
     spec=apply_plant_scope(db.query(SpecificationSheet).filter_by(id=spec_id),SpecificationSheet.plant_id,plant).first()
@@ -527,12 +764,15 @@ def save_document_command(payload, db, plant, user, spec_id=None):
         except (httpx.HTTPError,ValueError,TypeError) as exc:raise HTTPException(503,"Could not verify paper selections") from exc
         if not requested<=valid:raise HTTPException(422,"Select active papers from this plant")
     previous=load_spec(db,spec_id,plant) if spec_id else None
-    if previous and previous.status!="draft": _enforce_live_spec_edit_lock(previous,user,plant)
+    if previous and (not previous.active or previous.status=="obsolete"):
+        raise HTTPException(409,"This version is no longer live and is read-only. Open the current version to make changes.")
+    if previous and previous.status in ("approved","trial") and "Owner" not in set(user.get("roles") or [])|{user.get("role")}:
+        raise HTTPException(403,"Only the Owner can start a revision of a live specification.")
     lock_state(db); key=f"document:{plant}:{payload.request_id}"; prior=receipt(db,key,payload.model_dump())
     if prior: return prior
     if previous:
         previous=load_spec(db,spec_id,plant,True); version_check(previous.write_revision,expected)
-        if previous.status=="review": raise HTTPException(409,"Return spec to draft before editing")
+        if previous.status=="review": raise HTTPException(409,"This specification is waiting for approval. Use “Return to draft” before editing it.")
         if previous.status=="draft":
             spec=previous
             for k,v in base.model_dump(exclude_unset=True).items():
@@ -540,8 +780,13 @@ def save_document_command(payload, db, plant, user, spec_id=None):
                     setattr(spec,k,uuid.UUID(v) if k=="customer_id" and v else v)
             spec.write_revision+=1
         else:
+            # The live version stays approved and selectable for sales orders until
+            # this revision is approved; approval then supersedes it.
+            open_revision=db.query(SpecificationSheet).filter(SpecificationSheet.plant_id==plant,SpecificationSheet.supersedes_spec_id==previous.id,SpecificationSheet.active==True,SpecificationSheet.status.in_(["draft","review"])).first()
+            if open_revision:
+                raise HTTPException(409,{"code":"REVISION_OPEN","spec_id":str(open_revision.id),"message":f"Revision v{open_revision.version} of this specification is already open ({open_revision.status}). Continue that revision instead of starting another."})
             spec=_replacement_spec_from_payload(previous=previous,payload=base,plant_id=plant,current_user=user)
-            spec.lineage_id=previous.lineage_id or previous.id; spec.supersedes_spec_id=previous.id; previous.active=False; previous.status="obsolete"; db.add(spec)
+            spec.lineage_id=previous.lineage_id or previous.id; spec.supersedes_spec_id=previous.id; db.add(spec)
     else:
         values={k:v for k,v in base.model_dump().items() if k in SpecificationSheet.__table__.columns}
         values["customer_id"]=uuid.UUID(str(values["customer_id"])) if values.get("customer_id") else None
@@ -570,7 +815,7 @@ def save_document_command(payload, db, plant, user, spec_id=None):
             recipe=db.get(RecipeHeader,binding.recipe_id)
             candidate=recipe_content_hash([{"ply_no":int(l["ply_no"]),"paper_id":str(l["paper_id"]),"gsm_snapshot":float(l["gsm_snapshot"]),"bf_snapshot":float(l["bf_snapshot"]),"bulk_snapshot":float(l.get("bulk_snapshot") or 1)} for l in sorted(patch.get("layers",[]),key=lambda l:int(l["ply_no"]))],patch.get("sheet_rows",[]),patch.get("notes",recipe.notes))
             if candidate!=recipe.content_hash:
-                if recipe.status!="trial":
+                if recipe.status!="trial" or recipe.spec_id!=spec.id:
                     recipe=new_recipe(db,spec,season,patch.get("layers",[]),patch.get("sheet_rows",[]),user,patch.get("notes",recipe.notes),recipe); binding.recipe_id=recipe.id
                 else:
                     recipe.layers.clear();db.flush()
@@ -584,7 +829,7 @@ def save_document_command(payload, db, plant, user, spec_id=None):
         roy=db.query(RecipeBinding).filter_by(spec_id=spec.id,season="ROY").one()
         fields={k:v for k,v in payload.trial.items() if k in ("actual_cs","actual_weight","actual_shrink","remarks")}
         db.add(TrialResult(recipe_id=roy.recipe_id,plant_id=plant,**fields))
-    return complete(db,key,payload.model_dump(),document_dict(db,spec),user,"spec_document_saved",payload.note)
+    return complete(db,key,payload.model_dump(),document_dict(db,spec),user,"spec_document_saved",payload.note,spec_ids=[spec.id])
 
 
 @router.post("/specs/document")
@@ -606,26 +851,28 @@ def confirm_recipe(spec_id: uuid.UUID,season: str,payload: Command,db: Session=D
     errors=recipe_blockers(recipe,db,spec)
     if errors: raise HTTPException(409,{"code":"RECIPE_NOT_READY","blockers":errors})
     binding.confirmed_hash=confirmation_hash(spec,recipe);binding.confirmed_by=user["sub"];binding.confirmed_at=datetime.utcnow()
-    return complete(db,key,payload.model_dump(),document_dict(db,spec),user,"season_recipe_confirmed",payload.note)
+    return complete(db,key,payload.model_dump(),document_dict(db,spec),user,"season_recipe_confirmed",payload.note,spec_ids=[spec.id])
 
 
 def common_release_blockers(spec):
     dynamic = _dynamic_field_map(spec)
     blockers=[]
+    labels={"valid_upto":"Valid up to","prepared_by":"Prepared by","prepared_date":"Prepared date","sign_off_note":"Sign-off note"}
     for name in ("valid_upto", "prepared_by", "prepared_date", "sign_off_note"):
-        if not str(dynamic.get(name) or "").strip(): blockers.append(f"Release footer: {name} required")
+        if not str(dynamic.get(name) or "").strip(): blockers.append(f"Release footer: fill “{labels[name]}”")
     for name in ("valid_upto","prepared_date"):
+        if not str(dynamic.get(name) or "").strip():continue
         try:
-            value=date.fromisoformat(str(dynamic.get(name) or ''))
-            if name=='valid_upto' and value<date.today():blockers.append('Specification validity has expired')
+            value=date.fromisoformat(str(dynamic.get(name) or '')[:10])
+            if name=='valid_upto' and value<date.today():blockers.append('Specification validity has expired — set a new “Valid up to” date')
             if name=='prepared_date' and value>date.today():blockers.append('Prepared date cannot be in the future')
-        except ValueError:blockers.append(f'Release footer: {name} must be a valid date')
+        except ValueError:blockers.append(f'Release footer: “{labels[name]}” must be a date')
     try:
         adhesives=json.loads(dynamic.get("adhesive_components_json") or "[]")
-        if not 1<=len(adhesives)<=6 or abs(sum(float(c.get("ratio_percent") or 0) for c in adhesives)-100)>.01: blockers.append("Adhesive ratios must total 100% with 1–6 components")
-    except (ValueError,TypeError,AttributeError): blockers.append("Adhesive recipe is invalid")
+        if not 1<=len(adhesives)<=6 or abs(sum(float(c.get("ratio_percent") or 0) for c in adhesives)-100)>.01: blockers.append("Adhesive: enter 1–6 adhesive components whose ratios total 100%")
+    except (ValueError,TypeError,AttributeError): blockers.append("Adhesive: the adhesive component list is not valid — re-enter it")
     additions=float(spec.adhesive_percent or 0)
-    if additions<=0 or spec.parchment_allowed and float(spec.parchment_percent or 0)>additions:blockers.append("Par­chment share cannot exceed total additions")
+    if additions<=0 or spec.parchment_allowed and float(spec.parchment_percent or 0)>additions:blockers.append("Parchment share cannot exceed total additions (adhesive %)")
     return blockers
 
 
@@ -653,7 +900,7 @@ def review_spec(spec_id: uuid.UUID,payload: Command,db: Session=Depends(get_db),
     blockers=seasonal_blockers(db,spec)
     if blockers:raise HTTPException(409,{"code":"SPEC_NOT_READY","blockers":blockers})
     spec.status="review"
-    return complete(db,key,payload.model_dump(),document_dict(db,spec),user,"season_spec_review_requested",payload.note)
+    return complete(db,key,payload.model_dump(),document_dict(db,spec),user,"season_spec_review_requested",payload.note,spec_ids=[spec.id])
 
 
 @router.post("/specs/{spec_id}/season-approve")
@@ -664,15 +911,67 @@ def approve_spec(spec_id: uuid.UUID,payload: Command,db: Session=Depends(get_db)
     if spec.status!="review":raise HTTPException(409,"Spec must be in review")
     blockers=seasonal_blockers(db,spec)
     if blockers:raise HTTPException(409,{"code":"SPEC_NOT_READY","blockers":blockers})
-    duplicate=db.query(SpecificationSheet).filter(SpecificationSheet.id!=spec.id,SpecificationSheet.active==True,SpecificationSheet.plant_id==plant,SpecificationSheet.customer_id==spec.customer_id,SpecificationSheet.tube_size_id==spec.tube_size_id,SpecificationSheet.required_cs==spec.required_cs,SpecificationSheet.target_tube_weight==spec.target_tube_weight,SpecificationSheet.status=="approved").first()
-    if duplicate:raise HTTPException(409,"An approved specification already has this customer/size/weight/CS key")
+    previous=db.get(SpecificationSheet,spec.supersedes_spec_id) if spec.supersedes_spec_id else None
+    if previous and (previous.plant_id!=plant or not previous.active or previous.status not in ("approved","trial")):previous=None
+    duplicate=duplicate_approved(db,spec,plant,exclude=previous.id if previous else None)
+    if duplicate:raise HTTPException(409,f"An approved specification (v{duplicate.version}) already has this customer, tube size, weight and C.S. Edit that one instead of approving a duplicate.")
+    if previous:
+        hand_over_sales_lines(previous,spec,user,plant)
+        previous.active=False;previous.status="obsolete";previous.updated_at=datetime.utcnow()
     for binding in db.query(RecipeBinding).filter_by(spec_id=spec.id).all():
         recipe=db.get(RecipeHeader,binding.recipe_id); recipe.status="approved";recipe.approved_by=user["sub"];binding.approved=True;binding.approved_context=confirmation_hash(spec,recipe)
     spec.status="approved";spec.approved_by=user["sub"]
     roy=db.query(RecipeBinding).filter_by(spec_id=spec.id,season="ROY").one()
     trial=db.query(TrialResult).filter_by(recipe_id=roy.recipe_id,approved=True).order_by(TrialResult.tested_at.desc()).first()
     spec.approved_cs=float(trial.actual_cs) if trial and trial.actual_cs is not None else spec.required_cs
-    return complete(db,key,payload.model_dump(),document_dict(db,spec),user,"season_spec_approved",payload.note)
+    return complete(db,key,payload.model_dump(),document_dict(db,spec),user,"season_spec_approved",payload.note,spec_ids=[spec.id]+([previous.id] if previous else []))
+
+
+def duplicate_approved(db,spec,plant,exclude=None):
+    query=db.query(SpecificationSheet).filter(SpecificationSheet.id!=spec.id,SpecificationSheet.active==True,SpecificationSheet.plant_id==plant,SpecificationSheet.customer_id==spec.customer_id,SpecificationSheet.tube_size_id==spec.tube_size_id,SpecificationSheet.required_cs==spec.required_cs,SpecificationSheet.target_tube_weight==spec.target_tube_weight,SpecificationSheet.status=="approved")
+    if exclude:query=query.filter(SpecificationSheet.id!=exclude)
+    return query.first()
+
+
+def hand_over_sales_lines(previous,spec,user,plant):
+    """Open order lines on the superseded version move to the approved revision.
+
+    Lines with released quantity stay on the version their job cards were built
+    from, so approval waits until those are finished or closed.
+    """
+    url=os.getenv("SALES_SERVICE_URL","http://127.0.0.1:18008")
+    try:
+        response=httpx.post(f"{url}/sales-orders/spec-supersede",json={"from_spec_id":str(previous.id),"to_spec_id":str(spec.id)},headers={"Authorization":f"Bearer {user.get('token','')}","X-Plant-ID":plant},timeout=10)
+    except httpx.HTTPError as exc:
+        raise HTTPException(503,"Could not move open sales order lines to the new version (sales service unreachable). Try again.") from exc
+    if response.status_code==409:
+        try:detail=response.json().get("detail")
+        except ValueError:detail=None
+        raise HTTPException(409,detail or "Open sales order lines still depend on the current version")
+    if response.status_code>=400:
+        raise HTTPException(503,f"Could not move open sales order lines to the new version (sales service answered {response.status_code}). Try again.")
+    return response.json()
+
+
+@router.post("/specs/{spec_id}/return-to-draft")
+def return_to_draft(spec_id: uuid.UUID,payload: Command,db: Session=Depends(get_db),plant: str=Depends(get_current_plant),user: dict=Depends(require_role(["Owner","Admin"]))):
+    lock_state(db);key=f"return-draft:{plant}:{payload.request_id}";prior=receipt(db,key,payload.model_dump())
+    if prior:return prior
+    spec=load_spec(db,spec_id,plant,True);version_check(spec.write_revision,payload.expected_version)
+    if spec.status!="review":raise HTTPException(409,"Only a specification waiting for approval can return to draft")
+    spec.status="draft";spec.updated_at=datetime.utcnow()
+    return complete(db,key,payload.model_dump(),document_dict(db,spec),user,"spec_returned_to_draft",payload.note,spec_ids=[spec.id])
+
+
+@router.get("/specs/{spec_id}/season-blockers")
+def read_blockers(spec_id: uuid.UUID,db: Session=Depends(get_db),plant: dict=Depends(get_current_plant_scope),user: dict=Depends(get_current_user)):
+    spec=load_visible_spec(db,spec_id,plant)
+    if not spec.seasonal_model:return {"spec_id":str(spec.id),"status":spec.status,"seasonal_model":False,"blockers":[]}
+    try:blockers=seasonal_blockers(db,spec)
+    except (ValueError,TypeError,RuleError) as exc:blockers=[f"Specification data is incomplete: {exc}"]
+    open_revision=db.query(SpecificationSheet).filter(SpecificationSheet.supersedes_spec_id==spec.id,SpecificationSheet.active==True,SpecificationSheet.status.in_(["draft","review"])).first()
+    readiness={r.season:{"ready":r.ready,**(r.details or {})} for r in db.query(SpecReadiness).filter_by(spec_id=spec.id).all()}
+    return {"spec_id":str(spec.id),"status":spec.status,"seasonal_model":True,"blockers":blockers,"ready_to_submit":not blockers,"open_revision":{"id":str(open_revision.id),"version":open_revision.version,"status":open_revision.status} if open_revision else None,"supersedes_spec_id":str(spec.supersedes_spec_id) if spec.supersedes_spec_id else None,"production":readiness}
 
 
 @router.get("/specs/{spec_id}/recipes/{season}/history")
@@ -703,7 +1002,7 @@ def save_revision(spec_id: uuid.UUID,season: str,payload: RecipeEdit,db: Session
     else:
         recipe=new_recipe(db,spec,season,payload.layers,payload.sheet_rows,user,payload.note,current);binding.draft_recipe_id=recipe.id
     binding.confirmed_hash=confirmation_hash(spec,recipe) if payload.confirm else None
-    return complete(db,key,payload.model_dump(),document_dict(db,spec),user,"season_recipe_revision_saved",payload.note)
+    return complete(db,key,payload.model_dump(),document_dict(db,spec),user,"season_recipe_revision_saved",payload.note,spec_ids=[spec.id])
 
 
 @router.post("/specs/{spec_id}/recipes/{season}/approve")
@@ -719,7 +1018,7 @@ def approve_revision(spec_id: uuid.UUID,season: str,payload: Command,db: Session
     if profile["unresolved"] or profile["conflicts"]:errors.append("QC profile is unresolved/conflicting")
     if errors:raise HTTPException(409,{"code":"RECIPE_NOT_READY","blockers":errors})
     recipe.status="approved";recipe.approved_by=user["sub"];binding.recipe_id=recipe.id;binding.draft_recipe_id=None;binding.approved=True;binding.approved_context=confirmation_hash(spec,recipe)
-    return complete(db,key,payload.model_dump(),document_dict(db,spec),user,"season_recipe_revision_approved",payload.note)
+    return complete(db,key,payload.model_dump(),document_dict(db,spec),user,"season_recipe_revision_approved",payload.note,spec_ids=[spec.id])
 
 
 def global_owner(user):
@@ -740,6 +1039,7 @@ def switch_preview(db,to):
             basis.append((str(spec.id),spec.write_revision,str(binding.recipe_id) if binding else None,db.get(RecipeHeader,binding.recipe_id).content_hash if binding else None,profile["fingerprint"]))
             if profile["unresolved"] or profile["conflicts"]:problems.append("QC references unresolved/conflicting")
         except HTTPException:problems.append("QC rules not published")
+        except (ValueError,TypeError,RuleError) as exc:problems.append(f"Specification data incomplete: {exc}")
         if problems:blocked.append({"spec_id":str(spec.id),"customer":spec.customer_name,"plant_id":spec.plant_id,"blockers":problems})
         else:ready+=1
     authorizations=db.query(ReleaseAuthorization.status,ReleaseAuthorization.season,func.count(ReleaseAuthorization.id)).group_by(ReleaseAuthorization.status,ReleaseAuthorization.season).all()
@@ -791,6 +1091,33 @@ def acknowledge_release(authorization_id:uuid.UUID,payload:AuthorizationAck,db:S
     return complete(db,f"release-ack:{a.id}",payload.model_dump(),{"authorization_id":str(a.id),"status":a.status,"job_card_id":str(a.job_card_id)},user,"season_release_acknowledged")
 
 
+def release_blockers(db,spec,season):
+    """Everything that stops a job card being released from this spec now, in one list."""
+    blockers=[] if spec.status=="approved" and spec.active else ["Specification must be approved and live"]
+    blockers+=common_release_blockers(spec)
+    season_name="Monsoon" if season=="MONSOON" else "Rest of year"
+    binding=db.query(RecipeBinding).filter_by(spec_id=spec.id,season=season,approved=True).first()
+    recipe=db.get(RecipeHeader,binding.recipe_id) if binding else None
+    if not binding:blockers.append(f"{season_name}: approved paper recipe required (add it as a recipe revision on the spec sheet)")
+    elif recipe.status!='approved' or binding.approved_context!=confirmation_hash(spec,recipe):blockers.append(f"{season_name}: approve the selected recipe for the current specification before release")
+    profile=resolved(db,spec,season)
+    for item in profile["unresolved"]:blockers.append(f"QC {item['stage'].title()} {item['parameter']}: missing {', '.join(item['refs'])} on the specification")
+    for item in profile["conflicts"]:blockers.append(f"QC {item['stage'].title()} {item['parameter']}: minimum {item['min']:g} is above maximum {item['max']:g}")
+    return blockers,profile,binding,recipe
+
+
+@router.get("/specs/{spec_id}/release-readiness")
+def release_readiness(spec_id: uuid.UUID,db: Session=Depends(get_db),plant: dict=Depends(get_current_plant_scope),user: dict=Depends(get_current_user)):
+    """Live check used by the release dialog before Sales commits a release lot."""
+    spec=load_visible_spec(db,spec_id,plant)
+    if not spec.seasonal_model:return {"spec_id":str(spec.id),"seasonal_model":False,"ready":True,"blockers":[]}
+    state=db.get(SeasonState,"ORGANIZATION");season=state.active_season if state else "ROY"
+    try:blockers=release_blockers(db,spec,season)[0]
+    except HTTPException as exc:blockers=[exc.detail if isinstance(exc.detail,str) else (exc.detail or {}).get("message","Season QC rules are not published")]
+    except (ValueError,TypeError,RuleError) as exc:blockers=[f"Specification data is incomplete: {exc}"]
+    return {"spec_id":str(spec.id),"seasonal_model":True,"season":season,"ready":not blockers,"blockers":blockers}
+
+
 @router.post("/specs/{spec_id}/release-authorizations")
 def authorize_release(spec_id: uuid.UUID,payload: Authorize,db: Session=Depends(get_db),plant: str=Depends(get_current_plant),user: dict=Depends(require_role(["Owner","Admin","Planner","PlantManager"]))):
     prior=db.query(ReleaseAuthorization).filter_by(plant_id=plant,operation_key=payload.request_id).first()
@@ -813,14 +1140,9 @@ def authorize_release(spec_id: uuid.UUID,payload: Authorize,db: Session=Depends(
     if reserved+payload.quantity>float(line.get("released_qty") or 0):raise HTTPException(409,"Season authorization exceeds the quantity released by Sales; synchronize or reconcile the existing release")
     spec=load_spec(db,spec_id,plant,True)
     if spec.status!="approved" or not spec.active:raise HTTPException(409,"Active approved specification required")
-    blockers=common_release_blockers(spec)
-    if blockers:raise HTTPException(409,{"code":"SPEC_NOT_READY","blockers":blockers})
     if payload.expected_version is not None:version_check(spec.write_revision,payload.expected_version)
-    binding=db.query(RecipeBinding).filter_by(spec_id=spec.id,season=state.active_season,approved=True).first()
-    if not binding:raise HTTPException(409,{"code":"SEASON_NOT_READY","season":state.active_season,"blockers":["Approved seasonal recipe required"]})
-    recipe=db.get(RecipeHeader,binding.recipe_id);profile=resolved(db,spec,state.active_season)
-    if recipe.status!='approved' or binding.approved_context!=confirmation_hash(spec,recipe):raise HTTPException(409,{"code":"SEASON_NOT_READY","season":state.active_season,"blockers":["Approve the selected recipe for the current specification before release"]})
-    if profile["unresolved"] or profile["conflicts"]:raise HTTPException(409,{"code":"SEASON_NOT_READY","season":state.active_season,"blockers":profile["unresolved"]+profile["conflicts"]})
+    blockers,profile,binding,recipe=release_blockers(db,spec,state.active_season)
+    if blockers:raise HTTPException(409,{"code":"SPEC_NOT_READY","season":state.active_season,"blockers":blockers})
     data=spec_values(spec,db);data["qc_profile"]=profile
     frozen_recipe=recipe_dict(recipe)
     labels={str(r['paper_id']):{'code':r.get('code'),'variety':r.get('variety')} for r in recipe.sheet_rows or []}

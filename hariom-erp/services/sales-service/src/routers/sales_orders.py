@@ -61,6 +61,7 @@ from ..schedule_service import (
     serialize_schedule_row,
 )
 from ..utils.auth import (
+    accepted_persisted_plant_ids,
     apply_plant_scope,
     get_current_plant,
     get_current_plant_scope,
@@ -1545,6 +1546,64 @@ def get_spec_usage(
         "open_lines": len(rows),
         "orders": sorted({order.order_no for _line, order in rows})[:20],
     }
+
+
+class SpecSupersedePayload(BaseModel):
+    from_spec_id: uuid.UUID
+    to_spec_id: uuid.UUID
+
+
+@router.post("/spec-supersede")
+def supersede_spec_on_open_lines(
+    payload: SpecSupersedePayload,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Owner", "Admin"])),
+):
+    """An approved spec revision takes over open lines of the version it replaces.
+
+    Only lines with nothing released yet move; a line already released to
+    production keeps its version, so the revision waits until it is finished.
+    Idempotent: a repeat finds no lines left on the old version.
+    """
+    if payload.from_spec_id == payload.to_spec_id:
+        return {"moved": 0, "lines": []}
+    rows = (
+        db.query(SalesOrderLine, SalesOrder)
+        .join(SalesOrder)
+        .filter(
+            SalesOrder.plant_id.in_(accepted_persisted_plant_ids(plant_id)),
+            SalesOrderLine.approved_spec_id == payload.from_spec_id,
+            SalesOrder.status != SalesOrderStatus.CLOSED,
+            SalesOrderLine.fulfilled_qty + SalesOrderLine.hold_qty < SalesOrderLine.qty,
+        )
+        .with_for_update(of=SalesOrderLine)
+        .all()
+    )
+    # Released quantity already turned into job cards stays on the version those cards froze.
+    # A lot production never picked up (no job card) simply follows the line to the revision.
+    blocked = [
+        (line, order)
+        for line, order in rows
+        if any(lot.job_card_id and str(lot.status or "").lower() != "cancelled" for lot in (line.release_lots or []))
+    ]
+    if blocked:
+        names = ", ".join(sorted({f"{order.order_no} line {line.line_no:g}" for line, order in blocked})[:10])
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "SPEC_IN_PRODUCTION",
+                "message": (
+                    f"The current version is already released to production on {names}. "
+                    "Finish or close those lines first, then approve this revision."
+                ),
+                "lines": [str(line.id) for line, _order in blocked],
+            },
+        )
+    for line, _order in rows:
+        line.approved_spec_id = payload.to_spec_id
+    db.commit()
+    return {"moved": len(rows), "lines": [str(line.id) for line, _order in rows]}
 
 
 @router.get("/delivery-calendar")

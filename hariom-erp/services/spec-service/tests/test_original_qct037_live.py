@@ -108,10 +108,10 @@ def _issue_job(spec_id, snapshot: dict):
                 INSERT INTO job_cards (
                     id, plant_id, sales_order_id, spec_id, spec_snapshot, routing_snapshot,
                     material_plan_snapshot, planned_qty, released_qty, status, current_stage,
-                    requires_slitting, created_at
+                    requires_slitting, is_emergency, returned_qty, missed_slot_count, missed_slot_open, created_at
                 ) VALUES (
                     :id, :plant, :oid, :sid, CAST(:snap AS jsonb), '{}'::jsonb, '{}'::jsonb,
-                    10, 10, 'IN_PROGRESS', 'WINDER', FALSE, NOW()
+                    10, 10, 'IN_PROGRESS', 'WINDER', FALSE, FALSE, 0, 0, FALSE, NOW()
                 )
                 """
             ),

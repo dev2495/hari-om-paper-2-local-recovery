@@ -319,6 +319,21 @@ def _fetch_spec(
     return spec
 
 
+def _seasonal_release_blockers(spec_id: str, token: str, plant_id: str) -> list[str]:
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.get(
+                f"{settings.SPEC_SERVICE_URL}/specs/{spec_id}/release-readiness",
+                headers={"Authorization": f"Bearer {token}", "X-Plant-ID": plant_id},
+            )
+    except httpx.HTTPError:
+        return ["could not confirm specification readiness; try again"]
+    if response.status_code != 200:
+        return ["could not confirm specification readiness; try again"]
+    body = response.json()
+    return [] if body.get("ready") else [str(item) for item in (body.get("blockers") or ["not ready"])]
+
+
 def _fetch_machine(machine_id: uuid.UUID, token: str, plant_id: str) -> dict[str, Any]:
     with httpx.Client(timeout=10.0) as client:
         response = client.get(
@@ -5209,6 +5224,11 @@ def preflight_sales_order_release(
                 selected_machine_id,
                 "Selected winder is outside the specification geometry range; queued anyway",
             )
+        if not blocker and spec.get("seasonal_model"):
+            # Never let Sales commit a lot that production would refuse (e.g. recipe still pending).
+            not_ready = _seasonal_release_blockers(str(approved_spec_id), token, plant_id)
+            if not_ready:
+                blocker = f"{line_label}: specification not ready for production — " + "; ".join(not_ready)
 
         results.append(
             ReleasePreflightLineResult(
@@ -5812,6 +5832,7 @@ def list_planning_job_cards(
                 missed_slot_count=int(getattr(job_card, "missed_slot_count", 0) or 0),
                 missed_slot_open=bool(getattr(job_card, "missed_slot_open", False)),
                 last_missed_slot=getattr(job_card, "last_missed_slot", None),
+                entry_model=(job_card.spec_snapshot or {}).get("entry_model") if isinstance(job_card.spec_snapshot, dict) else None,
                 id=job_card.id,
                 plant_id=job_card.plant_id,
                 sales_order_id=job_card.sales_order_id,

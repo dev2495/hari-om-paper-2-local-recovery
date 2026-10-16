@@ -2,7 +2,8 @@
 
 import Link from "next/link"
 import { SeasonRecipeManager } from "@/components/specs/SeasonRecipeManager"
-import { seasonLabel, type Season } from "@/lib/season-api"
+import { errorText, seasonLabel, type Season } from "@/lib/season-api"
+import { SeasonSpecQcPanel } from "@/components/specs/SeasonSpecQcPanel"
 import { useRouter } from "next/navigation"
 import { useEffect, useMemo, useRef, useState } from "react"
 
@@ -51,6 +52,8 @@ import {
   useSpecFields,
   useSpecSheetPreview,
   useSpecSheetDocument,
+  useSpecSeasonBlockers,
+  useReturnSpecToDraft,
   useSubmitSpecForReview,
   useUpdateSpecSheet,
   useUpsertSpecQcProfile,
@@ -721,7 +724,14 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
   const isEditable =
     (mode === "create" || mode === "edit") &&
     !editBlockReason &&
-    specDocument?.spec?.status !== "review"
+    specDocument?.spec?.status !== "review" &&
+    specDocument?.spec?.status !== "obsolete" &&
+    specDocument?.spec?.active !== false
+  const isSeasonalSpec = Boolean(specDocument?.spec?.seasonal_model)
+  const seasonBlockersQuery = useSpecSeasonBlockers(specId, !isCreate && isSeasonalSpec && !isPrint)
+  const serverBlockers: string[] = Array.isArray(seasonBlockersQuery.data?.blockers) ? seasonBlockersQuery.data.blockers : []
+  const openRevision = seasonBlockersQuery.data?.open_revision || null
+  const returnToDraft = useReturnSpecToDraft()
 
   const ensureCatalog = useEnsureSpecSheetCatalog()
   const createSpecSheet = useCreateSpecSheet()
@@ -1048,6 +1058,19 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
     [form.dynamicValues.tolerance_bands_json, isCreate, specDefaults],
   )
   const clientRanges = useMemo(() => deriveRanges(form.averages, toleranceBands), [form.averages, toleranceBands])
+  // A saved specification's stored final limits are what final QC checks. Show those
+  // (they may be asymmetric, e.g. imported client limits) whenever the sheet is not being edited.
+  const storedRanges = useMemo(() => {
+    const spec = specDocument?.spec
+    if (!spec) return null
+    const keys = ["id_min_mm", "id_max_mm", "od_min_mm", "od_max_mm", "length_min_mm", "length_max_mm", "weight_min_g", "weight_max_g", "cs_min_n", "cs_max_n", "moisture_min_pct", "moisture_max_pct"] as const
+    if (keys.some((key) => spec[key] == null || !Number.isFinite(Number(spec[key])))) return null
+    return Object.fromEntries(keys.map((key) => [key, Number(spec[key])])) as ReturnType<typeof deriveRanges>
+  }, [specDocument?.spec])
+  const shownRanges = !isEditable && storedRanges ? storedRanges : clientRanges
+  const storedLimitsDiffer = Boolean(
+    storedRanges && Object.entries(storedRanges).some(([key, value]) => Math.abs(Number(value) - Number((clientRanges as any)[key])) > 0.005),
+  )
   const clientRows = useMemo(() => buildMatrixRows(form.averages, clientRanges), [form.averages, clientRanges])
 
   const recipeTotalWallThickness = useMemo(
@@ -1684,16 +1707,39 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
       selectedTubeMatchesMandrel &&
       effectiveBalance.withinBand &&
       footerComplete &&
-      !csGateFailed,
+      !csGateFailed &&
+      // Seasonal specs: the server's release checks are the authority.
+      (!isSeasonalSpec || (seasonBlockersQuery.isSuccess && serverBlockers.length === 0)),
   )
-  const canApprove =
-    !isCreate &&
-    canApproveAsSuperUser &&
-    hasConcreteWritePlant &&
-    specDocument?.spec?.status === "review" &&
-    savedQcBoundsReady &&
-    Boolean(specDocument?.latestRecipe?.id) &&
-    Boolean(effectiveBalance.withinBand)
+  const canApprove = isSeasonalSpec
+    ? !isCreate &&
+      canApproveAsSuperUser &&
+      hasConcreteWritePlant &&
+      specDocument?.spec?.status === "review" &&
+      seasonBlockersQuery.isSuccess &&
+      serverBlockers.length === 0
+    : !isCreate &&
+      canApproveAsSuperUser &&
+      hasConcreteWritePlant &&
+      specDocument?.spec?.status === "review" &&
+      savedQcBoundsReady &&
+      Boolean(specDocument?.latestRecipe?.id) &&
+      Boolean(effectiveBalance.withinBand)
+  const approveBlockedReason = !canApproveAsSuperUser
+    ? "Only the Owner or an Admin can approve a specification."
+    : !hasConcreteWritePlant
+      ? "Pick one plant in the top switcher before approving."
+      : specDocument?.spec?.status !== "review"
+        ? "Submit the draft for review first."
+        : isSeasonalSpec && serverBlockers.length
+          ? `Not ready: ${serverBlockers.join(" · ")}`
+          : isSeasonalSpec && !seasonBlockersQuery.isSuccess
+            ? "Checking readiness — try again in a moment."
+            : !effectiveBalance.withinBand
+              ? `Modelled weight is outside ±${DELTA_ABS_G} g of the target.`
+              : !savedQcBoundsReady
+                ? "Stage QC tolerances are not set for this older specification."
+                : "Resolve the blockers shown on the sheet before approving."
 
   const selectedGuidance = form.processGuidance[form.selectedGuidanceIndex]
   const weightDeltaG = Number(effectiveBalance.perTubeWeightG || 0) - Number(form.averages.weight || 0)
@@ -2323,12 +2369,13 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
       router.push(`/specifications/${result.spec.id}`)
     } catch (error: any) {
       const detail = error?.response?.data?.detail
-      const message =
-        (detail && typeof detail === "object" && detail.message) ||
-        (typeof detail === "string" ? detail : null) ||
-        error?.message ||
-        "Failed to save the specification sheet."
-      showToast(typeof message === "string" ? message : JSON.stringify(message), "error")
+      if (detail && typeof detail === "object" && detail.code === "REVISION_OPEN" && detail.spec_id) {
+        saveOperationKeyRef.current = null
+        showToast(String(detail.message || "A revision of this specification is already open."), "error")
+        router.push(`/specifications/${detail.spec_id}/edit`)
+        return
+      }
+      showToast(error?.response ? errorText(error) : error?.message || "Failed to save the specification sheet.", "error")
     }
   }
 
@@ -2341,21 +2388,29 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
       showToast("Customer, tube size, mandrel, and the core averages are required.", "error")
       return
     }
-    (isCreate || specDocument?.spec?.seasonal_model) ? router.push("/quality/stage-rules") : setQcDialogOpen(true)
+    // Stage QC comes from the seasonal rules (plus optional spec-sheet values set after saving);
+    // only the older per-spec QC editing mode still opens the tolerance dialog.
+    if (qcOnly && !isSeasonalSpec) {
+      setQcDialogOpen(true)
+      return
+    }
+    void persistSpecification(qcProfile)
   }
 
   const handleSubmitReview = async () => {
     if (!specId || !canSubmitReview) {
-      showToast("Resolve the visible release blockers before sending this draft to the Owner.", "error")
+      const pending = Array.from(new Set([...releaseBlockers, ...serverBlockers]))
+      showToast(pending.length ? `Before review: ${pending.join(" · ")}` : "Resolve the visible release blockers before sending this draft to the Owner.", "error")
       return
     }
     try {
       await submitSpecForReview.mutateAsync({ specId })
       showToast("Draft submitted for approval review. It is now locked against edits.", "success")
+      void refetchDocument()
+      void seasonBlockersQuery.refetch()
       router.refresh()
     } catch (error: any) {
-      const message = error?.response?.data?.detail || error?.message || "Failed to submit specification for review."
-      showToast(typeof message === "string" ? message : JSON.stringify(message), "error")
+      showToast(error?.response ? errorText(error) : error?.message || "Failed to submit specification for review.", "error")
     }
   }
 
@@ -2365,22 +2420,40 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
       return
     }
     if (!specId || !canApprove) {
-      showToast("Only the Owner can approve a specification after it has passed review.", "error")
+      showToast(approveBlockedReason, "error")
       return
     }
 
     try {
       await approveSpec.mutateAsync({ specId, data: {} })
       showToast(
-        savedQcStatus === "approved"
-          ? "Specification approved and live for production."
-          : "Specification and its stage QC tolerances approved — live for production.",
+        isSeasonalSpec
+          ? seasonBlockersQuery.data?.supersedes_spec_id
+            ? "Revision approved and live. The previous version is retired; its open order lines now use this version."
+            : "Specification approved and live — it now appears in Sales Orders."
+          : savedQcStatus === "approved"
+            ? "Specification approved and live for production."
+            : "Specification and its stage QC tolerances approved — live for production.",
         "success",
       )
+      void refetchDocument()
+      void seasonBlockersQuery.refetch()
       router.refresh()
     } catch (error: any) {
-      const message = error?.response?.data?.detail || error?.message || "Failed to approve specification."
-      showToast(typeof message === "string" ? message : JSON.stringify(message), "error")
+      showToast(error?.response ? errorText(error) : error?.message || "Failed to approve specification.", "error")
+    }
+  }
+
+  const handleReturnToDraft = async () => {
+    if (!specId) return
+    if (!window.confirm("Return this specification to draft so it can be edited? It will need to be submitted for review again.")) return
+    try {
+      await returnToDraft.mutateAsync({ specId })
+      showToast("Returned to draft. Edit it, then submit for review again.", "success")
+      void refetchDocument()
+      router.refresh()
+    } catch (error: any) {
+      showToast(error?.response ? errorText(error) : error?.message || "Could not return the specification to draft.", "error")
     }
   }
 
@@ -2556,7 +2629,17 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
     !recipeStructureValid ? `Paper recipe (${RECIPE_MIN_PAPERS}-${RECIPE_MAX_PAPERS} papers, max ${RECIPE_MAX_PLIES} plies)` : null,
     !adhesiveRatioBalanced ? `Adhesive split ${adhesiveRatioTotalValue.toFixed(0)}%` : null,
     !materialSplitValid ? "Additions / parchment" : null,
-    !notchGeometryValid || !notchToolsLinked ? "Notch / tooling" : null,
+    !notchGeometryValid
+      ? `Notch: set ${[
+          !(notchDistanceMm > 0) ? "distance" : null,
+          !(notchDepthMm > 0) ? "depth" : null,
+          !String(form.dynamicValues.notch_direction || "").trim() ? "direction (clockwise / anticlockwise)" : null,
+          notchDistanceMm > tubeLengthMm ? "a distance within the tube length" : null,
+        ].filter(Boolean).join(", ") || "valid notch geometry"}`
+      : null,
+    !notchToolsLinked
+      ? `Notch tools not in Tool master: ${selectedNotchToolEntries.filter((entry) => !entry.tool_id).map((entry) => `${entry.label} “${entry.tool_name}”`).join(", ")} — add them in Masters › Tools or pick existing tools`
+      : null,
     !effectiveBalance.withinBand ? `Weight outside ±${DELTA_ABS_G} g` : null,
     !footerComplete ? "Release footer" : null,
     csGateFailed ? "CS trial" : null,
@@ -2765,7 +2848,7 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
                 <span className="rounded-full border border-[#ead39b] bg-[#fbf1d9] px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.11em] text-[#805a09]">
                   {currentStatus === "approved" ? "Live" : currentStatus || "Draft"}
                 </span>
-                {specDocument?.spec?.seasonal_model ? <Link href="/quality/stage-rules" className="rounded-full border border-border px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.11em]">Seasonal QC rules</Link> : (() => {
+                {specDocument?.spec?.seasonal_model ? <a href="#stage-qc" className="rounded-full border border-[#b9e4d1] bg-[#e4f6ed] px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.11em] text-[#166b51]">Stage QC · seasonal rules</a> : (() => {
                   const qcStatus = qcSetupStatus(qcProfile || specDocument?.spec?.qc_profile)
                   const missing = qcMissingFieldLabels(qcProfile || specDocument?.spec?.qc_profile)
                   const label =
@@ -2823,12 +2906,16 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
                   Save Draft
                 </button>
               ) : null}
-              {!isCreate && specDocument?.spec?.active !== false && currentStatus !== "obsolete" && currentStatus !== "review" && !isEditable && (currentStatus === "draft" || userRoles.has("Owner")) ? (
-                <Link href={`/specifications/${specId}/edit`} className="rounded-lg border border-[#d7dfdc] bg-card px-3.5 py-2 text-sm font-bold text-muted-foreground shadow-sm transition hover:border-[#9db7b0]">
-                  {currentStatus === "draft" ? "Edit Draft" : "Edit live spec (Owner)"}
+              {!isCreate && openRevision && currentStatus !== "draft" ? (
+                <Link href={`/specifications/${openRevision.id}`} className="rounded-lg border border-[#ead39b] bg-[#fbf1d9] px-3.5 py-2 text-sm font-bold text-[#805a09] shadow-sm" data-testid="spec-open-revision">
+                  Open revision v{openRevision.version} ({openRevision.status})
+                </Link>
+              ) : !isCreate && specDocument?.spec?.active !== false && currentStatus !== "obsolete" && currentStatus !== "review" && !isEditable && (currentStatus === "draft" || userRoles.has("Owner")) ? (
+                <Link href={`/specifications/${specId}/edit`} className="rounded-lg border border-[#d7dfdc] bg-card px-3.5 py-2 text-sm font-bold text-muted-foreground shadow-sm transition hover:border-[#9db7b0]" title={currentStatus === "draft" ? undefined : "Creates a draft revision. This live version stays available for orders until the revision is approved."}>
+                  {currentStatus === "draft" ? "Edit Draft" : "Start revision (Owner)"}
                 </Link>
               ) : null}
-              {!isCreate && !isPrint && !isEditable && specDocument?.spec?.active !== false && currentStatus !== "obsolete" && currentStatus !== "review" && canAuthorQc && savedQcStatus !== "approved" ? (
+              {!isCreate && !isPrint && !isEditable && !isSeasonalSpec && specDocument?.spec?.active !== false && currentStatus !== "obsolete" && currentStatus !== "review" && canAuthorQc && savedQcStatus !== "approved" ? (
                 <button
                   type="button"
                   data-testid="spec-qc-open-editor"
@@ -2864,9 +2951,21 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
                   type="button"
                   onClick={handleApprove}
                   disabled={!canApprove || approveSpec.isPending}
+                  title={canApprove ? undefined : approveBlockedReason}
                   className="rounded-lg border border-[#b9e4d1] bg-[#e4f6ed] px-3.5 py-2 text-sm font-bold text-[#166b51] shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Approve &amp; Go Live
+                </button>
+              ) : null}
+              {!isCreate && currentStatus === "review" && canApproveAsSuperUser ? (
+                <button
+                  type="button"
+                  data-testid="spec-return-to-draft"
+                  onClick={handleReturnToDraft}
+                  disabled={returnToDraft.isPending}
+                  className="rounded-lg border border-[#d7dfdc] bg-card px-3.5 py-2 text-sm font-bold text-muted-foreground shadow-sm disabled:opacity-50"
+                >
+                  Return to draft
                 </button>
               ) : null}
               {!isCreate && currentStatus === "approved" ? (
@@ -2910,6 +3009,7 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
             <a href="#sheet-client" className="whitespace-nowrap rounded-lg bg-[#e8f2f4] px-3 py-2 text-[10px] font-extrabold uppercase tracking-[0.08em] text-[#102832]">01 Requirement</a>
             <a href="#sheet-recipe" className="whitespace-nowrap rounded-lg px-3 py-2 text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground hover:bg-[#eef4f3] hover:text-[#102832]">02 Recipe</a>
             <a href="#sheet-manufacturing" className="whitespace-nowrap rounded-lg px-3 py-2 text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground hover:bg-[#eef4f3] hover:text-[#102832]">03 Manufacturing</a>
+            {!isCreate && isSeasonalSpec ? <a href="#stage-qc" className="whitespace-nowrap rounded-lg px-3 py-2 text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground hover:bg-[#eef4f3] hover:text-[#102832]">Stage QC</a> : null}
             {!isCreate ? <a href="#review-approve" className="whitespace-nowrap rounded-lg px-3 py-2 text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground hover:bg-[#eef4f3] hover:text-[#102832]">04 Review</a> : null}
             <span className="ml-auto hidden whitespace-nowrap px-3 text-[10px] text-muted-foreground lg:block">Total additions {Number(form.dynamicValues.glue_base_percent || 12.5).toFixed(1)}% · includes parchment {form.parchmentAllowed ? `${Number(form.parchmentPercent || 1.5).toFixed(1)}%` : "off"}</span>
           </nav>
@@ -2917,6 +3017,47 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
           {editBlockReason ? (
             <div className="mt-3 rounded-xl border border-signal-amber-line bg-signal-amber-soft px-3 py-2.5 text-sm text-signal-amber-ink">{editBlockReason}</div>
           ) : null}
+          {!isCreate && isSeasonalSpec && !isPrint ? (() => {
+            const status = String(currentStatus || "").toLowerCase()
+            const production = seasonBlockersQuery.data?.production || {}
+            const productionGaps = (["ROY", "MONSOON"] as Season[])
+              .map((season) => ({ season, info: production[season] }))
+              .filter(({ info }) => info && info.ready === false)
+              .map(({ season, info }) => ({ season, blockers: (info.blockers || []).filter((b: string) => b !== "Specification approval required") }))
+              .filter((gap) => gap.blockers.length)
+            if (status === "draft" || status === "review") {
+              const pending = Array.from(new Set([...(status === "draft" ? releaseBlockers : []), ...serverBlockers]))
+              return (
+                <div data-testid="spec-readiness-checklist" className={`mt-3 rounded-xl border px-3 py-2.5 text-sm ${pending.length ? "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink" : "border-[#b9e4d1] bg-[#e4f6ed] text-[#166b51]"}`}>
+                  {seasonBlockersQuery.isLoading ? (
+                    <p>Checking what this draft still needs…</p>
+                  ) : seasonBlockersQuery.isError ? (
+                    <p>Readiness could not be checked: {errorText(seasonBlockersQuery.error)} <button type="button" className="font-semibold underline" onClick={() => seasonBlockersQuery.refetch()}>Retry</button></p>
+                  ) : pending.length ? (
+                    <>
+                      <p className="font-semibold">{status === "draft" ? `Before “Submit for review” (${pending.length})` : `Before approval (${pending.length})`}</p>
+                      <ul className="mt-1 list-disc space-y-0.5 pl-5">{pending.map((item) => <li key={item}>{item}</li>)}</ul>
+                    </>
+                  ) : (
+                    <p className="font-semibold">{status === "draft" ? "All checks pass — submit for review." : canApprove ? "All checks pass — ready to approve." : approveBlockedReason}</p>
+                  )}
+                  {seasonBlockersQuery.data?.supersedes_spec_id ? (
+                    <p className="mt-1 text-xs">This is a revision. The current live version stays available for sales orders until this one is approved.</p>
+                  ) : null}
+                </div>
+              )
+            }
+            if (status === "approved" && productionGaps.length) {
+              return (
+                <div data-testid="spec-production-gaps" className="mt-3 rounded-xl border border-signal-amber-line bg-signal-amber-soft px-3 py-2.5 text-sm text-signal-amber-ink">
+                  <p className="font-semibold">Live for sales orders — production release still blocked</p>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-5">{productionGaps.map((gap) => <li key={gap.season}>{seasonLabel(gap.season)}: {gap.blockers.join(" · ")}</li>)}</ul>
+                  <p className="mt-1 text-xs">Use the season recipe revision below to add the paper recipe, or start a revision (Owner) for other fields.</p>
+                </div>
+              )
+            }
+            return null
+          })() : null}
           {previewDegraded ? (
             <div className="mt-3 rounded-xl border border-signal-rose-line bg-signal-rose-soft px-3 py-2.5 text-sm text-signal-rose-ink">Preview service degraded: {previewDegradedReason}</div>
           ) : null}
@@ -3088,18 +3229,23 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-muted-foreground">Final limits · ± band around the averages</p>
                   <p className="text-[10px] text-muted-foreground">
-                    {form.dynamicValues.tolerance_bands_json ? "Set on this spec" : isCreate ? "Plant defaults" : "Standard bands"} · printed and checked at final QC
+                    {!isEditable && storedRanges ? "Saved final limits" : form.dynamicValues.tolerance_bands_json ? "Set on this spec" : isCreate ? "Plant defaults" : "Standard bands"} · printed and checked at final QC
                   </p>
                 </div>
+                {isEditable && storedLimitsDiffer ? (
+                  <p className="mt-2 rounded-lg border border-signal-amber-line bg-signal-amber-soft px-2 py-1.5 text-[11px] text-signal-amber-ink" data-testid="spec-final-limits-changed">
+                    The saved final limits of this specification differ from the band-derived values below (for example limits taken from the client workbook). Saving applies the values shown here — check the bands before saving.
+                  </p>
+                ) : null}
                 <div className="mt-2 grid gap-2 sm:grid-cols-3 xl:grid-cols-6">
                   {(
                     [
-                      { key: "id", label: "I.D.", unit: "mm", min: clientRanges.id_min_mm, max: clientRanges.id_max_mm },
-                      { key: "od", label: "O.D.", unit: "mm", min: clientRanges.od_min_mm, max: clientRanges.od_max_mm },
-                      { key: "length", label: "Length", unit: "mm", min: clientRanges.length_min_mm, max: clientRanges.length_max_mm },
-                      { key: "weightG", label: "Weight", unit: "g", min: clientRanges.weight_min_g, max: clientRanges.weight_max_g },
-                      { key: "csPct", label: "C.S.", unit: "%", min: clientRanges.cs_min_n, max: clientRanges.cs_max_n },
-                      { key: "moisture", label: "Moisture", unit: "%", min: clientRanges.moisture_min_pct, max: clientRanges.moisture_max_pct },
+                      { key: "id", label: "I.D.", unit: "mm", min: shownRanges.id_min_mm, max: shownRanges.id_max_mm },
+                      { key: "od", label: "O.D.", unit: "mm", min: shownRanges.od_min_mm, max: shownRanges.od_max_mm },
+                      { key: "length", label: "Length", unit: "mm", min: shownRanges.length_min_mm, max: shownRanges.length_max_mm },
+                      { key: "weightG", label: "Weight", unit: "g", min: shownRanges.weight_min_g, max: shownRanges.weight_max_g },
+                      { key: "csPct", label: "C.S.", unit: "%", min: shownRanges.cs_min_n, max: shownRanges.cs_max_n },
+                      { key: "moisture", label: "Moisture", unit: "%", min: shownRanges.moisture_min_pct, max: shownRanges.moisture_max_pct },
                     ] as const
                   ).map((band) => (
                     <div key={band.key} className="space-y-1">
@@ -3919,6 +4065,21 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
               </p>
             </div>
           </div>
+        </section>
+      ) : null}
+
+      {!isCreate && !isPrint && isSeasonalSpec && specId && specDocument?.spec?.plant_id ? (
+        <SeasonSpecQcPanel
+          specId={specId}
+          plantId={String(specDocument.spec.plant_id)}
+          canEdit={canManageSpec}
+          editable={specDocument?.spec?.active !== false && currentStatus !== "obsolete"}
+        />
+      ) : null}
+      {isCreate && !isPrint ? (
+        <section className="rounded-2xl border border-border bg-card p-4 text-sm text-muted-foreground" data-testid="season-spec-qc-note">
+          <p className="font-semibold text-foreground">Stage QC</p>
+          <p className="mt-1">Winding, oven and process checks follow the published seasonal QC rules (and any customer override). After saving this draft you can set spec-specific values here; they win over the global rules.</p>
         </section>
       ) : null}
 

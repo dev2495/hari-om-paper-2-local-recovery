@@ -20,7 +20,15 @@ The editor saves geometry, seasonal recipe patches, sheet rows, confirmation and
 
 The specification register filters and paginates on the server, shows both seasonal revisions/readiness, and opens the recipe/readiness drawer with a concrete plant scope. Owner/Admin can confirm reviewed Monsoon selections in bulk. Existing legacy QC author/reviewer actions and global specification defaults remain available.
 
-There are 18 initial stage rules. Winding ID intersects mandrel ±0.2 mm with customer minimum ID; Winding OD is customer OD +0.8…+1.2 mm. Process ID intersects customer minimum +0.2 mm with any customer maximum. Process length and weight intersect their manufacturing bands with contractual customer limits. Oven/Process CS enforce the customer minimum. Weight/moisture observations and conditional notch parameters remain explicit; no tolerance is invented for a record-only parameter. Inapplicable notching is frozen as N/A with its routing basis.
+There are 18 initial stage rules. Winding ID intersects mandrel ±0.2 mm with the customer I.D.; Winding OD is customer OD +0.8…+1.2 mm; winding C.S. is customer C.S. ÷ 2.5 ± 10 N; winding length is the spec's bamboo length ± 15 mm; oven post-weight is 8–10 % below the same sample's pre-weight. Process ID is at least customer I.D. +0.2 mm within any customer maximum. Process length and weight intersect their manufacturing bands with contractual customer limits. Oven/Process CS enforce the customer minimum. Weight/moisture observations and conditional notch parameters remain explicit; no tolerance is invented for a record-only parameter. Inapplicable notching is frozen as N/A with its routing basis.
+
+"Customer I.D." is the spec sheet's nominal I.D. and "customer C.S." its required C.S.; specs without a nominal fall back to the minimum limit.
+
+The client default rules are published and active for both seasons without a manual step (`ensure_default_rules` runs at spec-service start and at bootstrap). Edits stay versioned: save a draft, preview impact, publish; history keeps every version. The first shipped template had winding C.S. min = C.S. ÷ 2.5 + 10 (a zero-width band); start-up publishes a corrected version once and supersedes the faulty one. Customer overrides are optional. Values set on a specification sheet (Stage QC panel: min/max per parameter, both seasons) are stored as that specification's published overlay and win over customer and global rules; clearing a value returns to the rule. Released job cards keep the tolerances they froze.
+
+Editing a live specification (Owner) creates one revision draft; the live version stays approved and selectable for sales orders until the revision is approved. Approval retires the previous version and moves its open order lines that production has not picked up to the revision (`POST /sales-orders/spec-supersede`); lines already released into job cards keep their version, so approval waits until they finish. A specification in review can be returned to draft. The spec sheet shows the server's readiness checklist before review/approval and stored (possibly asymmetric) final limits when not editing.
+
+Release readiness is one rule set (`release_blockers`): live approval, release footer, adhesive split, approved seasonal recipe for the active season and resolved QC. The release dialog's preflight calls `GET /specs/{id}/release-readiness`, so Sales cannot commit a lot production would refuse. The readiness projection mirrors these checks; an approved recipe's modelled-weight gap is kept as a warning, not a blocker.
 
 Rule expressions use validated references, finite Decimal factors/offsets and inclusive endpoints, not executable strings. Lower bounds combine with MAX, upper bounds with MIN. Missing required references or conflicting bounds prevent release. Overlays resolve global → customer BOTH/exact season → specification BOTH/exact season → customer constraints. Loosening requires the governed approval basis.
 
@@ -40,6 +48,16 @@ Important specification endpoints (service paths; BFF translates `specs` to `spe
 | Overlays | `GET /qc-overlays`, `PUT /qc-overlays/draft`, `POST /qc-overlays/{id}/publish` |
 | Season | `GET /season`, `POST /season/bootstrap`, `/season/switch/preview`, `/season/switch` |
 | Release authorization | `POST /specs/{id}/release-authorizations`, `POST /season/release-authorizations/{id}/acknowledge` |
+| Release readiness | `GET /specs/{id}/release-readiness`, `GET /specs/{id}/season-blockers` |
+| Return to draft | `POST /specs/{id}/return-to-draft` |
+| Spec-sheet stage QC | `GET /specs/{id}/qc-overview`, `PUT /specs/{id}/qc-spec-values` |
+| Client workbook import | `POST /specs/import-approved` (Owner/Admin; idempotent per sheet row) |
+
+### Client specification workbook
+
+`scripts/client_specs/extract_workbook.py` turns the client's "Specification sheet completed" workbook into `data/client_specs/specification_sheet_completed.json` (155 product rows, 154 importable, one exact duplicate skipped). `scripts/client_specs/import_client_specs.py` loads customers, mandrels, tube sizes and papers through the master APIs (matching before creating) and each row through `/specs/import-approved`. Final limits follow the workbook: I.D. nominal to +0.5, O.D. ±0.2, length ±0.2, weight ±5 g, C.S. required to +50. 75 rows carry a recipe and are production-ready for both seasons; 79 have the recipe/adhesive marked "Pending" in the workbook — they are approved for sales orders while release stays blocked with an explicit list until a recipe revision (and adhesive via a spec revision) is approved. Every assumption (inferred or assumed mandrel, missing C.S., combined tooling marks) is recorded on the row and in the import report. The workbook's in-process QC columns are kept on each spec for reference but not applied: they reproduce the global rules, with some inconsistent entries, so the published rules govern unless a value is set on the spec sheet.
+
+On AWS: `bash deploy/aws-ec2/cloudshell_import_client_specs.sh <deployed sha> [PLANT_A PLANT_B]` (backup first, then the import inside `erp-app` as the bootstrap Owner/Admin).
 
 ## Production and material workflow
 

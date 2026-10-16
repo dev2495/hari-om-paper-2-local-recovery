@@ -17,6 +17,7 @@ def test_initial_bands(profile):
     assert rule(profile,"WINDER","id")["min"]==76.2
     assert rule(profile,"WINDER","id")["max"]==76.5
     assert rule(profile,"WINDER","height")["min"]==1545
+    assert rule(profile,"WINDER","cs")["min"]==150
     assert rule(profile,"WINDER","cs")["max"]==170
     assert rule(profile,"PROCESS","height")["max"]==150.2
     assert rule(profile,"PROCESS","id")["min"]==76.4
@@ -73,3 +74,20 @@ def test_monsoon_copy_and_overlay_isolation(profile):
     rows=deepcopy(initial_rules()); rows[1]["lower"][0]["offset"]=.9
     assert initial_rules()[1]["lower"][0]["offset"]==.8
     assert rule(profile,"WINDER","od")["min"]==81.8
+
+
+def test_customer_references_use_the_requirement_not_the_lower_limit():
+    # Spec sheet: I.D. 120 ± 0.5, required C.S. 500 with a 7% band (465–535).
+    spec={"id_min_mm":119.5,"id_max_mm":120.5,"od_min_mm":132.5,"od_max_mm":133.5,"length_min_mm":123,"length_max_mm":127,
+          "target_tube_weight":245,"required_cs":500,"cs_min_n":465,"cs_max_n":535,"mandrel_diameter_mm":120.5,"selected_bamboo_length_mm":1535,
+          "profile":{"dimensions":{"id_mm":{"avg":120},"od_mm":{"avg":133},"length_mm":{"avg":125}}}}
+    profile=resolve_profile(spec,initial_rules())
+    assert not profile["unresolved"] and not profile["conflicts"]
+    assert (rule(profile,"WINDER","cs")["min"],rule(profile,"WINDER","cs")["max"])==(190,210)
+    assert rule(profile,"OVEN","cs")["min"]==500 and rule(profile,"PROCESS","cs")["min"]==500 and rule(profile,"PROCESS","cs")["max"]==535
+    assert (rule(profile,"WINDER","id")["min"],rule(profile,"WINDER","id")["max"])==(120.3,120.7)
+    assert rule(profile,"PROCESS","id")["min"]==120.2 and rule(profile,"PROCESS","id")["max"]==120.5
+    assert (rule(profile,"WINDER","od")["min"],rule(profile,"WINDER","od")["max"])==(133.8,134.2)
+    assert (rule(profile,"WINDER","height")["min"],rule(profile,"WINDER","height")["max"])==(1520,1550)
+    assert (rule(profile,"PROCESS","height")["min"],rule(profile,"PROCESS","height")["max"])==(124.8,125.2)
+    assert (rule(profile,"PROCESS","weight")["min"],rule(profile,"PROCESS","weight")["max"])==(240,250)

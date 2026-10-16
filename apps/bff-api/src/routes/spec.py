@@ -38,7 +38,16 @@ async def seasonal_spec_create(request: Request, token: str = Depends(get_token)
     return await proxy_to_service(SPEC_SERVICE_URL, "/specs/document", request, token)
 
 
+@router.post("/specifications/import-approved")
+async def seasonal_spec_import(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SPEC_SERVICE_URL, "/specs/import-approved", request, token)
+
+
 @router.api_route("/specifications/{spec_id}/document", methods=["PUT"])
+@router.api_route("/specifications/{spec_id}/return-to-draft", methods=["POST"])
+@router.api_route("/specifications/{spec_id}/season-blockers", methods=["GET"])
+@router.api_route("/specifications/{spec_id}/qc-overview", methods=["GET"])
+@router.api_route("/specifications/{spec_id}/qc-spec-values", methods=["PUT"])
 @router.api_route("/specifications/{spec_id}/season-document", methods=["GET"])
 @router.api_route("/specifications/{spec_id}/season-review", methods=["POST"])
 @router.api_route("/specifications/{spec_id}/season-approve", methods=["POST"])
