@@ -5,6 +5,9 @@
 # erp-app container, as the bootstrap Owner/Admin). Idempotent: a re-run reports
 # "already approved" and creates nothing.
 # Usage: bash cloudshell_import_client_specs.sh <40-char deployed sha> [PLANT_A PLANT_B]
+# If the bootstrap admin password was changed in the app, export ERP_IMPORT_EMAIL and
+# ERP_IMPORT_PASSWORD (an Owner/Admin login) first; they travel base64-encoded in the
+# SSM command, which account administrators can read in the SSM command history.
 set -euo pipefail
 deployed="${1:?exact 40-character deployed Git commit required}"
 shift
@@ -14,6 +17,10 @@ plants="${*:-PLANT_A PLANT_B}"
 region="${AWS_REGION:-ap-south-1}"
 ip="${ERP_ELASTIC_IP:-35.154.224.14}"
 data="data/client_specs/specification_sheet_completed.json"
+creds=""
+if [[ -n "${ERP_IMPORT_EMAIL:-}" && -n "${ERP_IMPORT_PASSWORD:-}" ]]; then
+  creds="$(printf '%s\n%s' "$ERP_IMPORT_EMAIL" "$ERP_IMPORT_PASSWORD" | base64 -w0)"
+fi
 
 iid="$(aws ec2 describe-instances --region "$region" --filters "Name=ip-address,Values=$ip" \
   --query 'Reservations[].Instances[].InstanceId' --output text)"
@@ -41,10 +48,14 @@ for attempt in \$(seq 1 60); do
 done
 compose exec -T erp-app curl -fsS --max-time 10 http://127.0.0.1:14000/health/ready >/dev/null
 status=0
+login=()
+if [[ -n "$creds" ]]; then
+  login=(-e "ERP_IMPORT_EMAIL=\$(printf '%s' "$creds" | base64 -d | sed -n 1p)" -e "ERP_IMPORT_PASSWORD=\$(printf '%s' "$creds" | base64 -d | sed -n 2p)")
+fi
 for plant in $plants; do
   echo "=== Importing into \$plant"
   set +e
-  compose exec -T erp-app python scripts/client_specs/import_client_specs.py --data "$data" --plant "\$plant" --report "/tmp/client-specs-\$plant.json" > "\$work/import-\$plant.log" 2>&1
+  compose exec -T "\${login[@]}" erp-app python scripts/client_specs/import_client_specs.py --data "$data" --plant "\$plant" --report "/tmp/client-specs-\$plant.json" > "\$work/import-\$plant.log" 2>&1
   code=\$?
   set -e
   compose cp "erp-app:/tmp/client-specs-\$plant.json" "\$work/report-\$plant.json" >/dev/null 2>&1 || true
