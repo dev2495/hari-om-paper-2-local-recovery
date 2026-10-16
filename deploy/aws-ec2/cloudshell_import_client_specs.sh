@@ -2,12 +2,14 @@
 # Run from AWS CloudShell (ap-south-1) after cloudshell_release.sh has deployed a
 # release that contains data/client_specs/. Takes a backup, then loads the client's
 # specification workbook as approved specs through the app's own APIs (inside the
-# erp-app container, as the bootstrap Owner/Admin). Idempotent: a re-run reports
-# "already approved" and creates nothing.
+# erp-app container). Idempotent: a re-run reports "already approved" and creates nothing.
 # Usage: bash cloudshell_import_client_specs.sh <40-char deployed sha> [PLANT_A PLANT_B]
-# If the bootstrap admin password was changed in the app, export ERP_IMPORT_EMAIL and
-# ERP_IMPORT_PASSWORD (an Owner/Admin login) first; they travel base64-encoded in the
-# SSM command, which account administrators can read in the SSM command history.
+# Sign-in: by default the import runs as the bootstrap Owner/Admin account through a
+# host-maintenance session (no password; that account must exist and be active).
+# To run as another active Owner/Admin account: export ERP_IMPORT_AS=<email> first.
+# A normal password login is also possible: export ERP_IMPORT_EMAIL and
+# ERP_IMPORT_PASSWORD; they travel base64-encoded in the SSM command, which
+# account administrators can read in the SSM command history.
 set -euo pipefail
 deployed="${1:?exact 40-character deployed Git commit required}"
 shift
@@ -17,6 +19,8 @@ plants="${*:-PLANT_A PLANT_B}"
 region="${AWS_REGION:-ap-south-1}"
 ip="${ERP_ELASTIC_IP:-35.154.224.14}"
 data="data/client_specs/specification_sheet_completed.json"
+as_user="${ERP_IMPORT_AS:-}"
+[[ -z "$as_user" || "$as_user" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$ ]] || { echo "ERP_IMPORT_AS must be an email address"; exit 1; }
 creds=""
 if [[ -n "${ERP_IMPORT_EMAIL:-}" && -n "${ERP_IMPORT_PASSWORD:-}" ]]; then
   creds="$(printf '%s\n%s' "$ERP_IMPORT_EMAIL" "$ERP_IMPORT_PASSWORD" | base64 -w0)"
@@ -49,6 +53,7 @@ done
 compose exec -T erp-app curl -fsS --max-time 10 http://127.0.0.1:14000/health/ready >/dev/null
 status=0
 login=()
+[[ -z "$as_user" ]] || login=(-e "ERP_IMPORT_AS=$as_user")
 if [[ -n "$creds" ]]; then
   login=(-e "ERP_IMPORT_EMAIL=\$(printf '%s' "$creds" | base64 -d | sed -n 1p)" -e "ERP_IMPORT_PASSWORD=\$(printf '%s' "$creds" | base64 -d | sed -n 2p)")
 fi
@@ -59,9 +64,13 @@ for plant in $plants; do
   code=\$?
   set -e
   compose cp "erp-app:/tmp/client-specs-\$plant.json" "\$work/report-\$plant.json" >/dev/null 2>&1 || true
-  grep -E '^(Importing|Summary|Recipe pending|WARNING)' "\$work/import-\$plant.log" || true
+  grep -E '^(Signed in|Importing|Summary|Recipe pending|WARNING)' "\$work/import-\$plant.log" || true
   grep -E '^✗' "\$work/import-\$plant.log" | head -n 20 || true
-  [[ "\$code" == 0 ]] || status=\$code
+  if [[ "\$code" != 0 ]]; then
+    echo "--- import for \$plant stopped (exit \$code); last lines of its log:"
+    grep -vE '^[✓=·] ' "\$work/import-\$plant.log" | tail -n 25
+    status=\$code
+  fi
 done
 echo "IMPORT_EXIT=\$status evidence=\$work"
 exit \$status

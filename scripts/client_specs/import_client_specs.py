@@ -13,8 +13,14 @@ On the AWS host (inside the app container, services on their usual ports):
       exec -T erp-app python scripts/client_specs/import_client_specs.py \
       --data data/client_specs/specification_sheet_completed.json --plant PLANT_A
 
-Credentials: ERP_IMPORT_EMAIL / ERP_IMPORT_PASSWORD, else the container's
-BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD (an Owner/Admin account).
+Sign-in, in this order:
+1. ERP_IMPORT_EMAIL / ERP_IMPORT_PASSWORD (a normal Owner/Admin login), if set.
+2. On the server (a running auth service is visible): a normal session for an
+   existing, active Owner/Admin account (--as / ERP_IMPORT_AS, default the
+   container's BOOTSTRAP_ADMIN_EMAIL), issued by the auth service's own code and
+   database, so it carries exactly that account's roles and plants. No password is
+   needed and nothing is changed on the account; records are attributed to it.
+3. BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD.
 """
 from __future__ import annotations
 
@@ -22,6 +28,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 import uuid
@@ -49,6 +56,51 @@ GRADES = {
 SEED_CODES = {"220": ["221"], "230": ["231"]}
 
 
+ISSUE_TOKEN = """
+import json, sys
+from datetime import timedelta
+from sqlalchemy import func
+from src.database import SessionLocal
+from src import models
+from src.security import jwt_handler
+email = sys.argv[1].strip().lower()
+with SessionLocal() as db:
+    user = db.query(models.User).filter(func.lower(func.trim(models.User.email)) == email).first()
+    if user is None or not user.is_active:
+        print(json.dumps({"error": "not found or inactive"}))
+        raise SystemExit(0)
+    roles = sorted(role.name for role in user.roles)
+    if not {"Owner", "Admin"} & set(roles):
+        print(json.dumps({"error": "has roles " + ", ".join(roles) + "; an Owner or Admin account is needed"}))
+        raise SystemExit(0)
+    claims = jwt_handler.build_user_claims(user)
+    claims["auth_method"] = "host-maintenance:client-spec-import"
+    token = jwt_handler.create_access_token(claims, timedelta(hours=2))
+    print(json.dumps({"token": token, "email": user.email, "roles": roles}))
+"""
+
+
+def running_auth_service_env():
+    """On the server: the running auth service's environment (database, signing key)."""
+    proc = Path("/proc")
+    if not proc.is_dir():
+        return None
+    for entry in proc.iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            cwd = Path(os.readlink(entry / "cwd"))
+            if cwd.name != "auth-service" or "uvicorn" not in (entry / "cmdline").read_bytes().decode(errors="ignore"):
+                continue
+            env = dict(item.split("=", 1) for item in (entry / "environ").read_bytes().decode(errors="ignore").split("\0") if "=" in item)
+        except OSError:
+            continue
+        if env.get("DATABASE_URL") and env.get("JWT_SECRET") and (cwd / "src" / "security" / "jwt_handler.py").is_file():
+            env["_cwd"] = str(cwd)
+            return env
+    return None
+
+
 def norm(value) -> str:
     return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
 
@@ -62,17 +114,57 @@ class Erp:
         self.args = args
         self.client = httpx.Client(timeout=60)
         self.token = None
+        self.announced = False
         self.login()
 
     def login(self):
-        email = os.environ.get("ERP_IMPORT_EMAIL") or os.environ.get("BOOTSTRAP_ADMIN_EMAIL")
-        password = os.environ.get("ERP_IMPORT_PASSWORD") or os.environ.get("BOOTSTRAP_ADMIN_PASSWORD")
+        email = os.environ.get("ERP_IMPORT_EMAIL")
+        password = os.environ.get("ERP_IMPORT_PASSWORD")
+        if email and password:
+            self.token = self.password_login(email, password)
+            return
+        auth_env = running_auth_service_env()
+        if auth_env:
+            self.token = self.host_session(self.args.as_user or os.environ.get("ERP_IMPORT_AS") or os.environ.get("BOOTSTRAP_ADMIN_EMAIL") or "", auth_env)
+            return
+        email, password = os.environ.get("BOOTSTRAP_ADMIN_EMAIL"), os.environ.get("BOOTSTRAP_ADMIN_PASSWORD")
         if not email or not password:
-            raise SystemExit("Set ERP_IMPORT_EMAIL and ERP_IMPORT_PASSWORD (an Owner/Admin login).")
+            raise SystemExit("No sign-in available: set ERP_IMPORT_EMAIL and ERP_IMPORT_PASSWORD (an Owner/Admin login), or run inside the app container.")
+        self.token = self.password_login(email, password)
+
+    def password_login(self, email, password):
         response = self.client.post(f"{self.args.auth_url}/auth/login", data={"username": email, "password": password})
         if response.status_code != 200:
-            raise SystemExit(f"Login failed for {email} ({response.status_code}). Set ERP_IMPORT_EMAIL / ERP_IMPORT_PASSWORD to an Owner or Admin account.")
-        self.token = response.json()["access_token"]
+            raise SystemExit(f"Login failed for {email} (HTTP {response.status_code}: {safe_json(response).get('detail')}). Use an Owner or Admin login.")
+        if not self.announced:
+            print(f"Signed in as {email}", flush=True)
+            self.announced = True
+        return response.json()["access_token"]
+
+    def host_session(self, email, auth_env):
+        """Normal session token for an existing active Owner/Admin, issued by the auth
+        service's own code and database (same claims and authz binding as a sign-in)."""
+        email = email.strip()
+        if not email:
+            raise SystemExit("Pass --as <owner email> (or ERP_IMPORT_AS) to choose the Owner/Admin account for the import.")
+        result = subprocess.run(
+            [sys.executable, "-c", ISSUE_TOKEN, email],
+            cwd=str(auth_env["_cwd"]),
+            env={k: v for k, v in auth_env.items() if not k.startswith("_")},
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        lines = [line for line in result.stdout.splitlines() if line.startswith("{")]
+        if result.returncode != 0 or not lines:
+            raise SystemExit(f"Could not open a host session for {email}: {(result.stderr or result.stdout).strip()[-400:]}")
+        body = json.loads(lines[-1])
+        if body.get("error"):
+            raise SystemExit(f"Account {email}: {body['error']}. Pass --as <email of an active Owner/Admin> (ERP_IMPORT_AS).")
+        if not self.announced:
+            print(f"Signed in as {body['email']} (host maintenance session; roles {', '.join(body['roles'])})", flush=True)
+            self.announced = True
+        return body["token"]
 
     def call(self, method, base, path, body=None, ok=(200, 201)):
         for attempt in range(3):
@@ -240,6 +332,7 @@ def main():
     parser.add_argument("--rows", help="Only these sheet rows, e.g. 6,8,10")
     parser.add_argument("--paper-map", action="append", default=[], help="grade=PAPERCODE, e.g. 351=VP351 (repeatable)")
     parser.add_argument("--mandrel-length", type=float, default=1600.0, help="Length for mandrel masters that have to be created")
+    parser.add_argument("--as", dest="as_user", help="Inside the app container: email of the active Owner/Admin account the import runs as")
     parser.add_argument("--dry-run", action="store_true", help="Match masters and report; create nothing")
     parser.add_argument("--report", help="Write the result as JSON here")
     args = parser.parse_args()
