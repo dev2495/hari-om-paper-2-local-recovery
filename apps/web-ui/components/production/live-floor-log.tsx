@@ -8,7 +8,6 @@ import { useApp } from "@/context/AppContext"
 import { apiErrorText, newRequestId, useJobCardLifecycle, useRunningEntry, type JobCardLifecycle } from "@/hooks/use-lifecycle"
 import { cn } from "@/lib/utils"
 import { usePlanningJobCard } from "@/hooks/use-production"
-import { SeasonFloorLog } from "./season-floor-log"
 
 const fmt = (value: number | null | undefined) => Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 1 })
 
@@ -27,8 +26,8 @@ export function LiveFloorLog({ jobCardId }: { jobCardId: string }) {
   const query = useJobCardLifecycle(jobCardId)
   const cardQuery = usePlanningJobCard(jobCardId)
   const data = query.data
-  // Seasonal cards log each run as a batch entry (continuous entries), not as a running total.
-  if (cardQuery.data?.spec_snapshot?.entry_model === "V2") return <SeasonFloorLog card={cardQuery.data} />
+  // Seasonal cards log each run on the card's entry desk below (one form per run), so no second quick log here.
+  if (cardQuery.data?.spec_snapshot?.entry_model === "V2") return null
   if (query.isLoading) return <div className="skeleton h-40 rounded-xl" />
   if (!data) return null
   const flow = data.stages.filter((stage) => stage.stage === "WINDER" || stage.stage === "OVEN")

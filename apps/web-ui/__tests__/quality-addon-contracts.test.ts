@@ -247,6 +247,31 @@ test("print contracts: job card front (final client format) and the spec sheet o
   }
 })
 
+test("print structure: one-page front with the client's fixed rows, spec back with its header, A4-width log", () => {
+  const jobCardPrint = readFileSync(resolve(process.cwd(), "components/production/JobCardDocument.tsx"), "utf8")
+  const log = readFileSync(resolve(process.cwd(), "components/production/SeasonPrintLog.tsx"), "utf8")
+  // Client card rows: winder 2 runs + 4 samples, oven 3 + 3, process 2 + 6; extra runs/samples are summed on the last row.
+  for (const rows of ['slotRuns("WINDER", 2)', 'slotSamples("WINDER", 4)', 'slotRuns("OVEN", 3)', 'slotSamples("OVEN", 3)', 'slotRuns("PROCESS", 2)', 'slotSamples("PROCESS", 6)']) {
+    assert.ok(jobCardPrint.includes(rows), `front keeps fixed rows ${rows}`)
+  }
+  assert.doesNotMatch(jobCardPrint, /Math\.min\(6, Math\.max\(2, v2Rows/)
+  assert.match(jobCardPrint, /data-testid="print-more-runs"/)
+  // The front scales to fit one page instead of spilling or clipping.
+  assert.match(jobCardPrint, /<div className="jc-fit" ref=\{frontFitRef\}>/)
+  assert.match(jobCardPrint, /\.jc-front \{ height: 287mm; min-height: 0; overflow: visible; \}/)
+  // Hiding the app header in print must not hide the spec sheet's own header on the back.
+  assert.match(jobCardPrint, /header:not\(\.spec-print-header\)/)
+  assert.doesNotMatch(jobCardPrint, /^\s+header,$/m)
+  // App table styles must not resize the printed card cells.
+  assert.match(jobCardPrint, /\.jc-root table\.jc-grid > tbody > tr > td \{/)
+  // Page 3 is the production & QC log inside the A4 page frame, fixed column widths.
+  assert.match(jobCardPrint, /<section className="jc-page jc-log-page" data-testid="print-page-log">/)
+  assert.doesNotMatch(jobCardPrint, /jc-season-annex/)
+  assert.match(jobCardPrint, /table-layout: fixed/)
+  assert.ok((log.match(/<colgroup>/g) || []).length >= 4, "every log table fixes its column widths")
+  assert.match(log, /className="jc-log-table"/)
+})
+
 test("spec print allocates adhesive parts to exact whole plies", () => {
   assert.deepEqual(
     allocateAdhesivePlies([{ ratio: 7 }, { ratio: 33 }, { ratio: 60 }], 14),

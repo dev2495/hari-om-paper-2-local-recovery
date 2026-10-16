@@ -1,6 +1,7 @@
 "use client"
 
-// Stage QC readings for one batch: one row per parameter, one column per sample.
+// Stage QC readings for one batch: one row per check (name, allowed limit, one box per sample);
+// rows stack on a phone and line up as columns on a PC.
 // Each row shows what is allowed in plain words; each cell turns green or red as it is typed,
 // using the same frozen limits the server checks. Oven pre/post readings of a sample share a column.
 
@@ -88,80 +89,69 @@ export function SeasonQcMatrix({
   )
   return (
     <div className="space-y-2" data-testid="season-qc-matrix">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-sm font-semibold text-foreground">{stageLabel} QC readings for this batch</p>
-        <p className="text-xs text-muted-foreground">
-          Measure {needed || "the"} sample{needed === 1 ? "" : "s"} and write each one in its own column. Green = within limits, red = out of limits.
-        </p>
-      </div>
-      <div className="overflow-x-auto rounded-xl border border-border">
-        <table className="w-full min-w-[30rem] text-sm">
-          <thead className="bg-muted text-left text-xs text-muted-foreground">
-            <tr>
-              <th className="px-2 py-2 font-semibold">Check</th>
-              <th className="px-2 py-2 font-semibold">Allowed</th>
-              {samples.map((sample, i) => (
-                <th key={sample.sample_id} className="px-2 py-2 font-semibold">
-                  Sample {i + 1}
-                </th>
-              ))}
-              <th className="px-2 py-2 font-semibold">Done</th>
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((rule) => {
-              const done = samples.filter((sample) => num(sample.readings[rule.code]) != null).length
-              const need = Number(rule.min_readings || 0)
-              return (
-                <tr key={rule.code} className="border-t border-border align-top">
-                  <td className="px-2 py-2">
-                    <div className="font-medium text-foreground">{rule.label}</div>
-                    {rule.unit ? <div className="text-xs text-muted-foreground">{rule.unit}</div> : null}
-                  </td>
-                  <td className="px-2 py-2 text-xs font-semibold text-foreground" data-testid={`qc-allowed-${rule.code}`}>
-                    {allowedText(rule)}
-                  </td>
-                  {samples.map((sample, i) => {
-                    const verdict = readingVerdict(rule, sample.readings[rule.code], sample.readings)
-                    const band = rule.dynamic ? sampleBand(rule, sample.readings) : null
-                    return (
-                      <td key={sample.sample_id} className="px-2 py-2">
-                        {editable ? (
-                          <input
-                            aria-label={`${rule.label} sample ${i + 1}`}
-                            data-testid={`qc-reading-${rule.code}-${i + 1}`}
-                            type="number"
-                            step="any"
-                            inputMode="decimal"
-                            value={sample.readings[rule.code] ?? ""}
-                            onChange={(event) => setReading(i, rule.code, event.target.value)}
-                            className={`h-10 w-24 rounded-lg border px-2 text-sm ${
-                              verdict === "fail"
-                                ? "border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink"
-                                : verdict === "pass"
-                                  ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink"
-                                  : "border-border bg-background"
-                            }`}
-                          />
-                        ) : (
-                          <span className={verdict === "fail" ? "font-semibold text-signal-rose-ink" : ""}>{sample.readings[rule.code] ?? "—"}</span>
-                        )}
-                        {band && (band.min != null || band.max != null) ? (
-                          <div className="mt-1 text-[11px] text-muted-foreground">
-                            {band.min != null ? fmt(band.min) : "…"} – {band.max != null ? fmt(band.max) : "…"} {rule.unit || ""}
-                          </div>
-                        ) : null}
-                      </td>
-                    )
-                  })}
-                  <td className={`px-2 py-2 text-xs font-semibold ${need && done >= need ? "text-signal-emerald-ink" : "text-muted-foreground"}`}>
-                    {done}/{need || done}
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+      <p className="text-xs text-muted-foreground">
+        {stageLabel}: measure {needed || "the"} sample{needed === 1 ? "" : "s"} and type each in its own box (S1, S2…). Green = within limits, red = outside.
+      </p>
+      <div className="divide-y divide-border rounded-xl border border-border bg-background">
+        {shown.map((rule) => {
+          const done = samples.filter((sample) => num(sample.readings[rule.code]) != null).length
+          const need = Number(rule.min_readings || 0)
+          return (
+            <div key={rule.code} className="grid gap-1.5 px-3 py-2.5 md:grid-cols-[minmax(8rem,13rem)_minmax(8rem,12rem)_1fr] md:items-center md:gap-3">
+              <div className="flex items-baseline justify-between gap-2 md:block">
+                <span className="text-sm font-semibold text-foreground">
+                  {rule.label}
+                  {rule.unit ? <span className="font-normal text-muted-foreground"> ({rule.unit})</span> : null}
+                </span>
+                <span className={`text-xs font-semibold md:hidden ${need && done >= need ? "text-signal-emerald-ink" : "text-muted-foreground"}`}>
+                  {done}/{need || done}
+                </span>
+              </div>
+              <div className="text-xs font-semibold text-signal-emerald-ink" data-testid={`qc-allowed-${rule.code}`}>
+                {allowedText(rule)}
+              </div>
+              <div className="flex flex-wrap items-start gap-2">
+                {samples.map((sample, i) => {
+                  const verdict = readingVerdict(rule, sample.readings[rule.code], sample.readings)
+                  const band = rule.dynamic ? sampleBand(rule, sample.readings) : null
+                  return (
+                    <div key={sample.sample_id} className="w-[5.75rem]">
+                      {editable ? (
+                        <input
+                          aria-label={`${rule.label} sample ${i + 1}`}
+                          data-testid={`qc-reading-${rule.code}-${i + 1}`}
+                          type="number"
+                          step="any"
+                          inputMode="decimal"
+                          placeholder={`S${i + 1}`}
+                          value={sample.readings[rule.code] ?? ""}
+                          onChange={(event) => setReading(i, rule.code, event.target.value)}
+                          className={`h-11 w-full rounded-lg border px-2 text-[15px] tabular-nums ${
+                            verdict === "fail"
+                              ? "border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink"
+                              : verdict === "pass"
+                                ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink"
+                                : "border-border bg-background"
+                          }`}
+                        />
+                      ) : (
+                        <span className={verdict === "fail" ? "font-semibold text-signal-rose-ink" : ""}>{sample.readings[rule.code] ?? "—"}</span>
+                      )}
+                      {band && (band.min != null || band.max != null) ? (
+                        <div className="mt-0.5 text-[11px] leading-tight text-muted-foreground">
+                          {band.min != null ? fmt(band.min) : "…"}–{band.max != null ? fmt(band.max) : "…"}
+                        </div>
+                      ) : null}
+                    </div>
+                  )
+                })}
+                <span className={`hidden self-center text-xs font-semibold md:inline ${need && done >= need ? "text-signal-emerald-ink" : "text-muted-foreground"}`}>
+                  {done}/{need || done}
+                </span>
+              </div>
+            </div>
+          )
+        })}
       </div>
       {failures.length ? (
         <p className="rounded-lg border border-signal-rose-line bg-signal-rose-soft px-3 py-2 text-xs text-signal-rose-ink" role="status">

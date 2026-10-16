@@ -1,5 +1,9 @@
 "use client"
 
+// Seasonal job card entry desk. One screen, same on phone and PC:
+//   stage tabs → "log a run" form (1 who & when · 2 quantity · 3 QC readings) → runs of this stage.
+// Every run is its own batch entry; the printed card row is what gets typed in.
+
 import Link from "next/link"
 import { ResidualWipPanel } from "./ResidualWipPanel"
 import { InstrumentFields } from "./InstrumentFields"
@@ -7,182 +11,1163 @@ import { FinalQcForm } from "./FinalQcForm"
 import { WholeCardEntryForm } from "./WholeCardEntryForm"
 import { JobCardShortagePanel } from "./JobCardShortagePanel"
 import { SeasonQcMatrix, allowedText } from "./SeasonQcMatrix"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useAuth } from "@/context/AuthContext"
+import { cn } from "@/lib/utils"
 import { entryApiForPlant, command, errorText, seasonLabel, seasonTimestamp } from "@/lib/season-api"
 
-const label = (stage: string) => stage === "WINDER" ? "Winding" : stage === "QC" ? "QC" : stage.charAt(0) + stage.slice(1).toLowerCase()
-const verdictLabels:Record<string,string>={NOT_MEASURED:"Awaiting readings",OBSERVATION_ONLY:"Recorded",PASS:"Pass",FAIL:"Fail",INCOMPLETE:"Incomplete",INVALID:"Invalid"}
-const verdictLabel=(value:string)=>verdictLabels[value] || value || "Awaiting readings"
-const count = (value: string) => value === "" ? 0 : Number(value)
-const selectClass = "h-10 w-full rounded-lg border border-border bg-background px-3 text-sm"
-const REJECT_CODES: [string,string][] = [["WL","Winding loose / telescoped"],["PG","Pasting / glue"],["ID","I.D. out"],["OD","O.D. out"],["LN","Length out"],["WT","Weight out"],["CS","C.S. low"],["DM","Damage / dent"],["MS","Moisture"],["NT","Notch"],["OT","Other (write reason)"]]
-const machineLabelFor = (stage: string) => stage === "WINDER" ? "Winder No" : stage === "OVEN" ? "Oven No" : stage === "PROCESS" ? "Line No" : stage === "PACKING" ? "Packing table" : "Machine"
-const cycleText = (start: string, end: string) => { const ms = new Date(end).getTime() - new Date(start).getTime(); if (!Number.isFinite(ms) || ms <= 0) return "—"; const m = Math.round(ms / 60000); return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min` }
+const label = (stage: string) => (stage === "WINDER" ? "Winding" : stage === "QC" ? "Final QC" : stage.charAt(0) + stage.slice(1).toLowerCase())
+const verdictLabels: Record<string, string> = { NOT_MEASURED: "QC readings due", OBSERVATION_ONLY: "Recorded", PASS: "QC pass", FAIL: "QC fail", INCOMPLETE: "QC incomplete", INVALID: "QC invalid" }
+const verdictLabel = (value: string) => verdictLabels[value] || "QC readings due"
+const count = (value: string) => (value === "" ? 0 : Math.max(0, Math.floor(Number(value) || 0)))
+const fmt = (value: any) => Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 1 })
+const selectClass = "h-11 w-full rounded-lg border border-border bg-background px-3 text-[15px]"
+const numberClass = "h-12 w-full rounded-lg border border-border bg-background px-3 text-lg font-semibold tabular-nums"
+const REJECT_CODES: [string, string][] = [
+  ["WL", "Winding loose"],
+  ["PG", "Pasting / glue"],
+  ["ID", "I.D. out"],
+  ["OD", "O.D. out"],
+  ["LN", "Length out"],
+  ["WT", "Weight out"],
+  ["CS", "C.S. low"],
+  ["DM", "Damage / dent"],
+  ["MS", "Moisture"],
+  ["NT", "Notch"],
+  ["OT", "Other"],
+]
+const machineLabelFor = (stage: string) => (stage === "WINDER" ? "Winder no." : stage === "OVEN" ? "Oven no." : stage === "PROCESS" ? "Line no." : stage === "PACKING" ? "Packing table" : "Machine")
+const helperLabelFor = (stage: string) => (stage === "WINDER" ? "Pattiwala" : stage === "PROCESS" ? "Packing name" : "Helper")
+const today = () => new Date().toLocaleDateString("en-CA")
+const clockShift = () => {
+  const hour = new Date().getHours()
+  return hour >= 8 && hour < 20 ? "SHIFT_A" : "SHIFT_B"
+}
+// "HH:MM" on the business date; an end time before the start is the next morning (night shift).
+const stamp = (day: string, time: string, after?: string) => {
+  if (!day || !time) return null
+  if (after && time < after) {
+    const next = new Date(`${day}T00:00:00`)
+    next.setDate(next.getDate() + 1)
+    return `${next.toLocaleDateString("en-CA")}T${time}`
+  }
+  return `${day}T${time}`
+}
+const clockOf = (value: any) => (value ? String(value).slice(11, 16) : "")
+const cycleText = (start: string | null, end: string | null) => {
+  if (!start || !end) return ""
+  const ms = new Date(end).getTime() - new Date(start).getTime()
+  if (!Number.isFinite(ms) || ms <= 0) return ""
+  const minutes = Math.round(ms / 60000)
+  return minutes >= 60 ? `${Math.floor(minutes / 60)} h ${minutes % 60} min` : `${minutes} min`
+}
+const remembered = (key: string) => {
+  try {
+    return window.localStorage.getItem(key) || ""
+  } catch {
+    return ""
+  }
+}
+const remember = (key: string, value: string) => {
+  try {
+    if (value) window.localStorage.setItem(key, value)
+  } catch {}
+}
 
-export function ContinuousJobCard({ card, print = false, initialStage, embedded = false }: { card: any; print?: boolean; initialStage?: string; embedded?: boolean }) {
+export function ContinuousJobCard({ card, initialStage, embedded = false }: { card: any; initialStage?: string; embedded?: boolean }) {
   const { user } = useAuth()
-  const entryApi=entryApiForPlant(card.plant_id)
+  const entryApi = entryApiForPlant(card.plant_id)
   const cache = useQueryClient()
   const [stage, setStage] = useState(initialStage || "WINDER")
   const [page, setPage] = useState(0)
-  const [showForm, setShowForm] = useState(false)
-  const [wholeCard,setWholeCard] = useState(false)
+  const [panel, setPanel] = useState<"" | "close" | "whole">("")
+  // Form mode: a new run, a draft being revised, or QC readings (for a saved batch, or with no run at the QC desk).
+  const [editing, setEditing] = useState<any>(null)
   const [qcOnly, setQcOnly] = useState(false)
-  const [totalMode, setTotalMode] = useState(false)
-  const [produced, setProduced] = useState("")
-  const [accepted, setAccepted] = useState("")
+  const [businessDate, setBusinessDate] = useState(today())
+  const [shift, setShift] = useState(clockShift())
+  const [machine, setMachine] = useState("")
+  const [operator, setOperator] = useState("")
+  const [helper, setHelper] = useState("")
+  const [output, setOutput] = useState("")
+  const [rejected, setRejected] = useState("")
+  const [rejectCode, setRejectCode] = useState("")
+  const [rejectNote, setRejectNote] = useState("")
+  const [overNote, setOverNote] = useState("")
   const [input, setInput] = useState("")
   const [loss, setLoss] = useState("")
   const [carryIn, setCarryIn] = useState("")
   const [carryOut, setCarryOut] = useState("")
-  const [shift, setShift] = useState("")
-  const [operator, setOperator] = useState("")
-  const [segment,setSegment] = useState("")
-  const [businessDate, setBusinessDate] = useState(new Date().toLocaleDateString("en-CA"))
-  const [reason, setReason] = useState("")
-  const [supervisor, setSupervisor] = useState("")
-  const [closing, setClosing] = useState(false)
-  const [fgItem,setFgItem]=useState("")
-  const [location,setLocation]=useState("")
-  const [startTime,setStartTime]=useState("")
-  const [endTime,setEndTime]=useState("")
-  const [reelLinks,setReelLinks] = useState<string[]>([])
-  const [residual, setResidual] = useState("HOLD")
-  const [instrument,setInstrument] = useState<any>({})
-  const [machine,setMachine] = useState("")
-  const [helper,setHelper] = useState("")
-  const [rejectCode,setRejectCode] = useState("")
-  const [gateOverride,setGateOverride] = useState(false)
-  const [gateReason,setGateReason] = useState("")
+  const [remark, setRemark] = useState("")
+  const [startTime, setStartTime] = useState("")
+  const [endTime, setEndTime] = useState("")
+  const [segment, setSegment] = useState("")
   const [samples, setSamples] = useState<any[]>([])
-  const [editing, setEditing] = useState<any>(null)
+  const [instrument, setInstrument] = useState<any>({})
+  const [gateOverride, setGateOverride] = useState(false)
+  const [gateReason, setGateReason] = useState("")
+  const [correction, setCorrection] = useState("")
+  const [showQc, setShowQc] = useState(true)
+  const [supervisor, setSupervisor] = useState("")
+  const [closeReason, setCloseReason] = useState("")
+  const [fgItem, setFgItem] = useState("")
+  const [location, setLocation] = useState("")
+  const [reelLinks, setReelLinks] = useState<string[]>([])
+  const [residual, setResidual] = useState("HOLD")
   const [history, setHistory] = useState<any>(null)
   const [error, setError] = useState("")
-  const pending = useRef<{fingerprint:string;body:any}|null>(null)
+  const [notice, setNotice] = useState("")
+  const formRef = useRef<HTMLElement | null>(null)
+  const pending = useRef<{ fingerprint: string; body: any } | null>(null)
   const roles = new Set([user?.role, ...(user?.roles || [])])
-  const canSubmit = ["Owner", "Admin", "PlantManager"].some(r => roles.has(r))
-  const canReopen = ["Owner", "Admin"].some(r => roles.has(r))
-  const canQc = ["Owner", "Admin", "QC", "PlantManager"].some(r => roles.has(r))
+  const canSubmit = ["Owner", "Admin", "PlantManager"].some((r) => roles.has(r))
+  const canReopen = ["Owner", "Admin"].some((r) => roles.has(r))
+  const canQc = ["Owner", "Admin", "QC", "PlantManager"].some((r) => roles.has(r))
   const canDraft = canSubmit || roles.has("Operator")
-  const flow = useQuery({ queryKey: ["continuous-flow", card.id], queryFn: async () => (await entryApi.flow(card.id)).data, refetchInterval: print ? false : 15000 })
-  const listing = useQuery({ queryKey: ["continuous-entries", card.id, stage, page, print], queryFn: async () => {
-    if (!print) return (await entryApi.list(card.id, stage, page * 50)).data
-    const all:any[] = []; let offset = 0; let total = 1
-    while(offset < total) { const d=(await entryApi.list(card.id, undefined, offset, 100)).data;all.push(...d.entries);total=d.total;offset+=100 }
-    return {entries:all,total:all.length}
-  } })
-  const employees=useQuery({queryKey:["continuous-employees",card.plant_id],queryFn:async()=>(await entryApi.employees()).data,enabled:!print})
-  const machines=useQuery({queryKey:["continuous-machines",card.plant_id],queryFn:async()=>(await entryApi.machines()).data,enabled:!print})
-  const effects=useQuery({queryKey:["continuous-effects",card.id],queryFn:async()=>(await entryApi.effects(card.id)).data,enabled:!print,refetchInterval:print?false:15000})
-  const items=useQuery({queryKey:["continuous-items",card.plant_id],queryFn:async()=>(await entryApi.items()).data,enabled:!print})
-  const locations=useQuery({queryKey:["continuous-locations",card.plant_id],queryFn:async()=>(await entryApi.locations()).data,enabled:!print})
-  const winderMachine=card.stages?.find((s:any)=>s.stage_type==="WINDER")?.machine_id
-  const reelIssues=useQuery({queryKey:["continuous-reel-issues",card.id,winderMachine],queryFn:async()=>(await entryApi.reelIssues(winderMachine)).data,enabled:Boolean(winderMachine && closing && stage==="WINDER")})
-  const state = flow.data?.stages?.find((s: any) => s.stage === stage)
-  const activeEmployees=(employees.data || []).filter((e:any)=>e.active!==false && e.is_active!==false)
-  const stageWord=stage.toUpperCase()
-  const worksHere=(e:any)=>String(e.department || "").toUpperCase()===stageWord || String(e.skills || "").toUpperCase().split(/[,;/|]/).map((t:string)=>t.trim()).includes(stageWord)
-  const operatorRank=(e:any)=>(String(e.role || "").toLowerCase()==="operator"?0:2)+(worksHere(e)?0:1)
-  const operatorOptions=[...activeEmployees].sort((a:any,b:any)=>operatorRank(a)-operatorRank(b) || String(a.name).localeCompare(String(b.name)))
-  const supervisorOptions=activeEmployees.filter((e:any)=>["supervisor","manager"].includes(String(e.role || "").toLowerCase()))
-  const stageMachines=(machines.data || []).filter((m:any)=>m.is_active!==false && String(m.department || "").toUpperCase()===stage.toUpperCase())
-  const machineName=(id:any)=>{const m=(machines.data || []).find((row:any)=>String(row.id)===String(id));return m?(m.name || m.code):""}
-  const slotReady=!(state?.segments || []).length || (state?.segments || []).some((s:any)=>!["COMPLETED","CANCELLED"].includes(s.status) && s.planner_gate_ready)
-  const prevStage=flow.data?.stages?.[(flow.data?.stages || []).findIndex((s:any)=>s.stage===stage)-1]?.stage
+  const flow = useQuery({ queryKey: ["continuous-flow", card.id], queryFn: async () => (await entryApi.flow(card.id)).data, refetchInterval: 15000 })
+  const listing = useQuery({ queryKey: ["continuous-entries", card.id, stage, page], queryFn: async () => (await entryApi.list(card.id, stage, page * 50)).data })
+  const employees = useQuery({ queryKey: ["continuous-employees", card.plant_id], queryFn: async () => (await entryApi.employees()).data })
+  const machines = useQuery({ queryKey: ["continuous-machines", card.plant_id], queryFn: async () => (await entryApi.machines()).data })
+  const effects = useQuery({ queryKey: ["continuous-effects", card.id], queryFn: async () => (await entryApi.effects(card.id)).data, refetchInterval: 15000 })
+  const items = useQuery({ queryKey: ["continuous-items", card.plant_id], queryFn: async () => (await entryApi.items()).data, enabled: panel === "close" })
+  const locations = useQuery({ queryKey: ["continuous-locations", card.plant_id], queryFn: async () => (await entryApi.locations()).data, enabled: panel === "close" })
+  const winderMachine = card.stages?.find((s: any) => s.stage_type === "WINDER")?.machine_id
+  const reelIssues = useQuery({
+    queryKey: ["continuous-reel-issues", card.id, winderMachine],
+    queryFn: async () => (await entryApi.reelIssues(winderMachine)).data,
+    enabled: Boolean(winderMachine && panel === "close" && stage === "WINDER"),
+  })
+  const stages: any[] = useMemo(() => flow.data?.stages || [], [flow.data])
+  const state = stages.find((s: any) => s.stage === stage)
+  const stageIndex = stages.findIndex((s: any) => s.stage === stage)
+  const prevStage = stages[stageIndex - 1]?.stage
+  const activeEmployees = (employees.data || []).filter((e: any) => e.active !== false && e.is_active !== false)
+  const worksHere = (e: any) =>
+    String(e.department || "").toUpperCase() === stage ||
+    String(e.skills || "")
+      .toUpperCase()
+      .split(/[,;/|]/)
+      .map((t: string) => t.trim())
+      .includes(stage)
+  const operatorRank = (e: any) => (String(e.role || "").toLowerCase() === "operator" ? 0 : 2) + (worksHere(e) ? 0 : 1)
+  const operatorOptions = [...activeEmployees].sort((a: any, b: any) => operatorRank(a) - operatorRank(b) || String(a.name).localeCompare(String(b.name)))
+  const supervisorOptions = activeEmployees.filter((e: any) => ["supervisor", "manager"].includes(String(e.role || "").toLowerCase()))
+  const stageMachines = (machines.data || []).filter((m: any) => m.is_active !== false && String(m.department || "").toUpperCase() === stage)
+  const machineName = (id: any) => {
+    const m = (machines.data || []).find((row: any) => String(row.id) === String(id))
+    return m ? m.name || m.code : ""
+  }
+  const openSegments = (state?.segments || []).filter((s: any) => !["COMPLETED", "CANCELLED"].includes(s.status))
+  const slotReady = !(state?.segments || []).length || openSegments.some((s: any) => s.planner_gate_ready)
   // Input taken from the previous stage equals what this stage made, except Process (bamboo in → pieces out).
-  const inputFollowsOutput=stage!=="PROCESS" && Boolean(prevStage) && prevStage!=="SLITTING"
-  const parameters = card.spec_snapshot?.qc_profile?.stages?.[stage]?.parameters?.filter((r:any) => r.applicable) || []
+  const inputFollowsOutput = stage !== "PROCESS" && Boolean(prevStage) && prevStage !== "SLITTING"
+  const parameters = card.spec_snapshot?.qc_profile?.stages?.[stage]?.parameters?.filter((r: any) => r.applicable) || []
   const profile = card.spec_snapshot?.qc_profile
-  const mutation = useMutation({ mutationFn: async (action: () => Promise<any>) => action(), onError: e => setError(errorText(e)), onSuccess: async () => { pending.current = null;setError("");setShowForm(false);setClosing(false);setEditing(null);await Promise.all([cache.invalidateQueries({queryKey:["continuous-flow",card.id]}),cache.invalidateQueries({queryKey:["continuous-entries",card.id]}),cache.invalidateQueries({queryKey:["planning-job-card",card.id]})]) } })
-  const stableCommand = (body:any) => {const fingerprint=JSON.stringify(body);if(!pending.current || pending.current.fingerprint!==fingerprint) pending.current={fingerprint,body:command(body)};return pending.current.body}
+  const memory = (what: string) => `hariom-floor-${what}:${card.plant_id}:${stage}`
+  const loggable = Boolean(state) && state.status !== "COMPLETED" && !["SLITTING", "DISPATCH", "QC"].includes(stage)
+  const formOpen = Boolean(editing) || qcOnly || (loggable && canDraft)
+
   // Always offer at least as many sample columns as the strictest check needs (two by default).
-  const padSamples = (list:any[]) => {const need=Math.max(2,...parameters.map((r:any)=>Number(r.min_readings || 0)));return [...list,...Array.from({length:Math.max(0,need-list.length)},(_,i)=>({sample_id:`${crypto.randomUUID()}-${list.length+i+1}`,readings:{}}))]}
-  const newForm = (entry?:any, observationOnly=false) => {
-    setInstrument(entry?.details?.instrument || {});setSegment(entry?.segment_id || state?.segments?.filter((s:any)=>!["COMPLETED","CANCELLED"].includes(s.status))[0]?.id || "");setStartTime(entry?.details?.start_time || "");setEndTime(entry?.details?.end_time || "");setEditing(entry || null);setQcOnly(observationOnly);setTotalMode(false);setProduced(entry?.produced?.toString() || "");setAccepted(entry?.accepted?.toString() || "");setInput(entry?.input_quantity?.toString() || "");setLoss(entry?.cutting_loss_pcs?.toString() || "");setCarryIn(entry?.carry_in_pcs?.toString() || "");setCarryOut(entry?.carry_out_pcs?.toString() || "");setShift(entry?.shift_code || "");setOperator(entry?.operator_id || "");setReason("");setBusinessDate(entry?.business_date || new Date().toLocaleDateString("en-CA"));setSamples(padSamples(entry?.samples || []));setMachine(entry?.machine_id || state?.segments?.find((s:any)=>!["COMPLETED","CANCELLED"].includes(s.status))?.machine_id || card.stages?.find((s:any)=>s.stage_type===stage)?.machine_id || "");setHelper(entry?.details?.helper_name || "");setRejectCode(entry?.details?.reject_code || "");setShowForm(true);setClosing(false);setError("");setGateOverride(false);setGateReason("");pending.current=null
+  const padSamples = (list: any[]) => {
+    const need = Math.max(2, ...parameters.map((r: any) => Number(r.min_readings || 0)))
+    return [...list, ...Array.from({ length: Math.max(0, need - list.length) }, (_, i) => ({ sample_id: `${crypto.randomUUID()}-${list.length + i + 1}`, readings: {} }))]
   }
-  useEffect(() => { if(flow.data?.stages?.length && !flow.data.stages.some((s:any)=>s.stage===stage)) setStage(flow.data.stages[0].stage) }, [flow.data,stage])
-  const save = (submit:boolean) => {
-    const body:any={stage,kind:qcOnly?"QC_ONLY":stage==="PROCESS" && count(produced)===0 && count(carryIn)>0?"DISPOSITION":"PRODUCTION",quantity_mode:totalMode?"TOTAL":"DELTA",expected_version:editing?.row_version ?? state?.row_version,business_date:qcOnly?null:businessDate,shift_code:qcOnly?null:shift || null,operator_id:qcOnly?null:operator || null,segment_id:qcOnly?null:segment || null,produced:qcOnly?0:count(produced),accepted:qcOnly?0:count(accepted),input_quantity:qcOnly?0:inputFollowsOutput?count(produced):count(input),cutting_loss_pcs:qcOnly?0:count(loss),carry_in_pcs:qcOnly?0:count(carryIn),carry_out_pcs:qcOnly?0:count(carryOut),samples:samples.filter(s=>Object.values(s.readings).some(v=>v!=="" && v!=null)).map(s=>({...s,readings:Object.fromEntries(Object.entries(s.readings).filter(([,v])=>v!=="" && v!=null))})),machine_id:qcOnly?null:machine || null,details:{reject_reason:reason,reject_code:rejectCode || null,helper_name:helper.trim() || null,overproduction_reason:reason,carryover_reason:reason,start_time:startTime || null,end_time:endTime || null,instrument,...(gateOverride && gateReason.trim()?{qc_gate_override_reason:gateReason.trim()}:{})},reason,submit}
-    if(editing && qcOnly) mutation.mutate(()=>entryApi.observations(card.id,editing.id,stableCommand({samples:body.samples,instrument,expected_version:editing.row_version,reason})))
-    else if(editing) mutation.mutate(()=>entryApi.edit(card.id,editing.id,stableCommand({...body,submit:false})))
-    else mutation.mutate(()=>entryApi.create(card.id,stableCommand(body)))
+  const defaultMachine = () =>
+    openSegments.find((s: any) => s.machine_id)?.machine_id ||
+    card.stages?.find((s: any) => s.stage_type === stage)?.machine_id ||
+    remembered(memory("machine")) ||
+    (stageMachines.length === 1 ? stageMachines[0].id : "")
+  // A fresh run keeps who/when (same shift, same machine) and clears the numbers.
+  const clearNumbers = () => {
+    setOutput("")
+    setRejected("")
+    setRejectCode("")
+    setRejectNote("")
+    setOverNote("")
+    setInput("")
+    setLoss("")
+    setCarryIn("")
+    setCarryOut("")
+    setRemark("")
+    setStartTime("")
+    setEndTime("")
+    setSamples(padSamples([]))
+    setInstrument({})
+    setGateOverride(false)
+    setGateReason("")
+    setCorrection("")
+    pending.current = null
   }
-  if(flow.isLoading || listing.isLoading) return <p role="status" className="p-6">Loading production entries…</p>
-  if(flow.isError || listing.isError) return <div className="rounded-xl border border-destructive p-6"><p>Production entries could not be loaded.</p><Button onClick={()=>{flow.refetch();listing.refetch()}}>Retry</Button></div>
-  if(print) {
-    const stagesWithQc=flow.data.stages.filter((s:any)=>profile?.stages?.[s.stage])
-    const runs=[...listing.data.entries].filter((e:any)=>e.status!=="VOID").sort((a:any,b:any)=>flow.data.stages.findIndex((s:any)=>s.stage===a.stage)-flow.data.stages.findIndex((s:any)=>s.stage===b.stage) || a.entry_no-b.entry_no)
-    const th="border border-black px-1.5 py-1 text-left text-[10px] font-semibold"
-    const td="border border-black px-1.5 py-0.5 text-[10px] align-top"
-    const readingCols=(stage:string)=>(profile?.stages?.[stage]?.parameters || []).filter((r:any)=>r.applicable)
-    return <section className="space-y-3 bg-white p-4 text-black" data-testid="season-print-annex">
-      <h2 className="text-base font-bold">Production and QC log · {card.job_card_no}</h2>
-      <p className="text-[10px]">{seasonLabel(flow.data.season)} · recipe r{flow.data.recipe_revision} · QC rules v{profile?.provenance?.rule_set_version} · every run below is one line on the card; readings per sample as entered. † = logged before planning.</p>
-      <table className="w-full border-collapse"><thead><tr>{["Stage","Status","Accepted / target","Rejected","Supervisor close","Notes"].map(h=><th key={h} className={th}>{h}</th>)}</tr></thead><tbody>{flow.data.stages.map((s:any)=><tr key={s.stage}><td className={td}>{label(s.stage)}</td><td className={td}>{s.status}</td><td className={td}>{s.accepted_total} / {s.target} {s.unit}</td><td className={td}>{s.rejected_total}</td><td className={td}>{s.supervisor_name || ""}{s.closed_at?` · ${seasonTimestamp(s.closed_at)}`:""}</td><td className={td}>{[s.all_qc_rejected?"final QC closed with no accepted FG":"",s.qc_rejected_qty>0?`final QC rejected ${s.qc_rejected_qty} pcs`:"",s.qc_uninspected_qty>0?`uninspected at final QC ${s.qc_uninspected_qty} pcs`:"",s.retained_fg_qty>0?`retained FG ${s.retained_fg_qty} pcs`:"",s.surplus_settlement?.reason?`retention: ${s.surplus_settlement.reason} (${s.surplus_settlement.actor})`:"",s.residual_quantity?`${s.residual_quantity} unused input ${s.residual_disposition}`:""].filter(Boolean).join(" · ")}</td></tr>)}</tbody></table>
-      <table className="w-full border-collapse"><thead><tr>{["Stage","#","Date","Shift","Machine","Operator","Helper","Output","Accepted","Rejected","Code / reason","Start (A)","End (B)","QC verdict","Entered by"].map(h=><th key={h} className={th}>{h}</th>)}</tr></thead><tbody>{runs.map((e:any)=><tr key={e.id}><td className={td}>{label(e.stage)}</td><td className={td}>{e.entry_no}{e.details?.unscheduled_entry?" †":""}{e.kind==="QC_ONLY"?" (QC)":""}</td><td className={td}>{e.business_date || ""}</td><td className={td}>{e.shift_code?.replace("SHIFT_","") || ""}</td><td className={td}>{e.machine_id?.slice(0,8) || ""}</td><td className={td}>{e.operator_name || ""}</td><td className={td}>{e.details?.helper_name || ""}</td><td className={td}>{e.kind==="QC_ONLY"?"":e.produced}</td><td className={td}>{e.kind==="QC_ONLY"?"":e.accepted}</td><td className={td}>{e.kind==="QC_ONLY"?"":e.rejected}</td><td className={td}>{[e.details?.reject_code,e.details?.reject_reason].filter(Boolean).join(" · ")}</td><td className={td}>{e.details?.start_time?seasonTimestamp(e.details.start_time):""}</td><td className={td}>{e.details?.end_time?seasonTimestamp(e.details.end_time):""}</td><td className={td}>{verdictLabel(e.evaluation?.verdict)}{e.status==="DRAFT"?" (draft)":""}</td><td className={td}>{e.created_by}</td></tr>)}{runs.length===0 && <tr><td className={td} colSpan={15}>No runs logged yet.</td></tr>}</tbody></table>
-      {stagesWithQc.map((s:any)=>{const cols=readingCols(s.stage);const samples=runs.filter((e:any)=>e.stage===s.stage).flatMap((e:any)=>(e.samples || []).map((sample:any,i:number)=>({entry:e.entry_no,n:i+1,readings:sample.readings || {},results:(e.evaluation?.results || []).filter((r:any)=>r.sample_id===sample.sample_id)})));if(!cols.length)return null;return <table key={s.stage} className="w-full border-collapse"><thead><tr><th className={th} colSpan={2+cols.length}>{label(s.stage)} QC readings · allowed: {cols.map((r:any)=>`${r.label} ${allowedText(r)}`).join(" · ")}</th></tr><tr><th className={th}>Run #</th><th className={th}>Sample</th>{cols.map((r:any)=><th key={r.code} className={th}>{r.label}{r.unit?` (${r.unit})`:""}</th>)}</tr></thead><tbody>{samples.map((row:any,i:number)=><tr key={i}><td className={td}>{row.entry}</td><td className={td}>{row.n}</td>{cols.map((r:any)=>{const result=row.results.find((x:any)=>x.parameter===r.code);const fail=result?.verdict==="FAIL";return <td key={r.code} className={td+(fail?" font-bold":"")}>{row.readings[r.code] ?? ""}{fail?" ✗":""}</td>})}</tr>)}{samples.length===0 && <tr><td className={td} colSpan={2+cols.length}>No readings yet.</td></tr>}</tbody></table>})}
-      {flow.data.final_samples?.length?<table className="w-full border-collapse"><thead><tr><th className={th} colSpan={7}>Final customer acceptance</th></tr><tr>{["Sample","Status","QC","Recorded","I.D.","O.D.","Length · weight · C.S."].map(h=><th key={h} className={th}>{h}</th>)}</tr></thead><tbody>{flow.data.final_samples.map((s:any)=><tr key={s.sample_id}><td className={td}>{s.sample_id?.slice(0,8)}</td><td className={td}>{s.status}{s.workflow_status?` · ${s.workflow_status}`:""}</td><td className={td}>{s.qc_name}</td><td className={td}>{seasonTimestamp(s.recorded_at)}</td><td className={td}>{s.readings?.id ?? ""}</td><td className={td}>{s.readings?.od ?? ""}</td><td className={td}>{[s.readings?.length,s.readings?.weight,s.readings?.cs].map((v:any)=>v ?? "—").join(" · ")}</td></tr>)}</tbody></table>:null}
-      <ResidualWipPanel rows={flow.data.residual_wip} print/>
-    </section>
+  const startRun = () => {
+    setEditing(null)
+    setQcOnly(false)
+    setSegment(openSegments[0]?.id || "")
+    clearNumbers()
   }
-  return <div className={embedded?"space-y-4":"mx-auto max-w-7xl space-y-5"} data-testid="continuous-job-card">
-    {embedded ? <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card px-4 py-3" data-testid="season-stage-logging-head"><div><p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Stage logging · {seasonLabel(flow.data.season)} contract</p><p className="mt-1 text-sm text-muted-foreground">Recipe r{flow.data.recipe_revision} · QC rules v{profile?.provenance?.rule_set_version} · {flow.data.pending_effects} postings pending. Log every run as it happens; each run stays its own entry.</p></div><div className="flex flex-wrap gap-2"><Button asChild variant="outline" size="sm"><Link href={`/quality/results?job_card_id=${card.id}`}>QC results / holds</Link></Button><Button asChild variant="outline" size="sm"><Link href="/inventory/production-issue">Material issues</Link></Button></div></div> : <>
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-5"><div><p className="text-xs uppercase text-muted-foreground">Frozen production contract</p><h1 className="text-xl font-semibold">{card.job_card_no || "Job card"} · {seasonLabel(flow.data.season)}</h1><p className="text-sm text-muted-foreground">Recipe r{flow.data.recipe_revision} · QC v{profile?.provenance?.rule_set_version} · {flow.data.pending_effects} postings pending</p></div><div className="flex flex-wrap gap-2"><Button asChild variant="outline"><Link href={`/production/job-cards/${card.id}/print`}>Print card and QC annex</Link></Button><Button asChild variant="outline"><Link href={`/quality/results?job_card_id=${card.id}`}>QC results / holds</Link></Button><Button asChild variant="outline"><Link href="/inventory/production-issue">Material issues</Link></Button></div></div>
-    </>}
-    <nav aria-label="Production stages" className="flex flex-wrap gap-2">{flow.data.stages.map((s:any)=><Button key={s.stage} variant={s.stage===stage?"default":"outline"} onClick={()=>{if((!showForm && !closing)||window.confirm("Discard unsaved entry?")){setStage(s.stage);setPage(0);setShowForm(false);setClosing(false)}}}>{label(s.stage)} · {s.accepted_total}/{s.target} {s.unit}{s.status==="COMPLETED"?" ✓":""}</Button>)}</nav>
-    {error && <p role="alert" className="rounded-lg border border-destructive bg-destructive/5 p-3 text-sm text-destructive">{error}</p>}
-    {canSubmit && <JobCardShortagePanel key={card.id} card={card} flow={flow.data}/>}
-    {state && <section className="space-y-4 rounded-xl border border-border bg-card p-5"><div className="flex flex-wrap justify-between gap-4"><div><h2 className="text-lg font-semibold">{label(stage)} · {state.status}</h2><p className="text-sm text-muted-foreground">Produced {state.produced_total} · Accepted {state.accepted_total} · Rejected {state.rejected_total} {state.unit}{state.available_from_upstream!=null?` · Ready input ${state.available_from_upstream} ${state.input_unit}${state.upstream_has_qc?" (QC passed)":""}`:""}{state.awaiting_qc_from_upstream>0?` · ${state.awaiting_qc_from_upstream} ${state.input_unit} waiting for ${label(flow.data.stages[flow.data.stages.findIndex((s:any)=>s.stage===stage)-1]?.stage || "previous stage")} QC`:""}{stage==="PROCESS"?` · Held carryover ${state.carryover_pcs} pcs`:""}</p></div>{state.status!=="COMPLETED" && stage!=="SLITTING" && stage!=="DISPATCH" && <div className="flex flex-wrap gap-2">{canDraft && <Button onClick={()=>newForm()}>Add production entry</Button>}{canQc && parameters.length>0 && <Button variant="outline" onClick={()=>newForm(undefined,true)} title="Readings for a sample without any production quantity (QC desk). Readings for a run are entered on the run itself.">QC readings only</Button>}{canSubmit && <Button variant="outline" onClick={()=>{setClosing(true);setShowForm(false);setReason("")}}>Close stage</Button>}</div>}</div>
-      {state.status!=="COMPLETED" && state.awaiting_qc_from_upstream>0 && <div className="rounded-lg border border-signal-amber-line bg-signal-amber-soft p-3 text-sm text-signal-amber-ink" data-testid="batch-qc-gate"><p className="font-medium">{state.awaiting_qc_from_upstream} {state.input_unit} from the previous stage cannot be used yet — its QC is not recorded as OK.</p><p>Each batch moves to the next stage only after its own QC reads Pass. Open the previous stage, use <strong>QC</strong> on that entry (or <strong>Add QC observations</strong>) and record the readings. A plant supervisor can take it early with an override reason.</p></div>}
-      {stage==="DISPATCH" && state.all_qc_rejected && <p className="rounded-lg border border-border bg-muted p-3 text-sm">Final QC closed with no accepted FG. This card completed without a shipment or surplus retention.</p>}
-      {stage==="DISPATCH" && state.qc_rejected_qty>0 && <div className="rounded-lg border border-signal-amber-line bg-signal-amber-soft p-3 text-sm text-signal-amber-ink"><p className="font-medium">Final QC rejected: {state.qc_rejected_qty} pcs</p><p>{state.all_qc_rejected?"Final QC closed with no accepted FG. This card has no accepted finished goods to ship or retain.":"These pieces are excluded from shipments and retained finished goods."}</p></div>}
-      {stage==="DISPATCH" && state.qc_uninspected_qty>0 && <div className="rounded-lg border border-border bg-muted p-3 text-sm"><p className="font-medium">Unused / uninspected at final QC: {state.qc_uninspected_qty} pcs</p><p className="text-muted-foreground">These pieces are separate from QC rejects and are excluded from shipment and surplus retention.</p></div>}
-      {state.retained_fg_qty>0 && <div className="rounded-lg border border-border bg-muted p-3 text-sm"><p className="font-medium">Retained finished goods: {state.retained_fg_qty} pcs</p><p className="text-muted-foreground">These surplus pieces remain in the posted FG batch. Shipped and Sales quantities exclude them.</p>{state.surplus_settlement && <p className="mt-1 text-xs text-muted-foreground">{state.surplus_settlement.reason} · decided by {state.surplus_settlement.actor}{state.surplus_settlement.settled_at?` · ${seasonTimestamp(state.surplus_settlement.settled_at)}`:""}</p>}</div>}
-      {stage==="SLITTING" && <Button asChild variant="outline"><Link href={`/production/job-cards/${card.id}/slitting`}>Open Slitting material preparation</Link></Button>}
-      {state.status==="COMPLETED" && <div className="flex flex-wrap items-center gap-3"><p className="text-sm">{state.supervisor_name?`Closed by supervisor ${state.supervisor_name}`:stage==="DISPATCH"?"Dispatch reconciled":"Stage closed"}{state.closed_at?` · ${seasonTimestamp(state.closed_at)}`:""}{state.residual_quantity?` · ${state.residual_quantity} unused input ${state.residual_disposition}`:""}</p>{canReopen && !["SLITTING","DISPATCH"].includes(stage) && <Button size="sm" variant="outline" disabled={mutation.isPending} onClick={()=>{const reason=window.prompt("Reason to reopen this stage. Posted stock or tool usage requires a governed reversal or additional card.");if(reason?.trim())mutation.mutate(()=>entryApi.reopen(card.id,stage,stableCommand({expected_version:state.row_version,reason})))}}>Reopen stage</Button>}</div>}
-      {state.blockers.length>0 && <div className="rounded-lg bg-muted p-3 text-sm">{state.blockers.map((b:string)=><p key={b}>{b}</p>)}{state.qc.missing.map((r:any)=><span className="mr-3 text-xs" key={r.parameter}>{r.label}: {r.have}/{r.need} samples</span>)}</div>}
-      <details><summary className="cursor-pointer text-sm font-semibold">Frozen tolerances and provenance</summary><div className="mt-3 grid gap-2 sm:grid-cols-2">{parameters.map((r:any)=><div key={r.code} className="rounded-lg border border-border p-3 text-sm"><strong>{r.label}</strong><p>{allowedText(r)} · {r.min_readings} samples</p><p className="text-xs text-muted-foreground">{r.overlay_id?`Customer/spec overlay v${r.overlay_version}`:`Global ${seasonLabel(flow.data.season)} v${profile?.provenance?.rule_set_version}`}</p></div>)}</div></details>
-    </section>}
-    {canSubmit && flow.data.stages.some((s:any)=>!["COMPLETED","CANCELLED"].includes(s.status) && !["DISPATCH","SLITTING"].includes(s.stage)) && <Button variant="outline" onClick={()=>{setWholeCard(true);setShowForm(false);setClosing(false)}}>Enter whole card</Button>}
-    {wholeCard && <WholeCardEntryForm card={card} flow={flow.data} onDone={()=>setWholeCard(false)}/>}
-    {stage==="QC" && canQc && <FinalQcForm card={card}/>}
-    {stage==="DISPATCH" && <Button asChild><Link href="/logistics/dispatch">Open Logistics Dispatch</Link></Button>}
-    {effects.data?.length>0 && <details className="rounded-xl border border-border bg-card p-4"><summary className="cursor-pointer text-sm font-semibold">Production postings · {flow.data.pending_effects} pending</summary>{effects.data.map((e:any)=><div key={e.id} className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-sm"><div><p>{label(e.stage || "")} · {e.kind.replaceAll("_"," ")} · {e.status}</p>{e.last_error && <p className="text-destructive">{e.last_error}</p>}<p className="text-xs text-muted-foreground">Attempts {e.attempts}{e.status==="FAILED"?` · Next automatic retry ${seasonTimestamp(e.next_attempt_at)}`:""}</p></div>{canSubmit && e.status==="FAILED" && <Button variant="outline" disabled={mutation.isPending} onClick={()=>mutation.mutate(async()=>{const r=await entryApi.retryEffect(card.id,e.id,stableCommand({expected_version:e.attempts,reason:"Supervisor requested retry after reviewing posting failure"}));await effects.refetch();return r})}>Retry posting</Button>}</div>)}</details>}
-    <ResidualWipPanel rows={flow.data.residual_wip} canResolve={canSubmit} busy={mutation.isPending} onResolve={(row,disposition,reason)=>mutation.mutate(()=>entryApi.resolveResidual(card.id,row.id,stableCommand({expected_version:row.row_version,disposition,reason})))}/>
-    {showForm && <section className="space-y-4 rounded-xl border border-border bg-card p-5"><h2 className="text-lg font-semibold">{qcOnly && editing?`QC readings · ${label(stage)} batch #${editing.entry_no}`:editing?`Revise entry #${editing.entry_no} · ${label(stage)}`:qcOnly?`QC observations · ${label(stage)}`:`Log a run · ${label(stage)}`}</h2>{!qcOnly && <>
-      {(state.segments || []).filter((s:any)=>!["COMPLETED","CANCELLED"].includes(s.status)).length>1 && <label className="block text-sm">Scheduled slot<select className={selectClass} value={segment} onChange={e=>setSegment(e.target.value)}><option value="">Choose the planned slot</option>{(state.segments || []).filter((s:any)=>!["COMPLETED","CANCELLED"].includes(s.status)).map((s:any)=><option key={s.id} value={s.id}>{s.plan_date || "Unscheduled"} · {s.shift_code?.replace("SHIFT_","Shift ") || "No shift"} · {machineName(s.machine_id) || "no machine"}</option>)}</select></label>}
-      {!slotReady && <p className="rounded-lg border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-sm text-signal-amber-ink" data-testid="season-entry-unscheduled">Not placed on the planner yet. You can still log the run: it goes on this date, shift and machine, and the owner sees it under Reports › Exceptions.</p>}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5" data-testid="season-entry-card-row">
-        <label className="text-sm">Date *<Input type="date" value={businessDate} onChange={e=>setBusinessDate(e.target.value)} /></label>
-        <label className="text-sm">Shift *<select className={selectClass} value={shift} onChange={e=>setShift(e.target.value)}><option value="">Choose shift</option><option value="SHIFT_A">Shift A</option><option value="SHIFT_B">Shift B</option></select></label>
-        <label className="text-sm">{machineLabelFor(stage)}<select className={selectClass} value={machine} onChange={e=>setMachine(e.target.value)} data-testid="season-entry-machine"><option value="">{stageMachines.length?`Choose ${machineLabelFor(stage).toLowerCase()}`:"No machine in this department"}</option>{stageMachines.map((m:any)=><option key={m.id} value={m.id}>{m.name || m.code}{m.code && m.name?` · ${m.code}`:""}</option>)}</select></label>
-        <label className="text-sm">Operator name *<select className={selectClass} value={operator} onChange={e=>setOperator(e.target.value)} data-testid="season-entry-operator"><option value="">{employees.isLoading?"Loading employees…":operatorOptions.length?"Choose operator":"No active employees — add them in Masters › Employees"}</option>{operatorOptions.map((e:any)=><option key={e.id} value={e.id}>{e.name}{e.employee_code?` · ${e.employee_code}`:""}{e.role?` · ${e.role}`:""}</option>)}</select></label>
-        <label className="text-sm">{stage==="WINDER"?"Pattiwala name":stage==="PROCESS"?"Packing name":"Helper name"}<Input value={helper} onChange={e=>setHelper(e.target.value)} placeholder="Optional" /></label>
+  const openEntry = (entry: any, observationOnly = false) => {
+    setEditing(entry || null)
+    setQcOnly(observationOnly)
+    setShowQc(true)
+    setError("")
+    setNotice("")
+    pending.current = null
+    if (entry && !observationOnly) {
+      setBusinessDate(entry.business_date || today())
+      setShift(entry.shift_code || clockShift())
+      setMachine(entry.machine_id || "")
+      setOperator(entry.operator_id || "")
+      setHelper(entry.details?.helper_name || "")
+      setOutput(entry.produced ? String(entry.produced) : "")
+      setRejected(entry.rejected ? String(entry.rejected) : "")
+      setRejectCode(entry.details?.reject_code || "")
+      setRejectNote(entry.details?.reject_reason || "")
+      setOverNote(entry.details?.overproduction_reason || "")
+      setInput(entry.input_quantity ? String(entry.input_quantity) : "")
+      setLoss(entry.cutting_loss_pcs ? String(entry.cutting_loss_pcs) : "")
+      setCarryIn(entry.carry_in_pcs ? String(entry.carry_in_pcs) : "")
+      setCarryOut(entry.carry_out_pcs ? String(entry.carry_out_pcs) : "")
+      setRemark(entry.details?.carryover_reason || "")
+      setStartTime(clockOf(entry.details?.start_time))
+      setEndTime(clockOf(entry.details?.end_time))
+      setSegment(entry.segment_id || "")
+    }
+    setSamples(padSamples(entry?.samples || []))
+    setInstrument(entry?.details?.instrument || {})
+    setCorrection("")
+    setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50)
+  }
+
+  useEffect(() => {
+    if (stages.length && !stages.some((s: any) => s.stage === stage)) setStage(stages[0].stage)
+  }, [stages, stage])
+  // New stage: who ran it last time on this stage, the planned machine, fresh sample columns.
+  useEffect(() => {
+    setOperator(remembered(memory("operator")))
+    setHelper(remembered(memory("helper")))
+    setMachine(defaultMachine() || "")
+    setEditing(null)
+    setQcOnly(false)
+    setPanel("")
+    setSegment("")
+    clearNumbers()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage, card.id])
+  // Machines and the stage plan load after the first paint; fill the machine once they arrive.
+  useEffect(() => {
+    if (!machine && !editing && state) setMachine(defaultMachine() || "")
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state?.stage, machines.data])
+
+  const refresh = () =>
+    Promise.all([
+      cache.invalidateQueries({ queryKey: ["continuous-flow", card.id] }),
+      cache.invalidateQueries({ queryKey: ["continuous-entries", card.id] }),
+      cache.invalidateQueries({ queryKey: ["planning-job-card", card.id] }),
+      cache.invalidateQueries({ queryKey: ["continuous-effects", card.id] }),
+    ])
+  const mutation = useMutation({
+    mutationFn: async (action: () => Promise<any>) => action(),
+    onError: (e) => {
+      setError(errorText(e))
+      setNotice("")
+    },
+    onSuccess: async () => {
+      pending.current = null
+      setError("")
+      await refresh()
+    },
+  })
+  const stableCommand = (body: any) => {
+    const fingerprint = JSON.stringify(body)
+    if (!pending.current || pending.current.fingerprint !== fingerprint) pending.current = { fingerprint, body: command(body) }
+    return pending.current.body
+  }
+
+  const made = count(output)
+  const bad = count(rejected)
+  const good = Math.max(0, made - bad)
+  const takenIn = inputFollowsOutput ? made : count(input)
+  const lossQty = count(loss)
+  const carryInQty = count(carryIn)
+  const carryOutQty = count(carryOut)
+  const disposition = stage === "PROCESS" && made === 0 && carryInQty > 0
+  const startStamp = stamp(businessDate, startTime)
+  const endStamp = stamp(businessDate, endTime, startTime || undefined)
+  const overTarget = state ? Number(state.produced_total || 0) + made > Number(state.target || 0) * 1.1 : false
+  const codeText = REJECT_CODES.find(([code]) => code === rejectCode)?.[1] || ""
+  const rejectReason = rejectNote.trim() || (rejectCode && rejectCode !== "OT" ? `${rejectCode} · ${codeText}` : "") || (lossQty ? remark.trim() : "")
+  const filledSamples = samples
+    .filter((s) => Object.values(s.readings || {}).some((v) => v !== "" && v != null))
+    .map((s) => ({ ...s, readings: Object.fromEntries(Object.entries(s.readings).filter(([, v]) => v !== "" && v != null)) }))
+  const runMissing = [
+    !businessDate ? "the date" : "",
+    !shift ? "the shift" : "",
+    !operator ? "the operator" : "",
+    !made && !disposition ? `how many ${state?.unit || "pieces"} were made` : "",
+    bad > made ? "a rejected count that is not more than the output" : "",
+    bad > 0 && !rejectCode ? "the rejection code" : "",
+    bad > 0 && rejectCode === "OT" && !rejectNote.trim() ? "what the 'Other' rejection was" : "",
+    stage === "PROCESS" && !takenIn && !disposition ? `how many ${state?.input_unit || "bamboo"} were taken from ${label(prevStage || "OVEN")}` : "",
+    (lossQty || disposition) && !rejectReason ? "the reason for the cutting loss" : "",
+    (carryInQty || carryOutQty) && !remark.trim() ? "the reason for the held carryover" : "",
+    overTarget && !overNote.trim() ? "why output is above the planned +10%" : "",
+    gateOverride && !gateReason.trim() ? "why the batch is taken before its QC" : "",
+  ].filter(Boolean)
+  const qcMissing = [!filledSamples.length ? "at least one reading" : "", editing?.samples?.length && !correction.trim() ? "the reason for changing readings" : ""].filter(Boolean)
+  const missing = qcOnly ? qcMissing : runMissing
+
+  const saveRun = (submit: boolean) => {
+    const details: any = {
+      reject_reason: bad || lossQty || disposition ? rejectReason : undefined,
+      reject_code: bad ? rejectCode || null : null,
+      helper_name: helper.trim() || null,
+      overproduction_reason: overTarget ? overNote.trim() : undefined,
+      carryover_reason: carryInQty || carryOutQty ? remark.trim() : undefined,
+      start_time: startStamp,
+      end_time: endStamp,
+      instrument,
+      ...(gateOverride && gateReason.trim() ? { qc_gate_override_reason: gateReason.trim() } : {}),
+    }
+    const body: any = {
+      stage,
+      kind: disposition ? "DISPOSITION" : "PRODUCTION",
+      quantity_mode: "DELTA",
+      expected_version: editing?.row_version ?? state?.row_version,
+      business_date: businessDate,
+      shift_code: shift,
+      operator_id: operator || null,
+      segment_id: segment || null,
+      produced: made,
+      accepted: good,
+      input_quantity: takenIn,
+      cutting_loss_pcs: lossQty,
+      carry_in_pcs: carryInQty,
+      carry_out_pcs: carryOutQty,
+      samples: filledSamples,
+      machine_id: machine || null,
+      details,
+      reason: [rejectReason, overTarget ? overNote.trim() : "", remark.trim()].filter(Boolean).join(" · "),
+      submit,
+    }
+    remember(memory("operator"), operator)
+    remember(memory("helper"), helper.trim())
+    remember(memory("machine"), machine)
+    const word = `${label(stage)} run`
+    mutation.mutate(async () => {
+      const result = editing ? await entryApi.edit(card.id, editing.id, stableCommand({ ...body, submit: false })) : await entryApi.create(card.id, stableCommand(body))
+      const saved = result?.data?.entry
+      setNotice(
+        editing
+          ? `Draft #${editing.entry_no} updated.`
+          : `${word} #${saved?.entry_no ?? ""} saved${submit ? "" : " as a draft for the supervisor"}: ${fmt(good)} good${bad ? `, ${fmt(bad)} rejected` : ""}${filledSamples.length ? ` · QC ${verdictLabel(saved?.evaluation?.verdict).replace("QC ", "")}` : ""}.`,
+      )
+      setEditing(null)
+      clearNumbers()
+      return result
+    })
+  }
+  const saveQc = () => {
+    const word = editing ? `batch #${editing.entry_no}` : "QC desk"
+    mutation.mutate(async () => {
+      const result =
+        editing
+          ? await entryApi.observations(card.id, editing.id, stableCommand({ samples: filledSamples, instrument, expected_version: editing.row_version, reason: correction.trim() }))
+          : await entryApi.create(card.id, stableCommand({ stage, kind: "QC_ONLY", quantity_mode: "DELTA", expected_version: state?.row_version, samples: filledSamples, details: { instrument }, reason: correction.trim(), submit: true }))
+      const verdict = result?.data?.entry?.evaluation?.verdict
+      setNotice(`QC readings saved for ${word}${verdict ? ` · ${verdictLabel(verdict)}` : ""}.`)
+      setEditing(null)
+      setQcOnly(false)
+      clearNumbers()
+      return result
+    })
+  }
+
+  if (flow.isLoading || listing.isLoading) return <p role="status" className="p-6">Loading production entries…</p>
+  if (flow.isError || listing.isError)
+    return (
+      <div className="rounded-xl border border-destructive p-6">
+        <p>Production entries could not be loaded.</p>
+        <Button
+          onClick={() => {
+            flow.refetch()
+            listing.refetch()
+          }}
+        >
+          Retry
+        </Button>
       </div>
-      <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <label className="text-sm">Output qty ({state.unit}) *<Input inputMode="numeric" type="number" min="0" step="1" value={produced} onChange={e=>setProduced(e.target.value)} data-testid="season-entry-produced" /></label>
-        <label className="text-sm">Accepted qty ({state.unit}) *<Input inputMode="numeric" type="number" min="0" step="1" value={accepted} onChange={e=>setAccepted(e.target.value)} data-testid="season-entry-accepted" /></label>
-        <label className="text-sm">Reject qty<Input readOnly value={count(produced)-count(accepted)>0?String(count(produced)-count(accepted)):""} placeholder="= output − accepted" className="bg-muted" /></label>
-        <label className="text-sm">Rejection code{count(produced)>count(accepted)?" *":""}<select className={selectClass} value={rejectCode} onChange={e=>setRejectCode(e.target.value)}><option value="">{count(produced)>count(accepted)?"Choose code":"—"}</option>{REJECT_CODES.map(([code,text])=><option key={code} value={code}>{code} · {text}</option>)}</select></label>
-        <label className="text-sm">Start time (A)<Input type="datetime-local" value={startTime} onChange={e=>setStartTime(e.target.value)} /></label>
-        <label className="text-sm">End time (B)<Input type="datetime-local" value={endTime} onChange={e=>setEndTime(e.target.value)} /></label>
-        {stage==="PROCESS" && [[`${state.input_unit || "Bamboo"} taken from ${label(prevStage || "OVEN")} *`,input,setInput],["Cutting loss pcs",loss,setLoss],["Held carry-in pcs",carryIn,setCarryIn],["Held carry-out pcs",carryOut,setCarryOut]].map(([title,value,setter]:any)=><label className="text-sm" key={title}>{title}<Input inputMode="numeric" type="number" min="0" step="1" value={value} onChange={e=>setter(e.target.value)} /></label>)}
+    )
+
+  const pct = state && Number(state.target) ? Math.min(100, (Number(state.accepted_total) / Number(state.target)) * 100) : 0
+  const entries: any[] = listing.data.entries || []
+
+  return (
+    <div className={embedded ? "space-y-4" : "mx-auto max-w-5xl space-y-4"} data-testid="continuous-job-card">
+      {embedded ? null : (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-4">
+          <div>
+            <p className="text-xs uppercase text-muted-foreground">Production entry</p>
+            <h1 className="text-xl font-semibold">
+              {card.job_card_no || "Job card"} · {seasonLabel(flow.data.season)}
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Recipe r{flow.data.recipe_revision} · QC rules v{profile?.provenance?.rule_set_version}
+            </p>
+          </div>
+          <Button asChild variant="outline">
+            <Link href={`/production/job-cards/${card.id}/print`}>Print card</Link>
+          </Button>
+        </div>
+      )}
+
+      {/* Stage tabs with progress: tap the stage the printed card row belongs to. */}
+      <nav aria-label="Production stages" className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1" data-testid="season-stage-tabs">
+        {stages.map((s: any) => {
+          const done = s.status === "COMPLETED"
+          const share = Number(s.target) ? Math.min(100, (Number(s.accepted_total) / Number(s.target)) * 100) : 0
+          return (
+            <button
+              key={s.stage}
+              type="button"
+              aria-pressed={s.stage === stage}
+              onClick={() => {
+                const dirty = (made || filledSamples.length) && !mutation.isPending
+                if (!dirty || window.confirm("Discard the run you are typing?")) {
+                  setStage(s.stage)
+                  setPage(0)
+                  setNotice("")
+                  setError("")
+                }
+              }}
+              className={cn(
+                "min-w-[7.5rem] shrink-0 rounded-xl border px-3 py-2 text-left transition",
+                s.stage === stage ? "border-primary bg-primary text-primary-foreground shadow-sm" : "border-border bg-card hover:bg-muted",
+              )}
+            >
+              <span className="flex items-center justify-between gap-2 text-[13px] font-semibold">
+                {label(s.stage)}
+                {done ? <span aria-label="closed">✓</span> : null}
+              </span>
+              <span className={cn("mt-0.5 block text-[12px] tabular-nums", s.stage === stage ? "opacity-90" : "text-muted-foreground")}>
+                {fmt(s.accepted_total)} / {fmt(s.target)} {s.unit}
+              </span>
+              <span className={cn("mt-1 block h-1 overflow-hidden rounded-full", s.stage === stage ? "bg-primary-foreground/30" : "bg-muted")}>
+                <span className={cn("block h-full rounded-full", s.stage === stage ? "bg-primary-foreground" : done ? "bg-signal-emerald-ink" : "bg-primary")} style={{ width: `${share}%` }} />
+              </span>
+            </button>
+          )
+        })}
+      </nav>
+
+      {error ? (
+        <p role="alert" className="rounded-lg border border-destructive bg-destructive/5 p-3 text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
+      {notice ? (
+        <p role="status" className="rounded-lg border border-signal-emerald-line bg-signal-emerald-soft p-3 text-sm font-medium text-signal-emerald-ink" data-testid="season-entry-notice">
+          {notice}
+        </p>
+      ) : null}
+
+      {state ? (
+        <section className="rounded-xl border border-border bg-card p-4" data-testid="season-stage-status">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-lg font-semibold">
+              {label(stage)}{" "}
+              <span className="text-sm font-normal text-muted-foreground">
+                · {state.status === "COMPLETED" ? "closed" : state.status === "RUNNING" ? "running" : "not started"}
+              </span>
+            </h2>
+            <p className="text-sm tabular-nums">
+              <strong className="text-base">{fmt(state.accepted_total)}</strong> good of {fmt(state.target)} {state.unit}
+              {state.rejected_total ? <span className="text-signal-rose-ink"> · {fmt(state.rejected_total)} rejected</span> : null}
+              {state.draft_count ? <span className="text-signal-amber-ink"> · {state.draft_count} draft waiting</span> : null}
+            </p>
+          </div>
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
+            <div className={cn("h-full rounded-full", state.status === "COMPLETED" ? "bg-signal-emerald-ink" : "bg-primary")} style={{ width: `${pct}%` }} />
+          </div>
+          {state.available_from_upstream != null && state.status !== "COMPLETED" ? (
+            <p className="mt-2 text-sm text-muted-foreground">
+              Ready from {label(prevStage || "")}: <strong className="text-foreground">{fmt(state.available_from_upstream)} {state.input_unit}</strong>
+              {state.upstream_has_qc ? " (QC passed)" : ""}
+              {state.awaiting_qc_from_upstream > 0 ? <span className="text-signal-amber-ink"> · {fmt(state.awaiting_qc_from_upstream)} still waiting for QC</span> : null}
+              {stage === "PROCESS" && state.carryover_pcs ? ` · held carryover ${fmt(state.carryover_pcs)} pcs` : ""}
+            </p>
+          ) : null}
+          {state.status !== "COMPLETED" && state.awaiting_qc_from_upstream > 0 ? (
+            <p className="mt-2 rounded-lg border border-signal-amber-line bg-signal-amber-soft p-2.5 text-sm text-signal-amber-ink" data-testid="batch-qc-gate">
+              {fmt(state.awaiting_qc_from_upstream)} {state.input_unit} from {label(prevStage || "")} cannot be used yet — their QC is not recorded as pass. Open the {label(prevStage || "")} tab and press <strong>Add QC</strong> on that run.
+            </p>
+          ) : null}
+          {state.status === "COMPLETED" ? (
+            <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
+              <p>
+                {state.supervisor_name ? `Closed by ${state.supervisor_name}` : stage === "DISPATCH" ? "Dispatch reconciled" : "Stage closed"}
+                {state.closed_at ? ` · ${seasonTimestamp(state.closed_at)}` : ""}
+                {state.residual_quantity ? ` · ${state.residual_quantity} unused input ${state.residual_disposition}` : ""}
+              </p>
+              {canReopen && !["SLITTING", "DISPATCH"].includes(stage) ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={mutation.isPending}
+                  onClick={() => {
+                    const reason = window.prompt("Reason to reopen this stage. Posted stock or tool usage needs a governed reversal or an additional card.")
+                    if (reason?.trim()) mutation.mutate(() => entryApi.reopen(card.id, stage, stableCommand({ expected_version: state.row_version, reason })))
+                  }}
+                >
+                  Reopen stage
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+          {state.blockers.length > 0 && state.status !== "COMPLETED" ? (
+            <details className="mt-2 text-sm">
+              <summary className="cursor-pointer text-muted-foreground">Before this stage can close ({state.blockers.length})</summary>
+              <div className="mt-1 space-y-0.5">
+                {state.blockers.map((b: string) => (
+                  <p key={b}>{b}</p>
+                ))}
+                {state.qc.missing.map((r: any) => (
+                  <span className="mr-3 text-xs" key={r.parameter}>
+                    {r.label}: {r.have}/{r.need} samples
+                  </span>
+                ))}
+              </div>
+            </details>
+          ) : null}
+          {stage === "DISPATCH" && state.qc_rejected_qty > 0 ? <p className="mt-2 text-sm text-signal-amber-ink">Final QC rejected {state.qc_rejected_qty} pcs; they are excluded from shipments.</p> : null}
+          {stage === "DISPATCH" && state.qc_uninspected_qty > 0 ? <p className="mt-2 text-sm">Uninspected at final QC: {state.qc_uninspected_qty} pcs (not shipped).</p> : null}
+          {state.retained_fg_qty > 0 ? <p className="mt-2 text-sm">Retained finished goods: {state.retained_fg_qty} pcs (kept in stock, not shipped).</p> : null}
+          {stage === "SLITTING" ? (
+            <Button asChild variant="outline" className="mt-3">
+              <Link href={`/production/job-cards/${card.id}/slitting`}>Open slitting and reel issue</Link>
+            </Button>
+          ) : null}
+          {stage === "DISPATCH" ? (
+            <Button asChild className="mt-3">
+              <Link href="/logistics/dispatch">Open dispatch</Link>
+            </Button>
+          ) : null}
+        </section>
+      ) : null}
+
+      {stage === "QC" && canQc ? <FinalQcForm card={card} /> : null}
+
+      {formOpen && state ? (
+        <section ref={formRef} className="space-y-4 rounded-xl border-2 border-primary/30 bg-card p-4 sm:p-5" data-testid="season-run-form">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-lg font-semibold">
+              {qcOnly && editing
+                ? `QC readings · ${label(stage)} run #${editing.entry_no}`
+                : qcOnly
+                  ? `QC readings without a run · ${label(stage)}`
+                  : editing
+                    ? `Change draft #${editing.entry_no} · ${label(stage)}`
+                    : `Log a ${label(stage).toLowerCase()} run`}
+            </h2>
+            {editing || qcOnly ? (
+              <Button variant="ghost" size="sm" onClick={startRun}>
+                Back to new run
+              </Button>
+            ) : (
+              <span className="text-xs text-muted-foreground">One run = one line of the printed card</span>
+            )}
+          </div>
+
+          {!qcOnly ? (
+            <>
+              {!slotReady ? (
+                <p className="rounded-lg border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-sm text-signal-amber-ink" data-testid="season-entry-unscheduled">
+                  Not on the planner yet — you can still log it. It is flagged for the owner under Reports › Exceptions.
+                </p>
+              ) : null}
+
+              <fieldset className="space-y-3" data-testid="season-entry-card-row">
+                <legend className="mb-2 text-sm font-semibold text-muted-foreground">
+                  <span className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[11px] text-primary-foreground">1</span>
+                  Who and when
+                </legend>
+                <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                  <label className="text-sm">
+                    Date
+                    <Input type="date" className="h-11 text-[15px]" value={businessDate} max={today()} onChange={(e) => setBusinessDate(e.target.value)} />
+                  </label>
+                  <div className="text-sm">
+                    Shift
+                    <div className="mt-0.5 grid h-11 grid-cols-2 overflow-hidden rounded-lg border border-border" role="group" aria-label="Shift">
+                      {["SHIFT_A", "SHIFT_B"].map((code) => (
+                        <button
+                          key={code}
+                          type="button"
+                          aria-pressed={shift === code}
+                          onClick={() => setShift(code)}
+                          className={cn("text-[15px] font-semibold", shift === code ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground")}
+                        >
+                          {code.replace("SHIFT_", "Shift ")}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <label className="col-span-2 text-sm sm:col-span-1">
+                    {machineLabelFor(stage)}
+                    <select className={selectClass} value={machine} onChange={(e) => setMachine(e.target.value)} data-testid="season-entry-machine">
+                      <option value="">{stageMachines.length ? "Choose" : "No machine in this department"}</option>
+                      {stageMachines.map((m: any) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name || m.code}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="col-span-2 text-sm sm:col-span-1">
+                    Operator
+                    <select className={selectClass} value={operator} onChange={(e) => setOperator(e.target.value)} data-testid="season-entry-operator">
+                      <option value="">{employees.isLoading ? "Loading…" : operatorOptions.length ? "Choose operator" : "No active employees — add in Masters › Employees"}</option>
+                      {operatorOptions.map((e: any) => (
+                        <option key={e.id} value={e.id}>
+                          {e.name}
+                          {e.employee_code ? ` · ${e.employee_code}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                  <label className="col-span-2 text-sm sm:col-span-1">
+                    {helperLabelFor(stage)} <span className="text-muted-foreground">(optional)</span>
+                    <Input className="h-11 text-[15px]" value={helper} onChange={(e) => setHelper(e.target.value)} />
+                  </label>
+                  <label className="text-sm">
+                    Start time <span className="text-muted-foreground">(A)</span>
+                    <Input type="time" className="h-11 text-[15px]" value={startTime} onChange={(e) => setStartTime(e.target.value)} aria-label="Start time" />
+                  </label>
+                  <label className="text-sm">
+                    End time <span className="text-muted-foreground">(B)</span>
+                    <Input type="time" className="h-11 text-[15px]" value={endTime} onChange={(e) => setEndTime(e.target.value)} aria-label="End time" />
+                  </label>
+                  <div className="col-span-2 flex items-end text-sm text-muted-foreground sm:col-span-1 sm:pb-2">{cycleText(startStamp, endStamp) ? `Cycle ${cycleText(startStamp, endStamp)}` : "Times are optional"}</div>
+                </div>
+              </fieldset>
+
+              <fieldset className="space-y-3">
+                <legend className="mb-2 text-sm font-semibold text-muted-foreground">
+                  <span className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[11px] text-primary-foreground">2</span>
+                  How many
+                </legend>
+                <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                  {stage === "PROCESS" ? (
+                    <label className="col-span-2 text-sm lg:col-span-1">
+                      {state.input_unit || "Bamboo"} taken from {label(prevStage || "OVEN")}
+                      <input inputMode="numeric" type="number" min="0" step="1" className={numberClass} value={input} onChange={(e) => setInput(e.target.value)} data-testid="season-entry-input" />
+                    </label>
+                  ) : null}
+                  <label className="text-sm">
+                    Output ({state.unit})
+                    <input inputMode="numeric" type="number" min="0" step="1" className={numberClass} value={output} onChange={(e) => setOutput(e.target.value)} data-testid="season-entry-produced" />
+                  </label>
+                  <label className="text-sm">
+                    Rejected
+                    <input inputMode="numeric" type="number" min="0" step="1" className={numberClass} value={rejected} onChange={(e) => setRejected(e.target.value)} data-testid="season-entry-rejected" />
+                  </label>
+                  <div className="col-span-2 flex flex-col justify-end rounded-lg bg-muted px-3 py-2 text-sm lg:col-span-1" data-testid="season-entry-math">
+                    <span className="text-muted-foreground">Good</span>
+                    <span className="text-lg font-semibold tabular-nums">
+                      {fmt(good)} {state.unit}
+                    </span>
+                    {inputFollowsOutput && made ? (
+                      <span className="text-xs text-muted-foreground">
+                        takes {fmt(made)} {state.input_unit || state.unit} from {label(prevStage)}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+                {bad > 0 ? (
+                  <div className="space-y-2" data-testid="season-entry-reject">
+                    <p className="text-sm">Why rejected?</p>
+                    <div className="flex flex-wrap gap-2" role="group" aria-label="Rejection code">
+                      {REJECT_CODES.map(([code, text]) => (
+                        <button
+                          key={code}
+                          type="button"
+                          aria-pressed={rejectCode === code}
+                          onClick={() => setRejectCode(code)}
+                          className={cn("rounded-full border px-3 py-1.5 text-sm", rejectCode === code ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background")}
+                        >
+                          <strong>{code}</strong> {text}
+                        </button>
+                      ))}
+                    </div>
+                    <Input
+                      className="h-11 text-[15px]"
+                      aria-label="Entry reason"
+                      placeholder={rejectCode === "OT" ? "What was wrong? (required)" : "Note (optional)"}
+                      value={rejectNote}
+                      onChange={(e) => setRejectNote(e.target.value)}
+                    />
+                  </div>
+                ) : null}
+                {overTarget ? (
+                  <label className="block text-sm text-signal-amber-ink">
+                    Output goes above the planned quantity +10%. Why?
+                    <Input className="h-11 text-[15px]" value={overNote} onChange={(e) => setOverNote(e.target.value)} aria-label="Overproduction reason" />
+                  </label>
+                ) : null}
+                {canSubmit && state.awaiting_qc_from_upstream > 0 ? (
+                  <div className="rounded-lg border border-border bg-muted p-3 text-sm">
+                    <label className="flex items-center gap-2">
+                      <input type="checkbox" checked={gateOverride} onChange={(e) => setGateOverride(e.target.checked)} /> Supervisor override: take batches whose QC is not recorded yet
+                    </label>
+                    {gateOverride ? (
+                      <Input className="mt-2" placeholder="Why this batch is taken before its QC (kept on the entry)" aria-label="QC gate override reason" value={gateReason} onChange={(e) => setGateReason(e.target.value)} />
+                    ) : null}
+                  </div>
+                ) : null}
+                {stage === "PROCESS" || openSegments.length > 1 ? (
+                  <details className="rounded-lg border border-border p-3 text-sm" open={Boolean(lossQty || carryInQty || carryOutQty)}>
+                    <summary className="cursor-pointer font-medium">More: {stage === "PROCESS" ? "cutting loss, held carryover" : ""}{stage === "PROCESS" && openSegments.length > 1 ? ", " : ""}{openSegments.length > 1 ? "planned slot" : ""}</summary>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      {openSegments.length > 1 ? (
+                        <label className="text-sm sm:col-span-2">
+                          Planned slot
+                          <select className={selectClass} value={segment} onChange={(e) => setSegment(e.target.value)}>
+                            {openSegments.map((s: any) => (
+                              <option key={s.id} value={s.id}>
+                                {s.plan_date || "Unscheduled"} · {s.shift_code?.replace("SHIFT_", "Shift ") || "No shift"} · {machineName(s.machine_id) || "no machine"}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      ) : null}
+                      {stage === "PROCESS"
+                        ? (
+                            [
+                              ["Cutting loss pcs", loss, setLoss],
+                              ["Held carry-in pcs", carryIn, setCarryIn],
+                              ["Held carry-out pcs", carryOut, setCarryOut],
+                            ] as [string, string, (v: string) => void][]
+                          ).map(([title, value, setter]) => (
+                            <label className="text-sm" key={title}>
+                              {title}
+                              <Input inputMode="numeric" type="number" min="0" step="1" className="h-11" value={value} onChange={(e) => setter(e.target.value)} />
+                            </label>
+                          ))
+                        : null}
+                      {stage === "PROCESS" ? (
+                        <label className="text-sm sm:col-span-2 lg:col-span-4">
+                          Reason for loss or carryover
+                          <Input className="h-11" value={remark} onChange={(e) => setRemark(e.target.value)} aria-label="Loss or carryover reason" />
+                        </label>
+                      ) : null}
+                    </div>
+                  </details>
+                ) : null}
+              </fieldset>
+            </>
+          ) : null}
+
+          {parameters.length > 0 ? (
+            <fieldset className="rounded-xl border border-border bg-muted/30 p-3">
+              <legend className="px-1 text-sm font-semibold text-muted-foreground">
+                {!qcOnly ? <span className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[11px] text-primary-foreground">3</span> : null}
+                QC readings{!qcOnly ? " (can be added later)" : ""}
+              </legend>
+              {!qcOnly ? (
+                <button type="button" className="mb-2 text-sm font-medium text-primary underline-offset-2 hover:underline" onClick={() => setShowQc((v) => !v)}>
+                  {showQc ? "Hide QC readings" : `Add QC readings now (${samples.length} samples)`}
+                </button>
+              ) : null}
+              {showQc || qcOnly ? (
+                <div className="space-y-2">
+                  <SeasonQcMatrix rules={parameters} samples={samples} onChange={setSamples} stageLabel={label(stage)} />
+                  {parameters.some((p: any) => p.requires_instrument) ? <InstrumentFields value={instrument} onChange={setInstrument} /> : null}
+                  {qcOnly && editing?.samples?.length ? (
+                    <label className="block text-sm">
+                      Why are these readings changed? (required)
+                      <Input aria-label="Entry reason" value={correction} onChange={(e) => setCorrection(e.target.value)} />
+                    </label>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">The next stage takes this batch only after its QC readings pass.</p>
+              )}
+            </fieldset>
+          ) : null}
+
+          <div className="space-y-2">
+            {missing.length ? (
+              <p className="text-sm text-muted-foreground" data-testid="season-entry-missing">
+                Still needed: {missing.join(", ")}.
+              </p>
+            ) : null}
+            <div className="flex flex-wrap gap-2">
+              {qcOnly ? (
+                <Button size="lg" className="min-w-[12rem] flex-1 sm:flex-none" disabled={mutation.isPending || missing.length > 0} onClick={saveQc}>
+                  {mutation.isPending ? "Saving…" : "Save QC readings"}
+                </Button>
+              ) : editing ? (
+                <Button size="lg" className="min-w-[12rem] flex-1 sm:flex-none" disabled={mutation.isPending || missing.length > 0} onClick={() => saveRun(false)}>
+                  {mutation.isPending ? "Saving…" : "Save draft changes"}
+                </Button>
+              ) : (
+                <Button size="lg" className="min-w-[12rem] flex-1 sm:flex-none" disabled={mutation.isPending || missing.length > 0} onClick={() => saveRun(canSubmit)} data-testid="season-entry-save">
+                  {mutation.isPending ? "Saving…" : canSubmit ? "Save run" : "Send to supervisor"}
+                </Button>
+              )}
+              {editing || qcOnly ? (
+                <Button size="lg" variant="ghost" onClick={startRun}>
+                  Cancel
+                </Button>
+              ) : null}
+            </div>
+            {!qcOnly && !editing ? (
+              <p className="text-xs text-muted-foreground">
+                {canSubmit ? "Saving posts the run straight away. Date, shift, machine and operator stay filled for the next run." : "Your run is saved as a draft; a supervisor checks and submits it."}
+              </p>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+
+      {/* Runs of this stage: newest first. QC, draft review and corrections happen from here. */}
+      <section className="overflow-hidden rounded-xl border border-border bg-card" data-testid="season-runs">
+        <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border px-4 py-3">
+          <h2 className="font-semibold">
+            {label(stage)} runs · {listing.data.total}
+          </h2>
+          <p className="text-xs text-muted-foreground">Drafts do not count until submitted</p>
+        </div>
+        {entries.length === 0 ? <p className="p-6 text-center text-sm text-muted-foreground">No runs logged on this stage yet.</p> : null}
+        <ul className="divide-y divide-border">
+          {entries.map((e: any) => {
+            const verdict = e.evaluation?.verdict
+            const pass = verdict === "PASS" || verdict === "OBSERVATION_ONLY"
+            const fail = verdict === "FAIL"
+            return (
+              <li key={e.id} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm">
+                    <strong>#{e.entry_no}</strong>{" "}
+                    {e.kind === "QC_ONLY" ? (
+                      <span className="text-muted-foreground">QC readings only</span>
+                    ) : (
+                      <span className="tabular-nums">
+                        {fmt(e.produced)} made · <strong>{fmt(e.accepted)} good</strong>
+                        {e.rejected ? (
+                          <span className="text-signal-rose-ink">
+                            {" "}
+                            · {fmt(e.rejected)} rejected{e.details?.reject_code ? ` (${e.details.reject_code})` : ""}
+                          </span>
+                        ) : null}
+                        {e.input_quantity && stage === "PROCESS" ? ` · ${fmt(e.input_quantity)} bamboo in` : ""}
+                      </span>
+                    )}
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {[
+                      e.business_date,
+                      e.shift_code?.replace("SHIFT_", "Shift "),
+                      e.machine_id ? machineName(e.machine_id) : "",
+                      e.operator_name,
+                      e.details?.start_time && e.details?.end_time ? `${clockOf(e.details.start_time)}–${clockOf(e.details.end_time)}` : "",
+                      e.details?.unscheduled_entry ? "logged before planning" : "",
+                      e.qc_gate_override ? "taken before upstream QC (override)" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {e.status === "DRAFT" ? (
+                    <span className="rounded-full bg-signal-amber-soft px-2 py-0.5 text-xs font-semibold text-signal-amber-ink">Draft</span>
+                  ) : e.status === "VOID" ? (
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold text-muted-foreground">Void</span>
+                  ) : stage === "QC" ? null : (
+                    <span
+                      className={cn(
+                        "rounded-full px-2 py-0.5 text-xs font-semibold",
+                        pass ? "bg-signal-emerald-soft text-signal-emerald-ink" : fail ? "bg-signal-rose-soft text-signal-rose-ink" : "bg-signal-amber-soft text-signal-amber-ink",
+                      )}
+                    >
+                      {verdictLabel(verdict)}
+                      {e.kind !== "QC_ONLY" ? (e.qc_cleared ? " · cleared" : fail ? " · on hold" : "") : ""}
+                    </span>
+                  )}
+                  {e.status === "SUBMITTED" && canQc && parameters.length ? (
+                    <Button size="sm" variant={pass ? "ghost" : "outline"} onClick={() => openEntry(e, true)}>
+                      {e.samples?.length ? "QC" : "Add QC"}
+                    </Button>
+                  ) : null}
+                  {e.status === "DRAFT" && canDraft ? (
+                    <Button size="sm" variant="ghost" onClick={() => openEntry(e)}>
+                      Edit
+                    </Button>
+                  ) : null}
+                  {e.status === "DRAFT" && canSubmit ? (
+                    <Button size="sm" disabled={mutation.isPending} onClick={() => mutation.mutate(() => entryApi.submit(card.id, e.id, stableCommand({ expected_version: e.row_version, reason: "Reviewed draft" })))}>
+                      Submit
+                    </Button>
+                  ) : null}
+                  {e.status !== "VOID" && canSubmit && state?.status !== "COMPLETED" ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        const reason = window.prompt("Reason to void this run (output already used downstream cannot be voided)")
+                        if (reason) mutation.mutate(() => entryApi.void(card.id, e.id, stableCommand({ expected_version: e.row_version, reason })))
+                      }}
+                    >
+                      Void
+                    </Button>
+                  ) : null}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={async () => {
+                      try {
+                        setHistory((await entryApi.history(card.id, e.id)).data)
+                      } catch (err) {
+                        setError(errorText(err))
+                      }
+                    }}
+                  >
+                    History
+                  </Button>
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+        {listing.data.total > 50 ? (
+          <div className="flex justify-between border-t border-border p-3">
+            <Button variant="outline" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
+              Newer
+            </Button>
+            <Button variant="outline" disabled={(page + 1) * 50 >= listing.data.total} onClick={() => setPage((p) => p + 1)}>
+              Older
+            </Button>
+          </div>
+        ) : null}
+      </section>
+
+      {history ? (
+        <section className="rounded-xl border border-border bg-card p-4">
+          <Button variant="ghost" onClick={() => setHistory(null)}>
+            Close history
+          </Button>
+          {history.map((r: any) => (
+            <details key={r.version}>
+              <summary className="cursor-pointer py-2">
+                Revision {r.version} · {r.actor} · {r.reason}
+              </summary>
+              <pre className="max-h-96 overflow-auto text-xs">{JSON.stringify(r.payload, null, 2)}</pre>
+            </details>
+          ))}
+        </section>
+      ) : null}
+
+      {/* Less frequent actions: finishing a stage, typing a whole printed card, QC desk readings. */}
+      <div className="flex flex-wrap gap-2" data-testid="season-stage-actions">
+        {canSubmit && loggable ? (
+          <Button variant="outline" onClick={() => setPanel(panel === "close" ? "" : "close")}>
+            Close {label(stage).toLowerCase()} stage
+          </Button>
+        ) : null}
+        {canSubmit && stages.some((s: any) => !["COMPLETED", "CANCELLED"].includes(s.status) && !["DISPATCH", "SLITTING"].includes(s.stage)) ? (
+          <Button variant="outline" onClick={() => setPanel(panel === "whole" ? "" : "whole")}>
+            Enter the whole printed card
+          </Button>
+        ) : null}
+        {canQc && parameters.length > 0 && loggable ? (
+          <Button variant="outline" onClick={() => openEntry(undefined, true)} title="Readings for a sample that is not tied to one run (QC desk).">
+            QC readings without a run
+          </Button>
+        ) : null}
+        <Button asChild variant="ghost">
+          <Link href={`/quality/results?job_card_id=${card.id}`}>QC results / holds</Link>
+        </Button>
+        <Button asChild variant="ghost">
+          <Link href="/inventory/production-issue">Material issues</Link>
+        </Button>
       </div>
-      <p className="text-sm" data-testid="season-entry-math">Rejected = output − accepted = <strong>{Math.max(0,count(produced)-count(accepted))} {state.unit}</strong>{inputFollowsOutput?<> · takes <strong>{count(produced)} {state.input_unit || state.unit}</strong> from {label(prevStage)}</>:null}{startTime && endTime?<> · cycle {cycleText(startTime,endTime)}</>:null}</p>
-      {state.available_from_upstream!=null && <p className="text-sm text-muted-foreground">Ready input now: <strong className="text-foreground">{state.available_from_upstream} {state.input_unit}</strong>{state.awaiting_qc_from_upstream>0?<> · {state.awaiting_qc_from_upstream} {state.input_unit} still waiting for previous-stage QC</>:null}</p>}
-      {canSubmit && state.awaiting_qc_from_upstream>0 && <div className="rounded-lg border border-border bg-muted p-3 text-sm"><label className="flex items-center gap-2"><input type="checkbox" checked={gateOverride} onChange={e=>setGateOverride(e.target.checked)} /> Supervisor override: take batches whose QC is not yet recorded</label>{gateOverride && <Input className="mt-2" placeholder="Why this batch is taken before its QC is recorded (kept on the entry)" aria-label="QC gate override reason" value={gateReason} onChange={e=>setGateReason(e.target.value)} />}</div>}
-      {canSubmit && !editing && <label className="flex items-center gap-2 text-xs text-muted-foreground"><input type="checkbox" checked={totalMode} onChange={e=>setTotalMode(e.target.checked)} /> I am entering the running totals of the whole card, not this run only{totalMode && <span> · will post delta: output {count(produced)-state.produced_total}, accepted {count(accepted)-state.accepted_total}</span>}</label>}
-    </>}
-      {parameters.length>0 && <div className="space-y-2 rounded-xl border border-border bg-muted/40 p-3"><SeasonQcMatrix rules={parameters} samples={samples} onChange={setSamples} stageLabel={label(stage)}/><p className="text-xs text-muted-foreground">{qcOnly?"Readings are added to the selected batch.":"QC can be filled now or later with “QC” on this entry."} The stage closes only when every check has its required samples.</p></div>}
-      {parameters.some((p:any)=>p.requires_instrument) && <InstrumentFields value={instrument} onChange={setInstrument}/>}
-      <label className="block text-sm">{qcOnly && editing?.samples?.length?"Correction reason *":!qcOnly && count(produced)>count(accepted)?"Reject reason *":"Remark"}<Input placeholder={qcOnly && editing?.samples?.length?"Why are recorded readings being changed? (required)":qcOnly?"Optional note":!qcOnly && count(produced)>count(accepted)?"Why were these rejected? (required)":"Rejects, loss, carryover, excess output or correction"} aria-label="Entry reason" value={reason} onChange={e=>setReason(e.target.value)} /></label><div className="flex gap-2">{!qcOnly && !totalMode && <Button variant="outline" disabled={mutation.isPending} onClick={()=>save(false)}>{editing?"Save draft changes":"Save draft"}</Button>}{(canSubmit || qcOnly && canQc) && !editing?.status?.includes("DRAFT") && <Button disabled={mutation.isPending || (qcOnly && editing?.samples?.length>0 && !reason.trim()) || !qcOnly && (!produced || !accepted || !operator || !shift || (count(produced)>count(accepted) && (!reason.trim() || !rejectCode)) || (gateOverride && !gateReason.trim()))} onClick={()=>save(true)}>{qcOnly?(editing?.samples?.length?"Save QC correction":"Save QC readings"):editing?"Save QC correction":"Submit entry"}</Button>}<Button variant="ghost" onClick={()=>setShowForm(false)}>Cancel</Button></div>
-    </section>}
-    {closing && <section className="space-y-3 rounded-xl border border-border bg-card p-5"><h2 className="font-semibold">Close {label(stage)}</h2><label className="text-sm">Supervisor name *<select className={selectClass} value={supervisor} onChange={e=>setSupervisor(e.target.value)}><option value="">{supervisorOptions.length?"Choose supervisor":"No active Supervisor or Manager — add one in Masters › Employees"}</option>{supervisorOptions.map((e:any)=><option key={e.id} value={e.id}>{e.name}{e.employee_code?` · ${e.employee_code}`:""} · {e.role}</option>)}</select></label>{stage==="WINDER" && <details><summary className="cursor-pointer text-sm font-semibold">Link consumed material issues</summary>{reelIssues.isError?<p className="text-sm text-destructive">Could not load reel issues. Retry after checking Inventory.</p>:(reelIssues.data || []).filter((i:any)=>!i.sales_order_id || i.sales_order_id===card.sales_order_id).map((i:any)=><label key={i.id} className="mt-2 block text-sm"><input type="checkbox" checked={reelLinks.includes(i.id)} onChange={e=>setReelLinks(current=>e.target.checked?[...current,i.id]:current.filter(id=>id!==i.id))}/> {i.reel_code || i.amigo_no || i.id.slice(0,8)} · {i.consumed_weight_kg} kg · {i.issue_date}</label>)}</details>}{stage==="PACKING" && <div className="grid gap-3 sm:grid-cols-2"><label className="text-sm">Finished-good item *<select className={selectClass} value={fgItem} onChange={e=>setFgItem(e.target.value)}><option value="">Choose finished good</option>{(items.data || []).filter((i:any)=>i.type==="FINISHED_GOOD").map((i:any)=><option key={i.id} value={i.id}>{i.item_code || i.code} · {i.name}</option>)}</select></label><label className="text-sm">Stock location<select className={selectClass} value={location} onChange={e=>setLocation(e.target.value)}><option value="">Default location</option>{(locations.data || []).map((l:any)=><option key={l.id} value={l.id}>{l.name}</option>)}</select></label></div>}{state.available_from_upstream>0 && <label className="text-sm">Unused input disposition<select className={selectClass} value={residual} onChange={e=>setResidual(e.target.value)}><option value="HOLD">Hold for follow-up</option><option value="RETURN">Return unused input</option><option value="SCRAP">Scrap with reason</option></select></label>}<Input value={reason} onChange={e=>setReason(e.target.value)} placeholder="Short-close, material issue exception or residual WIP reason" aria-label="Close reason" /><Button disabled={mutation.isPending || !supervisor || !state.qc.ready || state.draft_count>0} onClick={()=>mutation.mutate(()=>entryApi.close(card.id,stage,stableCommand({expected_version:state.row_version,supervisor_id:supervisor,reel_issue_ids:stage==="WINDER"?reelLinks:[],fg_item_id:stage==="PACKING"?fgItem || null:null,location_id:location || null,short_close:state.accepted_total<state.target,residual_disposition:residual,reason})))}>Confirm stage close</Button><Button variant="ghost" onClick={()=>setClosing(false)}>Cancel</Button></section>}
-    <section className="overflow-hidden rounded-xl border border-border bg-card"><div className="flex justify-between p-4"><h2 className="font-semibold">Entry history · {listing.data.total}</h2><p className="text-xs text-muted-foreground">Drafts do not add to production totals</p></div><div className="overflow-x-auto"><table className="w-full text-left text-sm">{embedded ? <><thead className="border-y border-border bg-muted"><tr>{["Batch","Made · good · rejected","QC / status","Actions"].map(h=><th key={h} className="px-3 py-2 font-medium">{h}</th>)}</tr></thead><tbody>{listing.data.entries.map((e:any)=><tr key={e.id} className="border-b border-border align-top"><td className="px-3 py-2"><span className="font-semibold">#{e.entry_no}</span> <span className="text-xs text-muted-foreground">{e.business_date || (e.kind==="QC_ONLY" ? "QC only" : "Date not set")}</span><p className="text-xs text-muted-foreground">{e.shift_code?.replace("SHIFT_","Shift ")}{e.operator_name?` · ${e.operator_name}`:""}</p></td><td className="px-3 py-2 tabular-nums">{e.produced} · {e.accepted} · <span className={e.rejected?"text-signal-rose-ink":""}>{e.rejected}</span></td><td className="px-3 py-2">{e.stage==="QC"?state.qc.ready?"Final QC ready":"Final QC pending":<span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${e.evaluation?.verdict==="PASS"||e.evaluation?.verdict==="OBSERVATION_ONLY"?"bg-signal-emerald-soft text-signal-emerald-ink":e.evaluation?.verdict==="FAIL"?"bg-signal-rose-soft text-signal-rose-ink":"bg-signal-amber-soft text-signal-amber-ink"}`}>{verdictLabel(e.evaluation?.verdict)}{e.status==="SUBMITTED" && e.kind!=="QC_ONLY"?(e.qc_cleared?" · cleared for next stage":e.evaluation?.verdict==="FAIL"?" · on hold":" · next stage waits"):""}</span>}<p className="text-xs text-muted-foreground">{e.status} · revision {e.row_version}{e.details?.qc_name?` · QC ${e.details.qc_name}`:""}{e.qc_gate_override?" · taken before upstream QC (override)":""}{e.details?.unscheduled_entry?" · logged before planning":""}</p></td><td className="px-3 py-2"><div className="flex flex-wrap gap-1">{e.status==="DRAFT" && canDraft && <Button size="sm" variant="ghost" onClick={()=>newForm(e)}>Edit</Button>}{e.status==="DRAFT" && canSubmit && <Button size="sm" disabled={mutation.isPending} onClick={()=>mutation.mutate(()=>entryApi.submit(card.id,e.id,stableCommand({expected_version:e.row_version,reason:"Reviewed draft"})))}>Submit</Button>}{e.status==="SUBMITTED" && canQc && <Button size="sm" variant="ghost" onClick={()=>newForm(e,true)}>QC</Button>}{e.status!=="VOID" && canSubmit && state.status!=="COMPLETED" && <Button size="sm" variant="ghost" onClick={()=>{const reason=window.prompt("Reason to void this entry (consumed output cannot be voided)");if(reason)mutation.mutate(()=>entryApi.void(card.id,e.id,stableCommand({expected_version:e.row_version,reason})))}}>Void</Button>}<Button size="sm" variant="ghost" onClick={async()=>{try{setHistory((await entryApi.history(card.id,e.id)).data)}catch(e){setError(errorText(e))}}}>Audit</Button></div></td></tr>)}</tbody></> : <><thead className="border-y border-border bg-muted"><tr>{["Entry / date","Shift / operator","Produced","Accepted","Rejected","QC / status","Actions"].map(h=><th key={h} className="px-4 py-3 font-medium">{h}</th>)}</tr></thead><tbody>{listing.data.entries.map((e:any)=><tr key={e.id} className="border-b border-border"><td className="px-4 py-3">#{e.entry_no}<p className="text-xs text-muted-foreground">{e.business_date || (e.kind==="QC_ONLY" ? "QC only" : "Date not set")}</p></td><td className="px-4 py-3">{e.shift_code?.replace("SHIFT_","Shift ")}<p>{e.operator_name} {e.operator_code?`· ${e.operator_code}`:""}</p></td><td className="px-4">{e.produced}</td><td className="px-4">{e.accepted}</td><td className="px-4">{e.rejected}</td><td className="px-4">{e.stage==="QC"?state.qc.ready?"Final QC ready":"Final QC pending":<span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${e.evaluation?.verdict==="PASS"||e.evaluation?.verdict==="OBSERVATION_ONLY"?"bg-signal-emerald-soft text-signal-emerald-ink":e.evaluation?.verdict==="FAIL"?"bg-signal-rose-soft text-signal-rose-ink":"bg-signal-amber-soft text-signal-amber-ink"}`}>{verdictLabel(e.evaluation?.verdict)}{e.status==="SUBMITTED" && e.kind!=="QC_ONLY"?(e.qc_cleared?" · cleared for next stage":e.evaluation?.verdict==="FAIL"?" · on hold":" · next stage waits"):""}</span>}<p className="text-xs text-muted-foreground">{e.status} · revision {e.row_version}{e.details?.qc_name?` · QC ${e.details.qc_name}`:""}{e.qc_gate_override?" · taken before upstream QC (override)":""}{e.details?.unscheduled_entry?" · logged before planning":""}</p></td><td className="px-4"><div className="flex flex-wrap gap-1">{e.status==="DRAFT" && canDraft && <Button size="sm" variant="ghost" onClick={()=>newForm(e)}>Edit</Button>}{e.status==="DRAFT" && canSubmit && <Button size="sm" disabled={mutation.isPending} onClick={()=>mutation.mutate(()=>entryApi.submit(card.id,e.id,stableCommand({expected_version:e.row_version,reason:"Reviewed draft"})))}>Submit</Button>}{e.status==="SUBMITTED" && canQc && <Button size="sm" variant="ghost" onClick={()=>newForm(e,true)}>QC</Button>}{e.status!=="VOID" && canSubmit && state.status!=="COMPLETED" && <Button size="sm" variant="ghost" onClick={()=>{const reason=window.prompt("Reason to void this entry (consumed output cannot be voided)");if(reason)mutation.mutate(()=>entryApi.void(card.id,e.id,stableCommand({expected_version:e.row_version,reason})))}}>Void</Button>}<Button size="sm" variant="ghost" onClick={async()=>{try{setHistory((await entryApi.history(card.id,e.id)).data)}catch(e){setError(errorText(e))}}}>Audit</Button></div></td></tr>)}</tbody></>}</table></div>{listing.data.total===0 && <p className="p-8 text-center text-sm text-muted-foreground">No entries for this stage. Add a draft, production output or QC observations.</p>}<div className="flex justify-between p-3"><Button variant="outline" disabled={page===0} onClick={()=>setPage(p=>p-1)}>Previous</Button><Button variant="outline" disabled={(page+1)*50>=listing.data.total} onClick={()=>setPage(p=>p+1)}>Next</Button></div></section>
-    {history && <section className="rounded-xl border border-border bg-card p-4"><Button variant="ghost" onClick={()=>setHistory(null)}>Close audit</Button>{history.map((r:any)=><details key={r.version}><summary className="cursor-pointer py-2">Revision {r.version} · {r.actor} · {r.reason}</summary><pre className="max-h-96 overflow-auto text-xs">{JSON.stringify(r.payload,null,2)}</pre></details>)}</section>}
-  </div>
+
+      {panel === "close" && state ? (
+        <section className="space-y-3 rounded-xl border border-border bg-card p-4 sm:p-5">
+          <h2 className="font-semibold">Close {label(stage)}</h2>
+          <p className="text-sm text-muted-foreground">
+            {fmt(state.accepted_total)} of {fmt(state.target)} {state.unit} good{state.accepted_total < state.target ? " — closing now is a short close and needs a reason" : ""}.
+            {state.draft_count ? ` ${state.draft_count} draft must be submitted or voided first.` : ""}
+          </p>
+          <label className="block text-sm">
+            Supervisor
+            <select className={selectClass} value={supervisor} onChange={(e) => setSupervisor(e.target.value)}>
+              <option value="">{supervisorOptions.length ? "Choose supervisor" : "No active Supervisor or Manager — add one in Masters › Employees"}</option>
+              {supervisorOptions.map((e: any) => (
+                <option key={e.id} value={e.id}>
+                  {e.name}
+                  {e.employee_code ? ` · ${e.employee_code}` : ""} · {e.role}
+                </option>
+              ))}
+            </select>
+          </label>
+          {stage === "WINDER" ? (
+            <details>
+              <summary className="cursor-pointer text-sm font-semibold">Link consumed reel issues</summary>
+              {reelIssues.isError ? (
+                <p className="text-sm text-destructive">Could not load reel issues. Retry after checking Inventory.</p>
+              ) : (
+                (reelIssues.data || [])
+                  .filter((i: any) => !i.sales_order_id || i.sales_order_id === card.sales_order_id)
+                  .map((i: any) => (
+                    <label key={i.id} className="mt-2 block text-sm">
+                      <input type="checkbox" checked={reelLinks.includes(i.id)} onChange={(e) => setReelLinks((current) => (e.target.checked ? [...current, i.id] : current.filter((id) => id !== i.id)))} />{" "}
+                      {i.reel_code || i.amigo_no || i.id.slice(0, 8)} · {i.consumed_weight_kg} kg · {i.issue_date}
+                    </label>
+                  ))
+              )}
+            </details>
+          ) : null}
+          {stage === "PACKING" ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="text-sm">
+                Finished-good item
+                <select className={selectClass} value={fgItem} onChange={(e) => setFgItem(e.target.value)}>
+                  <option value="">Choose finished good</option>
+                  {(items.data || [])
+                    .filter((i: any) => i.type === "FINISHED_GOOD")
+                    .map((i: any) => (
+                      <option key={i.id} value={i.id}>
+                        {i.item_code || i.code} · {i.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label className="text-sm">
+                Stock location
+                <select className={selectClass} value={location} onChange={(e) => setLocation(e.target.value)}>
+                  <option value="">Default location</option>
+                  {(locations.data || []).map((l: any) => (
+                    <option key={l.id} value={l.id}>
+                      {l.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          ) : null}
+          {state.available_from_upstream > 0 ? (
+            <label className="block text-sm">
+              Unused input ({fmt(state.available_from_upstream)} {state.input_unit})
+              <select className={selectClass} value={residual} onChange={(e) => setResidual(e.target.value)}>
+                <option value="HOLD">Hold for follow-up</option>
+                <option value="RETURN">Return unused input</option>
+                <option value="SCRAP">Scrap with reason</option>
+              </select>
+            </label>
+          ) : null}
+          <Input value={closeReason} onChange={(e) => setCloseReason(e.target.value)} placeholder="Reason (short close, material exception, unused input)" aria-label="Close reason" />
+          <div className="flex flex-wrap gap-2">
+            <Button
+              disabled={mutation.isPending || !supervisor || !state.qc.ready || state.draft_count > 0}
+              onClick={() =>
+                mutation.mutate(async () => {
+                  const result = await entryApi.close(
+                    card.id,
+                    stage,
+                    stableCommand({
+                      expected_version: state.row_version,
+                      supervisor_id: supervisor,
+                      reel_issue_ids: stage === "WINDER" ? reelLinks : [],
+                      fg_item_id: stage === "PACKING" ? fgItem || null : null,
+                      location_id: location || null,
+                      short_close: state.accepted_total < state.target,
+                      residual_disposition: residual,
+                      reason: closeReason,
+                    }),
+                  )
+                  setPanel("")
+                  setNotice(`${label(stage)} closed.`)
+                  return result
+                })
+              }
+            >
+              Confirm close
+            </Button>
+            <Button variant="ghost" onClick={() => setPanel("")}>
+              Cancel
+            </Button>
+          </div>
+          {!state.qc.ready ? <p className="text-xs text-signal-amber-ink">QC readings are still missing for this stage (see “Before this stage can close”).</p> : null}
+        </section>
+      ) : null}
+
+      {panel === "whole" ? <WholeCardEntryForm card={card} flow={flow.data} onDone={() => setPanel("")} /> : null}
+
+      {canSubmit ? <JobCardShortagePanel key={card.id} card={card} flow={flow.data} /> : null}
+
+      {effects.data?.length > 0 ? (
+        <details className="rounded-xl border border-border bg-card p-4">
+          <summary className="cursor-pointer text-sm font-semibold">Stock postings · {flow.data.pending_effects} pending</summary>
+          {effects.data.map((e: any) => (
+            <div key={e.id} className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-sm">
+              <div>
+                <p>
+                  {label(e.stage || "")} · {e.kind.replaceAll("_", " ")} · {e.status}
+                </p>
+                {e.last_error ? <p className="text-destructive">{e.last_error}</p> : null}
+                <p className="text-xs text-muted-foreground">
+                  Attempts {e.attempts}
+                  {e.status === "FAILED" ? ` · Next automatic retry ${seasonTimestamp(e.next_attempt_at)}` : ""}
+                </p>
+              </div>
+              {canSubmit && e.status === "FAILED" ? (
+                <Button
+                  variant="outline"
+                  disabled={mutation.isPending}
+                  onClick={() =>
+                    mutation.mutate(async () => {
+                      const r = await entryApi.retryEffect(card.id, e.id, stableCommand({ expected_version: e.attempts, reason: "Supervisor requested retry after reviewing posting failure" }))
+                      await effects.refetch()
+                      return r
+                    })
+                  }
+                >
+                  Retry posting
+                </Button>
+              ) : null}
+            </div>
+          ))}
+        </details>
+      ) : null}
+
+      <ResidualWipPanel
+        rows={flow.data.residual_wip}
+        canResolve={canSubmit}
+        busy={mutation.isPending}
+        onResolve={(row, disposition, reason) => mutation.mutate(() => entryApi.resolveResidual(card.id, row.id, stableCommand({ expected_version: row.row_version, disposition, reason })))}
+      />
+
+      {parameters.length ? (
+        <details className="rounded-xl border border-border bg-card p-4">
+          <summary className="cursor-pointer text-sm font-semibold">{label(stage)} QC limits on this card</summary>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {parameters.map((r: any) => (
+              <div key={r.code} className="rounded-lg border border-border p-3 text-sm">
+                <strong>{r.label}</strong>
+                <p>
+                  {allowedText(r)} · {r.min_readings} samples
+                </p>
+                <p className="text-xs text-muted-foreground">{r.overlay_id ? `Customer/spec overlay v${r.overlay_version}` : `Global ${seasonLabel(flow.data.season)} v${profile?.provenance?.rule_set_version}`}</p>
+              </div>
+            ))}
+          </div>
+        </details>
+      ) : null}
+    </div>
+  )
 }

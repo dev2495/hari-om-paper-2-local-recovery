@@ -13,11 +13,21 @@ export const qcRangeLabel = (rule: any): string => {
   return `${min != null && max != null ? `${min} to ${max}` : min != null ? `≥ ${min}` : max != null ? `≤ ${max}` : "No bound configured"}${rule.unit ? ` ${rule.unit}` : ""}`
 }
 export const command = (extra: Record<string, unknown> = {}) => ({ request_id: crypto.randomUUID(), ...extra })
+// One blocker in words: "cs 520 (allowed ≥ 550)" rather than raw JSON.
+const blockerText = (v: any): string => {
+  if (typeof v === "string") return v
+  if (v?.message) return v.message
+  if (v?.parameter) {
+    const band = v.min != null && v.max != null ? `${v.min}–${v.max}` : v.min != null ? `≥ ${v.min}` : v.max != null ? `≤ ${v.max}` : "limit"
+    return `${v.label || v.parameter} ${v.value ?? "missing"} (allowed ${band})`
+  }
+  return JSON.stringify(v)
+}
 export const errorText = (error: any): string => {
   const detail = error?.response?.data?.detail
   if (typeof detail === "string") return detail
   if (Array.isArray(detail)) return detail.map((v: any) => v?.msg ? `${(v.loc || []).filter((part: any) => part !== "body").join(" › ")}: ${v.msg}` : String(v)).join(" · ")
-  if (detail?.blockers) return `${detail.code === "SPEC_NOT_READY" ? "Not ready yet — " : ""}${detail.blockers.map((v: any) => typeof v === "string" ? v : v?.message || JSON.stringify(v)).join(" · ")}`
+  if (detail?.blockers?.length) return `${detail.code === "SPEC_NOT_READY" ? "Not ready yet — " : detail.code === "STAGE_QC_READINGS_SHORT" ? "Stage cannot close: QC reading out of limit — " : ""}${detail.blockers.map(blockerText).join(" · ")}`
   if (detail?.missing) return detail.missing.map((v: any) => `${v.label || v.parameter}: ${v.have}/${v.need}`).join(" · ")
   return detail?.message || error?.message || "Could not complete this action"
 }
