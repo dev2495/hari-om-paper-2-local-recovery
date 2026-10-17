@@ -96,6 +96,33 @@ record_maintenance PREPARING
 maintenance_started=1
 systemctl stop hariom-backup.timer hariom-restore-drill.timer
 record_maintenance STOPPED
+# cp -a never removes a file that was deleted from Git, and the image build copies the
+# whole app folder, so deleted source kept being compiled (and broke the build once the
+# code it imported changed). Remove source files under apps/ and hariom-erp/ that this
+# release does not have. Runtime folders (.env, node_modules, .next, virtualenvs, caches,
+# logs) stay; the list is kept as evidence and previous-source.tar.gz restores them on rollback.
+python3 - "$app" "$work/source" "$work/pruned-files.txt" <<'PY'
+import fnmatch, os, sys
+app, source, report = sys.argv[1:4]
+keep_dirs = {".git", "node_modules", ".next", "__pycache__", ".pytest_cache", "playwright-report", "test-results"}
+keep_dir_prefixes = ("venv", ".venv", "runtime", ".runtime")
+keep_files = ("*.pyc", "*.log", "*.pid", ".env", ".env.*", "*.tsbuildinfo")
+removed = []
+for top in ("apps", "hariom-erp"):
+    for current, dirs, files in os.walk(os.path.join(app, top)):
+        dirs[:] = [d for d in dirs if d not in keep_dirs and not d.startswith(keep_dir_prefixes)
+                   and not d.endswith(".unreadable.bak") and ".pre_restore_" not in d]
+        for name in files:
+            if any(fnmatch.fnmatch(name, pattern) for pattern in keep_files):
+                continue
+            relative = os.path.relpath(os.path.join(current, name), app)
+            if not os.path.lexists(os.path.join(source, relative)):
+                os.remove(os.path.join(app, relative))
+                removed.append(relative)
+with open(report, "w") as stream:
+    stream.write("".join(path + "\n" for path in sorted(removed)))
+print(f"Removed {len(removed)} source file(s) no longer in Git; list in {report}")
+PY
 # No delete option: production .env and runtime state remain in place.
 cp -a "$work/source/." "$app/"
 compose build erp-app

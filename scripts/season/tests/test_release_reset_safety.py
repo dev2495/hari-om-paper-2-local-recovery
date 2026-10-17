@@ -258,6 +258,59 @@ def test_failed_build_restores_source_image_and_original_schedules(shell_env):
     assert (opt / "DEPLOYED_COMMIT").read_text().strip() == "a" * 40
 
 
+def _stage_source_tree(root, opt):
+    """Release has Keep.tsx; the host still has a file deleted from Git plus runtime files."""
+    source = root / "source"
+    kept = source / "apps/web-ui/components/production/Keep.tsx"
+    kept.parent.mkdir(parents=True)
+    kept.write_text("export const keep = 1\n")
+    (source / "hariom-erp/services/production-service/src").mkdir(parents=True)
+    (source / "hariom-erp/services/production-service/src/main.py").write_text("app = None\n")
+    with tarfile.open(root / "release.tar.gz", "w:gz") as archive:
+        archive.add(source, arcname="release")
+    app = opt / "app"
+    files = {
+        "stale": app / "apps/web-ui/components/production/SeasonJobCardPrint.tsx",
+        "stale_py": app / "hariom-erp/services/production-service/src/old_router.py",
+        "kept": app / "apps/web-ui/components/production/Keep.tsx",
+        "modules": app / "apps/web-ui/node_modules/pkg/index.js",
+        "next": app / "apps/web-ui/.next/BUILD_ID",
+        "venv": app / "hariom-erp/venv-runtime/bin/python",
+        "local_env": app / "apps/web-ui/.env.local",
+        "cache": app / "hariom-erp/services/production-service/src/__pycache__/old.cpython-312.pyc",
+    }
+    for path in files.values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x\n")
+    return files
+
+
+def test_release_removes_source_deleted_from_git_but_keeps_runtime_files(shell_env):
+    root, opt, deploy, env = shell_env
+    files = _stage_source_tree(root, opt)
+    result = run_shell(deploy / "release_verified.sh", ["b" * 40, "a" * 40], env)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not files["stale"].exists() and not files["stale_py"].exists()
+    for key in ("kept", "modules", "next", "venv", "local_env", "cache"):
+        assert files[key].exists(), key
+    assert (deploy / ".env").read_text().startswith("DB_USER=test-only")
+    work = next((opt / "releases").iterdir())
+    assert (work / "pruned-files.txt").read_text().splitlines() == [
+        "apps/web-ui/components/production/SeasonJobCardPrint.tsx",
+        "hariom-erp/services/production-service/src/old_router.py",
+    ]
+
+
+def test_failed_build_restores_source_files_it_removed(shell_env):
+    root, opt, deploy, env = shell_env
+    files = _stage_source_tree(root, opt)
+    env["MOCK_BUILD_FAIL"] = "1"
+    result = run_shell(deploy / "release_verified.sh", ["b" * 40, "a" * 40], env)
+    assert result.returncode == 8, result.stdout + result.stderr
+    assert files["stale"].exists() and files["stale_py"].exists()
+    assert (opt / "DEPLOYED_COMMIT").read_text().strip() == "a" * 40
+
+
 def test_failure_after_cutover_rolls_back_image_marker_and_schedules(shell_env):
     root, opt, deploy, env = shell_env
     env["MOCK_METRICS_FAIL"] = "1"
