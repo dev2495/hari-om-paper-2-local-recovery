@@ -605,7 +605,10 @@ def _build_provisional_material_rows_for_job_card(
             round(float(adhesive_row.get("weight_kg") or 0.0) * provisional_bamboo_count, 6),
         )
 
-    if parchment_row:
+    # The approved recipe only allows parchment (COMM-08); the order line decides whether it is wound.
+    # An order placed without parchment consumes none, so the month's theory must not expect any.
+    ordered_without_parchment = (dict(getattr(job_card, "spec_snapshot", {}) or {})).get("sales_order_line_parchment_required") is False
+    if parchment_row and not ordered_without_parchment:
         color = str(parchment_row.get("color") or "").strip()
         inventory_match = _find_inventory_item_match(
             inventory_items=inventory_items,

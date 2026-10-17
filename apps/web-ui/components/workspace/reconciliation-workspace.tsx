@@ -43,6 +43,7 @@ import {
   useMonthlyCloseState,
   useMonthlyMaterialSummary,
   usePeriodState,
+  useCountConsumption,
   useWeeklyDrift,
 } from "@/hooks/use-production"
 import { cn } from "@/lib/utils"
@@ -96,6 +97,28 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
   const periodStateQuery = usePeriodState(month, selectedPlant, Boolean(month))
   const booksStateQuery = useBooksState(selectedPlant, true)
   const driftQuery = useWeeklyDrift(weekStart, selectedPlant, activeTab === "drift")
+  const countQuery = useCountConsumption(month, selectedPlant, activeTab === "actuals")
+  const countRows: any[] = Array.isArray(countQuery.data?.rows) ? countQuery.data.rows : []
+  const countCert = countQuery.data?.certification
+  // Actual consumption from the certified count: opening + received - counted closing, per item.
+  const fillFromCount = () => {
+    const byCode = new Map(countRows.map((row: any) => [String(row.item_code).toUpperCase(), row]))
+    setActualDraft((current) => {
+      const next = { ...current }
+      rows.forEach((row) => {
+        const counted = byCode.get(String(row.item_code).toUpperCase())
+        if (!counted) return
+        next[row.item_code] = {
+          ...(next[row.item_code] || { actual_cost: "", notes: "" }),
+          actual_consumed_weight_kg: String(counted.consumed_qty),
+          notes: [next[row.item_code]?.notes, `Stock count ${countCert?.count_session_no || ""}: opening ${counted.opening_qty} + received ${counted.inward_qty} - counted ${counted.counted_qty}${counted.uncounted_lines ? " (book closing used where not counted)" : ""}`]
+            .filter(Boolean)
+            .join(" · "),
+        }
+      })
+      return next
+    })
+  }
 
   const importMutation = useImportMonthlyActuals()
   const approveMutation = useApproveMonthlyClose()
@@ -519,9 +542,19 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
       {activeTab === "actuals" && (
         <Panel
           title="Monthly material actuals"
-          subtitle="Plug in qty and cost from the physical register. Notes are required when variance > tolerance."
+          subtitle="Actual = opening + received − counted closing. Use Fill from stock count after the month's count is certified, check, then save. Notes are required when variance > tolerance."
           actions={
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={fillFromCount}
+                disabled={!countRows.length || writeBlocked || isLocked}
+                title={countCert ? `Certified count ${countCert.count_session_no || ""} · ${countCert.period_start} to ${countCert.period_end}` : "Certify the month's stock count in Inventory › Stock control first"}
+                data-testid="fill-actuals-from-count"
+                className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Fill from stock count
+              </button>
               <button
                 onClick={handleSaveActuals}
                 disabled={importMutation.isPending || writeBlocked || isLocked}

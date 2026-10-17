@@ -23,6 +23,9 @@ type Rule = {
 
 export type QcSample = { sample_id: string; readings: Record<string, any> }
 
+/** Client rule 2026-10-17 (same list as the server): moisture is optional; a missing reading is only flagged. */
+export const OPTIONAL_QC_CODES = new Set(["pre_moisture", "post_moisture", "moisture"])
+
 const num = (value: any) => (value === "" || value == null || !Number.isFinite(Number(value)) ? null : Number(value))
 const fmt = (value: number) => Number(value.toFixed(3)).toString()
 
@@ -42,9 +45,14 @@ export function sampleBand(rule: Rule, readings: Record<string, any>): { min: nu
 
 /** What is allowed, in words a QC inspector reads at a glance. */
 export function allowedText(rule: Rule): string {
+  const text = limitText(rule)
+  return OPTIONAL_QC_CODES.has(rule.code) && rule.mode !== "RECORD_ONLY" && rule.applicable !== false ? `${text} · optional` : text
+}
+
+function limitText(rule: Rule): string {
   const unit = rule.unit ? ` ${rule.unit}` : ""
   if (rule.applicable === false) return "Not checked on this card"
-  if (rule.mode === "RECORD_ONLY") return "Record the reading (no limit)"
+  if (rule.mode === "RECORD_ONLY") return OPTIONAL_QC_CODES.has(rule.code) ? "Optional — record if measured" : "Record the reading (no limit)"
   if (rule.dynamic) {
     const words = relativeLimitText(rule) || "computed from this sample's other readings"
     return words.charAt(0).toUpperCase() + words.slice(1)
@@ -104,7 +112,7 @@ export function SeasonQcMatrix({
                   {rule.unit ? <span className="font-normal text-muted-foreground"> ({rule.unit})</span> : null}
                 </span>
                 <span className={`text-xs font-semibold md:hidden ${need && done >= need ? "text-signal-emerald-ink" : "text-muted-foreground"}`}>
-                  {done}/{need || done}
+                  {OPTIONAL_QC_CODES.has(rule.code) && !done ? "optional" : `${done}/${need || done}`}
                 </span>
               </div>
               <div className="text-xs font-semibold text-signal-emerald-ink" data-testid={`qc-allowed-${rule.code}`}>
@@ -146,7 +154,7 @@ export function SeasonQcMatrix({
                   )
                 })}
                 <span className={`hidden self-center text-xs font-semibold md:inline ${need && done >= need ? "text-signal-emerald-ink" : "text-muted-foreground"}`}>
-                  {done}/{need || done}
+                  {OPTIONAL_QC_CODES.has(rule.code) && !done ? "optional" : `${done}/${need || done}`}
                 </span>
               </div>
             </div>

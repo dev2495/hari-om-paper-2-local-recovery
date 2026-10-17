@@ -14,6 +14,9 @@ PARAMETERS = {
     "OVEN": {"pre_weight": ("Pre-weight", "g"), "post_weight": ("Post-weight", "g"), "pre_moisture": ("Pre-moisture", "%"), "post_moisture": ("Post-moisture", "%"), "cs": ("C.S.", "N")},
     "PROCESS": {"id": ("I.D.", "mm"), "od": ("O.D.", "mm"), "height": ("Height", "mm"), "weight": ("Weight", "g"), "cs": ("C.S.", "N"), "notch_distance": ("Notch distance", "mm"), "notch_depth": ("Notch depth", "mm"), "moisture": ("Moisture", "%")},
 }
+# Client rule 2026-10-17: moisture is recorded when measured but never required. A batch passes and a
+# stage closes without it; a missing reading is reported as "unrecorded" so it is flagged to the owner.
+OPTIONAL_PARAMETERS = frozenset({"pre_moisture", "post_moisture", "moisture"})
 REFS = {"CUSTOMER_ID", "CUSTOMER_OD", "CUSTOMER_LENGTH", "CUSTOMER_WEIGHT", "CUSTOMER_CS", "MANDREL_DIAMETER", "WINDING_LENGTH", "MOISTURE_MIN", "MOISTURE_MAX", "CONST", "SAMPLE.pre_weight"}
 
 
@@ -35,6 +38,10 @@ def decimal(value):
 
 def fingerprint(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str, allow_nan=False).encode()).hexdigest()
+
+
+def is_optional(rule):
+    return (rule.get("code") or rule.get("parameter")) in OPTIONAL_PARAMETERS
 
 
 def term(ref, factor=1, offset=0):
@@ -242,7 +249,13 @@ def evaluate_samples(stage, profile, samples):
     # A recorded weight/moisture does not erase a measured tolerance PASS.
     # An entry containing only record-only fields still remains observation-only.
     rank = {"OBSERVATION_ONLY": 0, "PASS": 1, "INCOMPLETE": 2, "INVALID": 3, "FAIL": 4}
-    return {"verdict": max((r["verdict"] for r in rows), key=rank.get) if rows else "NOT_MEASURED", "results": rows}
+    result = {"verdict": max((r["verdict"] for r in rows), key=rank.get) if rows else "NOT_MEASURED", "results": rows}
+    if samples:
+        recorded = {r["parameter"] for r in rows}
+        unrecorded = [{"parameter": r["code"], "label": r["label"]} for r in parameters if r["applicable"] and is_optional(r) and r["code"] not in recorded]
+        if unrecorded:
+            result["unrecorded"] = unrecorded
+    return result
 
 
 def stage_readiness(stage, profile, evaluations):
@@ -250,16 +263,18 @@ def stage_readiness(stage, profile, evaluations):
     for evaluation in evaluations:
         for item in evaluation.get("results", []):
             samples[(item["sample_id"], item["parameter"])] = item
-    missing, blockers = [], []
+    missing, blockers, unrecorded = [], [], []
     for rule in profile.get("stages", {}).get(stage, {}).get("parameters", []):
         if not rule["applicable"]:
             continue
         rows = [r for (_, code), r in samples.items() if code == rule["code"]]
         valid = sum(r["verdict"] in ("PASS", "FAIL", "OBSERVATION_ONLY") for r in rows)
         if valid < rule["min_readings"]:
-            missing.append({"parameter": rule["code"], "label": rule["label"], "have": valid, "need": rule["min_readings"]})
+            short = {"parameter": rule["code"], "label": rule["label"], "have": valid, "need": rule["min_readings"]}
+            # Optional checks never hold the stage; they are only reported.
+            (unrecorded if is_optional(rule) else missing).append(short)
         blockers += [r for r in rows if r["verdict"] in ("INVALID", "INCOMPLETE") or r["verdict"] == "FAIL" and r["gating"] == "blocking"]
-    return {"ready": not missing and not blockers, "missing": missing, "blockers": blockers}
+    return {"ready": not missing and not blockers, "missing": missing, "blockers": blockers, "unrecorded": unrecorded}
 
 
 def potentially_loosens(parent_rows, rows):

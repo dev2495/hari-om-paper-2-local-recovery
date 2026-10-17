@@ -1434,6 +1434,62 @@ def get_period_state(
     )
 
 
+@router.get("/count-consumption/{month}")
+def get_count_consumption(
+    month: str,
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(get_current_user),
+):
+    """What the certified stock count says each item consumed in the month: opening + received -
+    counted closing (book closing where an item was not counted). The Actuals tab offers these
+    figures; the plant still reviews and saves them before the reconciliation is closed."""
+    if plant_scope.get("scope_all"):
+        raise HTTPException(status_code=400, detail="Choose one plant to read its stock count")
+    month_start = _parse_month_start(month)
+    month_end = _next_month(month_start)
+    token = current_user.get("token", "")
+    plant_id = str(plant_scope["selected_plant_id"])
+    cert = _fetch_stock_certification_for_period(token, plant_id, month_start, month_end - _DAY)
+    if not cert or not cert.get("id"):
+        return {"month_start": month_start.isoformat(), "certification": None, "rows": []}
+    try:
+        with httpx.Client(timeout=20.0) as client:
+            response = client.get(
+                f"{settings.INVENTORY_SERVICE_URL}/inventory/stock-control/certifications/{cert['id']}",
+                headers={"Authorization": f"Bearer {token}", "X-Plant-ID": plant_id},
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(503, "Inventory stock count is unavailable") from exc
+    if response.status_code != 200:
+        raise HTTPException(503, "Inventory stock count is unavailable")
+    detail = response.json() or {}
+    items: dict[str, dict[str, Any]] = {}
+    for line in detail.get("lines") or []:
+        code = str(line.get("item_code") or "").strip().upper()
+        if not code:
+            continue
+        row = items.setdefault(code, {"item_code": code, "item_name": line.get("item_name"), "uom": line.get("uom"), "opening_qty": 0.0, "inward_qty": 0.0, "counted_qty": 0.0, "uncounted_lines": 0})
+        counted = line.get("physical_qty")
+        row["opening_qty"] += float(line.get("opening_qty") or 0.0)
+        row["inward_qty"] += float(line.get("inward_qty") or 0.0)
+        if counted is None:
+            row["uncounted_lines"] += 1
+            counted = line.get("closing_qty")
+        row["counted_qty"] += float(counted or 0.0)
+    rows = []
+    for row in items.values():
+        row["consumed_qty"] = round(max(0.0, row["opening_qty"] + row["inward_qty"] - row["counted_qty"]), 3)
+        for key in ("opening_qty", "inward_qty", "counted_qty"):
+            row[key] = round(row[key], 3)
+        rows.append(row)
+    rows.sort(key=lambda row: row["item_code"])
+    return {
+        "month_start": month_start.isoformat(),
+        "certification": {key: detail.get(key, cert.get(key)) for key in ("id", "status", "period_start", "period_end", "count_session_no", "certified_at")},
+        "rows": rows,
+    }
+
+
 @router.post("/monthly-close/approve", response_model=MonthlyCloseStateResponse)
 def approve_monthly_close(
     payload: MonthlyCloseApprovePayload,

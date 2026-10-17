@@ -378,3 +378,47 @@ def test_whole_card_totals_entry_readings_cover_earlier_batches_without_readings
     create(a,db,job,produced=12,accepted=12,quantity_mode='TOTAL',expected_version=version,samples=winding_samples(),details={'overproduction_reason':'test'})
     assert not next(e for e in a.get_entries(job.id,'WINDER',0,50,db,PLANT,USER)['entries'] if e['entry_no']==failed['entry_no'])['qc_cleared']
     db.rollback()
+
+def close_input(**kw):
+    values=dict(request_id=str(uuid.uuid4()),expected_version=2,supervisor_id=uuid.uuid4());values.update(kw)
+    from src.routers import entries as a
+    return a.CloseInput(**values)
+
+def test_winding_closes_without_reel_issue_or_material_note(card):
+    # Client rule 2026-10-17: issue to the floor happens any time; the monthly stock count settles material.
+    a,db,job=card
+    create(a,db,job,produced=10,accepted=10,samples=winding_samples())
+    result=a.close_stage(job.id,'WINDER',close_input(),db,PLANT,USER)
+    assert next(s for s in result['flow']['stages'] if s['stage']=='WINDER')['status']=='COMPLETED'
+
+def test_oven_closes_without_moisture_and_flags_it(card):
+    a,db,job=card
+    create(a,db,job,produced=10,accepted=10,samples=winding_samples())
+    a.close_stage(job.id,'WINDER',close_input(),db,PLANT,USER)
+    dry=[{'sample_id':str(uuid.uuid4()),'readings':{'pre_weight':1000,'post_weight':910,'cs':420}} for _ in range(2)]
+    entry=create(a,db,job,'OVEN',produced=10,accepted=10,input_quantity=10,samples=dry)['entry']
+    assert entry['evaluation']['verdict']=='PASS' and entry['qc_cleared']
+    assert {u['parameter'] for u in entry['evaluation']['unrecorded']}=={'pre_moisture','post_moisture'}
+    oven=next(s for s in a.flow(db,job)['stages'] if s['stage']=='OVEN')
+    assert oven['qc']['ready'] and {u['parameter'] for u in oven['qc']['unrecorded']}=={'pre_moisture','post_moisture'}
+    closed=a.close_stage(job.id,'OVEN',close_input(),db,PLANT,USER)
+    assert next(s for s in closed['flow']['stages'] if s['stage']=='OVEN')['status']=='COMPLETED'
+    flagged=[row for row in a.flagged_entries(30,200,db,PLANT,USER) if row['job_card_id']==str(job.id)]
+    assert [row['flag'] for row in flagged]==['QC_NOT_RECORDED'] and 'Pre-moisture' in flagged[0]['reason']
+
+def test_winding_before_slitting_record_is_flagged_and_closes_slitting_with_winding(card):
+    from src.models import JobCardStage
+    a,db,job=card
+    job.routing_snapshot={**job.routing_snapshot,'stages':['SLITTING',*job.routing_snapshot['stages']]};job.requires_slitting=True
+    db.add(JobCardStage(job_card_id=job.id,stage_type='SLITTING',plan_date=date.today(),shift_code='SHIFT_A'));db.commit()
+    entry=create(a,db,job,produced=10,accepted=10,samples=winding_samples())['entry']
+    assert entry['details']['material_prep_pending'] is True
+    winder=next(s for s in a.flow(db,job)['stages'] if s['stage']=='WINDER')
+    assert "Previous stage must close before this stage closes" not in winder['blockers']
+    result=a.close_stage(job.id,'WINDER',close_input(),db,PLANT,USER)
+    states={s['stage']:s for s in result['flow']['stages']}
+    assert states['WINDER']['status']=='COMPLETED' and states['SLITTING']['status']=='COMPLETED'
+    slitting=a.stage_row(db,job,'SLITTING')
+    assert slitting.actuals_snapshot['close_kind']=='CLOSED_WITH_WINDING' and slitting.actuals_snapshot['material_prep_pending']
+    flags={row['flag'] for row in a.flagged_entries(30,200,db,PLANT,USER) if row['job_card_id']==str(job.id)}
+    assert 'MATERIAL_PREP_PENDING' in flags

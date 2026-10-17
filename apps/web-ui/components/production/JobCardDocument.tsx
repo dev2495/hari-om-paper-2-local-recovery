@@ -706,13 +706,13 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
   // Page 3 (production & QC log) prints by default once the card has entries.
   const [includeLogChoice, setIncludeLogChoice] = useState<boolean | null>(null)
   const includeLog = includeLogChoice ?? seasonEntries.length > 0
-  // Print preview: pages are real A4 (210 mm); on narrow screens the whole stack is zoomed to fit.
+  // Print preview: pages are real A4 landscape (297 mm); on narrow screens the whole stack is zoomed to fit.
   const paperHostRef = useRef<HTMLDivElement | null>(null)
   const [paperZoom, setPaperZoom] = useState(1)
   useEffect(() => {
     const host = paperHostRef.current
     if (mode !== "print" || !host || typeof ResizeObserver === "undefined") return
-    const pagePx = (210 * 96) / 25.4
+    const pagePx = (297 * 96) / 25.4
     const update = () => setPaperZoom(Math.min(1, Math.max(0.3, host.clientWidth / pagePx)))
     update()
     const observer = new ResizeObserver(update)
@@ -3183,6 +3183,9 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
       return `${padTwo(parsed.getDate())}-${padTwo(parsed.getMonth() + 1)}-${parsed.getFullYear()}`
     }
     const cardTime = (value: any) => formatStageTime(value)
+    // Run rows: the run's date and shift are in the cycle cell, so times print as HH:MM only.
+    const runClock = (value: any) => (value ? String(value).slice(11, 16) : "")
+    const dayMonth = (value: any) => dateOnly(value).slice(0, 5)
 
     function planFor(stage: StageName) {
       const row = stageRow(stage)
@@ -3270,7 +3273,8 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
       const band = hint && /\d/.test(hint) ? hint : ""
       return (
         <span data-testid={testId}>
-          {band ? <span className="jc-req-value">{band}</span> : value ? <span className="jc-req-value">{value}</span> : null}
+          {/* A break opportunity after the dash keeps "120.3–120.7 mm" inside a narrow column. */}
+          {band ? <span className="jc-req-value">{band.replace("–", "–\u200b")}</span> : value ? <span className="jc-req-value">{value}</span> : null}
           {!band && hint ? <span className="jc-req-hint">{hint}</span> : null}
         </span>
       )
@@ -3378,8 +3382,8 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
       <div className="jc-print-host" ref={paperHostRef}>
         <div className="no-print jc-toolbar" data-testid="print-structure">
           <ol className="jc-structure">
-            <li><strong>Page 1 · front</strong> job card: header, winding, oven, process line, dispatch, tolerances</li>
-            <li><strong>Page 2 · back</strong> the order&apos;s spec sheet (turned sideways to fill the page)</li>
+            <li><strong>Page 1 · front</strong> job card: header, then winding + oven beside process line + dispatch + tolerances</li>
+            <li><strong>Page 2 · back</strong> the order&apos;s spec sheet</li>
             {seasonalCard ? (
               <li>
                 <label className="jc-qc-toggle">
@@ -3397,7 +3401,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             )}
           </ol>
           <div className="jc-toolbar-actions">
-            <span>A4 · two-sided, flip on long edge · scale 100%</span>
+            <span>A4 landscape · two-sided, flip on short edge · scale 100%</span>
             <button type="button" onClick={() => window.print()} className="jc-print-btn">
               <Printer className="h-4 w-4" />
               Print Job Card
@@ -3433,14 +3437,18 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             </tbody>
           </table>
 
-          {/* Header: label on top, system value big and bold below */}
-          <table className="jc-grid">
-            <Cols />
+          {/* Header: label on top, system value big and bold below (landscape: two rows of six) */}
+          <table className="jc-grid jc-head-grid">
+            <colgroup>
+              {[0, 1, 2, 3, 4, 5].map((index) => (
+                <col key={index} style={{ width: `${100 / 6}%` }} />
+              ))}
+            </colgroup>
             <tbody>
-              {[0, 4, 8].map((start) => (
+              {[0, 6].map((start) => (
                 <tr key={start} className="jc-row-head">
-                  {headerFields.slice(start, start + 4).map(([en, hi, value]) => (
-                    <td key={en} className="jc-head-cell" colSpan={2}>
+                  {headerFields.slice(start, start + 6).map(([en, hi, value]) => (
+                    <td key={en} className="jc-head-cell">
                       <div className="jc-head-label"><L en={en} hi={hi} /></div>
                       <div className="jc-sys">{value || ""}</div>
                     </td>
@@ -3450,6 +3458,8 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             </tbody>
           </table>
 
+          <div className="jc-columns">
+          <div className="jc-col">
           {/* WINDER */}
           <table className="jc-grid jc-section">
             <Cols />
@@ -3480,13 +3490,13 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
                 if (seasonalCard) {
                   return (
                     <tr key={`winder-row-${index}`} className="jc-row-entry" data-testid={run ? "print-winder-run" : undefined}>
-                      <td className="jc-value jc-actual">{run ? `${num(run.produced, 0)}${run.details?.unscheduled_entry ? " †" : ""}` : ""}</td>
+                      <td className="jc-value jc-actual">{run ? `${num(run.produced, 0)}${(run.details?.unscheduled_entry || run.details?.machine_changed || run.details?.material_prep_pending) ? " †" : ""}` : ""}</td>
                       <td className="jc-value jc-actual">{run ? `${num(run.rejected, 0)}${run.details?.reject_code ? ` ${run.details.reject_code}` : ""}` : ""}</td>
                       <td className="jc-value jc-actual">{run ? num(run.accepted, 0) : ""}</td>
                       <td className="jc-value jc-actual">{run && pcsPerBamboo ? num(Number(run.accepted) * pcsPerBamboo, 0) : ""}</td>
-                      <td className="jc-value jc-actual">{run ? cardTime(run.details?.start_time) : ""}</td>
-                      <td className="jc-value jc-actual">{run ? cardTime(run.details?.end_time) : ""}</td>
-                      <td className="jc-value jc-actual" colSpan={2}>{run ? [cycleTimeFromCard(run.details?.start_time, run.details?.end_time), run.business_date ? dateOnly(run.business_date) : "", run.shift_code ? String(run.shift_code).replace("SHIFT_", "") : ""].filter(Boolean).join(" · ") : ""}</td>
+                      <td className="jc-value jc-actual">{run ? runClock(run.details?.start_time) : ""}</td>
+                      <td className="jc-value jc-actual">{run ? runClock(run.details?.end_time) : ""}</td>
+                      <td className="jc-value jc-actual" colSpan={2}>{run ? [cycleTimeFromCard(run.details?.start_time, run.details?.end_time), run.business_date ? dayMonth(run.business_date) : "", run.shift_code ? String(run.shift_code).replace("SHIFT_", "") : ""].filter(Boolean).join(" · ") : ""}</td>
                     </tr>
                   )
                 }
@@ -3584,13 +3594,13 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
                 if (seasonalCard) {
                   return (
                     <tr key={`oven-row-${index}`} className="jc-row-entry" data-testid={run ? "print-oven-run" : undefined}>
-                      <td className="jc-value jc-actual">{run ? `${num(run.accepted, 0)}${run.rejected ? ` (−${num(run.rejected, 0)})` : ""}${run.details?.unscheduled_entry ? " †" : ""}` : ""}</td>
+                      <td className="jc-value jc-actual">{run ? `${num(run.accepted, 0)}${run.rejected ? ` (−${num(run.rejected, 0)})` : ""}${(run.details?.unscheduled_entry || run.details?.machine_changed || run.details?.material_prep_pending) ? " †" : ""}` : ""}</td>
                       <td className="jc-value jc-actual jc-name">{run ? run.operator_name || "" : ""}</td>
                       <td className="jc-value jc-actual"></td>
                       <td className="jc-value jc-actual"></td>
-                      <td className="jc-value jc-actual">{run ? cardTime(run.details?.start_time) : ""}</td>
-                      <td className="jc-value jc-actual">{run ? cardTime(run.details?.end_time) : ""}</td>
-                      <td className="jc-value jc-actual" colSpan={2}>{run ? [cycleTimeFromCard(run.details?.start_time, run.details?.end_time), run.business_date ? dateOnly(run.business_date) : "", run.shift_code ? String(run.shift_code).replace("SHIFT_", "") : ""].filter(Boolean).join(" · ") : ""}</td>
+                      <td className="jc-value jc-actual">{run ? runClock(run.details?.start_time) : ""}</td>
+                      <td className="jc-value jc-actual">{run ? runClock(run.details?.end_time) : ""}</td>
+                      <td className="jc-value jc-actual" colSpan={2}>{run ? [cycleTimeFromCard(run.details?.start_time, run.details?.end_time), run.business_date ? dayMonth(run.business_date) : "", run.shift_code ? String(run.shift_code).replace("SHIFT_", "") : ""].filter(Boolean).join(" · ") : ""}</td>
                     </tr>
                   )
                 }
@@ -3636,6 +3646,15 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             </tbody>
           </table>
 
+          {/* Footnotes sit under the left column; the process side is usually the taller one. */}
+          {seasonalCard && seasonEntries.some((e: any) => e.details?.unscheduled_entry || e.details?.machine_changed || e.details?.material_prep_pending) ? (
+            <p className="jc-footnote">† Run entered before the planner placed this stage, on another machine, or before the slitting record (shown to the owner under Reports › Exceptions).</p>
+          ) : null}
+          {seasonalCard && seasonEntries.some((e: any) => e.evaluation?.verdict === "FAIL") ? (
+            <p className="jc-footnote">✗ Reading outside its allowed limit — that batch is held for QC.</p>
+          ) : null}
+          </div>
+          <div className="jc-col">
           {/* PROCESS LINE */}
           <table className="jc-grid jc-section" data-testid="print-page-process">
             <Cols />
@@ -3668,12 +3687,12 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
                   return (
                     <tr key={`process-row-${index}`} className="jc-row-entry" data-testid={run ? "print-process-run" : undefined}>
                       {index === 0 ? <td className="jc-value jc-actual" rowSpan={2}>{v2Rows("OVEN").length ? num(v2Rows("OVEN").reduce((sum: number, e: any) => sum + Number(e.accepted || 0), 0), 0) : ""}</td> : null}
-                      <td className="jc-value jc-actual">{run ? `${num(run.produced, 0)}${run.input_quantity ? ` (${num(run.input_quantity, 0)} bamboo)` : ""}${run.details?.unscheduled_entry ? " †" : ""}` : ""}</td>
+                      <td className="jc-value jc-actual">{run ? `${num(run.produced, 0)}${(run.details?.unscheduled_entry || run.details?.machine_changed || run.details?.material_prep_pending) ? " †" : ""}` : ""}</td>
                       <td className="jc-value jc-actual">{run ? `${num(run.rejected, 0)}${run.details?.reject_code ? ` ${run.details.reject_code}` : ""}` : ""}</td>
                       <td className="jc-value jc-actual">{run ? num(run.accepted, 0) : ""}</td>
-                      <td className="jc-value jc-actual">{run ? cardTime(run.details?.start_time) : ""}</td>
-                      <td className="jc-value jc-actual">{run ? cardTime(run.details?.end_time) : ""}</td>
-                      <td className="jc-value jc-actual" colSpan={2}>{run ? [cycleTimeFromCard(run.details?.start_time, run.details?.end_time), run.business_date ? dateOnly(run.business_date) : "", run.shift_code ? String(run.shift_code).replace("SHIFT_", "") : ""].filter(Boolean).join(" · ") : ""}</td>
+                      <td className="jc-value jc-actual">{run ? runClock(run.details?.start_time) : ""}</td>
+                      <td className="jc-value jc-actual">{run ? runClock(run.details?.end_time) : ""}</td>
+                      <td className="jc-value jc-actual" colSpan={2}>{run ? [cycleTimeFromCard(run.details?.start_time, run.details?.end_time), run.business_date ? dayMonth(run.business_date) : "", run.shift_code ? String(run.shift_code).replace("SHIFT_", "") : ""].filter(Boolean).join(" · ") : ""}</td>
                     </tr>
                   )
                 }
@@ -3777,7 +3796,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
                 const shipment = dispatchRows.length > 4 ? dispatchRows[dispatchRows.length - 3 + index] : dispatchRows[index]
                 return (
                   <tr key={`dispatch-row-${index}`} className="jc-row-entry">
-                    <td className="jc-value jc-actual">{shipment?.dispatch_date ? dateOnly(shipment.dispatch_date) : ""}</td>
+                    <td className="jc-value jc-actual">{shipment?.dispatch_date ? `${dayMonth(shipment.dispatch_date)}-${dateOnly(shipment.dispatch_date).slice(8)}` : ""}</td>
                     <td className="jc-value jc-actual">{shipment ? num(shipment.dispatch_qty, 0) : ""}</td>
                     <td className="jc-value jc-actual" colSpan={2}>{shipment ? num(shipment.pending_qty, 0) : ""}</td>
                     <td className="jc-value jc-actual" colSpan={2}>{shipment && !dispatchHistory.length ? packingPrintEntry.supervisor_sign || "" : ""}</td>
@@ -3796,7 +3815,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
               ["Length", allowed(processQcRules, "height", range(clientSpec?.length))],
               ["Weight", allowed(processQcRules, "weight", range(clientSpec?.tube_weight))],
               ["C.S", allowed(processQcRules, "cs", range(clientSpec?.cs))],
-              ["Moisture", allowed(ovenQcRules, "post_moisture", range(clientSpec?.moisture, 1))],
+              ["Moisture", allowed(processQcRules, "moisture", allowed(ovenQcRules, "post_moisture", range(clientSpec?.moisture, 1)))],
               ["Notch dist.", allowed(processQcRules, "notch_distance", "")],
               ["Notch depth", allowed(processQcRules, "notch_depth", "")],
               ["Output", `+10% max`],
@@ -3807,12 +3826,8 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
                 <span key={label}>{label} <b>{value}</b></span>
               ))}
           </div>
-          {seasonalCard && seasonEntries.some((e: any) => e.details?.unscheduled_entry || e.details?.machine_changed) ? (
-            <p className="jc-footnote">† Run entered before the planner placed this stage, or on another machine (shown to the owner under Reports › Exceptions).</p>
-          ) : null}
-          {seasonalCard && seasonEntries.some((e: any) => e.evaluation?.verdict === "FAIL") ? (
-            <p className="jc-footnote">✗ Reading outside its allowed limit — that batch is held for QC.</p>
-          ) : null}
+          </div>
+          </div>
           </div>
           </div>
         </section>
@@ -3820,12 +3835,9 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
         {/* ---------------- BACK: approved spec sheet for this job card ---------------- */}
         <section className="jc-page jc-back jc-spec-back" data-testid="print-page-spec">
           {card?.spec_id ? (
-            <>
-              <div className="jc-spec-rotate">
-                <SpecSheetDocument mode="print" specId={String(card.spec_id)} embedded />
-              </div>
-              <p className="no-print jc-spec-caption">Back of the sheet · the spec sheet prints turned sideways so it fills the A4 page at full size.</p>
-            </>
+            <div className="jc-spec-wrap">
+              <SpecSheetDocument mode="print" specId={String(card.spec_id)} embedded />
+            </div>
           ) : (
             <p className="jc-footnote">No specification is linked to this job card.</p>
           )}
@@ -3867,14 +3879,14 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
           .jc-print-host {
             width: 100%;
           }
-          /* Each page is a real A4 sheet (210 x 297 mm, 5 mm margin) so the preview matches the paper. */
+          /* Each page is a real A4 landscape sheet (297 x 210 mm, 5 mm margin) so the preview matches the paper. */
           .jc-root {
             --jc-ink: #0f172a;
             --jc-muted: #475569;
             --jc-shade: #eef2f6;
             --jc-band: #1e293b;
             color: var(--jc-ink);
-            width: 210mm;
+            width: 297mm;
             margin: 0 auto;
             font-family: Arial, "Helvetica Neue", "Nirmala UI", "Mangal", "Noto Sans Devanagari", sans-serif;
           }
@@ -3884,7 +3896,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             align-items: flex-start;
             justify-content: space-between;
             gap: 10px 16px;
-            max-width: 210mm;
+            max-width: 297mm;
             margin: 0 auto 12px;
             border: 1px solid #e2e8f0;
             border-radius: 12px;
@@ -3930,8 +3942,8 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
           }
           .jc-page {
             box-sizing: border-box;
-            width: 210mm;
-            height: 297mm;
+            width: 297mm;
+            height: 210mm;
             overflow: visible;
             display: flex;
             flex-direction: column;
@@ -3942,8 +3954,16 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
           .jc-log-page,
           .jc-qc-sheet {
             height: auto;
-            min-height: 297mm;
+            min-height: 210mm;
           }
+          /* Landscape front: Winding + Oven on the left, Process line + Dispatch + tolerances on the right. */
+          .jc-columns {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            gap: 0 3mm;
+            align-items: start;
+          }
+          .jc-col > .jc-section:first-child { margin-top: 1.5mm; }
           /* Front: everything inside one A4 page; scaled down only if content would spill. */
           .jc-fit-box {
             height: 100%;
@@ -3974,11 +3994,11 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
           /* The app shell styles every content table (".tube-content table td": 13px, extra padding in
              compact density). These selectors outrank it so the card prints the same for every user. */
           .jc-root table.jc-grid > tbody > tr > td {
-            padding: 0.5mm 1.2mm;
-            font-size: 8.5pt;
+            padding: 0.6mm 1.2mm;
+            font-size: 9pt;
           }
           .jc-root table.jc-grid > tbody > tr > td.jc-value {
-            font-size: 9pt;
+            font-size: 10pt;
           }
           .jc-root table.jc-grid > tbody > tr > td.jc-value-strong {
             font-size: 9.5pt;
@@ -3988,16 +4008,16 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
           }
           .jc-en {
             display: block;
-            font-size: 7pt;
+            font-size: 7.6pt;
             font-weight: 700;
-            line-height: 1.05;
+            line-height: 1;
             color: var(--jc-ink);
           }
           .jc-hi {
             display: block;
-            font-size: 6.4pt;
+            font-size: 6.6pt;
             font-weight: 500;
-            line-height: 1.05;
+            line-height: 1;
             color: var(--jc-muted);
           }
           .jc-row-band .jc-en,
@@ -4058,28 +4078,29 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             font-weight: 500;
             color: var(--jc-muted);
           }
-          .jc-row-title td { height: 13mm; vertical-align: middle; }
-          .jc-row-head td { height: 7.4mm; }
-          .jc-row-label td { height: 5.2mm; }
-          .jc-row-band td { height: 6mm; }
-          .jc-row-sign td { height: 5.6mm; }
-          .jc-row-sign .jc-value { font-size: 8.4pt !important; line-height: 1.05; }
-          .jc-row-entry td { height: 5.6mm; }
-          .jc-row-req td { height: 5.2mm; background: #f8fafc; }
-          .jc-row-sample td { height: 5mm; }
+          .jc-row-title td { height: 12mm; vertical-align: middle; }
+          .jc-row-head td { height: 8.5mm; }
+          .jc-row-label td { height: 6mm; }
+          .jc-row-band td { height: 6.5mm; }
+          .jc-row-sign td { height: 6.2mm; }
+          .jc-row-sign .jc-value { font-size: 9.5pt !important; line-height: 1.05; }
+          .jc-row-band .jc-value { font-size: 9pt !important; white-space: nowrap; }
+          .jc-row-entry td { height: 6.2mm; }
+          .jc-row-req td { height: 6mm; background: #f8fafc; }
+          .jc-row-sample td { height: 5.6mm; }
           .jc-band-long { font-size: 8.6pt !important; letter-spacing: 0.06em !important; }
           .jc-fit { padding: 0 0.6pt; box-sizing: border-box; }
           .jc-actual.jc-name { font-size: 8pt !important; font-weight: 700 !important; line-height: 1.05; overflow-wrap: anywhere; }
           .jc-more { font-size: 7.6pt !important; font-weight: 700 !important; color: var(--jc-muted) !important; font-style: italic; }
           .jc-section { margin-top: 1mm; border-top: 1.4pt solid var(--jc-ink); }
-          .jc-logo { height: 8mm; width: auto; max-width: 100%; }
+          .jc-logo { height: 7mm; width: auto; max-width: 100%; }
           .jc-jcno { font-size: 11pt; font-family: "SFMono-Regular", Menlo, Consolas, monospace; }
           .jc-head-cell { vertical-align: top !important; padding: 0.5mm 1.2mm !important; }
           .jc-head-label .jc-en, .jc-head-label .jc-hi { display: inline; margin-right: 1.2mm; }
-          .jc-sys { margin-top: 0.3mm; font-size: 10pt; font-weight: 900; line-height: 1.05; color: #000; overflow-wrap: anywhere; }
-          .jc-actual { font-size: 10pt !important; font-weight: 800 !important; color: #000; }
-          .jc-req-value { display: inline; font-size: 8.2pt; font-weight: 900; color: #000; margin-right: 1mm; white-space: nowrap; }
-          .jc-req-hint { display: inline; font-size: 7pt; font-weight: 700; color: #0f5132; }
+          .jc-sys { margin-top: 0.4mm; font-size: 10.5pt; font-weight: 900; line-height: 1.05; color: #000; overflow-wrap: anywhere; }
+          .jc-actual { font-size: 11pt !important; font-weight: 800 !important; color: #000; }
+          .jc-req-value { display: inline; font-size: 8.8pt; font-weight: 900; color: #000; margin-right: 1mm; }
+          .jc-req-hint { display: inline; font-size: 7.6pt; font-weight: 700; color: #0f5132; }
           .jc-combo { vertical-align: top !important; background: #fff !important; padding: 0.8mm 1.2mm !important; }
           .jc-combo-title .jc-en, .jc-combo-title .jc-hi { display: inline; margin-right: 1mm; }
           .jc-combo-title .jc-en { text-decoration: underline; }
@@ -4101,12 +4122,11 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
           .jc-tolerance { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.6mm 3.2mm; margin-top: 1mm; border: 0.8pt solid var(--jc-ink); padding: 0.8mm 1.6mm; font-size: 7.4pt; }
           .jc-tolerance strong { font-size: 7.6pt; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; }
           .jc-tolerance b { font-size: 8.4pt; font-weight: 900; color: #000; }
-          /* Screen: the landscape spec sheet shown upright, scaled to the page width (200 / 287). */
+          /* Back: the landscape spec sheet fills the landscape page exactly (287 x 200 mm). */
           .jc-spec-back { overflow: hidden; }
-          .jc-spec-rotate { width: 287mm; zoom: 0.6969; }
-          .jc-spec-rotate .spec-print-preview { width: 287mm; max-width: none; margin: 0; padding: 0; }
-          .jc-spec-rotate .spec-print-sheet { width: 287mm; height: 200mm; box-shadow: none; }
-          .jc-spec-caption { margin-top: 3mm; font-size: 8pt; color: var(--jc-muted); text-align: center; }
+          .jc-spec-wrap { width: 287mm; }
+          .jc-spec-wrap .spec-print-preview { width: 287mm; max-width: none; margin: 0; padding: 0; }
+          .jc-spec-wrap .spec-print-sheet { width: 287mm; height: 200mm; box-shadow: none; }
           /* Page 3: production & QC log, fixed column widths so it never runs off the page. */
           .jc-log { color: #000; font-size: 7.6pt; }
           .jc-log-table { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 1mm; }
@@ -4145,7 +4165,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             vertical-align: middle !important;
           }
           .jc-heading-title {
-            font-size: 20pt;
+            font-size: 18pt;
             font-weight: 900;
             letter-spacing: 0.18em;
             text-transform: uppercase;
@@ -4172,8 +4192,8 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             vertical-align: middle !important;
           }
           .jc-qr svg {
-            width: 12mm;
-            height: 12mm;
+            width: 10mm;
+            height: 10mm;
           }
           .jc-drawing {
             flex: 1 1 auto;
@@ -4203,7 +4223,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             color: var(--jc-ink);
           }
           .qc-print-writable {
-            min-height: 3.6mm;
+            min-height: 5mm;
           }
           .jc-qc-sheet .qc-print-writable {
             min-height: 9mm;
@@ -4217,7 +4237,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
 
           @media print {
             @page {
-              size: A4 portrait;
+              size: A4 landscape;
               margin: 5mm;
             }
             html,
@@ -4233,7 +4253,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
               display: none !important;
             }
             /* Strip the dashboard shell (sidebar offset, padding, mesh) so the
-               card sits flush inside the A4 print margins. */
+               card sits flush inside the A4 landscape print margins. */
             .bg-dashboard-mesh {
               background: #fff !important;
             }
@@ -4247,14 +4267,14 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
               width: auto;
             }
             .jc-root {
-              width: 200mm;
+              width: 287mm;
               max-width: none !important;
               zoom: 1 !important;
             }
             .jc-page {
-              width: 200mm;
+              width: 287mm;
               min-height: 0;
-              height: 287mm;
+              height: 200mm;
               max-height: none;
               overflow: visible;
               padding: 0;
@@ -4272,27 +4292,16 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             .jc-page + .jc-page {
               margin-top: 0;
             }
-            .jc-front { height: 287mm; min-height: 0; overflow: visible; }
+            .jc-front { height: 200mm; min-height: 0; overflow: visible; }
             .jc-spec-back {
-              position: relative;
-              width: 200mm;
-              height: 287mm;
+              width: 287mm;
+              height: 200mm;
               min-height: 0;
               overflow: hidden;
             }
-            /* The back carries the landscape spec sheet turned onto the portrait page. */
-            .jc-spec-rotate {
-              position: absolute;
-              top: 0;
-              left: 200mm;
-              width: 287mm;
-              height: 200mm;
-              zoom: 1;
-              transform: rotate(90deg);
-              transform-origin: top left;
-            }
-            .jc-spec-rotate .spec-print-preview,
-            .jc-spec-rotate .spec-print-sheet {
+            /* The back carries the landscape spec sheet as it is: same page size, no rotation. */
+            .jc-spec-wrap .spec-print-preview,
+            .jc-spec-wrap .spec-print-sheet {
               width: 287mm !important;
               height: 200mm !important;
               box-shadow: none !important;

@@ -475,6 +475,8 @@ export const productionApi = {
   // Lifecycle gap endpoints
   getPeriodState: (month: string, plantId?: string) =>
     api.get(`/api/production/period-state/${month}`, withPlantHeader(plantId)),
+  getCountConsumption: (month: string, plantId?: string) =>
+    api.get(`/api/production/count-consumption/${month}`, withPlantHeader(plantId)),
   getWeeklyDrift: (params: { week_start: string }, plantId?: string) =>
     api.get("/api/production/weekly-drift", { ...withPlantHeader(plantId), params }),
   getBooksState: (plantId?: string) =>

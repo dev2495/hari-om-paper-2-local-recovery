@@ -82,7 +82,8 @@ export function SeasonPrintLog({ card, machineLabel }: { card: any; machineLabel
   const profile = card.spec_snapshot?.qc_profile
   const rulesFor = (stage: string) => (profile?.stages?.[stage]?.parameters || []).filter((r: any) => r.applicable !== false)
   const qcStages = stages.filter((s: any) => rulesFor(s.stage).length)
-  const flagged = runs.some((e: any) => e.details?.unscheduled_entry || e.details?.machine_changed)
+  const isFlagged = (e: any) => e.details?.unscheduled_entry || e.details?.machine_changed || e.details?.material_prep_pending
+  const flagged = runs.some(isFlagged)
 
   return (
     <div className="jc-log" data-testid="season-print-annex">
@@ -199,7 +200,7 @@ export function SeasonPrintLog({ card, machineLabel }: { card: any; machineLabel
               <td>{stageName(e.stage)}</td>
               <td className="num">
                 {e.entry_no}
-                {e.details?.unscheduled_entry || e.details?.machine_changed ? " †" : ""}
+                {isFlagged(e) ? " †" : ""}
               </td>
               <td>
                 {dateText(e.business_date)}
@@ -220,6 +221,7 @@ export function SeasonPrintLog({ card, machineLabel }: { card: any; machineLabel
               <td>{[clock(e.details?.start_time), clock(e.details?.end_time)].filter(Boolean).join(" – ")}</td>
               <td>
                 {verdictText[e.evaluation?.verdict] || "No readings"}
+                {e.evaluation?.unrecorded?.length ? <span className="sub">{e.evaluation.unrecorded.map((u: any) => u.label).join(", ")} not recorded</span> : null}
                 <span className="sub">by {person(e.created_by)}</span>
               </td>
             </tr>
@@ -393,7 +395,7 @@ export function SeasonPrintLog({ card, machineLabel }: { card: any; machineLabel
       ) : null}
 
       <p className="jc-log-note">
-        ✗ = reading outside the allowed limit (the batch is held for QC).{flagged ? " † = run entered before the planner placed the stage, or on another machine (listed for the owner under Reports › Exceptions)." : ""}
+        ✗ = reading outside the allowed limit (the batch is held for QC).{flagged ? " † = run entered before the planner placed the stage, on another machine, or before the slitting record (listed for the owner under Reports › Exceptions)." : ""}
       </p>
     </div>
   )

@@ -640,6 +640,15 @@ def _plant_compare(snapshot: dict[str, Any], inventory_report: dict[str, Any], s
     return rows
 
 
+# Floor entries the owner reviews (production /entries/flagged): allowed, but worth a look.
+FLOOR_FLAG_LABELS = {
+    "UNSCHEDULED": "Before planning",
+    "MACHINE_CHANGED": "Other machine",
+    "MATERIAL_PREP_PENDING": "Before slitting record",
+    "QC_NOT_RECORDED": "Moisture not recorded",
+}
+
+
 def _exception_report(snapshot: dict[str, Any], sales_report: dict[str, Any], inventory_report: dict[str, Any], production_report: dict[str, Any]) -> dict[str, Any]:
     return {
         "summary": {
@@ -648,10 +657,13 @@ def _exception_report(snapshot: dict[str, Any], sales_report: dict[str, Any], in
             "overstock_items": len(inventory_report["risk_items"]["overstock"]),
             "blocked_jobs": len(production_report["blocked_rows"]),
             "active_qc_holds": len([row for row in snapshot["quality_holds"] if str(row.get("status") or "").upper() == "HOLD"]),
-            "unscheduled_entries": len(snapshot.get("flagged_entries") or []),
+            "floor_entries_to_review": len(snapshot.get("flagged_entries") or []),
         },
         "unscheduled_entries": [
-            {k: row.get(k) for k in ("job_card_no", "customer", "stage", "entry_no", "business_date", "shift_code", "operator_name", "produced", "accepted", "entered_by", "entered_at", "reason", "job_card_id", "plant_id")}
+            {
+                "check": FLOOR_FLAG_LABELS.get(str(row.get("flag") or ""), "Review"),
+                **{k: row.get(k) for k in ("job_card_no", "customer", "stage", "entry_no", "business_date", "shift_code", "operator_name", "produced", "accepted", "entered_by", "entered_at", "reason", "job_card_id", "plant_id")},
+            }
             for row in (snapshot.get("flagged_entries") or [])[:50]
         ],
         "delayed_orders": sales_report["delayed_rows"],

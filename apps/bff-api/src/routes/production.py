@@ -526,6 +526,14 @@ async def get_period_state(month: str, request: Request, token: str = Depends(ge
     )
 
 
+@router.get("/count-consumption/{month}")
+async def get_count_consumption(month: str, request: Request, token: str = Depends(get_token)):
+    """Month consumption per item from the certified stock count: opening + received - counted."""
+    return await proxy_to_service(
+        PRODUCTION_SERVICE_URL, f"/reconciliation/count-consumption/{month}", request, token
+    )
+
+
 @router.get("/weekly-drift")
 async def get_weekly_drift(request: Request, token: str = Depends(get_token)):
     """Gap 9: read-only early-warning drift for a 7-day window."""

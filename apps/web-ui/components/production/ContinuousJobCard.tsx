@@ -541,6 +541,11 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
               </div>
             </details>
           ) : null}
+          {state.qc?.unrecorded?.length ? (
+            <p className="mt-2 rounded-lg border border-signal-amber-line bg-signal-amber-soft px-2.5 py-1.5 text-sm text-signal-amber-ink" data-testid="season-qc-unrecorded">
+              Not recorded (optional): {state.qc.unrecorded.map((r: any) => `${r.label} ${r.have}/${r.need}`).join(", ")} — the stage can still close; this is flagged for the owner.
+            </p>
+          ) : null}
           {stage === "DISPATCH" && state.qc_rejected_qty > 0 ? <p className="mt-2 text-sm text-signal-amber-ink">Final QC rejected {state.qc_rejected_qty} pcs; they are excluded from shipments.</p> : null}
           {stage === "DISPATCH" && state.qc_uninspected_qty > 0 ? <p className="mt-2 text-sm">Uninspected at final QC: {state.qc_uninspected_qty} pcs (not shipped).</p> : null}
           {state.retained_fg_qty > 0 ? <p className="mt-2 text-sm">Retained finished goods: {state.retained_fg_qty} pcs (kept in stock, not shipped).</p> : null}
@@ -876,6 +881,7 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
                       e.operator_name,
                       e.details?.start_time && e.details?.end_time ? `${clockOf(e.details.start_time)}–${clockOf(e.details.end_time)}` : "",
                       e.details?.unscheduled_entry ? "logged before planning" : "",
+                      e.details?.material_prep_pending ? "logged before the slitting record" : "",
                       e.qc_gate_override ? "taken before upstream QC (override)" : "",
                     ]
                       .filter(Boolean)
@@ -898,6 +904,11 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
                       {e.kind !== "QC_ONLY" ? (e.qc_cleared ? " · cleared" : fail ? " · on hold" : "") : ""}
                     </span>
                   )}
+                  {e.status !== "VOID" && e.evaluation?.unrecorded?.length ? (
+                    <span className="rounded-full bg-signal-amber-soft px-2 py-0.5 text-xs font-semibold text-signal-amber-ink" title="Optional; flagged for the owner">
+                      {e.evaluation.unrecorded.map((u: any) => u.label).join(", ")} not recorded
+                    </span>
+                  ) : null}
                   {e.status === "SUBMITTED" && canQc && parameters.length ? (
                     <Button size="sm" variant={pass ? "ghost" : "outline"} onClick={() => openEntry(e, true)}>
                       {e.samples?.length ? "QC" : "Add QC"}
@@ -1017,7 +1028,7 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
           </label>
           {stage === "WINDER" ? (
             <details>
-              <summary className="cursor-pointer text-sm font-semibold">Link consumed reel issues</summary>
+              <summary className="cursor-pointer text-sm font-semibold">Link reel issues (optional — the monthly stock count settles material)</summary>
               {reelIssues.isError ? (
                 <p className="text-sm text-destructive">Could not load reel issues. Retry after checking Inventory.</p>
               ) : (

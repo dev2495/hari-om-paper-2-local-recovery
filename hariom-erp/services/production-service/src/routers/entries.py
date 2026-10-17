@@ -210,9 +210,9 @@ def flow(db,job):
         if stage=="QC":
             final_samples={i.sample_id for i in inspections if i.stage_type=="QC" and i.status=="PASS" and i.sample_id and (i.evaluation or {}).get("workflow_status")!="SUPERSEDED" and planning._inspection_has_full_final_spec(i,job.spec_snapshot or {}) and all((i.readings or {}).get(k) not in (None,"") for k in ("id","od","length","weight","cs"))}
             final_pass=planning._final_spec_qc_passed(db=db,plant_id=job.plant_id,job_card=job,inline_quality_checks=None)
-            readiness={"ready":len(final_samples)>=2 and final_pass,"missing":[] if len(final_samples)>=2 else [{"parameter":"final_spec","label":"Final specification QC","have":len(final_samples),"need":2}],"blockers":[] if final_pass else ["Final specification acceptance required"]}
+            readiness={"ready":len(final_samples)>=2 and final_pass,"missing":[] if len(final_samples)>=2 else [{"parameter":"final_spec","label":"Final specification QC","have":len(final_samples),"need":2}],"blockers":[] if final_pass else ["Final specification acceptance required"],"unrecorded":[]}
         drafts=sum(e.stage==stage and e.status=="DRAFT" for e in all_entries)
-        upstream=previous(job,stage);upstream_closed=not upstream or stage_map[upstream].status=="COMPLETED"
+        upstream=previous(job,stage);upstream_closed=not upstream or stage_map[upstream].status=="COMPLETED" or (stage=="WINDER" and upstream=="SLITTING")
         target=int(snapshot.get("effective_target",planned_in_stage_units(stage,job.planned_qty,planning._pcs_per_bamboo_from_snapshot(job.spec_snapshot or {}))))
         accepted=int(shipped) if stage=="DISPATCH" else int(row.output_qty or 0) if stage=="SLITTING" else sum(e.accepted for e in actual)
         produced=accepted if stage in ("SLITTING","DISPATCH") else sum(e.produced for e in actual);blockers=[]
@@ -465,7 +465,9 @@ def allocate(db,job,e):
     if e.kind=="QC_ONLY":return
     if not upstream:return
     if e.stage=="WINDER" and upstream=="SLITTING":
-        if stage_row(db,job,"SLITTING").status!="COMPLETED":raise HTTPException(409,"Complete the Slitting material preparation first")
+        # Floor always has material (client rule 2026-10-17): a run is accepted before the slitting
+        # record and flagged; material is settled by the monthly stock count and reconciliation.
+        if stage_row(db,job,"SLITTING").status!="COMPLETED":e.details={**(e.details or {}),"material_prep_pending":True}
         return
     override=bool(str((e.details or {}).get(QC_GATE_OVERRIDE_KEY) or "").strip())
     available_input=available(db,job,e.stage,override=override)
@@ -566,10 +568,22 @@ def get_entries(card_id:uuid.UUID,stage:str|None=None,offset:int=Query(0,ge=0),l
 
 @router.get("/entries/flagged")
 def flagged_entries(days:int=Query(30,ge=1,le=366),limit:int=Query(200,ge=1,le=500),db:Session=Depends(get_db),plant:str=Depends(get_current_plant),user:dict=Depends(require_role(["Owner","Admin","PlantManager","Planner"]))):
-    """Floor entries the owner should look at: runs logged before the planner placed the stage."""
+    """Floor entries the owner should look at: runs logged before the planner placed the stage or on
+    another machine, winding logged before the slitting record, and QC with optional moisture not recorded."""
     since=datetime.utcnow()-timedelta(days=days)
-    rows=db.query(StageEntry,JobCard).join(JobCard,JobCard.id==StageEntry.job_card_id).filter(JobCard.plant_id==planning._to_uuid(plant),StageEntry.created_at>=since,StageEntry.status!="VOID",or_(StageEntry.details["unscheduled_entry"].isnot(None),StageEntry.details["machine_changed"].isnot(None))).order_by(StageEntry.created_at.desc()).limit(limit).all()
-    return [{"entry_id":str(e.id),"job_card_id":str(job.id),"job_card_no":job.job_card_no,"customer":(job.spec_snapshot or {}).get("customer_name_snapshot") or (job.spec_snapshot or {}).get("customer_name"),"stage":e.stage,"entry_no":e.entry_no,"business_date":e.business_date,"shift_code":e.shift_code,"operator_name":e.operator_name,"produced":e.produced,"accepted":e.accepted,"entered_by":e.created_by,"entered_at":e.created_at,"flag":"UNSCHEDULED" if (e.details or {}).get("unscheduled_entry") else "MACHINE_CHANGED","reason":(e.details or {}).get("unscheduled_entry",{}).get("reason") or ("Run on a different machine than planned" if (e.details or {}).get("machine_changed") else None)} for e,job in rows]
+    rows=db.query(StageEntry,JobCard).join(JobCard,JobCard.id==StageEntry.job_card_id).filter(JobCard.plant_id==planning._to_uuid(plant),StageEntry.created_at>=since,StageEntry.status!="VOID",or_(StageEntry.details["unscheduled_entry"].isnot(None),StageEntry.details["machine_changed"].isnot(None),StageEntry.details["material_prep_pending"].isnot(None),StageEntry.evaluation["unrecorded"].isnot(None))).order_by(StageEntry.created_at.desc()).limit(limit).all()
+    def flags(e):
+        # One line per reason: a run can be both unplanned and missing its moisture reading.
+        details=e.details or {};unrecorded=(e.evaluation or {}).get("unrecorded") or []
+        if details.get("unscheduled_entry"):yield "UNSCHEDULED",(details.get("unscheduled_entry") or {}).get("reason")
+        if details.get("machine_changed"):yield "MACHINE_CHANGED","Run on a different machine than planned"
+        if details.get("material_prep_pending"):yield "MATERIAL_PREP_PENDING","Winding logged before the slitting record; material settled by stock count"
+        if unrecorded:yield "QC_NOT_RECORDED","Not recorded: "+", ".join(str(item.get("label") or item.get("parameter")) for item in unrecorded)
+    result=[]
+    for e,job in rows:
+        for kind,reason in flags(e):
+            result.append({"entry_id":str(e.id),"job_card_id":str(job.id),"job_card_no":job.job_card_no,"customer":(job.spec_snapshot or {}).get("customer_name_snapshot") or (job.spec_snapshot or {}).get("customer_name"),"stage":e.stage,"entry_no":e.entry_no,"business_date":e.business_date,"shift_code":e.shift_code,"operator_name":e.operator_name,"produced":e.produced,"accepted":e.accepted,"entered_by":e.created_by,"entered_at":e.created_at,"flag":kind,"reason":reason})
+    return result[:limit]
 
 
 @router.get("/job-cards/{card_id}/effects")
@@ -760,12 +774,14 @@ def close_stage(card_id:uuid.UUID,stage:str,payload:CloseInput,db:Session=Depend
     if row.status=="COMPLETED":raise HTTPException(409,"Stage already closed")
     if payload.expected_version!=state["row_version"]:raise HTTPException(409,"Stage changed; refresh before closing")
     upstream=previous(job,stage)
-    if upstream and stage_row(db,job,upstream).status!="COMPLETED":raise HTTPException(409,"Close the previous stage first")
+    slitting_open=stage=="WINDER" and upstream=="SLITTING" and stage_row(db,job,upstream).status!="COMPLETED"
+    if upstream and not slitting_open and stage_row(db,job,upstream).status!="COMPLETED":raise HTTPException(409,"Close the previous stage first")
     if state["draft_count"]:raise HTTPException(409,"Submit or discard outstanding drafts")
     if not state["qc"]["ready"]:raise HTTPException(409,{"code":"STAGE_QC_READINGS_SHORT","missing":state["qc"]["missing"],"blockers":state["qc"]["blockers"]})
     if planning._movement_blocking_holds(db,db.query(QualityHold).filter_by(job_card_id=job.id).all()):raise HTTPException(409,"Resolve blocking QC holds before close")
     if state["accepted_total"]<state["target"] and not (payload.short_close and payload.reason.strip()):raise HTTPException(409,"Short close requires an explicit reason")
-    if stage=="WINDER" and not (row.reel_issue_ids or payload.reel_issue_ids) and not payload.reason.strip():raise HTTPException(409,"Link reel issues or record the material issue exception")
+    # Reel issues may be linked here but are never required: issue to the floor happens any time and
+    # consumption is settled by the monthly stock count and reconciliation (client rule 2026-10-17).
     if stage=="QC" and not planning._final_spec_qc_passed(db=db,plant_id=job.plant_id,job_card=job,inline_quality_checks=None):raise HTTPException(409,"Final specification QC acceptance required")
     if stage=="PROCESS" and state["carryover_pcs"]:raise HTTPException(409,"Use or explicitly dispose all held Process carryover before closing")
     # An inventory issue is attributed to one card. Serialize different cards
@@ -777,6 +793,12 @@ def close_stage(card_id:uuid.UUID,stage:str,payload:CloseInput,db:Session=Depend
     if residual and not (payload.residual_disposition in ("SCRAP","HOLD","RETURN") and payload.reason.strip()):raise HTTPException(409,{"code":"RESIDUAL_WIP","available":residual,"message":"Record residual input as HOLD, RETURN or SCRAP with a reason"})
     if residual:dispose_residual(db,job,stage,payload.residual_disposition,payload.reason,user)
     if payload.reel_issue_ids:row.reel_issue_ids=sorted({str(i) for i in (row.reel_issue_ids or [])+payload.reel_issue_ids})
+    if slitting_open:
+        # The slitting record was never entered: close it with Winding (no coil postings) so the card
+        # moves on to dispatch; it stays flagged and the stock count settles the material.
+        slit=stage_row(db,job,"SLITTING");slit.status="COMPLETED";slit.entered_by=user["sub"];slit.entered_at=datetime.utcnow()
+        slit_snapshot=dict(slit.actuals_snapshot or {});slit_snapshot.update(closed_at=datetime.utcnow().isoformat(),closed_by=user["sub"],close_kind="CLOSED_WITH_WINDING",material_prep_pending=True,close_reason="Slitting not recorded; material settled by stock count and reconciliation",row_version=int(slit_snapshot.get("row_version",1))+1);slit.actuals_snapshot=slit_snapshot
+        for segment in db.query(JobCardStageSegment).filter_by(job_card_id=job.id,stage_type="SLITTING").all():segment.status="COMPLETED";segment.completed_at=datetime.utcnow()
     row.status="COMPLETED";row.entered_by=user["sub"];row.entered_at=datetime.utcnow()
     snapshot=dict(row.actuals_snapshot or {});snapshot.update(closed_at=datetime.utcnow().isoformat(),closed_by=user["sub"],supervisor_id=str(payload.supervisor_id),supervisor_name=supervisor["name"],close_reason=payload.reason,residual_quantity=residual or 0,residual_disposition=payload.residual_disposition,close_kind="SHORT_CLOSE" if state["accepted_total"]<state["target"] else "TARGET_MET",row_version=state["row_version"]+1);row.actuals_snapshot=snapshot
     row.entry_snapshot={**(row.entry_snapshot or {}),"supervisor_name":supervisor["name"]}

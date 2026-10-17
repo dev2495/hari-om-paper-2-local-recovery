@@ -131,8 +131,6 @@ export function WholeCardEntryForm({ card, flow, onDone }: { card: any; flow: an
     ) && !reason.trim()
       ? "the reason (rejects, loss, over +10% or closing short)"
       : "",
-    // Reels are linked from the stage's Close form; closing Winding here records the issue note instead.
-    selected.some((r) => r.close && r.stage === "WINDER") && !reason.trim() ? "a material issue note to close Winding (reel numbers used)" : "",
   ].filter(Boolean)
 
   return (
@@ -276,7 +274,7 @@ export function WholeCardEntryForm({ card, flow, onDone }: { card: any; flow: an
       })}
 
       <label className="block text-sm">
-        Reason / note <span className="text-muted-foreground">(needed for rejects, closing short, or closing Winding: write the reel numbers used)</span>
+        Reason <span className="text-muted-foreground">(needed for rejects, loss, over +10% or closing short)</span>
         <Input className="h-11" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. WL winding loose on 3 bamboo; order short-closed by customer" aria-label="Whole-card entry reason" />
       </label>
       {error ? (

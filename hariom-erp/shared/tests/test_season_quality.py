@@ -91,3 +91,20 @@ def test_customer_references_use_the_requirement_not_the_lower_limit():
     assert (rule(profile,"WINDER","height")["min"],rule(profile,"WINDER","height")["max"])==(1520,1550)
     assert (rule(profile,"PROCESS","height")["min"],rule(profile,"PROCESS","height")["max"])==(124.8,125.2)
     assert (rule(profile,"PROCESS","weight")["min"],rule(profile,"PROCESS","weight")["max"])==(240,250)
+
+
+def test_moisture_is_optional_but_reported(profile):
+    # Client rule 2026-10-17: oven pre/post moisture and process moisture never hold a batch or a stage.
+    oven=[evaluate_samples("OVEN",profile,[{"sample_id":sid,"readings":{"pre_weight":100,"post_weight":91,"cs":410}}]) for sid in ("a","b")]
+    assert all(e["verdict"]=="PASS" for e in oven)
+    assert [u["parameter"] for u in oven[0]["unrecorded"]]==["pre_moisture","post_moisture"]
+    ready=stage_readiness("OVEN",profile,oven)
+    assert ready["ready"] and not ready["missing"]
+    assert {u["parameter"] for u in ready["unrecorded"]}=={"pre_moisture","post_moisture"}
+    recorded=[evaluate_samples("OVEN",profile,[{"sample_id":sid,"readings":{"pre_weight":100,"post_weight":91,"cs":410,"pre_moisture":11,"post_moisture":8}}]) for sid in ("a","b")]
+    assert "unrecorded" not in recorded[0] and stage_readiness("OVEN",profile,recorded)["unrecorded"]==[]
+    # Other checks stay required, and a recorded moisture outside its band still fails.
+    assert not stage_readiness("OVEN",profile,[evaluate_samples("OVEN",profile,[{"sample_id":"a","readings":{"pre_moisture":10}}])])["ready"]
+    banded=resolve_profile({"id_min_mm":76.2,"id_max_mm":76.6,"od_min_mm":81,"od_max_mm":81,"length_min_mm":149.8,"length_max_mm":150.2,"target_tube_weight":120,"cs_min_n":400,"required_cs":400,"mandrel_diameter_mm":76.3,"selected_bamboo_length_mm":1560,"moisture_min_pct":6,"moisture_max_pct":8},initial_rules())
+    assert evaluate_samples("PROCESS",banded,[{"sample_id":"a","readings":{"moisture":9}}])["verdict"]=="FAIL"
+    assert evaluate_samples("WINDER",profile,[{"sample_id":"a","readings":{"id":76.3}}]).get("unrecorded") is None

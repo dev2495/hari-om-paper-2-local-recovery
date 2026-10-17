@@ -81,7 +81,7 @@ const ROW_SETS: Record<ReportType, Array<{ key: string; label: string; pick: (da
   exceptions: [
     { key: "delayed", label: "Delayed orders", pick: (data) => data?.delayed_orders || [] },
     { key: "blocked", label: "Blocked jobs", pick: (data) => data?.blocked_jobs || [] },
-    { key: "unscheduled", label: "Floor entries before planning", pick: (data) => data?.unscheduled_entries || [] },
+    { key: "unscheduled", label: "Floor entries to review", pick: (data) => data?.unscheduled_entries || [] },
     { key: "holds", label: "QC holds", pick: (data) => data?.active_holds || [] },
     { key: "low", label: "Low stock", pick: (data) => data?.low_stock || [] },
     { key: "over", label: "Overstock", pick: (data) => data?.overstock || [] },
@@ -164,7 +164,7 @@ function breakdown(type: ReportType, data: any, chart: { rows: any[]; keys: stri
       slices: [
         { label: "Delayed orders", value: Number(s.delayed_orders || 0), color: "hsl(var(--chart-5))", href: "/sales-orders?due=overdue" },
         { label: "Blocked jobs", value: Number(s.blocked_jobs || 0), color: "hsl(var(--chart-6))", href: "/production/job-cards" },
-        { label: "Entries before planning", value: Number(s.unscheduled_entries || 0), color: "hsl(var(--chart-4))", href: "/production/job-cards" },
+        { label: "Floor entries to review", value: Number(s.floor_entries_to_review ?? s.unscheduled_entries ?? 0), color: "hsl(var(--chart-4))", href: "/production/job-cards" },
         { label: "QC holds", value: Number(s.active_qc_holds || 0), color: "hsl(var(--chart-3))", href: "/quality" },
         { label: "Low stock", value: Number(s.low_stock_items || 0), color: "hsl(var(--chart-2))", href: "/inventory/stock-alerts" },
         { label: "Overstock", value: Number(s.overstock_items || 0), color: "hsl(var(--chart-1))" },

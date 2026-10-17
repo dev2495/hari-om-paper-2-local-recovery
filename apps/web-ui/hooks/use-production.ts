@@ -594,6 +594,18 @@ export function usePeriodState(month?: string, plantId?: string, enabled = true)
   })
 }
 
+/** Month consumption per item from the certified stock count (opening + received - counted). */
+export function useCountConsumption(month?: string, plantId?: string, enabled = true) {
+  return useQuery({
+    queryKey: ["count-consumption", month, plantId],
+    queryFn: async () => {
+      const { data } = await productionApi.getCountConsumption(String(month), plantId)
+      return data
+    },
+    enabled: enabled && Boolean(month) && Boolean(plantId) && String(plantId).toUpperCase() !== "ALL",
+  })
+}
+
 export function useWeeklyDrift(weekStart?: string, plantId?: string, enabled = true) {
   return useQuery({
     queryKey: ["weekly-drift", weekStart, plantId],
