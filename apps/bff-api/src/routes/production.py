@@ -5,7 +5,7 @@ import os
 from src.middleware.auth import get_token
 from src.services.books_guard import assert_not_backdated, invalidate_books_cache
 from src.services.http_client import proxy_to_service
-from src.services import handoff_events
+from src.services import handoff_events, quality_events
 from src.services.workspace import response_body_json
 
 router = APIRouter()
@@ -35,12 +35,18 @@ async def continuous_entries(card_id: str, request: Request, path: str = "", tok
         for step in body.get("steps",[]):
             if plant_id and step.get("entry",{}).get("business_date"):
                 await assert_not_backdated(token,plant_id,effective_date=step["entry"]["business_date"])
-    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{card_id}/entries" + (f"/{path}" if path else ""), request, token)
+    response = await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{card_id}/entries" + (f"/{path}" if path else ""), request, token)
+    if request.method in ("POST", "PATCH"):
+        # Batch QC due / failed (held for the plant head) / accepted → actionable notifications.
+        handoff_events.run_in_background(lambda: quality_events.notify_entry(response, request, token, card_id, path))
+    return response
 
 
 @router.post("/job-cards/{card_id}/stages/{stage}/{action}")
 async def continuous_close(card_id: str, stage: str, action: str, request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{card_id}/stages/{stage}/{action}", request, token)
+    response = await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{card_id}/stages/{stage}/{action}", request, token)
+    handoff_events.run_in_background(lambda: quality_events.notify_stage_closed(response, request, token, card_id, stage, action))
+    return response
 
 
 @router.get("/job-cards/{card_id}/effects")

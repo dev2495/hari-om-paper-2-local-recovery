@@ -65,7 +65,8 @@ VALID_SOURCES = {"INWARD", "CUSTOMER_REJECTION", "PROCESS_STAGE"}
 VALID_INSPECTION_STATUS = {"PASS", "FAIL", "SKIPPED"}
 VALID_DISPOSITIONS = {"HOLD", "REJECT", "ACCEPT", "REWORK", "REHEAT", "SEGREGATE", "SCRAP", "BLOCK"}
 CONCESSION_PERMISSION = "qc:disposition:approve"
-CONCESSION_ROLES = {"Owner", "Admin"}
+# Held inward lots are decided by Owner / Admin / plant head (client rule 2026-10-18).
+CONCESSION_ROLES = {"Owner", "Admin", "PlantManager"}
 CONCESSION_ELIGIBILITY = "RELEASED_BY_CONCESSION"
 HELD_STOCK_STATUSES = {"QC_HOLD", "BLOCKED", "SCRAP", CONCESSION_STOCK_STATUS}
 
@@ -438,6 +439,8 @@ class CustomerRejectionCreate(BaseModel):
     dispatch_ref: Optional[str] = Field(default=None, max_length=120)
     reason_code: str = Field(min_length=1, max_length=80)
     reason_notes: Optional[str] = Field(default=None, max_length=1000)
+    complaint_batch: Optional[str] = Field(default=None, max_length=120)
+    size_label: Optional[str] = Field(default=None, max_length=160)
     effective_date: Optional[date] = None
     source_batch_id: Optional[uuid.UUID] = None
     source_job_card_id: Optional[uuid.UUID] = None
@@ -481,6 +484,8 @@ class CustomerRejectionResponse(BaseModel):
     batch_id: Optional[uuid.UUID]
     rejected_qty: float
     customer_name: str
+    complaint_batch: Optional[str] = None
+    size_label: Optional[str] = None
     invoice_ref: Optional[str] = None
     dispatch_ref: Optional[str] = None
     reason_code: str
@@ -552,6 +557,8 @@ def _customer_rejection_response(row: CustomerRejection) -> CustomerRejectionRes
         batch_id=row.batch_id,
         rejected_qty=float(row.rejected_qty or 0),
         customer_name=row.customer_name,
+        complaint_batch=row.complaint_batch,
+        size_label=row.size_label,
         invoice_ref=row.invoice_ref,
         dispatch_ref=row.dispatch_ref,
         reason_code=row.reason_code,
@@ -1320,6 +1327,10 @@ def create_quality_inspection(
     db.commit()
     db.refresh(inspection)
     response = _inspection_response(inspection, stock_status=stock_status)
+    # Name the lot the way the floor knows it (AT / batch number) for notifications and the desk.
+    lot_label = (reel.reel_code if reel is not None else batch.batch_no if batch is not None else None)
+    if lot_label:
+        response = response.model_copy(update={"entity_label": f"{lot_label} · {getattr(item, 'name', '') or material_type.replace('_', ' ').lower()}"})
     response.ignored_client_status = payload.status
     return response
 
@@ -1856,9 +1867,13 @@ def list_quality_inspections(
         query = query.filter(InventoryQualityInspection.source == normalized_source)
     rows = query.order_by(InventoryQualityInspection.created_at.desc()).offset(offset).limit(limit).all()
     ids = [row.entity_id for row in rows]
-    labels = {("BATCH", row.id): row.batch_no for row in db.query(StockBatch).filter(StockBatch.id.in_(ids)).all()} if ids else {}
+    def named(code: Optional[str], item: Any) -> Optional[str]:
+        name = getattr(item, "name", None)
+        return f"{code} · {name}" if code and name else code or name
+
+    labels = {("BATCH", row.id): named(row.batch_no, row.item) for row in db.query(StockBatch).options(joinedload(StockBatch.item)).filter(StockBatch.id.in_(ids)).all()} if ids else {}
     if ids:
-        labels.update({("REEL", row.id): row.reel_code for row in db.query(PaperReel).filter(PaperReel.id.in_(ids)).all()})
+        labels.update({("REEL", row.id): named(row.reel_code, row.paper) for row in db.query(PaperReel).options(joinedload(PaperReel.paper)).filter(PaperReel.id.in_(ids)).all()})
         labels.update({("CUSTOMER_REJECTION", row.id): row.customer_name for row in db.query(CustomerRejection).filter(CustomerRejection.id.in_(ids)).all()})
     return [_inspection_response(row).model_copy(update={"entity_label": labels.get((row.entity_type, row.entity_id))}) for row in rows]
 
@@ -2002,7 +2017,16 @@ def quality_analytics(
     suppliers: dict[str, dict[str, Any]] = defaultdict(blank)
     materials: dict[str, dict[str, Any]] = defaultdict(blank)
     failing_parameters: dict[str, int] = defaultdict(int)
+    incoming_weeks: dict[str, dict[str, int]] = defaultdict(lambda: {"lots": 0, "first_pass": 0})
+
+    def week_of(moment: datetime | None) -> str:
+        day = (moment or datetime.utcnow()).date()
+        return (day - timedelta(days=day.weekday())).isoformat()
+
     for (entity_type, entity_id), entry in per_lot.items():
+        week = incoming_weeks[week_of(entry["first"].created_at)]
+        week["lots"] += 1
+        week["first_pass"] += 1 if str(entry["first"].status or "").upper() == "PASS" else 0
         lot = batches.get(entity_id) if entity_type == "BATCH" else reels.get(entity_id)
         supplier = (getattr(lot, "supplier_name_snapshot", None) or getattr(lot, "supplier_name", None) or "Unknown supplier") if lot else "Unknown supplier"
         item = (getattr(lot, "item", None) if entity_type == "BATCH" else getattr(lot, "paper", None)) if lot else None
@@ -2053,8 +2077,12 @@ def quality_analytics(
         .all()
     )
     by_customer: dict[str, dict[str, Any]] = defaultdict(lambda: {"cases": 0, "qty": 0.0, "open": 0, "cost_impact": 0.0})
-    by_reason: dict[str, dict[str, Any]] = defaultdict(lambda: {"cases": 0, "qty": 0.0})
+    by_reason: dict[str, dict[str, Any]] = defaultdict(lambda: {"cases": 0, "qty": 0.0, "open": 0})
+    return_weeks: dict[str, dict[str, Any]] = defaultdict(lambda: {"cases": 0, "qty": 0.0})
     for row in returns:
+        week = return_weeks[week_of(row.created_at)]
+        week["cases"] += 1
+        week["qty"] += float(row.rejected_qty or 0.0)
         customer = by_customer[row.customer_name or "Unknown customer"]
         customer["cases"] += 1
         customer["qty"] += float(row.rejected_qty or 0.0)
@@ -2063,6 +2091,7 @@ def quality_analytics(
         reason = by_reason[row.reason_code or "UNSPECIFIED"]
         reason["cases"] += 1
         reason["qty"] += float(row.rejected_qty or 0.0)
+        reason["open"] += 0 if row.closed_at else 1
     lot_count = len(per_lot)
     first_pass_total = sum(1 for entry in per_lot.values() if str(entry["first"].status or "").upper() == "PASS")
     return {
@@ -2077,6 +2106,10 @@ def quality_analytics(
             "failing_parameters": [
                 {"parameter": name, "lots": count} for name, count in sorted(failing_parameters.items(), key=lambda item: -item[1])[:15]
             ],
+            "weekly": [
+                {**bucket, "week": week, "first_pass_rate": round(bucket["first_pass"] / bucket["lots"] * 100.0, 1) if bucket["lots"] else None}
+                for week, bucket in sorted(incoming_weeks.items())
+            ],
         },
         "customer_returns": {
             "cases": len(returns),
@@ -2088,9 +2121,10 @@ def quality_analytics(
                 key=lambda row: -row["qty"],
             ),
             "by_reason": sorted(
-                ({"reason_code": name, "cases": bucket["cases"], "qty": round(bucket["qty"], 3)} for name, bucket in by_reason.items()),
+                ({"reason_code": name, "cases": bucket["cases"], "qty": round(bucket["qty"], 3), "open": bucket["open"]} for name, bucket in by_reason.items()),
                 key=lambda row: -row["cases"],
             ),
+            "weekly": [{"week": week, "cases": bucket["cases"], "qty": round(bucket["qty"], 3)} for week, bucket in sorted(return_weeks.items())],
         },
     }
 
@@ -2259,6 +2293,8 @@ def create_customer_rejection(
         invoice_ref=payload.invoice_ref,
         dispatch_ref=payload.dispatch_ref,
         reason_code=payload.reason_code.strip().upper(),
+        complaint_batch=(payload.complaint_batch or "").strip() or None,
+        size_label=(payload.size_label or "").strip() or None,
         reason_notes=payload.reason_notes,
         effective_date=effective_date_value,
         source_job_card_id=payload.source_job_card_id

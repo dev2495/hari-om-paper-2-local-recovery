@@ -26,9 +26,10 @@ async def create_or_update_dispatch(request: Request, token: str = Depends(get_t
         response,
         token=token,
         event_type="DISPATCH_UPDATED",
-        title="Dispatch updated",
+        title=f"Dispatch {str(payload.get('status') or 'updated').replace('_', ' ').lower()}{' · ' + str(payload.get('dispatch_no')) if payload.get('dispatch_no') else ''}",
         message="Dispatch readiness or sealing state changed.",
-        href=f"/dispatch/{dispatch_id}" if payload.get("id") else "/dispatch",
+        # The dispatch desk; /logistics/dispatch/<job card> opens one card's dispatch.
+        href=f"/logistics/dispatch/{payload.get('job_card_id')}" if payload.get("job_card_id") else "/logistics/dispatch",
         recipient_roles=["Owner", "Admin", "Store", "Dispatch", "Sales"],
         payload={"dispatch_id": str(payload.get('id') or '')},
     )

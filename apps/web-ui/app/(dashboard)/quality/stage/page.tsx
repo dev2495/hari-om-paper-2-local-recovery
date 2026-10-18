@@ -478,7 +478,7 @@ export default function StageQualityPage() {
 
   if (seasonalSelected) {
     return (
-      <RoleGate allow={["QC", "PlantManager"]}>
+      <RoleGate allow={["QC", "InProcessQC", "PlantManager"]}>
         <div className="space-y-5" data-testid="quality-stage-seasonal">
           <QualityDeskNav />
           <section className="space-y-3 rounded-2xl border border-border bg-card p-4">
@@ -527,7 +527,7 @@ export default function StageQualityPage() {
     )
   }
   return (
-    <RoleGate allow={["QC", "PlantManager"]}>
+    <RoleGate allow={["QC", "InProcessQC", "PlantManager"]}>
       <div className="space-y-6" data-testid="quality-stage-page">
         <ExecutiveHero
           appearance={MODULE_APPEARANCES.analytics}

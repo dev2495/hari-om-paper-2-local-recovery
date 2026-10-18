@@ -59,6 +59,7 @@ const CATEGORY_PREFIXES: Array<[string, string]> = [
   ["QC_", "quality"],
   ["RECIPE_", "quality"],
   ["SALES_", "sales"],
+  ["CUSTOMER_REJECTION_", "quality"],
   ["CUSTOMER_", "sales"],
   ["INVENTORY_", "stores"],
   ["FG_", "stores"],
@@ -95,6 +96,12 @@ export const ACTION_LABELS: Record<string, string> = {
   resolve: "Resolve",
   review: "Review",
   reschedule: "Reschedule",
+  add_qc: "Add QC",
+  decide_hold: "Decide",
+  decide_lot: "Decide lot",
+  inspect: "Inspect",
+  decide_return: "Open complaint",
+  approve: "Approve",
 }
 
 export function relativeTime(value?: string, now = Date.now()) {

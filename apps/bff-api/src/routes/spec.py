@@ -19,7 +19,22 @@ async def season_proxy(request: Request, path: str = "", token: str = Depends(ge
 @router.api_route("/qc-rules", methods=["GET"])
 @router.api_route("/qc-rules/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def seasonal_rules_proxy(request: Request, path: str = "", token: str = Depends(get_token)):
-    return await proxy_to_service(SPEC_SERVICE_URL, "/qc-rules" + (f"/{path}" if path else ""), request, token)
+    response = await proxy_to_service(SPEC_SERVICE_URL, "/qc-rules" + (f"/{path}" if path else ""), request, token)
+    if request.method == "POST" and path.endswith("draft/publish"):
+        payload = response_body_json(response) or {}
+        published = payload.get("published") if isinstance(payload, dict) else {}
+        season = (published or {}).get("season") or request.query_params.get("season") or ""
+        await emit_from_response(
+            response,
+            token=token,
+            event_type="QC_RULES_VERSION_PUBLISHED",
+            title=f"Process stage rules: {'Monsoon' if season == 'MONSOON' else 'Rest of year'} version {(published or {}).get('version') or ''} in use",
+            message=f"{(published or {}).get('change_note') or 'Stage tolerances changed.'} Job cards released from now on use it; released cards keep their version.",
+            href="/quality/stage-rules",
+            recipient_roles=["QC", "InProcessQC", "PlantManager", "Planner", "Owner"],
+            payload={"season": season, "version": (published or {}).get("version"), "action": "review", "priority": "info", "scope": "GLOBAL"},
+        )
+    return response
 
 
 @router.api_route("/qc-overlays", methods=["GET"])

@@ -6,6 +6,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from src.middleware.auth import get_token
+from src.services import quality_events
 from src.services.books_guard import assert_not_backdated
 from src.services.http_client import proxy_to_service
 from src.services.workspace import emit_from_response, response_body_json
@@ -217,6 +218,7 @@ async def procurement_v2_proxy(procurement_path: str, request: Request, token: s
     )
     if request.method == "POST":
         await _notify_plan_handoff(procurement_path, request, response, token, plant_id)
+        await quality_events.notify_receipt(procurement_path, response, request, token)
     return response
 
 

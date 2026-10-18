@@ -461,7 +461,7 @@ class ReasonCode(Base):
     code = Column(String(40), nullable=False, index=True)  # e.g. DT-POWER, SCR-MOISTURE, SHORT-RM
     label = Column(String(200), nullable=False)
     category = Column(String(40), nullable=False, index=True)
-    # DOWNTIME | SCRAP | QC_REJECT | SHORT_CLOSE | RM_ISSUE | RETURN | OTHER
+    # DOWNTIME | SCRAP | QC_REJECT | SHORT_CLOSE | RM_ISSUE | RETURN | CUSTOMER_COMPLAINT | OTHER
     severity = Column(String(20), nullable=False, default="WATCH")  # OK | WATCH | CRITICAL
     description = Column(String(500), nullable=True)
     plant_id = Column(String(50), nullable=False, index=True, default="PLANT-1")

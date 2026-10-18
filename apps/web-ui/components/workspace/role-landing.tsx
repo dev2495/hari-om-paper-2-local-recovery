@@ -90,6 +90,11 @@ const LANDING_COPY: Record<LandingRole, LandingCopy> = {
     title: "Incoming lots waiting for inspection, rejected lots, and the material standards they are checked against",
     description: "Inspect each received reel or lot, release it to stock or reject it. Customer returns and production QC stay with the QC team.",
   },
+  InProcessQC: {
+    badge: "In-process QC Workspace",
+    title: "Batches waiting for stage QC, and holds waiting for the plant head",
+    description: "Record winding, oven and process readings on each batch (2 per check, more if needed). The next stage takes a batch only once its QC is accepted; failures are held for the plant head's decision.",
+  },
   GRN: {
     badge: "Goods Receipt Workspace",
     title: "Supplier deliveries to receive, weigh and label",
@@ -117,6 +122,7 @@ const ROLE_ICONS = {
   Dispatch: Truck,
   Sales: ShoppingCart,
   InwardQC: FlaskConical,
+  InProcessQC: FlaskConical,
   GRN: PackageCheck,
   RMIssue: Warehouse,
   Operator: Wrench,

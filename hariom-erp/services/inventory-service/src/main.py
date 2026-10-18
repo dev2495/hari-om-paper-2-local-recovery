@@ -50,6 +50,8 @@ def ensure_runtime_schema() -> None:
       "ALTER TABLE reel_issues ADD COLUMN IF NOT EXISTS issue_mode VARCHAR(20) NOT NULL DEFAULT 'LEGACY'",
       "ALTER TABLE reel_issues ADD COLUMN IF NOT EXISTS slitting_card JSON",
       "ALTER TABLE IF EXISTS inventory_quality_tolerances ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1",
+      "ALTER TABLE IF EXISTS customer_rejections ADD COLUMN IF NOT EXISTS complaint_batch VARCHAR(120)",
+      "ALTER TABLE IF EXISTS customer_rejections ADD COLUMN IF NOT EXISTS size_label VARCHAR(160)",
       "ALTER TABLE IF EXISTS inventory_quality_standard_events ADD COLUMN IF NOT EXISTS version INTEGER",
     ):
       connection.execute(text(statement))

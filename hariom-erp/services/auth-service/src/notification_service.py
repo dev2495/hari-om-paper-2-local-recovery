@@ -144,6 +144,10 @@ def create_notifications(
     if resolved_plant_id:
         event_payload.setdefault("plant_id", resolved_plant_id)
     resolved_event_id = str(event_id or event_payload.get("event_id") or "").strip() or None
+    # A master-level change that applies to every plant (stage rules, inward QC bands) is
+    # sent by the internal caller with scope GLOBAL and no plant; every holder of the role
+    # gets it. Anything else without a plant still reaches no one.
+    global_scope = not resolved_plant_id and str(event_payload.get("scope") or "").upper() == "GLOBAL"
 
     if recipient_roles:
         roles = db.query(models.Role).filter(models.Role.name.in_(list(recipient_roles))).all()
@@ -153,7 +157,7 @@ def create_notifications(
                     continue
                 if assigned_ids and user.id not in assigned_ids:
                     continue
-                if not user_can_receive_for_plant(user, resolved_plant_id, role.name):
+                if not global_scope and not user_can_receive_for_plant(user, resolved_plant_id, role.name):
                     continue
                 if not user_has_required_capability(
                     user,
@@ -242,7 +246,7 @@ NOTIFICATION_CATEGORIES: dict[str, tuple[str, ...]] = {
     "sales": ("SALES_", "CUSTOMER_"),
     "planning": ("JOB_CARDS_READY", "JOB_CARD_SCHEDULED", "JOB_CARD_STAGE", "MACHINE_", "MRP_"),
     "production": ("JOB_CARD_READY_FOR", "JOB_CARD_CLOSED", "JOB_CARD_SHORT", "STATUS_CHANGE", "COIL_", "REEL_"),
-    "quality": ("QC_", "INVENTORY_QC_", "RECIPE_"),
+    "quality": ("QC_", "INVENTORY_QC_", "RECIPE_", "CUSTOMER_REJECTION_"),
     "stores": ("INVENTORY_", "FG_", "TOOL_"),
     "purchase": ("PURCHASE_",),
     "dispatch": ("DISPATCH_",),
@@ -250,12 +254,12 @@ NOTIFICATION_CATEGORIES: dict[str, tuple[str, ...]] = {
     "system": ("REPORT_", "LOGIN_"),
 }
 
-CRITICAL_EVENTS = {"QC_HOLD", "QC_HOLD_RAISED", "QC_REJECTED", "MACHINE_DOWNTIME", "INVENTORY_STOCK_COUNT_VARIANCE_POSTED", "REPORT_EXCEPTIONS_FOUND"}
+CRITICAL_EVENTS = {"QC_HOLD", "QC_HOLD_RAISED", "QC_LOT_HELD", "QC_REJECTED", "MACHINE_DOWNTIME", "INVENTORY_STOCK_COUNT_VARIANCE_POSTED", "REPORT_EXCEPTIONS_FOUND"}
 ACTION_EVENTS = {
     "SALES_ORDER_CREATED", "SALES_ORDER_APPROVED", "SPEC_REVIEW_REQUESTED", "PURCHASE_ORDER_SUBMITTED",
     "JOB_CARDS_READY_TO_PLAN", "JOB_CARD_STAGE_HANDOFF", "JOB_CARD_READY_FOR_DISPATCH", "JOB_CARD_CLOSED",
     "JOB_CARD_SHORT_CLOSED", "QC_SETUP_REQUIRED", "PURCHASE_GRN_POSTED", "MRP_SHORTAGE_DRAFTED", "CUSTOMER_REJECTION_INWARDED",
-    "QC_LOT_RETURNED_TO_SUPPLIER",
+    "QC_LOT_RETURNED_TO_SUPPLIER", "QC_BATCH_DUE", "QC_LOTS_TO_INSPECT", "PURCHASE_MANUAL_GRN_APPROVAL",
 }
 
 

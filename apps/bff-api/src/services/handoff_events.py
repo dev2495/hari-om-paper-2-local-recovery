@@ -218,11 +218,11 @@ def notify_stage_output(response: Response, request: Request, token: str, job_ca
                 event_type="QC_HOLD_RAISED",
                 title=f"{ref} on quality hold at {stage_label(stage)}",
                 message=f"{detail or 'Job card'} failed a checkpoint and cannot move on until QC decides.",
-                href=f"/production/job-cards/{job_card_id}",
-                recipient_roles=["QC", "PlantManager", "Planner", "Sales"],
-                role_context="QC",
+                href=f"/quality/results?tab=jobs&card={job_card_id}",
+                recipient_roles=["Owner", "Admin", "PlantManager", "QC", "InProcessQC", "Planner", "Sales"],
+                role_context="PlantManager",
                 plant_id=plant_id,
-                payload={"job_card_id": job_card_id, "stage": stage, "hold_ids": holds, "action": "review_hold", "priority": "critical"},
+                payload={"job_card_id": job_card_id, "stage": stage, "hold_ids": holds, "action": "decide_hold", "priority": "critical"},
                 event_id=f"stage-hold:{job_card_id}:{','.join(sorted(holds))}",
             )
             return
@@ -324,11 +324,11 @@ def notify_hold(response: Response, request: Request, token: str, *, released: b
             event_type="QC_HOLD_RELEASED" if released else "QC_HOLD_RAISED",
             title=f"{ref} {'released from' if released else 'placed on'} quality hold",
             message=(f"{_describe(card) or 'Job card'} can resume at {stage_label(stage)}." if released else f"{stage_label(stage)}: {reason or 'Quality hold raised.'}"),
-            href=f"/production/job-cards/{job_card_id}",
-            recipient_roles=["Planner", "PlantManager", "Operator", "Sales"] if released else ["QC", "PlantManager", "Planner", "Sales"],
-            role_context="Planner" if released else "QC",
+            href=f"/production/job-cards/{job_card_id}" if released else f"/quality/results?tab=jobs&card={job_card_id}",
+            recipient_roles=["Planner", "PlantManager", "Operator", "Sales", "QC", "InProcessQC"] if released else ["Owner", "Admin", "PlantManager", "QC", "InProcessQC", "Planner", "Sales"],
+            role_context="Planner" if released else "PlantManager",
             plant_id=str(card.get("plant_id") or plant_hint or "") or None,
-            payload={"job_card_id": job_card_id, "hold_id": hold_id, "stage": stage, "action": "resume" if released else "review_hold", "priority": "info" if released else "critical"},
+            payload={"job_card_id": job_card_id, "hold_id": hold_id, "stage": stage, "action": "resume" if released else "decide_hold", "priority": "info" if released else "critical"},
             event_id=f"hold:{hold_id}:{'released' if released else 'raised'}",
         )
 

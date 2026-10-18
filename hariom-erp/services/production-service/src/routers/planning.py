@@ -5717,7 +5717,7 @@ def list_planning_job_cards(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Store", "Sales", "Dispatch", "QC", "RMIssue"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Store", "Sales", "Dispatch", "QC", "InProcessQC", "RMIssue"])),
 ):
     _sweep_missed_slots_safely(db, None if plant_scope.get("scope_all") else plant_scope.get("selected_plant_id"))
     query = (
@@ -6122,7 +6122,7 @@ def get_planning_job_card(
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
     # Operators read the card they scan on the floor; their entries stay drafts until a supervisor submits.
-    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Sales", "Dispatch", "Store", "QC", "RMIssue", "Operator"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Sales", "Dispatch", "Store", "QC", "InProcessQC", "RMIssue", "Operator"])),
 ):
     query = (
         db.query(JobCard, SalesOrder)
@@ -6471,7 +6471,7 @@ def get_job_card_genealogy(
     job_card_id: uuid.UUID,
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Sales", "Dispatch", "Store", "QC", "Production", "RMIssue"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Sales", "Dispatch", "Store", "QC", "InProcessQC", "Production", "RMIssue"])),
 ):
     query = (
         db.query(JobCard, SalesOrder)

@@ -482,7 +482,8 @@ def _normalize_stage(value: str) -> str:
 
 
 CONCESSION_PERMISSION = "qc:disposition:approve"
-CONCESSION_ROLES = {"Owner", "Admin"}
+# The plant head decides held production batches with Owner / Admin (client rule 2026-10-18).
+CONCESSION_ROLES = {"Owner", "Admin", "PlantManager"}
 
 
 def _current_actor_role(current_user: dict) -> Optional[str]:
@@ -1824,13 +1825,19 @@ class HoldReleaseResponse(BaseModel):
     hold_id: uuid.UUID
     status: str
     released_at: datetime
+    # Context for the "hold released" notification to the floor and QC.
+    id: Optional[uuid.UUID] = None
+    job_card_id: Optional[uuid.UUID] = None
+    stage_type: Optional[str] = None
+    reason: Optional[str] = None
+    plant_id: Optional[str] = None
 
 
 @router.get("/summary", response_model=QualitySummaryResponse)
 def get_quality_summary(
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "SupervisorEntry", "Dispatch", "Store", "Production", "SOApprover", "Sales", "InwardQC"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "InProcessQC", "SupervisorEntry", "Dispatch", "Store", "Production", "SOApprover", "Sales", "InwardQC"])),
 ):
     del current_user
     # Aggregate in SQL; never load every historical inspection into a busy dashboard.
@@ -1924,7 +1931,7 @@ def _instrument_payload(row: QcInstrument) -> dict[str, Any]:
 def list_instruments(
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "SupervisorEntry", "Production"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "InProcessQC", "SupervisorEntry", "Production"])),
 ):
     plant_uuid = _to_uuid(plant_id, field="plant_id")
     rows = db.query(QcInstrument).filter(QcInstrument.plant_id == plant_uuid).order_by(QcInstrument.code.asc()).all()
@@ -1936,7 +1943,7 @@ def upsert_instrument(
     payload: InstrumentUpsert,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Owner", "QC"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "QC", "InProcessQC"])),
 ):
     plant_uuid = _to_uuid(plant_id, field="plant_id")
     code = payload.code.strip().upper()
@@ -1976,7 +1983,7 @@ def production_quality_analytics(
     date_to: Optional[date] = Query(default=None),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "Planner", "Production", "Sales"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "InProcessQC", "Planner", "Production", "Sales"])),
 ):
     """First-pass yield by stage (first check of each job card at each stage), top failing
     parameters, and production holds opened / still open in the window."""
@@ -1999,7 +2006,9 @@ def production_quality_analytics(
         plant_uuid = _to_uuid(selected, field="plant_id")
         query = query.filter(QualityInspection.plant_id == plant_uuid)
         hold_query = hold_query.filter(QualityHold.plant_id == plant_uuid)
-    first: dict[tuple[str, str], QualityInspection] = {}
+    # One result per checked unit: a batch on a continuous job card (each batch is checked on its
+    # own), or the whole job card at a stage on older cards. Re-checks never improve the first result.
+    first: dict[tuple[str, str, str], QualityInspection] = {}
     checks: dict[str, int] = defaultdict(int)
     fails: dict[str, int] = defaultdict(int)
     observations: dict[str, int] = defaultdict(int)
@@ -2013,36 +2022,58 @@ def production_quality_analytics(
         if status == "FAIL":
             fails[stage] += 1
         if status in {"PASS", "FAIL"}:
-            first.setdefault((str(row.job_card_id), stage), row)
+            batch = str((row.evaluation or {}).get("entry_id") or "") if str(row.entry_mode or "").upper() == "CONTINUOUS" else ""
+            first.setdefault((str(row.job_card_id), stage, batch), row)
         elif status == "OBSERVATION_ONLY":
             observations[stage] += 1
         else:
             pending[stage] += 1
-    stages: dict[str, dict[str, Any]] = defaultdict(lambda: {"job_cards": 0, "first_pass": 0})
+    stages: dict[str, dict[str, Any]] = defaultdict(lambda: {"units": 0, "first_pass": 0, "cards": set()})
     for stage in checks:
         stages[stage]
-    parameters: dict[tuple[str, str], int] = defaultdict(int)
-    for (_, stage), row in first.items():
+    parameters: dict[tuple[str, str], set[str]] = defaultdict(set)
+    weekly: dict[tuple[str, str], dict[str, int]] = defaultdict(lambda: {"units": 0, "first_pass": 0})
+
+    def week_of(moment: datetime | None) -> str:
+        day = (moment or datetime.utcnow()).date()
+        return (day - timedelta(days=day.weekday())).isoformat()
+
+    for (card, stage, _batch), row in first.items():
         bucket = stages[stage]
-        bucket["job_cards"] += 1
-        if str(row.status or "").upper() == "PASS":
+        bucket["units"] += 1
+        bucket["cards"].add(card)
+        passed = str(row.status or "").upper() == "PASS"
+        if passed:
             bucket["first_pass"] += 1
+        week = weekly[(week_of(row.created_at), stage)]
+        week["units"] += 1
+        week["first_pass"] += 1 if passed else 0
         for failure in row.failures or []:
-            if isinstance(failure, dict):
-                parameters[(stage, str(failure.get("label") or failure.get("code") or failure.get("parameter") or "?"))] += 1
+            if isinstance(failure, dict) and str(failure.get("verdict") or "FAIL").upper() == "FAIL":
+                parameters[(stage, str(failure.get("label") or failure.get("code") or failure.get("parameter") or "?"))].add(card)
     order = ["WINDER", "OVEN", "PROCESS", "QC"]
     holds = hold_query.all()
     open_holds = [row for row in holds if str(row.status or "").upper() == "HOLD"]
     released = [row for row in holds if row.released_at and row.created_at]
+    hold_weeks: dict[str, dict[str, int]] = defaultdict(lambda: {"opened": 0, "released": 0})
+    for row in holds:
+        hold_weeks[week_of(row.created_at)]["opened"] += 1
+        if row.released_at:
+            hold_weeks[week_of(row.created_at)]["released"] += 1
+    cards = {
+        str(card.id): card
+        for card in db.query(JobCard).filter(JobCard.id.in_([row.job_card_id for row in open_holds])).all()
+    } if open_holds else {}
     return {
         "date_from": start.isoformat(),
         "date_to": end.isoformat(),
         "by_stage": [
             {
                 "stage": stage,
-                "job_cards": bucket["job_cards"],
+                "job_cards": len(bucket["cards"]),
+                "units": bucket["units"],
                 "first_pass": bucket["first_pass"],
-                "first_pass_yield": round(bucket["first_pass"] / bucket["job_cards"] * 100.0, 1) if bucket["job_cards"] else None,
+                "first_pass_yield": round(bucket["first_pass"] / bucket["units"] * 100.0, 1) if bucket["units"] else None,
                 "checks": checks.get(stage, 0),
                 "failed_checks": fails.get(stage, 0),
                 "observation_checks": observations.get(stage, 0),
@@ -2051,8 +2082,33 @@ def production_quality_analytics(
             for stage, bucket in sorted(stages.items(), key=lambda item: order.index(item[0]) if item[0] in order else 99)
         ],
         "failing_parameters": [
-            {"stage": stage, "parameter": name, "job_cards": count}
-            for (stage, name), count in sorted(parameters.items(), key=lambda item: -item[1])[:15]
+            {"stage": stage, "parameter": name, "job_cards": len(found)}
+            for (stage, name), found in sorted(parameters.items(), key=lambda item: -len(item[1]))[:15]
+        ],
+        "weekly": [
+            {
+                "week": week,
+                "stage": stage,
+                "units": bucket["units"],
+                "first_pass": bucket["first_pass"],
+                "first_pass_yield": round(bucket["first_pass"] / bucket["units"] * 100.0, 1) if bucket["units"] else None,
+            }
+            for (week, stage), bucket in sorted(weekly.items())
+        ],
+        "holds_weekly": [{"week": week, **bucket} for week, bucket in sorted(hold_weeks.items())],
+        "open_holds": [
+            {
+                "id": str(row.id),
+                "job_card_id": str(row.job_card_id),
+                "job_card_no": getattr(cards.get(str(row.job_card_id)), "job_card_no", None),
+                "customer": ((getattr(cards.get(str(row.job_card_id)), "spec_snapshot", None) or {}).get("customer_name_snapshot")
+                    or (getattr(cards.get(str(row.job_card_id)), "spec_snapshot", None) or {}).get("customer_name")),
+                "stage": str(row.stage_type or "").upper(),
+                "reason": row.reason,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+                "hours_open": round((datetime.utcnow() - row.created_at).total_seconds() / 3600.0, 1) if row.created_at else None,
+            }
+            for row in sorted(open_holds, key=lambda item: item.created_at or datetime.utcnow())[:20]
         ],
         "holds": {
             "opened": len(holds),
@@ -2071,7 +2127,7 @@ def create_inspection(
     payload: InspectionCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "SupervisorEntry", "Production"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "InProcessQC", "SupervisorEntry", "Production"])),
 ):
     return record_stage_inspection(
         db=db,
@@ -2094,7 +2150,7 @@ def create_inspection(
     )
 
 
-ADAPTER_ROLES = ["Admin", "Owner", "PlantManager", "QC", "SupervisorEntry", "Production"]
+ADAPTER_ROLES = ["Admin", "Owner", "PlantManager", "QC", "InProcessQC", "SupervisorEntry", "Production"]
 
 
 @router.post("/supervisor/inspections", response_model=InspectionResponse)
@@ -2233,7 +2289,7 @@ def list_inspections(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "SupervisorEntry", "Dispatch", "Store", "Production", "SOApprover", "Sales", "InwardQC"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "InProcessQC", "SupervisorEntry", "Dispatch", "Store", "Production", "SOApprover", "Sales", "InwardQC"])),
 ):
     query = db.query(QualityInspection)
     if plant_scope.get("scope_all"):
@@ -2264,7 +2320,7 @@ def get_frozen_qc_template(
     stage_type: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "SupervisorEntry", "Production"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "InProcessQC", "SupervisorEntry", "Production"])),
 ):
     query = db.query(JobCard).filter(JobCard.id == job_card_id)
     if plant_scope.get("scope_all"):
@@ -2362,7 +2418,7 @@ def attach_approved_qc_profile(
     payload: AttachQcProfilePayload = AttachQcProfilePayload(),
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "QC"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "QC", "InProcessQC"])),
 ):
     plant_uuid = _to_uuid(plant_id, field="plant_id")
     job_card = (
@@ -2524,7 +2580,7 @@ def complete_job_card_qc(
     payload: CompleteCardRequest,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "SupervisorEntry", "Production"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "InProcessQC", "SupervisorEntry", "Production"])),
 ):
     plant_uuid = _to_uuid(plant_id, field="plant_id")
     job_card = (
@@ -2579,7 +2635,7 @@ def create_hold(
     payload: HoldCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "PlantManager", "QC"])),
+    current_user: dict = Depends(require_role(["Admin", "PlantManager", "QC", "InProcessQC"])),
 ):
     plant_uuid = _to_uuid(plant_id, field="plant_id")
     job_card = (
@@ -2641,7 +2697,7 @@ def list_holds(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "SupervisorEntry", "Dispatch", "Store", "Production", "SOApprover", "Sales", "InwardQC"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "InProcessQC", "SupervisorEntry", "Dispatch", "Store", "Production", "SOApprover", "Sales", "InwardQC"])),
 ):
     query = db.query(QualityHold)
     if plant_scope.get("scope_all"):
@@ -2693,7 +2749,7 @@ def release_hold(
     payload: Optional[HoldReleasePayload] = Body(default=None),
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "PlantManager", "QC"])),
+    current_user: dict = Depends(require_role(["Admin", "PlantManager"])),
 ):
     plant_uuid = _to_uuid(plant_id, field="plant_id")
     hold = (
@@ -2778,4 +2834,9 @@ def release_hold(
         hold_id=hold.id,
         status=hold.status,
         released_at=hold.released_at,
+        id=hold.id,
+        job_card_id=hold.job_card_id,
+        stage_type=hold.stage_type,
+        reason=hold.reason,
+        plant_id=str(hold.plant_id) if hold.plant_id else None,
     )

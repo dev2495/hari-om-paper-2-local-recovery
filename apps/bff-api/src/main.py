@@ -14,6 +14,7 @@ from src.middleware.auth import extract_token
 from src.routes import analytics, auth, dispatch, inventory, master, production, purchase, sales, spec, workspace
 from src.services.books_guard import books_guard_status
 from src.services.plant_guard import assert_plant_allowed
+from src.services.workspace import REQUEST_PLANT
 
 _IS_PRODUCTION = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).strip().lower() in {"prod", "production"}
 _SITE_HOST = os.getenv("SITE_HOST", "").strip()
@@ -143,6 +144,17 @@ async def cookie_csrf_guard(request: Request, call_next):
         elif fetch_site == "cross-site":
             return JSONResponse(status_code=403, content={"detail": "Cross-site request rejected"})
     return await call_next(request)
+
+
+@app.middleware("http")
+async def remember_request_plant(request: Request, call_next):
+    """Remember the request's concrete plant for notifications raised while serving it."""
+    value = (request.headers.get("X-Plant-ID") or "").strip()
+    marker = REQUEST_PLANT.set(value if value and value.upper() != "ALL" else None)
+    try:
+        return await call_next(request)
+    finally:
+        REQUEST_PLANT.reset(marker)
 
 
 @app.middleware("http")

@@ -12,7 +12,7 @@ export const MODULE_NAVIGATION: Record<string, ModuleLink[]> = {
     { name: "Incoming QC", href: "/quality/incoming" },
     { name: "In-process QC", href: "/quality/stage" },
     { name: "Holds & inspections", href: "/quality/results" },
-    { name: "Customer returns", href: "/quality/returns" },
+    { name: "Customer complaints", href: "/quality/returns" },
     { name: "Material standards", href: "/quality/material-standards" },
     { name: "Process stage rules", href: "/quality/stage-rules" },
     { name: "Quality analytics", href: "/reports/quality" },

@@ -120,6 +120,17 @@ def stage_has_qc(job,stage):
     return any(p.get("applicable",True) for p in (profile.get(stage) or {}).get("parameters") or [])
 
 
+def entry_view(db,job,e):
+    """entry_dict plus the batch's real QC state (minimum readings, released holds) and card
+    context, so the floor screen and notifications read one truth."""
+    row=entry_dict(e)
+    row.update(job_card_id=str(job.id),job_card_no=job.job_card_no,plant_id=str(job.plant_id),customer=(job.spec_snapshot or {}).get("customer_name_snapshot") or (job.spec_snapshot or {}).get("customer_name"),stage_label=label_stage(e.stage))
+    if e.status=="SUBMITTED" and e.kind!="QC_ONLY" and e.stage in ("WINDER","OVEN","PROCESS"):
+        has=stage_has_qc(job,e.stage)
+        row.update(stage_has_qc=has,qc_cleared=(e.id in qc_cleared_ids(db,job,e.stage)) if has else True,qc_readings_short=readings_short(job,e) if has else [])
+    return row
+
+
 def readings_short(job,e):
     """Required checks on this batch with fewer readings than the minimum (client rule
     2026-10-18: at least 2 readings per check, more may be added). A batch covered by a
@@ -473,7 +484,7 @@ def edit_entry(card_id:uuid.UUID,entry_id:uuid.UUID,payload:EntryInput,db:Sessio
     e.rejected=e.produced-e.accepted
     if e.rejected<0:raise HTTPException(422,"Accepted cannot exceed produced")
     e.row_version+=1;db.add(EntryRevision(entry_id=e.id,row_version=e.row_version,payload=jsonable_encoder(entry_dict(e)),actor=user["sub"],reason=payload.reason or "Draft edited"));db.flush()
-    return finish(db,job,payload,f"edit:{entry_id}",user,{"entry":entry_dict(e),"flow":flow(db,job)})
+    return finish(db,job,payload,f"edit:{entry_id}",user,{"entry":entry_view(db,job,e),"flow":flow(db,job)})
 
 
 @router.get("/job-cards/{card_id}/entries/{entry_id}/history")
@@ -595,7 +606,7 @@ def get_entries(card_id:uuid.UUID,stage:str|None=None,offset:int=Query(0,ge=0),l
 
 
 @router.get("/entries/qc-due")
-def qc_due(limit:int=Query(200,ge=1,le=500),db:Session=Depends(get_db),scope:dict=Depends(get_current_plant_scope),user:dict=Depends(require_role(["QC","Owner","Admin","PlantManager"]))):
+def qc_due(limit:int=Query(200,ge=1,le=500),db:Session=Depends(get_db),scope:dict=Depends(get_current_plant_scope),user:dict=Depends(require_role(["QC","InProcessQC","Owner","Admin","PlantManager"]))):
     """QC's in-process queue: batches on running cards whose stage QC is not accepted yet.
     The next stage cannot take a batch until it leaves this list (or a supervisor overrides)."""
     plants=[planning._to_uuid(value) for value in (scope.get("allowed_plants") or [])] if scope.get("scope_all") else [planning._to_uuid(scope["selected_plant_id"])]
@@ -660,9 +671,9 @@ def retry_effect(card_id:uuid.UUID,effect_id:uuid.UUID,payload:Mutation,db:Sessi
 
 
 @router.post("/job-cards/{card_id}/entries")
-def create_entry(card_id:uuid.UUID,payload:EntryInput,db:Session=Depends(get_db),plant:str=Depends(get_current_plant),user:dict=Depends(require_role(["Owner","Admin","PlantManager","Operator","QC"]))):
+def create_entry(card_id:uuid.UUID,payload:EntryInput,db:Session=Depends(get_db),plant:str=Depends(get_current_plant),user:dict=Depends(require_role(["Owner","Admin","PlantManager","Operator","QC","InProcessQC"]))):
     roles=set(user.get("roles",[]))
-    if "QC" in roles and not roles & {"Owner","Admin","PlantManager"} and payload.kind!="QC_ONLY":raise HTTPException(403,"QC may add observations only")
+    if roles & {"QC","InProcessQC"} and not roles & {"Owner","Admin","PlantManager"} and payload.kind!="QC_ONLY":raise HTTPException(403,"QC may add observations only")
     if "Operator" in roles and payload.submit and not roles & {"Owner","Admin","PlantManager"}:raise HTTPException(403,"Operator submission is not enabled; save a draft for supervisor review")
     if str((payload.details or {}).get(QC_GATE_OVERRIDE_KEY) or "").strip() and not roles & {"Owner","Admin","PlantManager"}:raise HTTPException(403,"Only a plant supervisor, Admin or Owner may take batches that are still awaiting QC")
     preliminary=card(db,card_id,plant);cached=replay(db,preliminary,payload,"entry_create")
@@ -695,7 +706,7 @@ def create_entry(card_id:uuid.UUID,payload:EntryInput,db:Session=Depends(get_db)
         validate_entry(e,job);validate_books(db,job,e);validate_setup(db,job,e);allocate(db,job,e);e.status="SUBMITTED";e.submitted_at=datetime.utcnow();inspect(db,job,e,user);db.flush();sync_totals(db,job,e.stage)
         if payload.quantity_mode=="TOTAL":cover_stage_batches(db,job,e)
     db.add(EntryRevision(entry_id=e.id,row_version=e.row_version,payload=jsonable_encoder(entry_dict(e)),actor=user["sub"],reason=payload.reason or "Initial entry"));db.flush()
-    return finish(db,job,payload,"entry_create",user,{"entry":entry_dict(e),"flow":flow(db,job)})
+    return finish(db,job,payload,"entry_create",user,{"entry":entry_view(db,job,e),"flow":flow(db,job)})
 
 
 @router.post("/job-cards/{card_id}/entries/batch")
@@ -769,11 +780,11 @@ def submit_entry(card_id:uuid.UUID,entry_id:uuid.UUID,payload:Mutation,db:Sessio
     if operator:e.operator_name=operator["name"];e.operator_code=operator["employee_code"]
     validate_entry(e,job);validate_books(db,job,e);validate_setup(db,job,e);allocate(db,job,e);e.status="SUBMITTED";e.row_version+=1;e.submitted_at=datetime.utcnow();inspect(db,job,e,user);db.flush();sync_totals(db,job,e.stage)
     db.add(EntryRevision(entry_id=e.id,row_version=e.row_version,payload=jsonable_encoder(entry_dict(e)),actor=user["sub"],reason="Submitted"));db.flush()
-    return finish(db,job,payload,f"submit:{entry_id}",user,{"entry":entry_dict(e),"flow":flow(db,job)})
+    return finish(db,job,payload,f"submit:{entry_id}",user,{"entry":entry_view(db,job,e),"flow":flow(db,job)})
 
 
 @router.post("/job-cards/{card_id}/entries/{entry_id}/observations")
-def save_observations(card_id:uuid.UUID,entry_id:uuid.UUID,payload:Observations,db:Session=Depends(get_db),plant:str=Depends(get_current_plant),user:dict=Depends(require_role(["QC","Owner","Admin","PlantManager"]))):
+def save_observations(card_id:uuid.UUID,entry_id:uuid.UUID,payload:Observations,db:Session=Depends(get_db),plant:str=Depends(get_current_plant),user:dict=Depends(require_role(["QC","InProcessQC","Owner","Admin","PlantManager"]))):
     job=card(db,card_id,plant,True);prior=replay(db,job,payload,f"observations:{entry_id}")
     if prior:return prior
     e=db.query(StageEntry).filter_by(id=entry_id,job_card_id=job.id).first()
@@ -794,7 +805,7 @@ def save_observations(card_id:uuid.UUID,entry_id:uuid.UUID,payload:Observations,
     if payload.instrument is not None:e.details={**(e.details or {}),"instrument":payload.instrument}
     e.row_version+=1;inspect(db,job,e,user)
     db.add(EntryRevision(entry_id=e.id,row_version=e.row_version,payload=jsonable_encoder(entry_dict(e)),actor=user["sub"],reason=reason));db.flush()
-    return finish(db,job,payload,f"observations:{entry_id}",user,{"entry":entry_dict(e),"flow":flow(db,job)})
+    return finish(db,job,payload,f"observations:{entry_id}",user,{"entry":entry_view(db,job,e),"flow":flow(db,job)})
 
 
 @router.post("/job-cards/{card_id}/entries/{entry_id}/void")
@@ -808,7 +819,7 @@ def void_entry(card_id:uuid.UUID,entry_id:uuid.UUID,payload:Mutation,db:Session=
     if e.carry_out_pcs and any(x.entry_no>e.entry_no and x.carry_in_pcs for x in entries(db,job,"PROCESS")):raise HTTPException(409,"Carryover has downstream use; reverse downstream entries first")
     db.query(InputAllocation).filter_by(consumer_entry_id=e.id).delete();e.status="VOID";e.row_version+=1;db.flush();sync_totals(db,job,e.stage)
     db.add(EntryRevision(entry_id=e.id,row_version=e.row_version,payload=jsonable_encoder(entry_dict(e)),actor=user["sub"],reason=payload.reason));db.flush()
-    return finish(db,job,payload,f"void:{entry_id}",user,{"entry":entry_dict(e),"flow":flow(db,job)})
+    return finish(db,job,payload,f"void:{entry_id}",user,{"entry":entry_view(db,job,e),"flow":flow(db,job)})
 
 
 def effect(db,job,kind,stage):

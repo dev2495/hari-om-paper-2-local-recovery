@@ -501,6 +501,10 @@ class CustomerRejection(Base):
     item_id = Column(UUID(as_uuid=True), ForeignKey("item_master.id"), nullable=False)
     batch_id = Column(UUID(as_uuid=True), ForeignKey("stock_batch.id"), nullable=True, index=True)
     rejected_qty = Column(Float, nullable=False)
+    # Customer complaint fields the client asked for (2026-10-18): the batch printed on the
+    # returned goods and the tube size, alongside customer, quantity, reason and status.
+    complaint_batch = Column(String(120), nullable=True)
+    size_label = Column(String(160), nullable=True)
     invoice_ref = Column(String(120), nullable=True)
     dispatch_ref = Column(String(120), nullable=True)
     reason_code = Column(String(80), nullable=False)

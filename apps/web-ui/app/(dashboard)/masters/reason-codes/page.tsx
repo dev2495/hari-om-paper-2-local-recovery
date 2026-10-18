@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 import { useApp } from "@/context/AppContext"
 import {
@@ -36,7 +36,10 @@ type ReasonRow = {
   is_active?: boolean
 }
 
-const CATEGORIES = ["DOWNTIME", "SCRAP", "QC_REJECT", "SHORT_CLOSE", "RM_ISSUE", "RETURN", "OTHER"] as const
+const CATEGORIES = ["DOWNTIME", "SCRAP", "QC_REJECT", "SHORT_CLOSE", "RM_ISSUE", "RETURN", "CUSTOMER_COMPLAINT", "OTHER"] as const
+// "Customer complaints" is the master the client keeps updating for the complaints module.
+const CATEGORY_LABELS: Record<string, string> = { CUSTOMER_COMPLAINT: "Customer complaints", QC_REJECT: "QC reject", SHORT_CLOSE: "Short close", RM_ISSUE: "RM issue" }
+const categoryLabel = (value: string) => CATEGORY_LABELS[value] || value.charAt(0) + value.slice(1).toLowerCase().replace(/_/g, " ")
 const SEVERITIES = ["OK", "WATCH", "CRITICAL"] as const
 
 function errorMessage(err: any) {
@@ -61,6 +64,11 @@ export default function ReasonCodesWrapper() {
 function ReasonCodesPage() {
   const { showToast } = useApp()
   const [categoryFilter, setCategoryFilter] = useState<string>("ALL")
+  // Deep link from the complaints page: /masters/reason-codes?category=CUSTOMER_COMPLAINT
+  useEffect(() => {
+    const wanted = new URLSearchParams(window.location.search).get("category")
+    if (wanted && (CATEGORIES as readonly string[]).includes(wanted)) setCategoryFilter(wanted)
+  }, [])
   const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ACTIVE")
   const [search, setSearch] = useState("")
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -143,7 +151,7 @@ function ReasonCodesPage() {
   const columns: GridColumn<ReasonRow>[] = [
     { key: "code", label: "Code", width: "140px", sortAccessor: (r) => r.code || "", render: (r) => <span className="font-mono text-xs font-bold">{r.code}</span> },
     { key: "label", label: "Label", sortAccessor: (r) => r.label || "", render: (r) => <div><div className="text-sm font-semibold">{r.label}</div>{r.description ? <div className="text-[11px] text-muted-foreground">{r.description}</div> : null}</div> },
-    { key: "category", label: "Category", width: "130px", sortAccessor: (r) => r.category || "", render: (r) => <Pill tone="info">{(r.category || "").replace("_", " ")}</Pill> },
+    { key: "category", label: "Category", width: "130px", sortAccessor: (r) => r.category || "", render: (r) => <Pill tone="info">{categoryLabel(r.category || "")}</Pill> },
     { key: "severity", label: "Severity", width: "110px", sortAccessor: (r) => r.severity === "CRITICAL" ? 0 : r.severity === "WATCH" ? 1 : 2, render: (r) => <Pill tone={sevToTone(r.severity)}>{r.severity}</Pill> },
     { key: "is_active", label: "Status", width: "100px", sortAccessor: (r) => (r.is_active === false ? 0 : 1), render: (r) => r.is_active === false ? <Pill tone="neutral">Inactive</Pill> : <Pill tone="ok">Active</Pill> },
   ]
@@ -166,7 +174,7 @@ function ReasonCodesPage() {
         <FilterField label="Category">
           <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="rounded-md border border-border bg-card px-2 py-1 text-sm">
             <option value="ALL">All</option>
-            {CATEGORIES.map((c) => <option key={c} value={c}>{c.replace("_", " ")}</option>)}
+            {CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}
           </select>
         </FilterField>
         <FilterField label="Status">
@@ -218,7 +226,7 @@ function ReasonCodesPage() {
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-[11.5px] font-semibold text-muted-foreground">Category *</span>
             <select value={createForm.category} onChange={(e) => setCreateForm({ ...createForm, category: e.target.value })} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
-              {CATEGORIES.map((c) => <option key={c} value={c}>{c.replace("_", " ")}</option>)}
+              {CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}
             </select>
           </label>
           <div className="sm:col-span-2">
@@ -246,7 +254,7 @@ function ReasonCodesPage() {
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-[11.5px] font-semibold text-muted-foreground">Category *</span>
             <select value={editForm.category || ""} onChange={(e) => setEditForm({ ...editForm, category: e.target.value })} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
-              {CATEGORIES.map((c) => <option key={c} value={c}>{c.replace("_", " ")}</option>)}
+              {CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}
             </select>
           </label>
           <div className="sm:col-span-2"><LabeledInput label="Label" required value={editForm.label || ""} onChange={(v) => setEditForm({ ...editForm, label: v })} /></div>

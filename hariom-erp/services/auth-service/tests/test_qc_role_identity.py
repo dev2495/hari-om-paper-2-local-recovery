@@ -34,11 +34,14 @@ def test_qc_capabilities_exclude_admin_sales_and_stock_adjust():
     assert "inventory:inward" not in permissions
 
 
-def test_concession_capability_is_owner_admin_not_qc():
+def test_concession_capability_is_owner_admin_plant_head_not_qc():
+    # Client rule 2026-10-18: a QC-held batch or lot waits for the Admin / plant head's decision.
     assert "qc:disposition:approve" in ROLE_CAPABILITIES["Owner"]["permissions"]
     assert "qc:disposition:approve" in ROLE_CAPABILITIES["Admin"]["permissions"]
-    assert "qc:disposition:approve" not in ROLE_CAPABILITIES["PlantManager"]["permissions"]
+    assert "qc:disposition:approve" in ROLE_CAPABILITIES["PlantManager"]["permissions"]
     assert "qc:disposition:approve" not in ROLE_CAPABILITIES["QC"]["permissions"]
+    assert "qc:disposition:approve" not in ROLE_CAPABILITIES["InProcessQC"]["permissions"]
+    assert "qc:disposition:approve" not in ROLE_CAPABILITIES["InwardQC"]["permissions"]
 
 
 def test_legacy_supervisor_still_lands_on_plant_manager():

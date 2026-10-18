@@ -4,6 +4,7 @@ import os
 import httpx
 
 from src.middleware.auth import get_token
+from src.services import quality_events
 from src.services.books_guard import assert_not_backdated, invalidate_books_cache
 from src.services.http_client import proxy_to_service
 from src.services.workspace import MASTER_SERVICE_URL, PRODUCTION_SERVICE_URL, emit_from_response, emit_notification_event, response_body_json, service_get
@@ -793,7 +794,7 @@ async def upsert_quality_template(request: Request, token: str = Depends(get_tok
         message="An inward QC parameter list was changed.",
         href="/quality",
         recipient_roles=["Owner", "Admin", "PlantManager", "QC", "Store", "InwardQC"],
-        payload={"template_id": str(payload.get("id") or "")},
+        payload={"template_id": str(payload.get("id") or ""), "scope": "GLOBAL"},
     )
     return response
 
@@ -821,7 +822,7 @@ async def create_quality_standard_parameter(request: Request, token: str = Depen
         message="QC added a check. Set its tolerance band in Masters › Inward QC tolerances.",
         href="/masters/inward-qc",
         recipient_roles=["Owner", "Admin"],
-        payload={"parameter_id": str(payload.get("id") or ""), "material_type": payload.get("material_type")},
+        payload={"parameter_id": str(payload.get("id") or ""), "material_type": payload.get("material_type"), "action": "review", "priority": "action", "scope": "GLOBAL"},
     )
     return response
 
@@ -838,7 +839,20 @@ async def read_quality_standard_tolerances(request: Request, token: str = Depend
 
 @router.put("/quality/standards/tolerances")
 async def save_quality_standard_tolerances(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/quality/standards/tolerances", request, token)
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/quality/standards/tolerances", request, token)
+    payload = response_body_json(response) or {}
+    if isinstance(payload, dict) and payload.get("changed"):
+        await emit_from_response(
+            response,
+            token=token,
+            event_type="QC_BAND_CHANGED",
+            title=f"Inward QC band changed (version {payload.get('version')})",
+            message=f"Masters changed {len(payload.get('changed') or [])} band(s); {payload.get('items_updated') or 0} material line(s) are inspected against them from now on.",
+            href="/quality/material-standards",
+            recipient_roles=["QC", "InwardQC", "Owner"],
+            payload={"version": payload.get("version"), "action": "review", "priority": "info", "scope": "GLOBAL"},
+        )
+    return response
 
 
 @router.get("/quality/standards/scope")
@@ -869,21 +883,8 @@ async def list_inventory_quality_inspections(request: Request, token: str = Depe
 @router.post("/quality/inspections")
 async def create_inventory_quality_inspection(request: Request, token: str = Depends(get_token)):
     response = await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/quality/inspections", request, token)
-    payload = response_body_json(response) or {}
-    await emit_from_response(
-        response,
-        token=token,
-        event_type="INVENTORY_QC_RECORDED",
-        title=f"Inventory QC {payload.get('status') or 'recorded'}",
-        message="A held inward item was inspected and its stock status was updated.",
-        href="/quality",
-        recipient_roles=["Owner", "Admin", "PlantManager", "QC", "Store", "InwardQC", "GRN"],
-        payload={
-            "inspection_id": str(payload.get("id") or ""),
-            "entity_id": str(payload.get("entity_id") or ""),
-            "plant_id": request.headers.get("X-Plant-ID"),
-        },
-    )
+    # Outside the band → held, Owner/Admin/plant head/QC decide; inside → Store can issue it.
+    await quality_events.notify_inward_inspection(response, request, token)
     return response
 
 
@@ -956,6 +957,13 @@ async def list_customer_rejections(request: Request, token: str = Depends(get_to
     return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/quality/customer-rejections", request, token)
 
 
+def _qty_text(value) -> str:
+    try:
+        return f"{float(value):g}"
+    except (TypeError, ValueError):
+        return str(value or "")
+
+
 @router.post("/quality/customer-rejections")
 async def create_customer_rejection(request: Request, token: str = Depends(get_token)):
     plant_id = request.headers.get("X-Plant-ID", "")
@@ -977,11 +985,11 @@ async def create_customer_rejection(request: Request, token: str = Depends(get_t
         response,
         token=token,
         event_type="CUSTOMER_REJECTION_INWARDED",
-        title=f"Customer rejection inward: {payload.get('customer_name') or 'customer'}",
-        message="Rejected finished goods were brought back under QC hold.",
-        href="/quality",
+        title=f"Customer complaint: {payload.get('customer_name') or 'customer'} · {_qty_text(payload.get('rejected_qty'))} pcs",
+        message=f"{payload.get('reason_code') or 'Complaint'}{' · batch ' + str(payload.get('complaint_batch')) if payload.get('complaint_batch') else ''}{' · ' + str(payload.get('size_label')) if payload.get('size_label') else ''}. Goods are held for QC; QC records the decision.",
+        href=f"/quality/returns?case={payload.get('id') or ''}",
         recipient_roles=["Owner", "Admin", "PlantManager", "QC", "Store", "Dispatch", "Sales"],
-        payload={"customer_rejection_id": str(payload.get("id") or ""), "batch_id": str(payload.get("batch_id") or "")},
+        payload={"customer_rejection_id": str(payload.get("id") or ""), "batch_id": str(payload.get("batch_id") or ""), "action": "decide_return", "priority": "action"},
     )
     return response
 
@@ -1007,11 +1015,11 @@ async def dispose_customer_rejection(rejection_id: str, request: Request, token:
         response,
         token=token,
         event_type="CUSTOMER_REJECTION_DISPOSED",
-        title=f"Customer rejection disposition: {payload.get('disposition') or payload.get('status') or 'updated'}",
-        message="Rejected finished goods were assigned to rework, release, block, or scrap.",
-        href="/quality",
+        title=f"Complaint {str(payload.get('closure_status') or '').replace('_', ' ').lower() or 'updated'}: {payload.get('customer_name') or 'customer'} · {str(payload.get('disposition') or '').replace('_', ' ').lower() or 'decision'}",
+        message=f"QC decided {str(payload.get('disposition') or '').replace('_', ' ').lower() or 'the next step'} for {_qty_text(payload.get('rejected_qty'))} pcs.{' Corrective action: ' + str(payload.get('corrective_action')) if payload.get('corrective_action') else ''}",
+        href=f"/quality/returns?case={rejection_id}",
         recipient_roles=["Owner", "Admin", "PlantManager", "QC", "Store", "Dispatch", "Sales"],
-        payload={"customer_rejection_id": rejection_id, "status": str(payload.get("status") or "")},
+        payload={"customer_rejection_id": rejection_id, "status": str(payload.get("status") or ""), "action": "review", "priority": "info"},
     )
     return response
 

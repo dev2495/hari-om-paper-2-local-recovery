@@ -659,23 +659,25 @@ export function useUpsertInventoryQualityTemplate() {
   })
 }
 
-export function usePendingInventoryQuality() {
+export function usePendingInventoryQuality(enabled = true) {
   return useQuery({
     queryKey: ["inventory-quality-pending"],
     queryFn: async () => {
       const { data } = await inventoryApi.getPendingQuality()
       return Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []
     },
+    enabled,
   })
 }
 
-export function useInventoryQualityInspections(params?: any) {
+export function useInventoryQualityInspections(params?: any, enabled = true) {
   return useQuery({
     queryKey: ["inventory-quality-inspections", params || {}],
     queryFn: async () => {
       const { data } = await inventoryApi.getInventoryQualityInspections(params)
       return Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []
     },
+    enabled,
   })
 }
 
@@ -741,13 +743,14 @@ export function useReturnRejectedLotToSupplier() {
   })
 }
 
-export function useCustomerRejections(params?: any) {
+export function useCustomerRejections(params?: any, enabled = true) {
   return useQuery({
     queryKey: ["inventory-customer-rejections", params || {}],
     queryFn: async () => {
       const { data } = await inventoryApi.getCustomerRejections(params)
       return Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []
     },
+    enabled,
   })
 }
 

@@ -54,7 +54,7 @@ export default function IncomingQualityPage() {
   const { user } = useAuth()
   const roles = useMemo(() => new Set([user?.role, ...(user?.roles || [])].filter(Boolean) as string[]), [user?.role, user?.roles])
   const canInspect = roles.has("QC") || roles.has("InwardQC") || roles.has("Owner") || roles.has("Admin")
-  const canConcede = roles.has("Owner") || roles.has("Admin") || (user?.permissions || []).includes("qc:disposition:approve")
+  const canConcede = roles.has("Owner") || roles.has("Admin") || roles.has("PlantManager") || (user?.permissions || []).includes("qc:disposition:approve")
   const canReturn = ["Owner", "Admin", "PlantManager", "Store"].some((role) => roles.has(role))
   const searchParams = useSearchParams()
   const [selectedPendingId, setSelectedPendingId] = useState(searchParams?.get("lot") || "")
@@ -394,7 +394,7 @@ export default function IncomingQualityPage() {
                       {canConcede ? (
                         <>
                           <p className="text-xs text-muted-foreground">
-                            Measured FAIL stays on record. Owner/Admin only, and never the person who inspected it. Critical checks cannot be conceded.
+                            Measured FAIL stays on record. Plant head, Owner or Admin only, and never the person who inspected it. Critical checks cannot be conceded.
                           </p>
                           <textarea className="min-h-16 w-full rounded-xl border border-border px-3 py-2 text-sm" value={concessionReason} onChange={(event) => setConcessionReason(event.target.value)} placeholder="Why this material is still fit for use" data-testid="incoming-concession-reason" />
                           <div className="grid gap-3 sm:grid-cols-2">
@@ -410,7 +410,7 @@ export default function IncomingQualityPage() {
                           </button>
                         </>
                       ) : (
-                        <p className="text-xs text-muted-foreground">An Owner or Admin (not the inspector) can authorise a concession.</p>
+                        <p className="text-xs text-muted-foreground">The plant head, an Owner or an Admin (not the inspector) can authorise a concession.</p>
                       )}
                     </div>
                   ) : null}

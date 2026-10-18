@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from contextvars import ContextVar
 from typing import Any, Optional
 
 import httpx
@@ -19,6 +20,12 @@ ANALYTICS_SERVICE_URL = os.getenv("ANALYTICS_SERVICE_URL", "http://localhost:280
 INTERNAL_EVENT_TOKEN = os.getenv("INTERNAL_EVENT_TOKEN", "hariom-internal-events")
 
 workspace_http_client = httpx.AsyncClient(timeout=20.0)
+
+# The concrete plant the current request works in (X-Plant-ID, already checked by the plant guard).
+# Notifications fall back to it when the service response does not name a plant, so a
+# plant-scoped event is never dropped for want of a plant. Master-level events that apply to
+# every plant pass payload {"scope": "GLOBAL"} instead and are not pinned to the caller's plant.
+REQUEST_PLANT: ContextVar[Optional[str]] = ContextVar("request_plant", default=None)
 
 NAV_ITEMS = [
     {"label": "Dashboard", "href": "/dashboard", "roles": ["Owner", "Admin", "Planner", "PlantManager", "QC", "Store", "Sales", "Dispatch", "Operator"]},
@@ -133,7 +140,10 @@ async def emit_notification_event(
     claims = current_user_claims(token)
     actor_user_id = claims.get("user_id")
     event_payload = dict(payload or {})
-    resolved_plant = plant_id or event_payload.get("plant_id") or event_payload.get("plant")
+    global_scope = str(event_payload.get("scope") or "").upper() == "GLOBAL"
+    resolved_plant = plant_id or event_payload.get("plant_id") or event_payload.get("plant") or (None if global_scope else REQUEST_PLANT.get())
+    if resolved_plant and str(resolved_plant).upper() == "ALL":
+        resolved_plant = None
     if resolved_plant:
         event_payload.setdefault("plant_id", resolved_plant)
     await workspace_http_client.post(

@@ -125,7 +125,7 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
   const roles = new Set([user?.role, ...(user?.roles || [])])
   const canSubmit = ["Owner", "Admin", "PlantManager"].some((r) => roles.has(r))
   const canReopen = ["Owner", "Admin"].some((r) => roles.has(r))
-  const canQc = ["Owner", "Admin", "QC", "PlantManager"].some((r) => roles.has(r))
+  const canQc = ["Owner", "Admin", "QC", "InProcessQC", "PlantManager"].some((r) => roles.has(r))
   const canDraft = canSubmit || roles.has("Operator")
   const flow = useQuery({ queryKey: ["continuous-flow", card.id], queryFn: async () => (await entryApi.flow(card.id)).data, refetchInterval: 15000 })
   const listing = useQuery({ queryKey: ["continuous-entries", card.id, stage, page], queryFn: async () => (await entryApi.list(card.id, stage, page * 50)).data })

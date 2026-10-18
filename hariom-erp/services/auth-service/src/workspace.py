@@ -13,6 +13,8 @@ LANDING_PRIORITY = [
     "Sales",
     # Narrow desk roles (client request 2026-10-11): each owns one store/quality desk.
     "InwardQC",
+    # In-process (stage) QC desk role (client request 2026-10-18).
+    "InProcessQC",
     "GRN",
     "RMIssue",
     "Operator",
@@ -40,6 +42,7 @@ ROLE_TO_LANDING = {
     "SOApprover": "Sales",
     "QC": "QC",
     "InwardQC": "InwardQC",
+    "InProcessQC": "InProcessQC",
     "GRN": "GRN",
     "RMIssue": "RMIssue",
 }
@@ -56,6 +59,7 @@ LANDING_LABELS = {
     "Dispatch": "Dispatch",
     "Sales": "Sales",
     "InwardQC": "Inward QC",
+    "InProcessQC": "In-process QC",
     "GRN": "GRN / Goods Receipt",
     "RMIssue": "Raw Material Issue",
     "Operator": "Operator",
@@ -119,8 +123,8 @@ ROLE_CAPABILITIES = {
         "permissions": ["planning:schedule", "so:approve", "analytics:view", "reports:view"],
     },
     "PlantManager": {
-        "summary": "Supervisor entry, machine execution, stage completion, QC holds, and reconciliation.",
-        "permissions": ["production:entry", "production:close", "inventory:reserve", "analytics:view", "reports:view"],
+        "summary": "Supervisor entry, machine execution, stage completion, decisions on QC-held batches, and reconciliation.",
+        "permissions": ["production:entry", "production:close", "inventory:reserve", "qc:disposition:approve", "analytics:view", "reports:view"],
     },
     "QC": {
         "summary": "Assigned item, spec, job, and receipt quality context; inspections; holds; proposed dispositions; and permitted quality reports.",
@@ -142,6 +146,10 @@ ROLE_CAPABILITIES = {
     "InwardQC": {
         "summary": "Incoming (inward) QC only: inspect received reels and lots against the approved material standards, release or reject them.",
         "permissions": ["qc:inspect:incoming", "qc:hold:create", "reports:view"],
+    },
+    "InProcessQC": {
+        "summary": "In-process (stage) QC only: record winding, oven and process readings on each batch so the next stage can take it; raise holds on failures for the plant head's decision.",
+        "permissions": ["qc:inspect:stage", "qc:hold:create", "reports:view"],
     },
     "GRN": {
         "summary": "Goods receipt only: receive supplier deliveries against approved POs, weigh reels/coils, print labels and keep the GRN register.",
@@ -165,6 +173,7 @@ OVERRIDE_RIGHTS = [
     {"key": "store", "label": "Inventory and stock-close rights", "roles": ["Store"]},
     {"key": "dispatch", "label": "Dispatch rights", "roles": ["Dispatch"]},
     {"key": "inward_qc", "label": "Inward QC rights", "roles": ["InwardQC"]},
+    {"key": "in_process_qc", "label": "In-process QC rights", "roles": ["InProcessQC"]},
     {"key": "grn", "label": "Goods receipt (GRN) rights", "roles": ["GRN"]},
     {"key": "rm_issue", "label": "Raw material issue rights", "roles": ["RMIssue"]},
     {"key": "operator", "label": "QR operator rights", "roles": ["Operator"]},

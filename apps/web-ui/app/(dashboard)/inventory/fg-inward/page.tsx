@@ -238,7 +238,7 @@ export default function ManualFgInwardPage() {
             <ReasonHelp
               icon={<ArrowRight className="h-4 w-4 rotate-180" />}
               title="Customer returns"
-              detail="Not entered here. Use Quality → Customer returns: the goods are held for QC and linked to the customer, invoice and dispatch."
+              detail="Not entered here. Use Quality → Customer complaints: the goods are held for QC and linked to the customer, invoice and dispatch."
             />
             <ReasonHelp
               icon={<FilePlus2 className="h-4 w-4" />}

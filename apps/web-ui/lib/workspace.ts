@@ -10,6 +10,7 @@ export type LandingRole =
   | "Dispatch"
   | "Sales"
   | "InwardQC"
+  | "InProcessQC"
   | "GRN"
   | "RMIssue"
   | "Operator"
@@ -30,12 +31,13 @@ export const LANDING_LABELS: Record<LandingRole, string> = {
   Dispatch: "Dispatch",
   Sales: "Sales",
   InwardQC: "Inward QC",
+  InProcessQC: "In-process QC",
   GRN: "GRN / Goods Receipt",
   RMIssue: "Raw Material Issue",
   Operator: "Operator",
 }
 
-export const ROLE_PRIORITY: LandingRole[] = ["Owner", "Admin", "PlantManager", "QC", "Planner", "Store", "Dispatch", "Sales", "InwardQC", "GRN", "RMIssue", "Operator"]
+export const ROLE_PRIORITY: LandingRole[] = ["Owner", "Admin", "PlantManager", "QC", "Planner", "Store", "Dispatch", "Sales", "InwardQC", "InProcessQC", "GRN", "RMIssue", "Operator"]
 
 // Legacy role aliases are normalized here only so old auth/session rows land on a canonical workspace.
 // User-facing navigation policy should use the condensed role matrix above.
@@ -55,6 +57,7 @@ export const ROLE_TO_LANDING: Record<string, LandingRole> = {
   SOMaker: "Sales",
   SOApprover: "Sales",
   InwardQC: "InwardQC",
+  InProcessQC: "InProcessQC",
   GRN: "GRN",
   RMIssue: "RMIssue",
   Operator: "Operator",
@@ -130,6 +133,12 @@ export const LANDING_QUICK_ACTIONS: Record<LandingRole, QuickAction[]> = {
     { href: "/quality/material-standards", label: "Material standards", detail: "The inward QC checks for each material type." },
     { href: "/purchase/receipts", label: "GRN register", detail: "See which receipts are waiting for QC." },
     { href: "/quality/results", label: "Holds & inspections", detail: "Held lots, their decision and return to supplier." },
+  ],
+  InProcessQC: [
+    { href: "/quality", label: "QC desk", detail: "Batches waiting for stage QC and holds waiting for a decision." },
+    { href: "/quality/stage", label: "In-process QC", detail: "Winding, oven and process readings on a job card." },
+    { href: "/quality/results?tab=jobs", label: "Job-card holds", detail: "Failed batches waiting for the plant head." },
+    { href: "/quality/stage-rules", label: "Process stage rules", detail: "The tolerances each stage is checked against." },
   ],
   GRN: [
     { href: "/purchase/inward", label: "Goods inward", detail: "Receive against an approved PO and weigh each reel or coil." },
