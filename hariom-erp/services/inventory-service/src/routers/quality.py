@@ -1130,6 +1130,10 @@ def create_quality_inspection(
             item_id=item.id if item is not None else None,
         )
         status = evaluation.verdict
+        if status == "OBSERVATION_ONLY":
+            # Every reading is within its band or recorded only (no band set): nothing is out of
+            # tolerance, so the lot passes. Only an out-of-tolerance reading flags and holds it.
+            status = "PASS"
         computed_failures = list(evaluation.failures)
         evaluation_payload = evaluation.as_dict()
         if evaluation.missing_reasons:

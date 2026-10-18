@@ -9,6 +9,7 @@ from ..database import get_db
 from ..models import InventoryQualityTemplate, ItemMaster, ItemType, TrackingMode
 from ..utils.audit_client import emit_audit_event
 from ..utils.auth import get_current_plant, get_current_plant_scope, get_current_user, require_role
+from ..quality_standards import materialize_item
 from ..quality_profile_lifecycle import ProfileLifecycleError, apply_profile_approve, apply_profile_exemption, apply_profile_save, apply_tolerance_adjustment
 
 _audit_logger = logging.getLogger(__name__)
@@ -101,6 +102,9 @@ class ItemResponse(BaseModel):
     lead_time_days: float | None = 0
     spec_id: uuid.UUID | None = None
     quality_profile: dict | None = None
+    material_group: str | None = None
+    material_subgroup: str | None = None
+    qc_nominals: dict | None = None
     plant_id: str
     active: str
     created_at: datetime
@@ -247,6 +251,9 @@ def create_item(
         plant_id=plant_id,
     )
     db.add(db_item)
+    db.flush()
+    # The incoming QC profile comes from QC's parameter list + Masters bands for this type.
+    materialize_item(db, db_item, actor=current_user.get("sub") or "standards", reason="Material created")
     db.commit()
     db.refresh(db_item)
     try:
@@ -323,6 +330,9 @@ def update_item(
         if field in payload:
             setattr(db_item, field, payload[field])
             changed_fields.append(field)
+    if "type" in changed_fields:
+        db.flush()
+        materialize_item(db, db_item, actor=current_user.get("sub") or "standards", reason="Material type changed")
 
     db.commit()
     db.refresh(db_item)

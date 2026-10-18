@@ -1,5 +1,6 @@
 "use client"
 
+import { MastersNav } from "@/components/master/masters-nav"
 import { useMemo, useState } from "react"
 import Link from "next/link"
 import { Building2, Mail, Phone, Search, Users } from "lucide-react"
@@ -26,37 +27,38 @@ export default function ContactDirectoryPage() {
   const vendorCount = rows.filter((row: any) => row.entity_type === "VENDOR").length
 
   return (
-    <div className="space-y-6">
-      <section className="rounded-xl border border-border bg-card/90 p-5 shadow-premium">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+    <div className="min-w-0 space-y-4">
+      <MastersNav />
+      <section className="rounded-xl border border-border bg-card px-4 py-4 sm:px-5">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
-            <p className="text-[12px] font-semibold text-muted-foreground">Contact Directory</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-foreground">Customer and vendor contacts</h1>
+            <h1 className="text-[22px] font-semibold tracking-tight text-foreground">Contacts</h1>
+            <p className="mt-1 text-[13px] text-muted-foreground">Every customer and vendor contact in one place. Edit contacts on the customer or vendor record.</p>
           </div>
           <div className="grid gap-3 sm:grid-cols-3 xl:w-[540px]">
             <button
               type="button"
               onClick={() => setFilter("ALL")}
-              className={`rounded-2xl border px-4 py-3 text-left transition ${filter === "ALL" ? "border-primary bg-primary text-primary-foreground" : "border-border bg-muted text-muted-foreground"}`}
+              className={`rounded-xl border px-4 py-2.5 text-left transition ${filter === "ALL" ? "border-primary bg-primary text-primary-foreground" : "border-border bg-muted text-muted-foreground"}`}
             >
               <p className="text-[11.5px] font-semibold text-muted-foreground">All</p>
-              <p className="mt-2 text-2xl font-semibold">{rows.length}</p>
+              <p className="mt-1 text-xl font-semibold">{rows.length}</p>
             </button>
             <button
               type="button"
               onClick={() => setFilter("CUSTOMER")}
-              className={`rounded-2xl border px-4 py-3 text-left transition ${filter === "CUSTOMER" ? "border-signal-cyan-ink/40 bg-primary text-primary-foreground" : "border-border bg-muted text-muted-foreground"}`}
+              className={`rounded-xl border px-4 py-2.5 text-left transition ${filter === "CUSTOMER" ? "border-signal-cyan-ink/40 bg-primary text-primary-foreground" : "border-border bg-muted text-muted-foreground"}`}
             >
               <p className="text-[11.5px] font-semibold text-muted-foreground">Customers</p>
-              <p className="mt-2 text-2xl font-semibold">{customerCount}</p>
+              <p className="mt-1 text-xl font-semibold">{customerCount}</p>
             </button>
             <button
               type="button"
               onClick={() => setFilter("VENDOR")}
-              className={`rounded-2xl border px-4 py-3 text-left transition ${filter === "VENDOR" ? "border-signal-cyan-ink/40 bg-primary text-primary-foreground" : "border-border bg-muted text-muted-foreground"}`}
+              className={`rounded-xl border px-4 py-2.5 text-left transition ${filter === "VENDOR" ? "border-signal-cyan-ink/40 bg-primary text-primary-foreground" : "border-border bg-muted text-muted-foreground"}`}
             >
               <p className="text-[11.5px] font-semibold text-muted-foreground">Vendors</p>
-              <p className="mt-2 text-2xl font-semibold">{vendorCount}</p>
+              <p className="mt-1 text-xl font-semibold">{vendorCount}</p>
             </button>
           </div>
         </div>

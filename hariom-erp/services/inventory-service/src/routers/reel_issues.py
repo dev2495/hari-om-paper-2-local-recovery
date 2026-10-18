@@ -108,7 +108,9 @@ class ReelIssueCreate(BaseModel):
     winder_machine_id: Optional[uuid.UUID] = None
     shift: str
     issue_date: date
-    issued_weight_kg: float = Field(gt=0)
+    # The whole reel / coil goes to the floor and is consumed in full (client rule 2026-10-18);
+    # when given, it must equal the reel's current weight.
+    issued_weight_kg: Optional[float] = Field(default=None, gt=0)
     customer_id: Optional[uuid.UUID] = None
     sales_order_id: Optional[uuid.UUID] = None
 
@@ -156,6 +158,12 @@ class ReelIssueResponse(BaseModel):
     reel_code: Optional[str] = None
     physical_form: Optional[str] = None
     reel_current_weight_kg: Optional[float] = None
+    issue_mode: str = "LEGACY"
+    slitting_card: Optional[dict] = None
+    paper_code: Optional[str] = None
+    paper_name: Optional[str] = None
+    gsm: Optional[float] = None
+    width_mm: Optional[float] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -181,6 +189,12 @@ def _serialize_issue(issue: ReelIssue) -> ReelIssueResponse:
         reel_code=reel.reel_code if reel is not None else None,
         physical_form=_reel_form(reel) if reel is not None else None,
         reel_current_weight_kg=float(reel.current_weight_kg or 0.0) if reel is not None else None,
+        issue_mode=str(getattr(issue, "issue_mode", None) or "LEGACY"),
+        slitting_card=getattr(issue, "slitting_card", None),
+        paper_code=reel.paper.item_code if reel is not None and getattr(reel, "paper", None) is not None else None,
+        paper_name=reel.paper.name if reel is not None and getattr(reel, "paper", None) is not None else None,
+        gsm=float(reel.gsm) if reel is not None and reel.gsm is not None else None,
+        width_mm=float(reel.width_mm) if reel is not None and reel.width_mm is not None else None,
     )
 
 
@@ -199,10 +213,14 @@ def create_reel_issue(
         raise HTTPException(status_code=404, detail="Reel not found in this plant")
     if reel.status in {ReelStatus.CONSUMED, ReelStatus.SCRAP} or float(reel.current_weight_kg or 0.0) <= 0:
         raise HTTPException(status_code=400, detail="Reel is not issuable")
+    # Floor issue (client rule 2026-10-18): a reel goes to the slitter, a coil straight to the
+    # winders; no machine is chosen, only the shift, and the whole reel is consumed.
     section = payload.issue_section or SECTION_FOR_FORM.get(_reel_form(reel), "WINDER_SECTION")
     _require_section_for_form(reel, section)
-    if section == "WINDER_SECTION" and payload.machine_id is None:
-        raise HTTPException(status_code=400, detail="Select the winder machine this reel is issued to")
+    full_weight = round(float(reel.current_weight_kg or 0.0), 3)
+    if payload.issued_weight_kg is not None and abs(float(payload.issued_weight_kg) - full_weight) > 0.0005:
+        raise HTTPException(status_code=400, detail=f"{reel.reel_code} goes to the floor whole: issue its full {full_weight:g} kg")
+    payload.issued_weight_kg = full_weight
     guard_concession_stock(
         db,
         plant_id=plant_id,
@@ -222,6 +240,8 @@ def create_reel_issue(
     if existing_open_issue:
         raise HTTPException(status_code=400, detail="This reel already has an open issue")
 
+    now = datetime.utcnow()
+    is_reel = section == "SLITTING_SECTION"
     issue = ReelIssue(
         plant_id=_to_uuid(plant_id),
         reel_id=payload.reel_id,
@@ -232,10 +252,16 @@ def create_reel_issue(
         shift=payload.shift,
         issue_date=payload.issue_date,
         issued_weight_kg=payload.issued_weight_kg,
-        remaining_weight_kg=payload.issued_weight_kg,
-        status=ReelIssueStatus.OPEN,
+        consumed_weight_kg=payload.issued_weight_kg,
+        remaining_weight_kg=0.0,
+        # A reel stays open until its slitting card (coils made + wastage) is written; a coil
+        # is done the moment it reaches the floor.
+        status=ReelIssueStatus.OPEN if is_reel else ReelIssueStatus.CLOSED,
+        closed_at=None if is_reel else now,
+        issue_mode="FLOOR",
     )
-    reel.status = ReelStatus.ISSUED
+    reel.current_weight_kg = 0.0
+    reel.status = ReelStatus.CONSUMED
     db.add(issue)
     db.flush()
     db.add(
@@ -266,7 +292,7 @@ def create_reel_issue(
             plant_id=str(plant_id),
             actor_role=str((current_user.get("roles") or ["?"])[0]),
             actor_email=current_user.get("sub"),
-            summary=f"Reel issued ({payload.issued_weight_kg} kg) to {section} on shift {payload.shift}",
+            summary=f"{'Reel' if is_reel else 'Coil'} {reel.reel_code} issued to the floor ({payload.issued_weight_kg} kg, {'slitting' if is_reel else 'winding'}) on shift {payload.shift}",
             payload={
                 "reel_id": str(payload.reel_id),
                 "issue_section": section,
@@ -360,6 +386,8 @@ def close_reel_issue(
     issue = db.query(ReelIssue).filter(ReelIssue.id == issue_id).with_for_update().populate_existing().one()
     if issue.status != ReelIssueStatus.OPEN:
         raise HTTPException(status_code=409, detail="Reel issue is already closed")
+    if str(getattr(issue, "issue_mode", "") or "") == "FLOOR":
+        raise HTTPException(status_code=409, detail="Material issued to the floor is consumed in full; nothing comes back. Record the slitting card instead.")
 
     consumed = float(payload.consumed_weight_kg)
     if str(issue.issue_section or "") == "SLITTING_SECTION" and consumed > 0:
@@ -422,3 +450,135 @@ def close_reel_issue(
     except Exception as exc:
         _audit_logger.warning("audit emit failed for reel_issue_closed %s: %s", issue.id, exc)
     return _serialize_issue(issue)
+
+
+class SlittingCardPayload(BaseModel):
+    """What came out of one reel on the slitter: the floor writes it like a job card."""
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    coils_made: int = Field(gt=0, le=500)
+    wastage_kg: float = Field(ge=0)
+    coil_width_mm: Optional[float] = Field(default=None, gt=0)
+    slit_date: Optional[date] = None
+    shift: Optional[str] = None
+    operator_name: Optional[str] = Field(default=None, max_length=120)
+    notes: Optional[str] = Field(default=None, max_length=500)
+    correction_reason: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("shift")
+    @classmethod
+    def validate_shift(cls, value: Optional[str]) -> Optional[str]:
+        return None if value in (None, "") else _normalize_shift(value)
+
+
+@router.post("/{issue_id}/slitting-card", response_model=ReelIssueResponse)
+def record_slitting_card(
+    issue_id: uuid.UUID,
+    payload: SlittingCardPayload,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Store", "PlantManager", "RMIssue", "Operator"])),
+):
+    issue = db.query(ReelIssue).filter(
+        ReelIssue.id == issue_id, ReelIssue.plant_id == _to_uuid(plant_id),
+    ).with_for_update().populate_existing().first()
+    if not issue:
+        raise HTTPException(status_code=404, detail="Reel issue not found")
+    if str(getattr(issue, "issue_mode", "") or "") != "FLOOR" or str(issue.issue_section or "") != "SLITTING_SECTION":
+        raise HTTPException(status_code=409, detail="A slitting card belongs to a reel issued to the floor for slitting")
+    issued = float(issue.issued_weight_kg or 0.0)
+    if payload.wastage_kg > issued + 1e-6:
+        raise HTTPException(status_code=422, detail=f"Wastage {payload.wastage_kg:g} kg is more than the {issued:g} kg reel")
+    existing = dict(issue.slitting_card or {})
+    roles = set(current_user.get("roles") or [])
+    if existing:
+        if not roles & {"Owner", "Admin", "PlantManager"}:
+            raise HTTPException(status_code=403, detail="The slitting card is already written; a plant manager corrects it")
+        if len((payload.correction_reason or "").strip()) < 3:
+            raise HTTPException(status_code=422, detail="Say why the slitting card is being corrected")
+    good_kg = round(issued - float(payload.wastage_kg), 3)
+    card = {
+        "coils_made": int(payload.coils_made),
+        "wastage_kg": round(float(payload.wastage_kg), 3),
+        "wastage_pct": round(100.0 * float(payload.wastage_kg) / issued, 2) if issued else None,
+        "good_kg": good_kg,
+        "kg_per_coil": round(good_kg / int(payload.coils_made), 3) if payload.coils_made else None,
+        "coil_width_mm": payload.coil_width_mm,
+        "slit_date": (payload.slit_date or issue.issue_date).isoformat(),
+        "shift": payload.shift or issue.shift,
+        "operator_name": (payload.operator_name or "").strip() or None,
+        "notes": (payload.notes or "").strip() or None,
+        "recorded_by": current_user.get("sub"),
+        "recorded_at": datetime.utcnow().isoformat(),
+        "history": [*(existing.get("history") or []), *([{k: v for k, v in existing.items() if k != "history"} | {"corrected_because": payload.correction_reason.strip()}] if existing else [])],
+    }
+    issue.slitting_card = card
+    issue.status = ReelIssueStatus.CLOSED
+    issue.closed_at = issue.closed_at or datetime.utcnow()
+    db.commit()
+    db.refresh(issue)
+    try:
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="slitting_card_recorded",
+            entity_type="reel_issue",
+            entity_id=str(issue.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]),
+            actor_email=current_user.get("sub"),
+            summary=f"Slitting card: {card['coils_made']} coils, {card['wastage_kg']} kg wastage from {issued:g} kg",
+            payload={"reel_id": str(issue.reel_id), **{k: v for k, v in card.items() if k != "history"}},
+        )
+    except Exception as exc:
+        _audit_logger.warning("audit emit failed for slitting_card_recorded %s: %s", issue.id, exc)
+    return _serialize_issue(issue)
+
+
+@router.get("/slitting-report")
+def slitting_report(
+    date_from: date = Query(...),
+    date_to: date = Query(...),
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(get_current_user),
+):
+    """Reels sent to the slitter in the period with their slitting cards: coils made, wastage,
+    and the reels still waiting for a card."""
+    if date_to < date_from:
+        raise HTTPException(status_code=422, detail="The period end is before its start")
+    query = db.query(ReelIssue).options(joinedload(ReelIssue.reel)).filter(
+        ReelIssue.issue_mode == "FLOOR", ReelIssue.issue_section == "SLITTING_SECTION",
+        ReelIssue.issue_date >= date_from, ReelIssue.issue_date <= date_to,
+    )
+    if plant_scope.get("scope_all"):
+        allowed = plant_scope.get("allowed_plants") or []
+        if allowed:
+            query = query.filter(ReelIssue.plant_id.in_([_to_uuid(value) for value in allowed]))
+    else:
+        query = query.filter(ReelIssue.plant_id == _to_uuid(plant_scope["selected_plant_id"]))
+    rows = [_serialize_issue(issue).model_dump(mode="json") for issue in query.order_by(ReelIssue.issue_date.asc(), ReelIssue.created_at.asc()).all()]
+    carded = [row for row in rows if row.get("slitting_card")]
+    issued_kg = sum(float(row["issued_weight_kg"] or 0) for row in carded)
+    wastage_kg = sum(float(row["slitting_card"].get("wastage_kg") or 0) for row in carded)
+    by_paper: dict[str, dict] = {}
+    for row in carded:
+        key = row.get("paper_code") or "—"
+        entry = by_paper.setdefault(key, {"paper_code": key, "paper_name": row.get("paper_name"), "reels": 0, "issued_kg": 0.0, "coils_made": 0, "wastage_kg": 0.0})
+        entry["reels"] += 1
+        entry["issued_kg"] += float(row["issued_weight_kg"] or 0)
+        entry["coils_made"] += int(row["slitting_card"].get("coils_made") or 0)
+        entry["wastage_kg"] += float(row["slitting_card"].get("wastage_kg") or 0)
+    for entry in by_paper.values():
+        entry["wastage_pct"] = round(100.0 * entry["wastage_kg"] / entry["issued_kg"], 2) if entry["issued_kg"] else None
+    return {
+        "date_from": date_from.isoformat(), "date_to": date_to.isoformat(),
+        "summary": {
+            "reels_issued": len(rows), "cards_written": len(carded), "cards_pending": len(rows) - len(carded),
+            "issued_kg": round(sum(float(row["issued_weight_kg"] or 0) for row in rows), 3),
+            "carded_kg": round(issued_kg, 3), "coils_made": sum(int(row["slitting_card"].get("coils_made") or 0) for row in carded),
+            "wastage_kg": round(wastage_kg, 3), "wastage_pct": round(100.0 * wastage_kg / issued_kg, 2) if issued_kg else None,
+        },
+        "by_paper": sorted(by_paper.values(), key=lambda entry: -entry["issued_kg"]),
+        "rows": rows,
+    }

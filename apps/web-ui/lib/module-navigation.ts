@@ -9,20 +9,13 @@ export const MODULE_NAVIGATION: Record<string, ModuleLink[]> = {
     { name: "Slitting planning", href: "/planning/slitting" },
   ],
   "/quality": [
+    { name: "Incoming QC", href: "/quality/incoming" },
+    { name: "In-process QC", href: "/quality/stage" },
+    { name: "Holds & inspections", href: "/quality/results" },
+    { name: "Customer returns", href: "/quality/returns" },
     { name: "Material standards", href: "/quality/material-standards" },
+    { name: "Process stage rules", href: "/quality/stage-rules" },
     { name: "Quality analytics", href: "/reports/quality" },
-    {
-      "name": "Incoming inspections",
-      "href": "/quality/incoming"
-    },
-    {
-      "name": "Production inspections",
-      "href": "/quality/stage"
-    },
-    {
-      "name": "Results & dispositions",
-      "href": "/quality/results"
-    }
   ],
   "/masters/papers": [
     {
@@ -60,10 +53,6 @@ export const MODULE_NAVIGATION: Record<string, ModuleLink[]> = {
     {
       "name": "Customers",
       "href": "/masters/customers"
-    },
-    {
-      "name": "Suppliers",
-      "href": "/masters/suppliers"
     },
     {
       "name": "Vendors",

@@ -15,8 +15,11 @@ import {
     DialogTitle,
     DialogTrigger,
 } from "@/components/ui/dialog"
-import { Pencil, Plus, PowerOff, RotateCcw, Search } from "lucide-react"
+import { Pencil, Plus, PowerOff, RotateCcw, Ruler, Search } from "lucide-react"
 import { useAuth } from "@/context/AuthContext"
+import { MastersNav } from "@/components/master/masters-nav"
+import { QcBandDialog, type QcBandTarget } from "@/components/qc/QcBandDialog"
+import { cn } from "@/lib/utils"
 
 interface Column {
     header: string
@@ -33,6 +36,10 @@ interface CrudTableProps {
     onEdit?: (id: string, data: any) => void
     onDelete?: (id: string) => void
     rowActions?: (row: any) => React.ReactNode
+    /** Inward QC band popup for a row (material masters): returns the band scope for that row. */
+    qcBand?: (row: any) => QcBandTarget | null
+    /** Hide the master switcher and page header when the table is embedded in another page. */
+    embedded?: boolean
     FormComponent?: React.ComponentType<{
         initialData?: any
         onSubmit: (data: any) => void
@@ -72,27 +79,12 @@ function describeDataset(title: string) {
     }
 }
 
-const WORKSPACE_LINKS = {
-    masters: [
-        { href: "/masters/papers", label: "Papers" },
-        { href: "/masters/tube-sizes", label: "Tube Sizes" },
-        { href: "/masters/mandrels", label: "Mandrels" },
-        { href: "/masters/parchments", label: "Parchments" },
-        { href: "/masters/adhesives", label: "Adhesives" },
-        { href: "/masters/customers", label: "Customers" },
-        { href: "/masters/vendors", label: "Vendors" },
-        { href: "/masters/contact-directory", label: "Contacts" },
-        { href: "/masters/packaging", label: "Packaging" },
-        { href: "/masters/tools", label: "Tools" },
-        { href: "/masters/inward-qc", label: "Inward QC" },
-    ],
-    system: [
-        { href: "/system/users", label: "Users" },
-        { href: "/system/plants", label: "Plants" },
-        { href: "/system/machines", label: "Machines" },
-        { href: "/system/locations", label: "Locations" },
-    ],
-} as const
+const SYSTEM_LINKS = [
+    { href: "/system/users", label: "Users" },
+    { href: "/system/plants", label: "Plants" },
+    { href: "/system/machines", label: "Machines" },
+    { href: "/system/locations", label: "Locations" },
+] as const
 
 function datasetWorkspace(title: string) {
     const value = title.toLowerCase()
@@ -109,30 +101,36 @@ export function CrudTable({
     onEdit,
     onDelete,
     rowActions,
+    qcBand,
+    embedded = false,
     FormComponent,
     dialogContentClassName
 }: CrudTableProps) {
     const pathname = usePathname()
     const [search, setSearch] = useState("")
+    const [status, setStatus] = useState<"ACTIVE" | "DISABLED" | "ALL">("ACTIVE")
+    const [bandTarget, setBandTarget] = useState<QcBandTarget | null>(null)
     const [isAddOpen, setIsAddOpen] = useState(false)
     const [editItem, setEditItem] = useState<any>(null)
     const [submitError, setSubmitError] = useState<string | null>(null)
     const { activePlant } = useAuth()
 
+    const isActive = (row: any) => row?.active !== false && row?.is_active !== false
+    const activeCount = data.filter(isActive).length
+    const disabledCount = data.length - activeCount
     const filteredData = useMemo(
         () =>
             data.filter((item) =>
+                (status === "ALL" || (status === "ACTIVE") === isActive(item)) &&
                 Object.values(item).some((val) =>
                     String(val).toLowerCase().includes(search.toLowerCase()),
                 ),
             ),
-        [data, search],
+        [data, search, status],
     )
 
-    const metricLabel = filteredData.length === data.length ? "Visible records" : "Filtered records"
     const subtitle = describeDataset(title)
     const workspace = datasetWorkspace(title)
-    const workspaceLinks = WORKSPACE_LINKS[workspace]
     const lowercaseTitle = title.toLowerCase()
     const writeBlocked = activePlant === "ALL" && !["plants", "users"].includes(lowercaseTitle)
 
@@ -172,135 +170,105 @@ export function CrudTable({
         }
     }
 
+    const addDialog = FormComponent ? (
+        <Dialog
+            open={isAddOpen}
+            onOpenChange={(open) => {
+                setIsAddOpen(open)
+                if (!open) setSubmitError(null)
+            }}
+        >
+            <DialogTrigger asChild>
+                <Button className="h-10 rounded-lg bg-primary px-4 text-primary-foreground hover:bg-primary/90" disabled={writeBlocked}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add {title.toLowerCase().replace(/s$/, "")}
+                </Button>
+            </DialogTrigger>
+            <DialogContent className={dialogContentClassName}>
+                <DialogHeader>
+                    <DialogTitle>Add {title}</DialogTitle>
+                    <DialogDescription>
+                        Enter the details for the new {title.toLowerCase()}.
+                    </DialogDescription>
+                </DialogHeader>
+                {submitError ? (
+                    <div className="rounded-xl border border-signal-rose-line bg-signal-rose-soft px-3 py-2 text-sm text-signal-rose-ink">
+                        {submitError}
+                    </div>
+                ) : null}
+                <FormComponent
+                    onSubmit={handleAdd}
+                    onCancel={() => {
+                        setSubmitError(null)
+                        setIsAddOpen(false)
+                    }}
+                />
+            </DialogContent>
+        </Dialog>
+    ) : null
+
     return (
-        <div className="space-y-6">
-            <section className="rounded-xl border border-border bg-card/90 px-4 py-4 shadow-premium">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div>
-                        <p className="text-[12px] font-semibold text-muted-foreground">
-                            {workspace === "masters" ? "Master Workspace" : "System Workspace"}
-                        </p>
-                        <p className="mt-2 text-sm text-muted-foreground">
-                            Jump across the recovered {workspace === "masters" ? "master-data" : "system setup"} surfaces without going back to the sidebar.
-                        </p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                        {workspaceLinks.map((link) => {
-                            const active = pathname === link.href
-                            return (
-                                <Link
-                                    key={link.href}
-                                    href={link.href}
-                                    className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
-                                        active
-                                            ? "border-primary bg-primary text-primary-foreground"
-                                            : "border-border bg-muted text-muted-foreground hover:border-border hover:bg-card"
-                                    }`}
-                                >
-                                    {link.label}
-                                </Link>
-                            )
-                        })}
-                    </div>
-                </div>
-            </section>
+        <div className="min-w-0 space-y-4" data-testid={`crud-table-${lowercaseTitle.replace(/\s+/g, "-")}`}>
+            {embedded ? null : workspace === "masters" ? <MastersNav /> : (
+                <nav aria-label="System setup" className="flex flex-wrap gap-1.5 rounded-xl border border-border bg-card p-2">
+                    {SYSTEM_LINKS.map((link) => (
+                        <Link key={link.href} href={link.href} aria-current={pathname === link.href ? "page" : undefined}
+                            className={cn("inline-flex min-h-8 items-center rounded-lg px-2.5 text-[12.5px] font-semibold", pathname === link.href ? "bg-primary text-primary-foreground" : "text-foreground/75 hover:bg-muted")}>
+                            {link.label}
+                        </Link>
+                    ))}
+                </nav>
+            )}
 
-            <section className="overflow-hidden rounded-xl border border-border bg-card shadow-premium">
-                <div className="grid gap-5 px-6 py-6 lg:grid-cols-[minmax(0,1.4fr)_320px] lg:px-8">
-                    <div>
-                        <p className="text-[12px] font-semibold text-muted-foreground">Master Data Workspace</p>
-                        <h1 className="mt-3 text-3xl font-semibold tracking-tight text-foreground">{title}</h1>
-                        <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">{subtitle}</p>
-                        <p className="mt-3 inline-flex max-w-3xl rounded-full border border-signal-amber-line bg-signal-amber-soft px-3 py-1.5 text-xs font-semibold text-signal-amber-ink">
-                            Master data is never physically deleted. Disable hides it from future dropdowns while old orders, specs, job cards, and ledgers keep their historical references.
-                        </p>
+            <section className="overflow-hidden rounded-xl border border-border bg-card">
+                <header className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-5">
+                    <div className="min-w-0">
+                        {embedded ? <h2 className="text-lg font-semibold tracking-tight text-foreground">{title}</h2> : <h1 className="text-[22px] font-semibold tracking-tight text-foreground">{title}</h1>}
+                        <p className="mt-1 max-w-3xl text-[13px] leading-5 text-muted-foreground">{subtitle}</p>
                     </div>
-                    <div className="flex flex-col gap-3 rounded-[1.5rem] border border-border bg-card/80 p-4 shadow-sm">
-                        <div>
-                            <p className="text-[12px] font-semibold text-muted-foreground">{metricLabel}</p>
-                            <p className="mt-2 text-3xl font-semibold text-foreground">{filteredData.length}</p>
-                            <p className="mt-1 text-sm text-muted-foreground">{data.length} total records available in this scope.</p>
-                            {writeBlocked ? (
-                                <p className="mt-3 rounded-xl border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-sm text-signal-amber-ink">
-                                    Pick a concrete plant before adding, editing, or deleting {title.toLowerCase()}.
-                                </p>
-                            ) : null}
-                        </div>
-                        {FormComponent ? (
-                            <Dialog
-                                open={isAddOpen}
-                                onOpenChange={(open) => {
-                                    setIsAddOpen(open)
-                                    if (!open) setSubmitError(null)
-                                }}
-                            >
-                                <DialogTrigger asChild>
-                                    <Button className="h-11 rounded-xl bg-primary text-primary-foreground shadow-lg shadow-slate-900/10 hover:bg-primary/90" disabled={writeBlocked}>
-                                        <Plus className="mr-2 h-4 w-4" />
-                                        Add New
-                                    </Button>
-                                </DialogTrigger>
-                                <DialogContent className={dialogContentClassName}>
-                                    <DialogHeader>
-                                        <DialogTitle>Add {title}</DialogTitle>
-                                        <DialogDescription>
-                                            Enter the details for the new {title.toLowerCase()}.
-                                        </DialogDescription>
-                                    </DialogHeader>
-                                    {submitError ? (
-                                        <div className="rounded-xl border border-signal-rose-line bg-signal-rose-soft px-3 py-2 text-sm text-signal-rose-ink">
-                                            {submitError}
-                                        </div>
-                                    ) : null}
-                                    <FormComponent
-                                        onSubmit={handleAdd}
-                                        onCancel={() => {
-                                            setSubmitError(null)
-                                            setIsAddOpen(false)
-                                        }}
-                                    />
-                                </DialogContent>
-                            </Dialog>
-                        ) : null}
-                    </div>
-                </div>
-            </section>
-
-            <section className="rounded-xl border border-border bg-card/90 px-5 py-5 shadow-premium">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="relative w-full max-w-xl">
+                    <div className="flex shrink-0 items-center gap-2">{addDialog}</div>
+                </header>
+                {writeBlocked ? (
+                    <p className="border-b border-signal-amber-line bg-signal-amber-soft px-5 py-2 text-[12.5px] text-signal-amber-ink">
+                        Pick one plant in the plant selector before adding or editing {title.toLowerCase()}.
+                    </p>
+                ) : null}
+                <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+                    <div className="relative w-full max-w-md">
                         <Label htmlFor={`search-${lowercaseTitle}`} className="sr-only">Search {title}</Label>
-                        <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
                         <Input
                             id={`search-${lowercaseTitle}`}
-                            placeholder={`Search ${title.toLowerCase()}...`}
+                            placeholder={`Search ${title.toLowerCase()}…`}
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
-                            className="h-12 rounded-full border-border bg-muted pl-11 shadow-inner"
+                            className="h-10 rounded-lg pl-9"
                         />
                     </div>
-                    <div className="rounded-full border border-border bg-muted px-4 py-2 text-[12px] font-semibold text-muted-foreground">
-                        {filteredData.length === data.length ? "All rows visible" : `${filteredData.length} of ${data.length} rows visible`}
+                    <div role="tablist" aria-label="Show records" className="flex shrink-0 gap-1 rounded-lg bg-muted p-1">
+                        {([["ACTIVE", `Active ${activeCount}`], ["DISABLED", `Disabled ${disabledCount}`], ["ALL", `All ${data.length}`]] as const).map(([value, label]) => (
+                            <button key={value} type="button" role="tab" aria-selected={status === value} onClick={() => setStatus(value)}
+                                className={cn("min-h-8 rounded-md px-3 text-[12.5px] font-semibold transition-colors", status === value ? "bg-card text-foreground shadow-sm ring-1 ring-border" : "text-muted-foreground hover:text-foreground")}>
+                                {label}
+                            </button>
+                        ))}
                     </div>
                 </div>
-            </section>
-
-            <section className="overflow-hidden rounded-xl border border-border bg-card/90 shadow-premium">
                 <div className="overflow-x-auto">
-                    <table className="w-full min-w-[760px] caption-bottom text-sm">
-                        <thead className="bg-muted text-[12px] text-muted-foreground">
+                    <table className="w-full min-w-[720px] text-[13px]">
+                        <thead className="bg-muted/60 text-[11.5px] uppercase tracking-[0.06em] text-muted-foreground">
                         <tr className="border-b border-border">
                             {columns.map((col, i) => (
-                                <th key={i} className="h-12 px-4 text-left align-middle font-semibold">
+                                <th key={i} className="h-10 px-4 text-left align-middle font-semibold">
                                     {col.header}
                                 </th>
                             ))}
-                            <th className="h-12 px-4 text-right align-middle font-semibold">
+                            <th className="h-10 px-4 text-right align-middle font-semibold">
                                 Actions
                             </th>
                         </tr>
                     </thead>
-                    <tbody className="[&_tr:last-child]:border-0">
+                    <tbody>
                         {isLoading ? (
                             <tr>
                                 <td colSpan={columns.length + 1} className="p-4">
@@ -311,64 +279,67 @@ export function CrudTable({
                             <tr>
                                 <td colSpan={columns.length + 1} className="p-4">
                                     <EmptyQueryState
-                                        title={`No ${title.toLowerCase()} matched this search.`}
-                                        message="Clear the search box or add a new record."
+                                        title={data.length ? `No ${status === "DISABLED" ? "disabled " : status === "ACTIVE" ? "active " : ""}${title.toLowerCase()} match.` : `No ${title.toLowerCase()} yet.`}
+                                        message={data.length ? "Clear the search or switch between Active / Disabled / All." : "Use the Add button to create the first record."}
                                     />
                                 </td>
                             </tr>
                         ) : (
                             filteredData.map((row, i) => {
-                                const rowActive = row?.active !== false && row?.is_active !== false
+                                const rowActive = isActive(row)
+                                const band = qcBand ? qcBand(row) : null
                                 return (
-                                <tr key={i} className={`border-b border-border transition-colors hover:bg-signal-cyan-soft/35 ${rowActive ? "" : "bg-muted/80 text-muted-foreground"}`}>
+                                <tr key={row?.id ?? i} className={cn("border-b border-border last:border-0 transition-colors hover:bg-muted/40", rowActive ? "" : "bg-muted/50 text-muted-foreground")}>
                                     {columns.map((col, j) => (
-                                        <td key={j} className="p-4 align-middle text-muted-foreground">
-                                            {col.render ? col.render(row[col.accessorKey], row) : row[col.accessorKey]}
+                                        <td key={j} className={cn("px-4 py-3 align-middle", j === 0 ? "font-semibold text-foreground" : "text-foreground/80")}>
+                                            {col.render ? col.render(row[col.accessorKey], row) : (row[col.accessorKey] ?? <span className="text-muted-foreground">—</span>)}
                                         </td>
                                     ))}
-                                    <td className="p-4 align-middle text-right">
-                                        <div className="flex items-center justify-end gap-2">
-                                            <span className={`rounded-full px-2 py-1 text-[11.5px] font-semibold ${rowActive ? "bg-signal-emerald-soft text-signal-emerald-ink" : "bg-muted text-muted-foreground"}`}>
-                                                {rowActive ? "Active" : "Disabled"}
-                                            </span>
+                                    <td className="px-4 py-2.5 align-middle text-right">
+                                        <div className="flex items-center justify-end gap-1.5">
+                                            {!rowActive ? <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground ring-1 ring-border">Disabled</span> : null}
                                             {rowActions ? rowActions(row) : null}
+                                            {band && rowActive ? (
+                                                <Button variant="ghost" className="h-8 rounded-lg border border-signal-cyan-line bg-signal-cyan-soft px-2.5 text-[12px] font-semibold text-signal-cyan-ink hover:bg-signal-cyan-soft/70"
+                                                    title="Inward QC band for this line" onClick={() => setBandTarget(band)}>
+                                                    <Ruler className="mr-1.5 h-3.5 w-3.5" />QC band
+                                                </Button>
+                                            ) : null}
                                             {FormComponent && (
                                                 <Button
                                                     variant="ghost"
-                                                    size="icon"
                                                     title={`Edit ${title}`}
                                                     aria-label={`Edit ${title}`}
-                                                    className="rounded-xl border border-border bg-card text-muted-foreground hover:bg-muted"
+                                                    className="h-8 rounded-lg border border-border bg-card px-2.5 text-[12px] font-semibold text-foreground hover:bg-muted"
                                                     disabled={writeBlocked}
                                                     onClick={() => setEditItem(row)}
                                                 >
-                                                    <Pencil className="h-4 w-4" />
+                                                    <Pencil className="mr-1.5 h-3.5 w-3.5" />Edit
                                                 </Button>
                                             )}
                                             {onDelete && rowActive && (
                                                 <Button
-                                            variant="ghost"
-                                            size="icon"
+                                                    variant="ghost"
+                                                    size="icon"
                                                     title={`Disable ${title}`}
                                                     aria-label={`Disable ${title}`}
-                                                    className="rounded-xl border border-signal-amber-line bg-card text-signal-amber-ink hover:bg-signal-amber-soft"
+                                                    className="h-8 w-8 rounded-lg border border-border bg-card text-muted-foreground hover:border-signal-amber-line hover:bg-signal-amber-soft hover:text-signal-amber-ink"
                                                     disabled={writeBlocked}
                                                     onClick={() => onDelete(row.id)}
                                                 >
-                                                    <PowerOff className="h-4 w-4" />
+                                                    <PowerOff className="h-3.5 w-3.5" />
                                                 </Button>
                                             )}
                                             {!rowActive && onEdit ? (
                                                 <Button
                                                     variant="ghost"
-                                                    size="icon"
                                                     title={`Reactivate ${title}`}
                                                     aria-label={`Reactivate ${title}`}
-                                                    className="rounded-xl border border-signal-emerald-line bg-card text-signal-emerald-ink hover:bg-signal-emerald-soft"
+                                                    className="h-8 rounded-lg border border-signal-emerald-line bg-card px-2.5 text-[12px] font-semibold text-signal-emerald-ink hover:bg-signal-emerald-soft"
                                                     disabled={writeBlocked}
                                                     onClick={() => onEdit(row.id, { active: true })}
                                                 >
-                                                    <RotateCcw className="h-4 w-4" />
+                                                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" />Reactivate
                                                 </Button>
                                             ) : null}
                                         </div>
@@ -380,7 +351,12 @@ export function CrudTable({
                     </tbody>
                 </table>
             </div>
+                <p className="border-t border-border bg-muted/30 px-5 py-2.5 text-[12px] text-muted-foreground">
+                    Records are never deleted. Disabling hides a record from new dropdowns; old orders, specs, job cards and ledgers keep their references.
+                </p>
             </section>
+
+            <QcBandDialog target={bandTarget} onClose={() => setBandTarget(null)} />
 
             {/* Edit Dialog */}
             {FormComponent && editItem && (

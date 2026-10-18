@@ -142,7 +142,7 @@ function HolidaysPage() {
 
   return (
     <CockpitShell
-      hero={<MasterHero eyebrow="Master · Plant calendar" title={`${kpis.total} holidays for ${year} · ${kpis.upcoming} upcoming`} description="Plant calendar of non-working days. Drives OTIF math (due dates shift to next working day), anomaly suppression, and adherence math." accent="cyan" chips={[
+      hero={<MasterHero eyebrow={`Shop floor · ${kpis.total} holidays in ${year} · ${kpis.upcoming} upcoming`} title="Plant calendar" description="Plant calendar of non-working days. Drives OTIF math (due dates shift to next working day), anomaly suppression, and adherence math." accent="cyan" chips={[
         { label: `${kpis.publicCount} public`, tone: "ok" },
         { label: `${kpis.maintenanceCount} maintenance`, tone: "warn" },
         { label: "Owner / Admin write", tone: "warn" },

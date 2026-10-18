@@ -5,12 +5,12 @@ import { usePathname } from "next/navigation"
 
 import { cn } from "@/lib/utils"
 
-/** The two stores issue screens are one desk: paper reels go by AT number to a winder, every other material goes to a job card. */
+/** The two stores issue screens are one desk. Everything goes to the floor by shift (client rule 2026-10-18). */
 export function IssueDeskTabs() {
   const pathname = usePathname() || ""
   const tabs = [
-    { href: "/inventory/reels/issue", label: "Paper reels → winder", hint: "Scan the AT label; the reel is issued to a winder and shift." },
-    { href: "/inventory/production-issue", label: "Adhesive / parchment / packing → job card", hint: "Issue by the Amigo inward number against a job card." },
+    { href: "/inventory/reels/issue", label: "Reels & coils → floor", hint: "Scan the AT label; a reel goes to the slitter, a coil to the winders, by shift." },
+    { href: "/inventory/production-issue", label: "Adhesive / parchment / packing → floor", hint: "Issue by the Amigo inward number to the floor, by shift." },
   ]
   return (
     <nav aria-label="Issue desk" className="flex flex-wrap gap-2" data-testid="issue-desk-tabs">
@@ -22,7 +22,7 @@ export function IssueDeskTabs() {
           </Link>
         )
       })}
-      <span className="self-center text-[11.5px] text-muted-foreground">Paper is tracked per reel (kg returned to store after the run); other materials are consumed by quantity.</span>
+      <span className="self-center text-[11.5px] text-muted-foreground">Issued material is consumed in full on the floor; the job card records production and the stock count settles consumption.</span>
     </nav>
   )
 }

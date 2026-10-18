@@ -229,6 +229,27 @@ def test_first_batch_qc_needs_no_reason_but_a_correction_does(card):
     assert err.value.status_code==409
     db.rollback()
 
+def test_batch_qc_is_accepted_only_with_two_readings_and_more_can_be_added_without_reason(card):
+    """Client rule 2026-10-18: minimum 2 readings per check; QC may add more; the next stage
+    opens only for batches whose QC is accepted."""
+    a,db,job=card
+    one=[winding_samples()[0]]
+    e=create(a,db,job,produced=4,accepted=4,samples=one)['entry']
+    assert e['evaluation']['verdict']=='PASS'
+    assert a.available(db,job,'OVEN')==0 and a.awaiting_qc(db,job,'OVEN')==4
+    listed=a.get_entries(job.id,'WINDER',0,50,db,PLANT,USER)['entries'][0]
+    assert not listed['qc_cleared'] and {r['parameter'] for r in listed['qc_readings_short']}>={'id','od','cs'}
+    due=a.qc_due(200,db,{'selected_plant_id':PLANT},USER)
+    assert any(row['entry_id']==e['id'] and row['state']=='MORE_READINGS' for row in due)
+    # A second sample beside the first is an addition, not a correction: no reason needed.
+    more=a.save_observations(job.id,uuid.UUID(e['id']),a.Observations(request_id=str(uuid.uuid4()),expected_version=e['row_version'],samples=one+winding_samples()[:1]),db,PLANT,USER)['entry']
+    assert a.entry_history(job.id,uuid.UUID(e['id']),db,PLANT,USER)[0]['reason']=='More QC readings added'
+    assert a.available(db,job,'OVEN')==4 and not any(row['entry_id']==e['id'] for row in a.qc_due(200,db,{'selected_plant_id':PLANT},USER))
+    # A third reading may still be added.
+    a.save_observations(job.id,uuid.UUID(e['id']),a.Observations(request_id=str(uuid.uuid4()),expected_version=more['row_version'],samples=more['samples']+winding_samples()[:1]),db,PLANT,USER)
+    db.rollback()
+
+
 def test_parent_lock_blocks_concurrent_writer(card):
     from src.database import SessionLocal
     a,db,job=card;other=SessionLocal()

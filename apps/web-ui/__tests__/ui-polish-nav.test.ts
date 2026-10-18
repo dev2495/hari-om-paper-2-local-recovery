@@ -103,7 +103,8 @@ test("sidebar jump-to-workspace search finds routes beyond nav labels", () => {
 
 test("integrated-slice nav entries remain: Quality, Sales orders, Purchase (pending folded into sales)", () => {
   const layout = read("app/(dashboard)/layout.tsx")
-  assert.match(layout, /name: "Quality"/)
+  // The Quality entry is the QC desk (client rule 2026-10-18).
+  assert.match(layout, /name: "QC desk"/)
   assert.match(layout, /href: "\/quality"/)
   assert.doesNotMatch(layout, /href: "\/sales-orders\/pending"/)
   assert.match(layout, /href: "\/sales-orders"/)

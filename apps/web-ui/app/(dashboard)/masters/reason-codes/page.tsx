@@ -150,7 +150,7 @@ function ReasonCodesPage() {
 
   return (
     <CockpitShell
-      hero={<MasterHero eyebrow="Master · Reason codes" title={`${kpis.active} active reasons · ${kpis.downtime} downtime + ${kpis.scrap} scrap + ${kpis.shortClose} short-close`} description="Normalized reason taxonomy used by downtime logging, scrap entries, QC rejects, and short-close on job-card close. Without these, every Pareto is a free-text mess." accent="cyan" chips={[
+      hero={<MasterHero eyebrow={`Shop floor · ${kpis.active} active · ${kpis.downtime} downtime · ${kpis.scrap} scrap · ${kpis.shortClose} short-close`} title="Reason codes" description="Normalized reason taxonomy used by downtime logging, scrap entries, QC rejects, and short-close on job-card close. Without these, every Pareto is a free-text mess." accent="cyan" chips={[
         { label: `${kpis.total} total`, tone: "neutral" },
         { label: `${kpis.active} active`, tone: "ok" },
         { label: "Owner / Admin / PlantManager write", tone: "warn" },

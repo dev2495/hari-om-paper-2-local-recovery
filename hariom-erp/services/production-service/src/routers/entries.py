@@ -15,10 +15,10 @@ from ..database import get_db
 from ..dispatch_quantities import dispatchable_quantity, shipping_allowance, qc_excluded_quantities
 from ..models import JobCard, JobCardStage, JobCardStageSegment, QualityHold, QualityInspection, PackingRecord, Dispatch, MonthlyMaterialClose
 from ..entry_models import StageEntry, EntryRevision, InputAllocation, EntryReceipt, CompletionEffect, ResidualWip
-from ..utils.auth import get_current_plant, get_current_user, require_role
+from ..utils.auth import get_current_plant, get_current_plant_scope, get_current_user, require_role
 from ..lifecycle_rules import planned_in_stage_units, stage_unit
 from ..quality_eval import evaluate_final_spec, instrument_readiness_for_snapshot, instrument_not_ready_detail
-from season_quality import evaluate_samples, stage_readiness, fingerprint, RuleError
+from season_quality import evaluate_samples, stage_readiness, fingerprint, RuleError, is_optional
 from . import planning
 
 router=APIRouter(tags=["continuous entries"])
@@ -120,14 +120,37 @@ def stage_has_qc(job,stage):
     return any(p.get("applicable",True) for p in (profile.get(stage) or {}).get("parameters") or [])
 
 
+def readings_short(job,e):
+    """Required checks on this batch with fewer readings than the minimum (client rule
+    2026-10-18: at least 2 readings per check, more may be added). A batch covered by a
+    whole-card entry's readings is judged on that entry."""
+    if (e.evaluation or {}).get("covered_by_entry"):return []
+    params=(((job.spec_snapshot or {}).get("qc_profile") or {}).get("stages") or {}).get(e.stage,{}).get("parameters") or []
+    counts={}
+    for r in (e.evaluation or {}).get("results") or []:
+        if r.get("verdict") in ("PASS","FAIL","OBSERVATION_ONLY"):counts[r.get("parameter")]=counts.get(r.get("parameter"),0)+1
+    short=[]
+    for p in params:
+        if not p.get("applicable",True) or is_optional(p):continue
+        need=max(2,int(p.get("min_readings") or 2));have=counts.get(p.get("code"),0)
+        if have<need:short.append({"parameter":p.get("code"),"label":p.get("label") or p.get("code"),"have":have,"need":need})
+    return short
+
+
+def qc_accepted(job,e):
+    """The batch's own QC reads PASS with the minimum readings on every required check."""
+    return (e.evaluation or {}).get("verdict") in ("PASS","OBSERVATION_ONLY") and not readings_short(job,e)
+
+
 def qc_cleared_ids(db,job,stage):
-    """Entries of ``stage`` whose batch may feed the next stage (client rule 2026-10-13):
-    the batch's own QC must read PASS before the next stage may take it. A stage with no
-    QC parameters clears on submission; a FAIL whose hold was released is cleared too."""
+    """Entries of ``stage`` whose batch may feed the next stage (client rules 2026-10-13/18):
+    the batch's own QC must be accepted (PASS, minimum readings) before the next stage may
+    take it. A stage with no QC parameters clears on submission; a FAIL whose hold was
+    released is cleared too."""
     rows=entries(db,job,stage)
     if not stage_has_qc(job,stage):return {e.id for e in rows}
     released={str(i.sample_id) for i,h in db.query(QualityInspection,QualityHold).join(QualityHold,QualityHold.source_inspection_id==QualityInspection.id).filter(QualityInspection.job_card_id==job.id,QualityInspection.stage_type==stage,QualityHold.status=="RELEASED").all()}
-    return {e.id for e in rows if (e.evaluation or {}).get("verdict") in ("PASS","OBSERVATION_ONLY") or str(e.id) in released}
+    return {e.id for e in rows if qc_accepted(job,e) or str(e.id) in released}
 
 
 def source_balances(db,job,upstream):
@@ -563,7 +586,39 @@ def get_flow(card_id:uuid.UUID,db:Session=Depends(get_db),plant:str=Depends(get_
 def get_entries(card_id:uuid.UUID,stage:str|None=None,offset:int=Query(0,ge=0),limit:int=Query(50,ge=1,le=100),db:Session=Depends(get_db),plant:str=Depends(get_current_plant),user:dict=Depends(get_current_user)):
     job=card(db,card_id,plant);query=db.query(StageEntry).filter_by(job_card_id=job.id)
     if stage:stage_row(db,job,stage);query=query.filter_by(stage=stage)
-    return {"entries":[entry_dict(e) for e in query.order_by(StageEntry.created_at.desc(),StageEntry.id).offset(offset).limit(limit).all()],"total":query.count()}
+    cleared=qc_cleared_ids(db,job,stage) if stage in ("WINDER","OVEN","PROCESS") else None
+    def listed(e):
+        row=entry_dict(e)
+        if cleared is not None and e.status=="SUBMITTED" and e.kind!="QC_ONLY":row.update(qc_cleared=e.id in cleared,qc_readings_short=readings_short(job,e) if stage_has_qc(job,e.stage) else [])
+        return row
+    return {"entries":[listed(e) for e in query.order_by(StageEntry.created_at.desc(),StageEntry.id).offset(offset).limit(limit).all()],"total":query.count()}
+
+
+@router.get("/entries/qc-due")
+def qc_due(limit:int=Query(200,ge=1,le=500),db:Session=Depends(get_db),scope:dict=Depends(get_current_plant_scope),user:dict=Depends(require_role(["QC","Owner","Admin","PlantManager"]))):
+    """QC's in-process queue: batches on running cards whose stage QC is not accepted yet.
+    The next stage cannot take a batch until it leaves this list (or a supervisor overrides)."""
+    plants=[planning._to_uuid(value) for value in (scope.get("allowed_plants") or [])] if scope.get("scope_all") else [planning._to_uuid(scope["selected_plant_id"])]
+    rows=(db.query(StageEntry,JobCard).join(JobCard,JobCard.id==StageEntry.job_card_id)
+        .filter(JobCard.plant_id.in_(plants),JobCard.status.notin_(["COMPLETED","CLOSED","CANCELLED","SHORT_CLOSED"]),
+                StageEntry.status=="SUBMITTED",StageEntry.kind!="QC_ONLY",StageEntry.stage.in_(["WINDER","OVEN","PROCESS"]))
+        .order_by(StageEntry.created_at.asc()).limit(3000).all())
+    cleared_cache={};stage_cache={};result=[]
+    for e,job in rows:
+        if not stage_has_qc(job,e.stage):continue
+        key=(job.id,e.stage)
+        if key not in stage_cache:stage_cache[key]=stage_row(db,job,e.stage).status
+        if stage_cache[key]=="COMPLETED":continue
+        if key not in cleared_cache:cleared_cache[key]=qc_cleared_ids(db,job,e.stage)
+        if e.id in cleared_cache[key]:continue
+        verdict=(e.evaluation or {}).get("verdict");short=readings_short(job,e)
+        state="FAILED" if verdict=="FAIL" else "NO_READINGS" if not e.samples else "MORE_READINGS" if short else "INCOMPLETE"
+        snapshot=job.spec_snapshot or {}
+        result.append({"entry_id":str(e.id),"job_card_id":str(job.id),"job_card_no":job.job_card_no,"customer":snapshot.get("customer_name_snapshot") or snapshot.get("customer_name"),
+            "stage":e.stage,"stage_label":label_stage(e.stage),"entry_no":e.entry_no,"business_date":e.business_date,"shift_code":e.shift_code,"accepted":e.accepted,"unit":stage_unit(e.stage),
+            "state":state,"readings_short":short,"samples":len(e.samples or []),"created_at":e.created_at})
+        if len(result)>=limit:break
+    return result
 
 
 @router.get("/entries/flagged")
@@ -725,8 +780,15 @@ def save_observations(card_id:uuid.UUID,entry_id:uuid.UUID,payload:Observations,
     if not e:raise HTTPException(404,"Entry not found")
     if e.status=="VOID":raise HTTPException(409,"Voided observations cannot be revised")
     if payload.expected_version!=e.row_version:raise HTTPException(409,"This entry changed after you opened it; reopen QC on it and enter the readings again")
-    # First readings on a batch need no reason; changing readings already recorded is a correction.
-    reason=payload.reason.strip() or ("" if e.samples else "QC readings recorded")
+    # First readings on a batch, or more readings added beside the ones recorded, need no
+    # reason; changing or removing readings already recorded is a correction.
+    before={str(sample.get("sample_id")):sample for sample in (e.samples or [])}
+    after={str(sample.get("sample_id")):sample for sample in (payload.samples or [])}
+    def kept(old,new):
+        old_r,new_r=(old or {}).get("readings") or {},(new or {}).get("readings") or {}
+        return new is not None and all(new_r.get(code)==value for code,value in old_r.items() if value not in (None,""))
+    only_added=bool(before) and all(kept(sample,after.get(key)) for key,sample in before.items()) and after!=before
+    reason=payload.reason.strip() or ("QC readings recorded" if not e.samples else "More QC readings added" if only_added else "")
     if not reason:raise HTTPException(422,"Give the reason for correcting QC readings already recorded on this batch")
     e.samples=payload.samples
     if payload.instrument is not None:e.details={**(e.details or {}),"instrument":payload.instrument}

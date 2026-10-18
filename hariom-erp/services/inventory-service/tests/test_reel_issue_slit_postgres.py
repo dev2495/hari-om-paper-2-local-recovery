@@ -1,8 +1,8 @@
-"""PO receipt → coil/reel routing → slitting → winder issue → balance return.
+"""PO receipt → floor issue by shift → slitting card (client rule 2026-10-18).
 
-Reels are slit before winding; coils go straight to a winder. Every output coil
-is its own labelled AT identity traced to the parent reel and its PO receipt, and kg
-is conserved across receipt, slitting, trim and winder consumption.
+A reel always goes whole to the slitter and gets a slitting card (coils made + wastage);
+a coil goes whole straight to the winders. No machine is chosen, nothing comes back to
+store, and the kg issued is what reconciliation counts as consumed.
 """
 import os
 import uuid
@@ -20,8 +20,8 @@ from src.models import ItemMaster, LotLabelRecord, PaperReel, PurchaseOrderLine,
 from src.routers.procurement import GovernedReceiptCreate, post_governed_receipt
 from src.routers.quality import QualityInspectionCreate, create_quality_inspection
 from src.routers.purchase import PurchaseOrderCreate, RevisionActionPayload, approve_purchase_order, create_purchase_order, submit_purchase_order
-from src.routers.reel_issues import ReelIssueClosePayload, ReelIssueCreate, close_reel_issue, create_reel_issue
-from src.routers.reels import ReelSlitCreate, slit_reel
+from src.routers.ledger import aggregate_transactions_by_item
+from src.routers.reel_issues import ReelIssueClosePayload, ReelIssueCreate, SlittingCardPayload, close_reel_issue, create_reel_issue, record_slitting_card
 
 # Own plant: document series (PO, GRN, AT) stay independent of other suites.
 PLANT = str(uuid.uuid4())
@@ -76,7 +76,12 @@ def _close(db, issue_id, consumed):
         return close_reel_issue(issue_id, ReelIssueClosePayload(consumed_weight_kg=consumed), db, PLANT, MAKER)
 
 
-def test_po_linked_reel_is_slit_then_coils_wind_and_kg_is_conserved():
+def _card(db, issue_id, user=MAKER, **kwargs):
+    with patch("src.routers.reel_issues.emit_audit_event"):
+        return record_slitting_card(issue_id, SlittingCardPayload(**kwargs), db, PLANT, user)
+
+
+def test_po_linked_reel_goes_to_floor_whole_gets_a_slitting_card_and_kg_is_conserved():
     db = SessionLocal()
     try:
         item = _paper(db)
@@ -89,100 +94,88 @@ def test_po_linked_reel_is_slit_then_coils_wind_and_kg_is_conserved():
         line = db.get(PurchaseOrderLine, uuid.UUID(po["lines"][0]["id"]))
         assert float(line.qty_received) == 2200 and line.received_unit_count == 2
         lots = {row["source_reel_no"]: row for row in receipt["created_lots"]}
-        coil_id, reel_id = uuid.UUID(lots["C-100"]["id"]), uuid.UUID(lots["R-200"]["id"])
+        reel_id, coil_id = uuid.UUID(lots["C-100"]["id"]), uuid.UUID(lots["R-200"]["id"])
         assert all(row["stock_status"] == "QC_HOLD" for row in lots.values())
         with pytest.raises(HTTPException) as held:
-            _issue(db, reel_id, machine_id=WINDER, issued_weight_kg=100)
+            _issue(db, coil_id)
         assert held.value.status_code == 400 and "QC" in held.value.detail
-        _pass_incoming_qc(db, coil_id, reel_id)
+        _pass_incoming_qc(db, reel_id, coil_id)
         db.expire_all()
-        assert {db.get(PaperReel, coil_id).stock_status, db.get(PaperReel, reel_id).stock_status} == {"UNRESTRICTED"}
+        assert {db.get(PaperReel, reel_id).stock_status, db.get(PaperReel, coil_id).stock_status} == {"UNRESTRICTED"}
 
         # PO balance: 800 kg still open, a 900 kg receipt is refused.
         with pytest.raises(HTTPException) as over:
             _receive(db, po, [{"source_reel_no": "R-201", "net_weight_kg": 900, "width_mm": 1020, "physical_form": "COIL"}])
         assert over.value.status_code == 422
 
-        # Routing: coil never goes to a winder, reel never to slitting, winder is required.
-        with pytest.raises(HTTPException) as coil_to_winder:
-            _issue(db, coil_id, issue_section="WINDER_SECTION", machine_id=WINDER, issued_weight_kg=1000)
-        assert coil_to_winder.value.status_code == 400 and "coil" in coil_to_winder.value.detail
-        with pytest.raises(HTTPException) as reel_to_slitter:
-            _issue(db, reel_id, issue_section="SLITTING_SECTION", issued_weight_kg=1200)
-        assert reel_to_slitter.value.status_code == 400
-        with pytest.raises(HTTPException) as no_winder:
-            _issue(db, reel_id, issued_weight_kg=1200)
-        assert no_winder.value.status_code == 400
+        # Routing: a reel never goes straight to the winders, a coil never to the slitter.
+        with pytest.raises(HTTPException) as reel_to_winders:
+            _issue(db, reel_id, issue_section="WINDER_SECTION")
+        assert reel_to_winders.value.status_code == 400 and "reel" in reel_to_winders.value.detail
+        with pytest.raises(HTTPException) as coil_to_slitter:
+            _issue(db, coil_id, issue_section="SLITTING_SECTION")
+        assert coil_to_slitter.value.status_code == 400
+        # The whole reel goes out: a part issue is refused.
+        with pytest.raises(HTTPException) as part:
+            _issue(db, reel_id, issued_weight_kg=400)
+        assert part.value.status_code == 400 and "whole" in part.value.detail
 
-        # Slitting: must be issued first, cannot exceed issued kg.
-        with pytest.raises(HTTPException) as not_issued:
-            slit_reel(ReelSlitCreate(parent_reel_id=coil_id, children=[{"weight_kg": 400}]), db, PLANT, MAKER)
-        assert not_issued.value.status_code == 409
-        slit_issue = _issue(db, coil_id, issued_weight_kg=1000)  # section inferred from COIL
-        assert slit_issue.issue_section == "SLITTING_SECTION" and slit_issue.reel_code == lots["C-100"]["at_no"]
-        with pytest.raises(HTTPException) as bare_close:
-            _close(db, slit_issue.id, 500)
-        assert bare_close.value.status_code == 409
-        with pytest.raises(HTTPException) as too_much:
-            slit_reel(ReelSlitCreate(parent_reel_id=coil_id, children=[{"weight_kg": 600}, {"weight_kg": 400}], trim_wastage_kg=5), db, PLANT, MAKER)
-        assert too_much.value.status_code == 400
-
-        slit = slit_reel(ReelSlitCreate(parent_reel_id=coil_id, children=[
-            {"weight_kg": 480, "width_mm": 45}, {"weight_kg": 470, "width_mm": 45},
-        ], trim_wastage_kg=12), db, PLANT, MAKER)
+        # Reel → slitter, by shift only; consumed in full at issue; card pending.
+        slit_issue = _issue(db, reel_id)
+        assert slit_issue.issue_section == "SLITTING_SECTION" and slit_issue.issue_mode == "FLOOR" and slit_issue.machine_id is None
+        assert slit_issue.status == "OPEN" and slit_issue.issued_weight_kg == pytest.approx(1000) and slit_issue.consumed_weight_kg == pytest.approx(1000)
         db.expire_all()
-        coil = db.get(PaperReel, coil_id)
-        assert slit.remaining_weight_kg == pytest.approx(38) and float(coil.current_weight_kg) == pytest.approx(38)
-        assert db.get(ReelIssue, slit_issue.id).status.value == "CLOSED"
-        assert float(db.get(ReelIssue, slit_issue.id).consumed_weight_kg) == pytest.approx(962)
-        children = db.query(PaperReel).filter(PaperReel.parent_reel_id == coil_id).all()
-        assert sorted(float(row.current_weight_kg) for row in children) == [470, 480]
-        assert {row.physical_form for row in children} == {"COIL"}
-        assert all((row.inward_metadata or {}).get("po_no") == po["po_no"] for row in children)
-        assert db.query(LotLabelRecord).filter(LotLabelRecord.reel_id.in_([row.id for row in children])).count() == 2
-        assert {row["label"]["source_reel_no"] for row in [c.model_dump() for c in slit.children]} == {"C-100 / S1", "C-100 / S2"}
+        reel = db.get(PaperReel, reel_id)
+        assert reel.status.value == "CONSUMED" and float(reel.current_weight_kg) == 0
+        with pytest.raises(HTTPException) as no_return:
+            _close(db, slit_issue.id, 0)
+        assert no_return.value.status_code == 409
+        with pytest.raises(HTTPException) as too_much_waste:
+            _card(db, slit_issue.id, coils_made=6, wastage_kg=1200)
+        assert too_much_waste.value.status_code == 422
+        carded = _card(db, slit_issue.id, coils_made=6, wastage_kg=12, coil_width_mm=45)
+        assert carded.status == "CLOSED"
+        assert carded.slitting_card["coils_made"] == 6 and carded.slitting_card["wastage_pct"] == pytest.approx(1.2)
+        assert carded.slitting_card["good_kg"] == pytest.approx(988)
+        # The card is written once; a manager corrects it with a reason, keeping the earlier card.
+        with pytest.raises(HTTPException) as second:
+            _card(db, slit_issue.id, coils_made=7, wastage_kg=10)
+        assert second.value.status_code == 403
+        corrected = _card(db, slit_issue.id, user=CHECKER, coils_made=7, wastage_kg=10, correction_reason="Recounted coils at the winder")
+        assert corrected.slitting_card["coils_made"] == 7 and corrected.slitting_card["history"][0]["coils_made"] == 6
 
-        # A second slit of the leftover continues the numbering instead of colliding.
-        _issue(db, coil_id, issued_weight_kg=38)
-        again = slit_reel(ReelSlitCreate(parent_reel_id=coil_id, children=[{"weight_kg": 36}], trim_wastage_kg=2), db, PLANT, MAKER)
-        assert again.children[0].at_no.endswith("-S3")
+        # Coil → winders, closed on issue.
+        coil_issue = _issue(db, coil_id)
+        assert coil_issue.issue_section == "WINDER_SECTION" and coil_issue.status == "CLOSED" and coil_issue.consumed_weight_kg == pytest.approx(1200)
         db.expire_all()
         assert db.get(PaperReel, coil_id).status.value == "CONSUMED"
+        events = {row.event_type.value for row in db.query(ReelScanEvent).filter(ReelScanEvent.reel_id == reel_id)}
+        assert {"INWARD_SCAN", "ISSUE_SCAN"} <= events
 
-        # Slit reel and the received reel both go to the winder (legacy alias saves the machine).
-        child = children[0]
-        winder_issue = _issue(db, child.id, winder_machine_id=WINDER, issued_weight_kg=float(child.current_weight_kg))
-        assert winder_issue.issue_section == "WINDER_SECTION" and winder_issue.machine_id == WINDER
-        closed = _close(db, winder_issue.id, 300)
-        db.expire_all()
-        assert closed.remaining_weight_kg == pytest.approx(float(child.inward_weight_kg) - 300)
-        returned = db.get(PaperReel, child.id)
-        assert returned.status.value == "IN_STOCK" and float(returned.current_weight_kg) == pytest.approx(float(child.inward_weight_kg) - 300)
-
-        reel_issue = _issue(db, reel_id, machine_id=WINDER, issued_weight_kg=1200)
-        _close(db, reel_issue.id, 1200)
-        db.expire_all()
-        assert db.get(PaperReel, reel_id).status.value == "CONSUMED"
-        events = {row.event_type.value for row in db.query(ReelScanEvent).filter(ReelScanEvent.reel_id == coil_id)}
-        assert {"INWARD_SCAN", "ISSUE_SCAN", "SLIT_SCAN"} <= events
+        # Reconciliation counts all 2200 kg issued to the floor on the issue date.
+        rows = aggregate_transactions_by_item(date(2026, 9, 25), date(2026, 9, 25), "ISSUE_PRODUCTION,ISSUE_FROM_REEL", db,
+                                              {"selected_plant_id": PLANT, "scope_all": False}, MAKER)
+        assert next(row for row in rows if row["item_id"] == str(item.id))["issued_kg"] == pytest.approx(2200)
     finally:
         db.close()
 
 
-def test_reel_can_return_to_store_unslit():
+def test_floor_issue_never_returns_to_store():
     db = SessionLocal()
     try:
         item = _paper(db)
         with patch("src.routers.purchase.emit_audit_event"):
             po = _approved_po(db, item, qty=500)
-        receipt = _receive(db, po, [{"source_reel_no": "C-900", "net_weight_kg": 500, "width_mm": 80, "physical_form": "REEL"}])
+        receipt = _receive(db, po, [{"source_reel_no": "C-900", "net_weight_kg": 500, "width_mm": 80, "physical_form": "COIL"}])
         coil_id = uuid.UUID(receipt["created_lots"][0]["id"])
         _pass_incoming_qc(db, coil_id)
-        issue = _issue(db, coil_id, issued_weight_kg=500)
-        _close(db, issue.id, 0)
+        issue = _issue(db, coil_id)
+        with pytest.raises(HTTPException) as closed:
+            _close(db, issue.id, 0)
+        assert closed.value.status_code == 409
         db.expire_all()
         coil = db.get(PaperReel, coil_id)
-        assert coil.status.value == "IN_STOCK" and float(coil.current_weight_kg) == 500
+        assert coil.status.value == "CONSUMED" and float(coil.current_weight_kg) == 0
     finally:
         db.close()
 

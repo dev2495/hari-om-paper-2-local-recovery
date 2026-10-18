@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react"
 
 import { CrudTable } from "@/components/common/crud-table"
+import { MastersNav } from "@/components/master/masters-nav"
 import { FaddaForm, PackagingBoxForm, PlasticSheetForm } from "@/components/forms/master-forms"
 import {
   useCreatePackagingBox,
@@ -145,57 +146,30 @@ export default function PackagingMasterPage() {
     fadda: (faddaQuery.data || []).length,
   }
 
-  return (
-    <div className="space-y-6">
-      <section className="rounded-xl border border-border bg-card/90 p-6 shadow-premium">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <div className="max-w-3xl">
-            <p className="text-[12px] font-semibold text-muted-foreground">Packaging Workspace</p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-foreground">One packing workspace, not three long pages</h1>
-            <p className="mt-3 text-sm leading-6 text-muted-foreground">
-              Keep boxes, plastic sheets, and fadda in one compact flow. Switch the active packing master from here instead of scrolling through stacked sections that waste page height.
-            </p>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            {PACKING_SECTIONS.map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                onClick={() => setActiveSection(item.key)}
-                className={`rounded-[1.4rem] border px-4 py-4 text-left transition ${
-                  activeSection === item.key
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border bg-muted text-muted-foreground hover:bg-card"
-                }`}
-              >
-                <p className="text-[12px] font-semibold text-muted-foreground">{item.label}</p>
-                <p className="mt-2 text-2xl font-semibold">{counts[item.key]}</p>
-              </button>
-            ))}
-          </div>
-        </div>
-      </section>
+  const kindLabel = activeSection === "boxes" ? "Box" : activeSection === "plastics" ? "Plastic sheet" : "Fadda"
 
-      <section className="rounded-xl border border-border bg-card/90 p-5 shadow-premium">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="text-[12px] font-semibold text-muted-foreground">Active section</p>
-            <h2 className="mt-2 text-2xl font-semibold text-foreground">{section.title}</h2>
-            <p className="mt-2 text-sm text-muted-foreground">{section.subtitle}</p>
+  return (
+    <div className="min-w-0 space-y-4">
+      <MastersNav />
+      <section className="rounded-xl border border-border bg-card px-4 py-4 sm:px-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-[22px] font-semibold tracking-tight text-foreground">Packaging</h1>
+            <p className="mt-1 max-w-3xl text-[13px] leading-5 text-muted-foreground">Boxes, plastic sheets and fadda used by the spec sheet, packing handoff and dispatch. Pick a kind to work on.</p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div role="tablist" aria-label="Packing master" className="flex shrink-0 gap-1 rounded-lg bg-muted p-1">
             {PACKING_SECTIONS.map((item) => (
               <button
                 key={item.key}
                 type="button"
+                role="tab"
+                aria-selected={activeSection === item.key}
                 onClick={() => setActiveSection(item.key)}
-                className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
-                  activeSection === item.key
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border bg-muted text-muted-foreground hover:border-border hover:bg-card"
+                className={`min-h-9 rounded-md px-3.5 text-[13px] font-semibold transition-colors ${
+                  activeSection === item.key ? "bg-card text-foreground shadow-sm ring-1 ring-border" : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                {item.label}
+                {item.label} <span className="ml-1 text-muted-foreground">{counts[item.key]}</span>
               </button>
             ))}
           </div>
@@ -203,6 +177,7 @@ export default function PackagingMasterPage() {
       </section>
 
       <CrudTable
+        embedded
         title={sectionConfig.title}
         columns={sectionConfig.columns}
         data={sectionConfig.data}
@@ -211,6 +186,10 @@ export default function PackagingMasterPage() {
         onEdit={sectionConfig.onEdit}
         onDelete={sectionConfig.onDelete}
         FormComponent={sectionConfig.FormComponent}
+        qcBand={(row) => {
+          const code = row?.code || row?.sku
+          return code ? { materialType: "PACKAGING", scope: "ITEM", scopeKey: String(code), title: `${code}${row.size_label ? ` · ${row.size_label}` : ""}`, subtitle: kindLabel, group: kindLabel } : null
+        }}
       />
     </div>
   )

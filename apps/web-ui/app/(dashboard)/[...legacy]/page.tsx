@@ -29,7 +29,7 @@ const legacyRedirects: Record<string, string> = {
   "inventory/valuation": "/reports/inventory",
   "master/customers": "/masters/customers",
   "master/packaging": "/masters/packaging",
-  "master/suppliers": "/masters/suppliers",
+  "master/suppliers": "/masters/vendors",
   "master/vendors": "/masters/vendors",
   "master/tools": "/masters/tools",
   planning: "/planning/board",

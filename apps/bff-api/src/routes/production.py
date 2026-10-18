@@ -18,6 +18,12 @@ async def continuous_flow(card_id: str, request: Request, token: str = Depends(g
     return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{card_id}/flow", request, token)
 
 
+@router.get("/entries/qc-due")
+async def in_process_qc_due(request: Request, token: str = Depends(get_token)):
+    """QC's in-process queue: batches whose stage QC is not accepted yet."""
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/entries/qc-due", request, token)
+
+
 @router.api_route("/job-cards/{card_id}/entries", methods=["GET", "POST"])
 @router.api_route("/job-cards/{card_id}/entries/{path:path}", methods=["GET", "POST", "PATCH"])
 async def continuous_entries(card_id: str, request: Request, path: str = "", token: str = Depends(get_token)):

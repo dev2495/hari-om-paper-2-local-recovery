@@ -736,9 +736,9 @@ async def create_reel_issue(request: Request, token: str = Depends(get_token)):
         response,
         token=token,
         event_type="REEL_ISSUE_CREATED",
-        title="Reel issue recorded",
-        message="A reel variance or issue now needs follow-up.",
-        href="/inventory",
+        title="Reel / coil issued to the floor",
+        message="Material went to the floor for the shift. A reel needs its slitting card (coils made + wastage).",
+        href="/inventory/reels/issue",
         recipient_roles=["Owner", "Admin", "Store", "PlantManager", "Operator", "RMIssue"],
     )
     return response
@@ -747,6 +747,17 @@ async def create_reel_issue(request: Request, token: str = Depends(get_token)):
 @router.get("/reel-issues")
 async def list_reel_issues(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(INVENTORY_SERVICE_URL, "/reel-issues", request, token)
+
+
+@router.get("/reel-issues/slitting-report")
+async def slitting_report(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/reel-issues/slitting-report", request, token)
+
+
+@router.post("/reel-issues/{issue_id}/slitting-card")
+async def record_slitting_card(issue_id: str, request: Request, token: str = Depends(get_token)):
+    """Coils made and wastage from one reel on the slitter (floor issue, 2026-10-18)."""
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/reel-issues/{issue_id}/slitting-card", request, token)
 
 
 @router.post("/reel-issues/{issue_id}/close")
@@ -785,6 +796,64 @@ async def upsert_quality_template(request: Request, token: str = Depends(get_tok
         payload={"template_id": str(payload.get("id") or "")},
     )
     return response
+
+
+# Inward QC standards (2026-10-18): QC parameter lists + Masters tolerance bands.
+@router.get("/quality/standards/types")
+async def list_quality_standard_types(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/quality/standards/types", request, token)
+
+
+@router.get("/quality/standards/parameters")
+async def list_quality_standard_parameters(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/quality/standards/parameters", request, token)
+
+
+@router.post("/quality/standards/parameters")
+async def create_quality_standard_parameter(request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/quality/standards/parameters", request, token)
+    payload = response_body_json(response) or {}
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="INVENTORY_QC_PARAMETER_ADDED",
+        title=f"Inward QC check added: {payload.get('label') or 'parameter'}",
+        message="QC added a check. Set its tolerance band in Masters › Inward QC tolerances.",
+        href="/masters/inward-qc",
+        recipient_roles=["Owner", "Admin"],
+        payload={"parameter_id": str(payload.get("id") or ""), "material_type": payload.get("material_type")},
+    )
+    return response
+
+
+@router.put("/quality/standards/parameters/{parameter_id}")
+async def update_quality_standard_parameter(parameter_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/quality/standards/parameters/{parameter_id}", request, token)
+
+
+@router.get("/quality/standards/tolerances")
+async def read_quality_standard_tolerances(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/quality/standards/tolerances", request, token)
+
+
+@router.put("/quality/standards/tolerances")
+async def save_quality_standard_tolerances(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/quality/standards/tolerances", request, token)
+
+
+@router.get("/quality/standards/scope")
+async def read_quality_standard_scope(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/quality/standards/scope", request, token)
+
+
+@router.put("/quality/standards/items/{item_id}")
+async def save_quality_standard_item(item_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/quality/standards/items/{item_id}", request, token)
+
+
+@router.get("/quality/standards/history")
+async def read_quality_standard_history(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/quality/standards/history", request, token)
 
 
 @router.get("/quality/pending")

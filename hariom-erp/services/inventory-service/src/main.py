@@ -21,6 +21,7 @@ from .routers import (
     requisitions,
     procurement,
     quality,
+    quality_standards,
     reel_issues,
     reels,
     reservations,
@@ -37,6 +38,21 @@ def ensure_runtime_schema() -> None:
   with engine.begin() as connection:
     connection.execute(text("ALTER TYPE uom ADD VALUE IF NOT EXISTS 'L'"))
     connection.execute(text("ALTER TABLE item_master ADD COLUMN IF NOT EXISTS density_kg_per_litre NUMERIC(12,6)"))
+    # Inward QC standards (2026-10-18): material grouping + master nominals per item,
+    # QC-edited parameter rows, floor issues with slitting cards.
+    for statement in (
+      "ALTER TABLE item_master ADD COLUMN IF NOT EXISTS material_group VARCHAR(120)",
+      "ALTER TABLE item_master ADD COLUMN IF NOT EXISTS material_subgroup VARCHAR(120)",
+      "ALTER TABLE item_master ADD COLUMN IF NOT EXISTS qc_nominals JSON",
+      "ALTER TABLE inventory_quality_templates ADD COLUMN IF NOT EXISTS unit VARCHAR(30)",
+      "ALTER TABLE inventory_quality_templates ADD COLUMN IF NOT EXISTS updated_by VARCHAR(200)",
+      "ALTER TABLE inventory_quality_templates ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
+      "ALTER TABLE reel_issues ADD COLUMN IF NOT EXISTS issue_mode VARCHAR(20) NOT NULL DEFAULT 'LEGACY'",
+      "ALTER TABLE reel_issues ADD COLUMN IF NOT EXISTS slitting_card JSON",
+      "ALTER TABLE IF EXISTS inventory_quality_tolerances ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1",
+      "ALTER TABLE IF EXISTS inventory_quality_standard_events ADD COLUMN IF NOT EXISTS version INTEGER",
+    ):
+      connection.execute(text(statement))
     connection.execute(
       text(
         "DO $$ BEGIN "
@@ -800,11 +816,11 @@ def seed_default_quality_templates() -> None:
     """
     INSERT INTO inventory_quality_templates (
       id, plant_id, material_type, parameter_key, label, input_type, options,
-      required, sort_order, active, created_at
+      required, sort_order, active, unit, created_at
     )
     VALUES (
       :id, 'GLOBAL', :material_type, :parameter_key, :label, :input_type,
-      CAST(:options AS JSON), :required, :sort_order, 'true', NOW()
+      CAST(:options AS JSON), :required, :sort_order, CAST(:active AS boolean_enum), :unit, NOW()
     )
     ON CONFLICT (plant_id, material_type, parameter_key) DO UPDATE SET
       label = EXCLUDED.label,
@@ -812,7 +828,9 @@ def seed_default_quality_templates() -> None:
       options = EXCLUDED.options,
       required = EXCLUDED.required,
       sort_order = EXCLUDED.sort_order,
-      active = 'true'
+      unit = COALESCE(inventory_quality_templates.unit, EXCLUDED.unit),
+      active = EXCLUDED.active
+    WHERE inventory_quality_templates.updated_by IS NULL
     """
   )
   with engine.begin() as connection:
@@ -828,11 +846,37 @@ def seed_default_quality_templates() -> None:
           "options": json.dumps(preset.get("options") or []),
           "required": bool(preset.get("required")),
           "sort_order": preset.get("sort_order") or 0,
+          "unit": preset.get("unit") or None,
+          "active": "false" if preset.get("active") is False else "true",
         },
       )
 
 
 seed_default_quality_templates()
+
+
+def apply_quality_standards() -> None:
+  """Derive every material's incoming QC profile from QC parameters + Masters bands (2026-10-18).
+
+  Bands QC had approved per item are carried over first, so no live check is loosened."""
+  from .database import SessionLocal
+  from .quality_standards import MATERIAL_TYPES, adopt_existing_profile_bands, materialize_type, rekey_item_tolerances
+
+  db = SessionLocal()
+  try:
+    rekey_item_tolerances(db)
+    adopt_existing_profile_bands(db)
+    for material in MATERIAL_TYPES:
+      materialize_type(db, material, actor="standards", reason="Material standards applied")
+    db.commit()
+  except Exception:
+    db.rollback()
+    raise
+  finally:
+    db.close()
+
+
+apply_quality_standards()
 
 app = FastAPI(
   title="Hari Om Paper Inventory Service",
@@ -855,6 +899,7 @@ app.include_router(requisitions.router)
 from .routers import manual_receipts  # registers routes on the shared procurement router
 app.include_router(procurement.router)
 app.include_router(quality.router)
+app.include_router(quality_standards.router)
 app.include_router(reels.router)
 app.include_router(reel_issues.router)
 app.include_router(stock_moves.router)

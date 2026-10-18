@@ -32,10 +32,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/issue", tags=["issue"])
 MANUAL_REASON_CODES = {
+    "FLOOR_ISSUE",
     "NON_RECIPE_CONSUMABLE",
     "DIRECT_CORRECTION",
     "CONTROLLED_FALLBACK",
 }
+VALID_SHIFTS = {"A", "B", "C", "GENERAL", "DAY", "NIGHT"}
 
 
 class IssueCreate(BaseModel):
@@ -43,8 +45,11 @@ class IssueCreate(BaseModel):
     item_id: uuid.UUID
     batch_id: Optional[uuid.UUID] = None
     qty: float = Field(gt=0)
-    production_job_id: uuid.UUID
-    reason_code: str
+    # Floor issue (client rule 2026-10-18): material goes to the floor for a shift, not to a job
+    # card; the job card records what the floor made and the stock count settles consumption.
+    production_job_id: Optional[uuid.UUID] = None
+    shift: Optional[str] = None
+    reason_code: str = "FLOOR_ISSUE"
     notes: Optional[str] = None
     allow_raw_paper_exception: bool = False
     external_ref: Optional[str] = None
@@ -70,7 +75,14 @@ def create_issue(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Store", "Admin", "RMIssue"])),
 ):
-    reason_code = str(issue.reason_code or "").strip().upper()
+    reason_code = str(issue.reason_code or "FLOOR_ISSUE").strip().upper()
+    shift = str(issue.shift or "").strip().upper() or None
+    if shift and shift not in VALID_SHIFTS:
+        raise HTTPException(status_code=400, detail="Invalid shift")
+    if reason_code == "FLOOR_ISSUE" and not shift:
+        raise HTTPException(status_code=422, detail="Choose the shift the material is issued for")
+    if reason_code != "FLOOR_ISSUE" and issue.production_job_id is None:
+        raise HTTPException(status_code=422, detail="A correction issue names the job card it corrects")
     if reason_code not in MANUAL_REASON_CODES:
         raise HTTPException(
             status_code=400,
@@ -150,17 +162,19 @@ def create_issue(
         batch_id=selected_batch_id,
         transaction_type=TransactionType.ISSUE_PRODUCTION,
         qty_change=-issue.qty,
-        reference_type=ReferenceType.PRODUCTION_JOB,
-        reference_id=issue.production_job_id,
+        reference_type=ReferenceType.PRODUCTION_JOB if issue.production_job_id else ReferenceType.INTERNAL,
+        reference_id=issue.production_job_id or uuid.uuid4(),
         plant_id=plant_id,
         location_id=batch.location_id if batch else None,
         stock_status=batch.stock_status if batch else "WIP",
         movement_metadata={
-            "production_job_id": str(issue.production_job_id),
+            "production_job_id": str(issue.production_job_id) if issue.production_job_id else None,
+            "destination": "FLOOR" if reason_code == "FLOOR_ISSUE" else "JOB_CARD",
+            "shift": shift,
             "reason_code": reason_code,
             "notes": issue.notes,
             "allow_raw_paper_exception": bool(issue.allow_raw_paper_exception),
-            "manual_exception": True,
+            "manual_exception": reason_code != "FLOOR_ISSUE",
         },
         external_ref=issue.external_ref,
         effective_date=effective_date_value,
@@ -177,15 +191,16 @@ def create_issue(
             plant_id=str(plant_id),
             actor_role=current_user.get("role"),
             actor_email=current_user.get("sub"),
-            summary=f"Manual issue: {issue.qty} {item.uom.value} of {item.name} ({reason_code})",
+            summary=(f"Floor issue: {issue.qty} {item.uom.value} of {item.name} for shift {shift}" if reason_code == "FLOOR_ISSUE" else f"Manual issue: {issue.qty} {item.uom.value} of {item.name} ({reason_code})"),
             payload={
                 "item_id": str(issue.item_id),
                 "batch_id": str(selected_batch_id),
                 "qty": float(issue.qty),
-                "production_job_id": str(issue.production_job_id),
+                "production_job_id": str(issue.production_job_id) if issue.production_job_id else None,
+                "shift": shift,
                 "reason_code": reason_code,
                 "effective_date": effective_date_value.isoformat(),
-                "manual_exception": True,
+                "manual_exception": reason_code != "FLOOR_ISSUE",
             },
         )
     except Exception as exc:
@@ -198,7 +213,7 @@ def create_issue(
         qty_issued=issue.qty,
         item_balance=get_item_balance(str(issue.item_id), db),
         batch_balance=get_batch_balance(str(selected_batch_id), db),
-        message=f"Issued {issue.qty} {item.uom.value} of {item.name} as a manual exception against production",
+        message=(f"Issued {issue.qty} {item.uom.value} of {item.name} to the floor for shift {shift}" if reason_code == "FLOOR_ISSUE" else f"Issued {issue.qty} {item.uom.value} of {item.name} as a manual exception against production"),
     )
 
 
@@ -232,7 +247,7 @@ def list_returnable_issues(db: Session = Depends(get_db), plant_id: str = Depend
     rows = []
     for issue, item, batch in issues:
         remaining = round(-float(issue.qty_change) - float(returned.get(str(issue.id), 0)), 6)
-        if remaining > 0:
+        if remaining > 0 and (issue.movement_metadata or {}).get("destination") != "FLOOR":
             rows.append({"id": str(issue.id), "item_code": item.item_code, "item_name": item.name,
                 "batch_no": batch.batch_no, "uom": str(getattr(item.uom, "value", item.uom)),
                 "issued": -float(issue.qty_change), "returnable": remaining,
@@ -256,6 +271,8 @@ def return_from_production(payload: ProductionReturnCreate, db: Session = Depend
         transaction_type=TransactionType.ISSUE_PRODUCTION).with_for_update().populate_existing().first()
     if not issue or not issue.batch_id:
         raise HTTPException(404, "Production issue not found in this plant")
+    if (issue.movement_metadata or {}).get("destination") == "FLOOR":
+        raise HTTPException(409, "Material issued to the floor is consumed in full; nothing comes back to store")
     if payload.effective_date > datetime.now(ZoneInfo("Asia/Kolkata")).date() or (issue.effective_date and payload.effective_date < issue.effective_date):
         raise HTTPException(422, "Return date must be between the original issue date and today")
     if len(payload.reason.strip()) < 3:

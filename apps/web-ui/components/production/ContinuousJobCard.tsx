@@ -10,7 +10,7 @@ import { InstrumentFields } from "./InstrumentFields"
 import { FinalQcForm } from "./FinalQcForm"
 import { WholeCardEntryForm } from "./WholeCardEntryForm"
 import { JobCardShortagePanel } from "./JobCardShortagePanel"
-import { SeasonQcMatrix, allowedText } from "./SeasonQcMatrix"
+import { OPTIONAL_QC_CODES, SeasonQcMatrix, allowedText } from "./SeasonQcMatrix"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
@@ -168,7 +168,13 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
   const profile = card.spec_snapshot?.qc_profile
   const memory = (what: string) => `hariom-floor-${what}:${card.plant_id}:${stage}`
   const loggable = Boolean(state) && state.status !== "COMPLETED" && !["SLITTING", "DISPATCH", "QC"].includes(stage)
-  const formOpen = Boolean(editing) || qcOnly || (loggable && canDraft)
+  // In-process QC gate (client rule 2026-10-18): a stage opens for new runs only once the
+  // previous stage has batches whose QC is accepted. A supervisor may still override.
+  const [forceOpen, setForceOpen] = useState(false)
+  const prevState = stages.find((s: any) => s.stage === prevStage)
+  const gateLocked = loggable && Boolean(prevStage) && prevStage !== "SLITTING" && state?.available_from_upstream != null && Number(state.available_from_upstream) <= 0
+    && (Number(state?.awaiting_qc_from_upstream || 0) > 0 || !(Number(state?.input_total || 0) > 0))
+  const formOpen = Boolean(editing) || qcOnly || (loggable && canDraft && (!gateLocked || forceOpen))
 
   // Always offer at least as many sample columns as the strictest check needs (two by default).
   const padSamples = (list: any[]) => {
@@ -243,6 +249,12 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
   useEffect(() => {
     if (stages.length && !stages.some((s: any) => s.stage === stage)) setStage(stages[0].stage)
   }, [stages, stage])
+  // Deep link from the QC desk (?stage=OVEN) opens that stage's tab once.
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const wanted = new URLSearchParams(window.location.search).get("stage")
+    if (wanted && ["WINDER", "OVEN", "PROCESS", "PACKING", "QC"].includes(wanted)) setStage(wanted)
+  }, [])
   // New stage: who ran it last time on this stage, the planned machine, fresh sample columns.
   useEffect(() => {
     setOperator(remembered(memory("operator")))
@@ -252,6 +264,7 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
     setQcOnly(false)
     setPanel("")
     setSegment("")
+    setForceOpen(false)
     clearNumbers()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage, card.id])
@@ -316,7 +329,19 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
     overTarget && !overNote.trim() ? "why output is above the planned +10%" : "",
     gateOverride && !gateReason.trim() ? "why the batch is taken before its QC" : "",
   ].filter(Boolean)
-  const qcMissing = [!filledSamples.length ? "at least one reading" : "", editing?.samples?.length && !correction.trim() ? "the reason for changing readings" : ""].filter(Boolean)
+  // Minimum 2 readings per required check (more may be added); moisture stays optional.
+  const shortChecks = parameters.filter((rule: any) => !OPTIONAL_QC_CODES.has(rule.code))
+    .filter((rule: any) => filledSamples.filter((sample: any) => sample.readings?.[rule.code] !== undefined).length < Math.max(2, Number(rule.min_readings || 0)))
+  const priorSamples: any[] = editing?.samples || []
+  const onlyAdded = priorSamples.length > 0 && priorSamples.every((old: any) => {
+    const now = filledSamples.find((sample: any) => sample.sample_id === old.sample_id)
+    return now && Object.entries(old.readings || {}).every(([code, value]) => value === "" || value == null || String(now.readings?.[code]) === String(value))
+  })
+  const qcMissing = [
+    !filledSamples.length ? "at least one reading" : "",
+    filledSamples.length && shortChecks.length ? `2 readings for ${shortChecks.map((rule: any) => rule.label).join(", ")}` : "",
+    priorSamples.length && !onlyAdded && !correction.trim() ? "the reason for changing readings" : "",
+  ].filter(Boolean)
   const missing = qcOnly ? qcMissing : runMissing
 
   const saveRun = (submit: boolean) => {
@@ -499,7 +524,7 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
               {stage === "PROCESS" && state.carryover_pcs ? ` · held carryover ${fmt(state.carryover_pcs)} pcs` : ""}
             </p>
           ) : null}
-          {state.status !== "COMPLETED" && state.awaiting_qc_from_upstream > 0 ? (
+          {state.status !== "COMPLETED" && state.awaiting_qc_from_upstream > 0 && !gateLocked ? (
             <p className="mt-2 rounded-lg border border-signal-amber-line bg-signal-amber-soft p-2.5 text-sm text-signal-amber-ink" data-testid="batch-qc-gate">
               {fmt(state.awaiting_qc_from_upstream)} {state.input_unit} from {label(prevStage || "")} cannot be used yet — their QC is not recorded as pass. Open the {label(prevStage || "")} tab and press <strong>Add QC</strong> on that run.
             </p>
@@ -563,6 +588,25 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
       ) : null}
 
       {stage === "QC" && canQc ? <FinalQcForm card={card} /> : null}
+
+      {gateLocked && !forceOpen && !editing && !qcOnly && state ? (
+        <section className="rounded-xl border-2 border-dashed border-signal-amber-line bg-signal-amber-soft/50 p-4 sm:p-5" data-testid="stage-qc-lock">
+          <h2 className="text-lg font-semibold text-foreground">{label(stage)} opens when {label(prevStage || "")} QC is accepted</h2>
+          <p className="mt-1 text-sm text-foreground/80">
+            {state.awaiting_qc_from_upstream > 0
+              ? `${fmt(state.awaiting_qc_from_upstream)} ${state.input_unit} made in ${label(prevStage || "")} are waiting for QC (minimum 2 readings per check). As soon as QC accepts a batch, this stage unlocks for that quantity.`
+              : prevState && Number(prevState.accepted_total || 0) > 0 && prevState.status !== "COMPLETED"
+                ? `${label(prevStage || "")} has output but must be closed before ${label(stage).toLowerCase()} starts.`
+                : `Nothing from ${label(prevStage || "")} is ready yet. Log ${label(prevStage || "").toLowerCase()} runs and their QC first.`}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button onClick={() => setStage(prevStage)}>Go to {label(prevStage || "")}{state.awaiting_qc_from_upstream > 0 ? " QC" : ""}</Button>
+            {canSubmit && state.awaiting_qc_from_upstream > 0 ? (
+              <Button variant="outline" onClick={() => { setForceOpen(true); setGateOverride(true) }}>Supervisor override…</Button>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
 
       {formOpen && state ? (
         <section ref={formRef} className="space-y-4 rounded-xl border-2 border-primary/30 bg-card p-4 sm:p-5" data-testid="season-run-form">
@@ -791,9 +835,10 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
                 <div className="space-y-2">
                   <SeasonQcMatrix rules={parameters} samples={samples} onChange={setSamples} stageLabel={label(stage)} />
                   {parameters.some((p: any) => p.requires_instrument) ? <InstrumentFields value={instrument} onChange={setInstrument} /> : null}
-                  {qcOnly && editing?.samples?.length ? (
+                  <p className="text-xs text-muted-foreground">Minimum 2 readings per check (moisture optional); use “Add another sample” for more. The next stage takes this batch only once QC is accepted.</p>
+                  {qcOnly && editing?.samples?.length && !onlyAdded ? (
                     <label className="block text-sm">
-                      Why are these readings changed? (required)
+                      Why are recorded readings changed? (required — adding new readings needs no reason)
                       <Input aria-label="Entry reason" value={correction} onChange={(e) => setCorrection(e.target.value)} />
                     </label>
                   ) : null}
@@ -901,9 +946,14 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
                       )}
                     >
                       {verdictLabel(verdict)}
-                      {e.kind !== "QC_ONLY" ? (e.qc_cleared ? " · cleared" : fail ? " · on hold" : "") : ""}
+                      {e.kind !== "QC_ONLY" ? (e.qc_cleared ? " · accepted, next stage can take it" : fail ? " · on hold" : "") : ""}
                     </span>
                   )}
+                  {e.status === "SUBMITTED" && !e.qc_cleared && !fail && e.qc_readings_short?.length ? (
+                    <span className="rounded-full bg-signal-amber-soft px-2 py-0.5 text-xs font-semibold text-signal-amber-ink" title="Minimum 2 readings per check before QC is accepted">
+                      Needs more readings: {e.qc_readings_short.map((r: any) => `${r.label} ${r.have}/${r.need}`).join(", ")}
+                    </span>
+                  ) : null}
                   {e.status !== "VOID" && e.evaluation?.unrecorded?.length ? (
                     <span className="rounded-full bg-signal-amber-soft px-2 py-0.5 text-xs font-semibold text-signal-amber-ink" title="Optional; flagged for the owner">
                       {e.evaluation.unrecorded.map((u: any) => u.label).join(", ")} not recorded

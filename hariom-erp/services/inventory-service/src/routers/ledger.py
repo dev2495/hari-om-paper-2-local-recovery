@@ -299,12 +299,15 @@ def aggregate_transactions_by_item(
         )
     if "ISSUE_FROM_REEL" in types_requested:
         from ..models import PaperReel, ReelIssue
-        from sqlalchemy import String, cast
+        from sqlalchemy import String, cast, or_
         from zoneinfo import ZoneInfo
         from datetime import timezone
         plants = (plant_scope.get("allowed_plants") or []) if plant_scope.get("scope_all") else [plant_scope["selected_plant_id"]]
         issues = db.query(ReelIssue, ItemMaster).join(PaperReel, PaperReel.id == ReelIssue.reel_id).join(ItemMaster, ItemMaster.id == PaperReel.paper_id).filter(
-            cast(ReelIssue.plant_id, String).in_(plants), ReelIssue.issue_section == "WINDER_SECTION",
+            cast(ReelIssue.plant_id, String).in_(plants),
+            # Winder issues, plus whole reels sent to the floor for slitting (consumed in full,
+            # 2026-10-18); legacy slitting issues are counted through the coils they produced.
+            or_(ReelIssue.issue_section == "WINDER_SECTION", ReelIssue.issue_mode == "FLOOR"),
             ReelIssue.issue_date <= end_date).all()
         by_id = {row["item_id"]: row for row in out}
         for issue, item in issues:

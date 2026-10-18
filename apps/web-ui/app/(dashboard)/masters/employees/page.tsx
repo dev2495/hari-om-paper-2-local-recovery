@@ -233,8 +233,8 @@ function EmployeesPage() {
     <CockpitShell
       hero={
         <MasterHero
-          eyebrow="Master · Employees"
-          title={`${kpis.active} active employees · ${kpis.operators} operators · ${kpis.supervisors} supervisors`}
+          eyebrow={`Shop floor · ${kpis.active} active · ${kpis.operators} operators · ${kpis.supervisors} supervisors`}
+          title="Employees"
           description="Shop-floor people: operators, supervisors, packers, QC inspectors, dispatchers. Each can have a default shift and skill matrix that feeds per-operator productivity reports."
           accent="cyan"
           chips={[

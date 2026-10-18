@@ -827,3 +827,102 @@ export function useTransactionsAggregateByItem(params?: { start_date?: string; e
     enabled: enabled && Boolean(params?.start_date) && Boolean(params?.end_date),
   })
 }
+
+// ── Inward QC standards (client rule 2026-10-18) ────────────────────────────
+// QC keeps the parameter list per material type; Masters set the tolerance bands per line or group.
+const standardsKeys = ["quality-standard-parameters", "quality-standard-tolerances", "quality-standard-history", "quality-standard-scope", "inventory-items", "inventory-quality-pending"]
+
+function invalidateStandards(queryClient: ReturnType<typeof useQueryClient>) {
+  standardsKeys.forEach((key) => queryClient.invalidateQueries({ queryKey: [key] }))
+}
+
+export function useQualityStandardTypes() {
+  return useQuery({
+    queryKey: ["quality-standard-types"],
+    queryFn: async () => (await inventoryApi.getQualityStandardTypes()).data as Array<{ material_type: string; label: string; group: string; subgroup: string | null; master: string | null }>,
+    staleTime: 10 * 60_000,
+  })
+}
+
+export function useQualityStandardParameters(materialType: string) {
+  return useQuery({
+    queryKey: ["quality-standard-parameters", materialType],
+    queryFn: async () => (await inventoryApi.getQualityStandardParameters(materialType)).data as any[],
+    enabled: Boolean(materialType),
+  })
+}
+
+export function useCreateQualityStandardParameter() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: Parameters<typeof inventoryApi.createQualityStandardParameter>[0]) => inventoryApi.createQualityStandardParameter(data),
+    onSuccess: () => invalidateStandards(queryClient),
+  })
+}
+
+export function useUpdateQualityStandardParameter() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Parameters<typeof inventoryApi.updateQualityStandardParameter>[1] }) => inventoryApi.updateQualityStandardParameter(id, data),
+    onSuccess: () => invalidateStandards(queryClient),
+  })
+}
+
+export function useQualityStandardTolerances(materialType: string) {
+  return useQuery({
+    queryKey: ["quality-standard-tolerances", materialType],
+    queryFn: async () => (await inventoryApi.getQualityStandardTolerances(materialType)).data as any,
+    enabled: Boolean(materialType),
+  })
+}
+
+export function useSaveQualityStandardTolerances() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: Parameters<typeof inventoryApi.saveQualityStandardTolerances>[0]) => inventoryApi.saveQualityStandardTolerances(data),
+    onSuccess: () => invalidateStandards(queryClient),
+  })
+}
+
+export function useSaveQualityStandardItem() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Parameters<typeof inventoryApi.saveQualityStandardItem>[1] }) => inventoryApi.saveQualityStandardItem(id, data),
+    onSuccess: () => invalidateStandards(queryClient),
+  })
+}
+
+export function useQualityStandardHistory(materialType?: string) {
+  return useQuery({
+    queryKey: ["quality-standard-history", materialType || "all"],
+    queryFn: async () => (await inventoryApi.getQualityStandardHistory(materialType)).data as any[],
+  })
+}
+
+export function useQualityStandardScope(params: { material_type: string; scope: string; scope_key?: string; group?: string; subgroup?: string }, enabled = true) {
+  return useQuery({
+    queryKey: ["quality-standard-scope", params],
+    queryFn: async () => (await inventoryApi.getQualityStandardScope(params)).data as any,
+    enabled: enabled && Boolean(params.material_type && params.scope),
+  })
+}
+
+// Floor issue (2026-10-18): each reel sent to the slitter gets a slitting card.
+export function useRecordSlittingCard() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Parameters<typeof inventoryApi.recordSlittingCard>[1] }) => inventoryApi.recordSlittingCard(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-reel-issues"] })
+      queryClient.invalidateQueries({ queryKey: ["slitting-report"] })
+    },
+  })
+}
+
+export function useSlittingReport(params: { date_from: string; date_to: string }) {
+  return useQuery({
+    queryKey: ["slitting-report", params],
+    queryFn: async () => (await inventoryApi.getSlittingReport(params)).data as any,
+    enabled: Boolean(params.date_from && params.date_to),
+  })
+}

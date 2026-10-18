@@ -30,6 +30,11 @@ export default function PapersPage() {
       onEdit={(id, data) => updateMutation.mutateAsync({ id, data })}
       onDelete={(id) => deleteMutation.mutate(id)}
       FormComponent={PaperForm}
+      qcBand={(row) => row?.code ? {
+        materialType: "RAW_PAPER", scope: "ITEM", scopeKey: String(row.code), title: `${row.code}${row.variety ? ` · ${row.variety}` : ""}`,
+        subtitle: `GSM ${row.gsm ?? "—"} · BF ${row.bf ?? "—"}`, group: row.variety || null,
+        nominals: { gsm: row.gsm, bf: row.bf, caliper_mm: row.thickness_mm, ply_bond: row.ply_bond, bulk: row.bulk_factor },
+      } : null}
     />
   )
 }

@@ -435,6 +435,8 @@ export const productionApi = {
   attachJobCardQcProfile: (jobCardId: string, data: { expected_revision?: number }, plantId?: string) =>
     api.post(`/api/production/quality/job-cards/${jobCardId}/attach-qc-profile`, data, withPlantHeader(plantId)),
   getQualitySummary: () => api.get("/api/production/quality/summary"),
+  // In-process QC queue: batches whose stage QC is not accepted yet (next stage waits on them).
+  getInProcessQcDue: (params?: { limit?: number }) => api.get("/api/production/entries/qc-due", { params }),
   getQcInstruments: (plantId?: string) => api.get("/api/production/quality/instruments", withPlantHeader(plantId)),
   upsertQcInstrument: (data: any, plantId?: string) => api.post("/api/production/quality/instruments", data, withPlantHeader(plantId)),
   getProductionQualityAnalytics: (params?: { date_from?: string; date_to?: string }) =>
@@ -584,8 +586,34 @@ export const inventoryApi = {
   createReelIssue: (data: any) => api.post("/api/inventory/reel-issues", data),
   getReelIssues: (params?: any) => api.get("/api/inventory/reel-issues", { params }),
   closeReelIssue: (id: string, data: any) => api.post(`/api/inventory/reel-issues/${id}/close`, data),
+  recordSlittingCard: (id: string, data: { coils_made: number; wastage_kg: number; coil_width_mm?: number; slit_date?: string; shift?: string; operator_name?: string; notes?: string; correction_reason?: string }) =>
+    api.post(`/api/inventory/reel-issues/${id}/slitting-card`, data),
+  getSlittingReport: (params: { date_from: string; date_to: string }) => api.get("/api/inventory/reel-issues/slitting-report", { params }),
   slitCoil: (data: any) => api.post("/api/inventory/reels/slit", data),
   getQualityTemplates: (params?: any) => api.get("/api/inventory/quality/templates", { params }),
+  // Inward QC standards: QC owns the parameter list per material type; Masters own the bands.
+  getQualityStandardTypes: () => api.get("/api/inventory/quality/standards/types"),
+  getQualityStandardParameters: (materialType: string) =>
+    api.get("/api/inventory/quality/standards/parameters", { params: { material_type: materialType, include_inactive: true } }),
+  createQualityStandardParameter: (data: { material_type: string; label: string; unit?: string; input_type?: string; options?: string[]; required?: boolean }) =>
+    api.post("/api/inventory/quality/standards/parameters", data),
+  updateQualityStandardParameter: (id: string, data: { label?: string; unit?: string; input_type?: string; options?: string[]; required?: boolean; sort_order?: number; active?: boolean }) =>
+    api.put(`/api/inventory/quality/standards/parameters/${id}`, data),
+  getQualityStandardTolerances: (materialType: string) => api.get("/api/inventory/quality/standards/tolerances", { params: { material_type: materialType } }),
+  saveQualityStandardTolerances: (data: {
+    material_type: string
+    scope: "TYPE" | "GROUP" | "SUBGROUP" | "ITEM"
+    scope_key?: string
+    lines: Array<{ parameter_key: string; mode: "RANGE" | "PLUS_MINUS" | "PERCENT"; min_value?: number | null; max_value?: number | null; tolerance_value?: number | null }>
+    note?: string
+    nominals?: Record<string, number | null>
+    material_group?: string | null
+  }) => api.put("/api/inventory/quality/standards/tolerances", data),
+  getQualityStandardScope: (params: { material_type: string; scope: string; scope_key?: string; group?: string; subgroup?: string }) =>
+    api.get("/api/inventory/quality/standards/scope", { params }),
+  saveQualityStandardItem: (itemId: string, data: { material_group?: string | null; material_subgroup?: string | null; qc_nominals?: Record<string, number | null> }) =>
+    api.put(`/api/inventory/quality/standards/items/${itemId}`, data),
+  getQualityStandardHistory: (materialType?: string) => api.get("/api/inventory/quality/standards/history", { params: materialType ? { material_type: materialType } : {} }),
   upsertQualityTemplate: (data: any) => api.post("/api/inventory/quality/templates", data),
   getPendingQuality: () => api.get("/api/inventory/quality/pending"),
   getInventoryQualityInspections: (params?: any) => api.get("/api/inventory/quality/inspections", { params }),

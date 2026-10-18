@@ -272,6 +272,15 @@ export function useQualityInspections(params?: any, enabled = true) {
   })
 }
 
+export function useInProcessQcDue(enabled = true) {
+  return useQuery({
+    queryKey: ["in-process-qc-due"],
+    queryFn: async () => (await productionApi.getInProcessQcDue({ limit: 300 })).data as any[],
+    enabled,
+    refetchInterval: 30000,
+  })
+}
+
 export function useQualitySummary(enabled = true) {
   return useQuery({
     queryKey: ["quality-summary"],

@@ -189,7 +189,7 @@ export function StageQcFields({
                   {feedback.text}
                 </p>
               ) : null}
-              {showReasons && rule.applicable !== false && !notYetDue ? (
+              {showReasons && rule.applicable !== false && !notYetDue && (printLayout || !editable || fail || Boolean(reasons[rule.code])) ? (
                 <div className="mt-2 space-y-2">
                   <label className="block space-y-1" htmlFor={editable ? `stage-qc-reason-${rule.code}` : undefined}>
                     <span className="text-[11.5px] font-semibold text-muted-foreground">

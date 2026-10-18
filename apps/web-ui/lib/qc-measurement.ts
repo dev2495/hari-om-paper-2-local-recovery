@@ -213,6 +213,7 @@ export function formatAllowedRange(rule: Pick<QcParameterRule, "min" | "max" | "
   if (!rule) return "Not applicable"
   if (rule.applicable === false) return "NOT APPLICABLE"
   if ((rule as any).mode === "RECORD_ONLY") return "Record reading (no limit)"
+  if ((rule as any).record_only && rule.min == null && rule.max == null) return "Recorded only — no band set in Masters"
   const relative = relativeLimitText(rule)
   if (relative && rule.min == null && rule.max == null) return `Allowed: ${relative}`
   if (rule.min == null && rule.max == null) return "Allowed: not configured"

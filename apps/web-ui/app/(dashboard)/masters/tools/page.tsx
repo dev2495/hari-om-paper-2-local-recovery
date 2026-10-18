@@ -1,5 +1,6 @@
 "use client"
 
+import { MastersNav } from "@/components/master/masters-nav"
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { Activity, AlertTriangle, ClipboardList, Eye, MapPin, Plus, Printer, Recycle, ScanLine, Search, PackagePlus } from "lucide-react"
@@ -303,13 +304,13 @@ export default function ToolsPage() {
   }
 
   return (
-    <div className="space-y-6 px-6 pb-10 pt-2">
-      <section className="overflow-hidden rounded-xl border border-border bg-card shadow-premium">
-        <div className="grid gap-5 px-6 py-6 lg:grid-cols-[minmax(0,1.4fr)_360px] lg:px-8">
+    <div className="min-w-0 space-y-4 pb-10">
+      <MastersNav />
+      <section className="overflow-hidden rounded-xl border border-border bg-card">
+        <div className="grid gap-4 px-4 py-4 sm:px-5 lg:grid-cols-[minmax(0,1.4fr)_360px]">
           <div>
-            <p className="text-[12px] font-semibold text-muted-foreground">Master Data Workspace</p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-foreground">Tooling Master</h1>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
+            <h1 className="text-[22px] font-semibold tracking-tight text-foreground">Physical tools</h1>
+            <p className="mt-1 max-w-3xl text-[13px] leading-5 text-muted-foreground">
               Five fixed tooling categories define the spec-sheet dropdowns. Physical units are inwarded and controlled below with QR, location, issue, return, grinding, and production usage.
             </p>
             <div className="mt-5 flex flex-wrap gap-2">
@@ -329,12 +330,12 @@ export default function ToolsPage() {
             ].map((metric) => {
               const Icon = metric.icon
               return (
-                <div key={metric.label} className={`rounded-2xl border p-4 ${metric.tone}`}>
+                <div key={metric.label} className={`rounded-xl border p-3 ${metric.tone}`}>
                   <div className="flex items-center justify-between">
                     <p className="text-[11.5px] font-semibold text-muted-foreground">{metric.label}</p>
                     <Icon className="h-4 w-4 text-muted-foreground" />
                   </div>
-                  <p className="mt-3 text-3xl font-semibold text-foreground">{metric.value}</p>
+                  <p className="mt-2 text-2xl font-semibold text-foreground">{metric.value}</p>
                 </div>
               )
             })}
@@ -342,7 +343,7 @@ export default function ToolsPage() {
         </div>
       </section>
 
-      <section className="rounded-[1.6rem] border border-border bg-card p-4 shadow-sm">
+      <section className="rounded-xl border border-border bg-card p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-1 flex-col gap-3 md:flex-row">
             <label className="relative flex-1">

@@ -126,10 +126,10 @@ export const LANDING_QUICK_ACTIONS: Record<LandingRole, QuickAction[]> = {
     { href: "/reports/sales", label: "Sales Reports", detail: "Track OTIF and delayed commitments." },
   ],
   InwardQC: [
-    { href: "/quality/incoming", label: "Incoming inspections", detail: "Inspect received reels and lots, then release or reject them." },
-    { href: "/quality/material-standards", label: "Material standards", detail: "The inward QC checks and tolerances for each material." },
+    { href: "/quality/incoming", label: "Incoming QC", detail: "Inspect received reels and lots; a reading outside its band holds the lot." },
+    { href: "/quality/material-standards", label: "Material standards", detail: "The inward QC checks for each material type." },
     { href: "/purchase/receipts", label: "GRN register", detail: "See which receipts are waiting for QC." },
-    { href: "/quality/results", label: "Results & holds", detail: "Rejected lots and their return to supplier." },
+    { href: "/quality/results", label: "Holds & inspections", detail: "Held lots, their decision and return to supplier." },
   ],
   GRN: [
     { href: "/purchase/inward", label: "Goods inward", detail: "Receive against an approved PO and weigh each reel or coil." },

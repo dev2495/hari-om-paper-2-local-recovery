@@ -437,8 +437,8 @@ export default function CustomersPage() {
     <CockpitShell
       hero={
         <MasterHero
-          eyebrow="Customer Master · cockpit"
-          title={`${kpis.active} active customers · ${fmtINR(kpis.openAr)} open AR`}
+          eyebrow={`Parties · ${kpis.active} active · ${fmtINR(kpis.openAr)} open AR`}
+          title="Customers"
           description="Every customer on one cockpit — GST, contacts, addresses, open orders, OTIF, risk, audit. Click any row to open the drawer with full detail and multi-contact management."
           accent="emerald"
           chips={[

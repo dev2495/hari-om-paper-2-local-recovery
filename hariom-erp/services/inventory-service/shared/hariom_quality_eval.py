@@ -136,11 +136,15 @@ class ParameterRule:
     required_instrument_id: Optional[str] = None
     gating: str = "blocking"
     non_waivable: bool = False
+    # Measured but no band set in Masters: the reading is recorded and never decides the lot.
+    record_only: bool = False
 
     def allowed_display(self) -> str:
         if not self.applicable:
             return "Not applicable"
         if self.lower is None and self.upper is None:
+            if self.record_only:
+                return "Recorded only (no tolerance set)"
             return f"Allowed: not configured {self.unit}".strip()
         if self.lower is not None and self.upper is not None:
             return f"Allowed: {_format_bound(self.lower)}–{_format_bound(self.upper)} {self.unit}".strip()
@@ -174,6 +178,7 @@ class ParameterRule:
             "required_instrument_id": self.required_instrument_id,
             "gating": GATING_BLOCKING if self.non_waivable else normalize_gating_policy(self.gating),
             "non_waivable": self.non_waivable,
+            "record_only": self.record_only,
             "allowed_display": self.allowed_display(),
         }
 
@@ -543,6 +548,7 @@ def normalize_parameter_rule(
         required_instrument_id=required_instrument_id or None,
         gating=GATING_BLOCKING if raw.get("non_waivable") is True else gating,
         non_waivable=raw.get("non_waivable") is True,
+        record_only=raw.get("record_only") is True,
     )
 
 
@@ -1082,11 +1088,11 @@ def evaluate_parameter(rule: ParameterRule, reading: Any, reason: Optional[dict[
         return ParameterResult(
             code=rule.code,
             label=rule.label,
-            verdict=VERDICT_INCOMPLETE,
+            verdict=VERDICT_OBSERVATION if rule.record_only else VERDICT_INCOMPLETE,
             submitted=reading,
             numeric_value=float(number),
             rule=rule,
-            message="No approved numeric range is frozen for this parameter.",
+            message="Recorded; no tolerance is set for this check." if rule.record_only else "No approved numeric range is frozen for this parameter.",
             reason=reason,
         )
     if rule.lower is not None and rule.upper is not None and rule.lower > rule.upper:

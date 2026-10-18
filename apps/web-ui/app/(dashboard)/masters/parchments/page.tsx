@@ -1,9 +1,11 @@
 "use client"
 
 import { type FormEvent, useEffect, useMemo, useState } from "react"
-import { Pencil, Plus, PowerOff, SwatchBook, Tags } from "lucide-react"
+import { Pencil, Plus, PowerOff, Ruler, SwatchBook, Tags } from "lucide-react"
 
 import { CrudTable } from "@/components/common/crud-table"
+import { MastersNav } from "@/components/master/masters-nav"
+import { QcBandDialog, type QcBandTarget } from "@/components/qc/QcBandDialog"
 import { ParchmentForm } from "@/components/forms/master-forms"
 import { Button } from "@/components/ui/button"
 import {
@@ -88,6 +90,7 @@ export default function ParchmentsPage() {
   const [vendorDialogOpen, setVendorDialogOpen] = useState(false)
   const [editingVendor, setEditingVendor] = useState<{ id: string; name: string } | null>(null)
   const [companyError, setCompanyError] = useState<string | null>(null)
+  const [bandTarget, setBandTarget] = useState<QcBandTarget | null>(null)
 
   const vendorOptions = useMemo(
     () =>
@@ -104,47 +107,33 @@ export default function ParchmentsPage() {
   )
 
   return (
-    <div className="space-y-6">
-      <section className="rounded-xl border border-border bg-card/90 p-6 shadow-premium">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <div className="max-w-3xl">
-            <p className="text-[12px] font-semibold text-muted-foreground">Parchment Workspace</p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-foreground">Company first, then sub parchment</h1>
-            <p className="mt-3 text-sm leading-6 text-muted-foreground">
-              Keep parchment companies separate from the actual vendor master. The spec sheet uses these company families, while downstream flows keep using the actual sub parchment rows.
-            </p>
+    <div className="min-w-0 space-y-4">
+      <MastersNav />
+      <section className="rounded-xl border border-border bg-card px-4 py-4 sm:px-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-[22px] font-semibold tracking-tight text-foreground">Parchments</h1>
+            <p className="mt-1 max-w-3xl text-[13px] leading-5 text-muted-foreground">Company first, then its colours (sub parchments). The spec sheet allows parchment by company; orders and stock use the colour rows. Inward QC bands can be set per company or per colour.</p>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-[1.5rem] border border-border bg-muted px-4 py-4">
-              <div className="flex items-center gap-2 text-[12px] font-semibold text-muted-foreground">
-                <Tags className="h-3.5 w-3.5" />
-                Companies
-              </div>
-              <p className="mt-2 text-3xl font-semibold text-foreground">{vendorOptions.length}</p>
-            </div>
-            <div className="rounded-[1.5rem] border border-border bg-muted px-4 py-4">
-              <div className="flex items-center gap-2 text-[12px] font-semibold text-muted-foreground">
-                <SwatchBook className="h-3.5 w-3.5" />
-                Sub parchments
-              </div>
-              <p className="mt-2 text-3xl font-semibold text-foreground">{activeColors.length}</p>
-            </div>
+          <div className="flex shrink-0 gap-2 text-[12.5px]">
+            <span className="inline-flex items-center gap-1.5 rounded-lg bg-muted px-3 py-1.5 font-semibold"><Tags className="h-3.5 w-3.5 text-muted-foreground" />{vendorOptions.length} companies</span>
+            <span className="inline-flex items-center gap-1.5 rounded-lg bg-muted px-3 py-1.5 font-semibold"><SwatchBook className="h-3.5 w-3.5 text-muted-foreground" />{activeColors.length} colours</span>
           </div>
         </div>
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-        <div className="rounded-xl border border-border bg-card/90 p-5 shadow-premium">
+      <section className="grid items-start gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
+        <div className="rounded-xl border border-border bg-card p-4">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-[12px] font-semibold text-muted-foreground">Approved companies</p>
-              <h2 className="mt-2 text-xl font-semibold text-foreground">Company directory</h2>
+              <h2 className="text-lg font-semibold text-foreground">Companies</h2>
+              <p className="text-[12.5px] text-muted-foreground">Parchment families allowed on spec sheets</p>
             </div>
             <Dialog open={vendorDialogOpen} onOpenChange={setVendorDialogOpen}>
               <DialogTrigger asChild>
-                <Button className="rounded-full">
+                <Button className="h-9 rounded-lg">
                   <Plus className="mr-2 h-4 w-4" />
-                  Company
+                  Add company
                 </Button>
               </DialogTrigger>
               <DialogContent>
@@ -164,29 +153,37 @@ export default function ParchmentsPage() {
               {companyError}
             </div>
           ) : null}
-          <div className="mt-5 space-y-3">
+          <div className="mt-4 space-y-2">
             {vendorOptions.length === 0 ? (
-              <div className="rounded-[1.5rem] border border-dashed border-border bg-muted px-4 py-6 text-sm text-muted-foreground">
+              <div className="rounded-lg border border-dashed border-border bg-muted px-4 py-6 text-sm text-muted-foreground">
                 No companies yet. Add the parchment companies first, then add the actual sub parchments under each one.
               </div>
             ) : (
               vendorOptions.map((vendor) => {
                 const count = activeColors.filter((row: any) => row.vendor_id === vendor.id).length
                 return (
-                  <div key={vendor.id} className="rounded-[1.5rem] border border-border bg-muted px-4 py-4">
+                  <div key={vendor.id} className="rounded-lg border border-border bg-card px-3 py-3">
                     <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-base font-semibold text-foreground">{vendor.name}</p>
-                        <p className="mt-1 text-sm text-muted-foreground">{count} sub parchment entries linked</p>
+                      <div className="min-w-0">
+                        <p className="truncate text-[14px] font-semibold text-foreground">{vendor.name}</p>
+                        <p className="mt-0.5 text-[12.5px] text-muted-foreground">{count} colour{count === 1 ? "" : "s"}</p>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setBandTarget({ materialType: "PARCHMENT", scope: "GROUP", scopeKey: vendor.name, title: vendor.name, subtitle: "Company — applies to all its colours unless a colour sets its own" })}
+                          className="inline-flex h-8 items-center gap-1 rounded-lg border border-signal-cyan-line bg-signal-cyan-soft px-2 text-[12px] font-semibold text-signal-cyan-ink"
+                          title="Inward QC band for this company"
+                        >
+                          <Ruler className="h-3.5 w-3.5" />QC band
+                        </button>
                         <button
                           type="button"
                           onClick={() => {
                             setCompanyError(null)
                             setEditingVendor(vendor)
                           }}
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:bg-muted"
                           title="Edit company"
                           aria-label="Edit company"
                         >
@@ -203,7 +200,7 @@ export default function ParchmentsPage() {
                             }
                           }}
                           disabled={count > 0 || deleteVendor.isPending}
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-signal-amber-line bg-card text-signal-amber-ink disabled:cursor-not-allowed disabled:opacity-45"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:border-signal-amber-line hover:text-signal-amber-ink disabled:cursor-not-allowed disabled:opacity-45"
                           title={count > 0 ? "Remove sub parchments before removing this company" : "Disable company"}
                           aria-label={count > 0 ? "Company has linked sub parchments" : "Disable company"}
                         >
@@ -219,6 +216,7 @@ export default function ParchmentsPage() {
         </div>
 
         <CrudTable
+          embedded
           title="Parchments"
           columns={[
             { header: "Sub Parchment", accessorKey: "color_name" },
@@ -231,8 +229,14 @@ export default function ParchmentsPage() {
           onEdit={(id, data) => updateColor.mutateAsync({ id, data })}
           onDelete={(id) => deleteColor.mutate(id)}
           FormComponent={(props) => <ParchmentForm {...props} vendorOptions={vendorOptions} />}
+          qcBand={(row) => row?.vendor_name && row?.color_name ? {
+            materialType: "PARCHMENT", scope: "SUBGROUP", scopeKey: `${row.vendor_name}||${row.color_name}`, title: `${row.color_name} · ${row.vendor_name}`,
+            subtitle: "Colour — overrides the company band",
+          } : null}
         />
       </section>
+
+      <QcBandDialog target={bandTarget} onClose={() => setBandTarget(null)} />
 
       <Dialog open={!!editingVendor} onOpenChange={(open) => !open && setEditingVendor(null)}>
         <DialogContent>

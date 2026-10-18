@@ -28,6 +28,11 @@ export default function AdhesivesPage() {
             onEdit={(id, data) => updateMutation.mutateAsync({ id, data })}
             onDelete={(id) => deleteMutation.mutate(id)}
             FormComponent={AdhesiveForm}
+            qcBand={(row) => row?.internal_code ? {
+                materialType: "ADHESIVE", scope: "ITEM", scopeKey: String(row.internal_code), title: `${row.internal_code}${row.name ? ` · ${row.name}` : ""}`,
+                subtitle: row.variety || undefined, group: row.variety || null,
+                nominals: { viscosity: row.viscosity, solid_content: row.solid_content_percent, ph: row.ph },
+            } : null}
         />
     )
 }

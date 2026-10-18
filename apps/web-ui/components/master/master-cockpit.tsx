@@ -17,6 +17,8 @@
  */
 
 import { Fragment, type ReactNode, useEffect, useMemo, useState } from "react"
+import { usePathname } from "next/navigation"
+import { MastersNav } from "@/components/master/masters-nav"
 import { ArrowDown, ArrowUp, Mail, Phone, Plus, Search, Star, Trash2, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -35,11 +37,13 @@ export function CockpitShell({
   filters: ReactNode
   children: ReactNode
 }) {
+  const pathname = usePathname() || ""
   return (
-    <div className="space-y-5 px-6 pb-10 pt-2">
+    <div className="min-w-0 space-y-4 pb-10">
+      {pathname.startsWith("/masters") ? <MastersNav /> : null}
       {hero}
-      <div className="grid gap-3 grid-cols-2 md:grid-cols-2 xl:grid-cols-4">{kpis}</div>
-      <div className="flex flex-wrap items-center gap-3 rounded-[1.4rem] border border-border bg-card px-4 py-3 shadow-sm">
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">{kpis}</div>
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card px-4 py-3">
         {filters}
       </div>
       {children}
@@ -48,7 +52,7 @@ export function CockpitShell({
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// MasterHero — hero band matching the mockup gradient
+// MasterHero — compact light page header (same look as every master)
 // ──────────────────────────────────────────────────────────────────────────
 
 export function MasterHero({
@@ -56,7 +60,6 @@ export function MasterHero({
   title,
   description,
   chips,
-  accent = "cyan",
 }: {
   eyebrow: string
   title: string
@@ -64,35 +67,23 @@ export function MasterHero({
   chips?: Array<{ label: string; tone?: "ok" | "warn" | "critical" | "neutral" }>
   accent?: "cyan" | "emerald"
 }) {
-  const gradients: Record<string, string> = {
-    cyan: "radial-gradient(120% 90% at 0% 0%, rgba(14,116,144,0.22), transparent 50%), radial-gradient(80% 70% at 100% 0%, rgba(245,158,11,0.14), transparent 55%), linear-gradient(135deg, hsl(var(--foreground)) 0%, hsl(var(--foreground)) 60%, hsl(var(--chart-2)) 100%)",
-    emerald:
-      "radial-gradient(120% 90% at 0% 0%, rgba(4,120,87,0.22), transparent 50%), radial-gradient(80% 70% at 100% 0%, rgba(245,158,11,0.14), transparent 55%), linear-gradient(135deg, hsl(var(--foreground)) 0%, hsl(var(--chart-7)) 60%, hsl(var(--chart-7)) 100%)",
-  }
-  // Chips sit on the dark hero, so they always use light text (grey/dark text was unreadable here).
   const toneCls = (t?: string) =>
     t === "ok"
-      ? "border-emerald-300/40 bg-emerald-400/20 text-emerald-50"
+      ? "bg-signal-emerald-soft text-signal-emerald-ink ring-signal-emerald-line"
       : t === "warn"
-        ? "border-amber-300/40 bg-amber-400/20 text-amber-50"
+        ? "bg-signal-amber-soft text-signal-amber-ink ring-signal-amber-line"
         : t === "critical"
-          ? "border-rose-300/40 bg-rose-400/20 text-rose-50"
-          : "border-white/30 bg-white/10 text-white"
+          ? "bg-signal-rose-soft text-signal-rose-ink ring-signal-rose-line"
+          : "bg-muted text-foreground/80 ring-border"
   return (
-    <section
-      className="relative overflow-hidden rounded-xl px-6 py-7 text-white shadow-[0_25px_70px_rgba(15,23,42,0.18)]"
-      style={{ backgroundImage: gradients[accent] }}
-    >
-      <p className="text-[12px] font-semibold text-white/70">{eyebrow}</p>
-      <h1 className="mt-3 max-w-4xl text-3xl font-semibold tracking-tight md:text-[32px]">{title}</h1>
-      {description ? <p className="mt-3 max-w-3xl text-sm leading-6 text-white/75">{description}</p> : null}
+    <section className="rounded-xl border border-border bg-card px-4 py-4 sm:px-5">
+      <p className="text-[11.5px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{eyebrow}</p>
+      <h1 className="mt-1 text-[22px] font-semibold tracking-tight text-foreground">{title}</h1>
+      {description ? <p className="mt-1 max-w-3xl text-[13px] leading-5 text-muted-foreground">{description}</p> : null}
       {chips?.length ? (
-        <div className="mt-5 flex flex-wrap gap-2">
+        <div className="mt-3 flex flex-wrap gap-1.5">
           {chips.map((c) => (
-            <span
-              key={c.label}
-              className={cn("rounded-full border px-3 py-1.5 text-[12px] font-semibold", toneCls(c.tone))}
-            >
+            <span key={c.label} className={cn("rounded-full px-2.5 py-1 text-[12px] font-semibold ring-1 ring-inset", toneCls(c.tone))}>
               {c.label}
             </span>
           ))}
@@ -130,7 +121,7 @@ export function KpiTile({
     slate: "border-border bg-card",
   }
   return (
-    <div className={cn("rounded-[1.25rem] border p-4 shadow-[0_8px_24px_rgba(15,23,42,0.05)]", toneBg[tone])}>
+    <div className={cn("rounded-xl border p-3.5", toneBg[tone])}>
       <p className="text-[11.5px] font-semibold text-muted-foreground">{label}</p>
       <p className="mt-2 text-2xl font-semibold tracking-tight text-foreground">{value}</p>
       {detail ? <p className="mt-1 text-[11px] text-muted-foreground">{detail}</p> : null}
@@ -251,7 +242,7 @@ export function DataGrid<T extends { id: string }>({
 
   const allSelected = rows.length > 0 && rows.every((r) => selection.has(r.id))
   return (
-    <div className="overflow-hidden rounded-[1.4rem] border border-border bg-card shadow-[0_8px_24px_rgba(15,23,42,0.05)]">
+    <div className="overflow-hidden rounded-xl border border-border bg-card">
       <div className="grid grid-cols-[minmax(0,1fr)] overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -371,7 +362,7 @@ export function DetailDrawer({
   }, [tabs, activeKey])
   if (!open) {
     return (
-      <div className="flex h-full min-h-[280px] items-center justify-center rounded-[1.4rem] border border-dashed border-border bg-muted px-6 py-10 text-center text-sm text-muted-foreground">
+      <div className="flex h-full min-h-[280px] items-center justify-center rounded-xl border border-dashed border-border bg-muted px-6 py-10 text-center text-sm text-muted-foreground">
         Select a row from the grid to open its detail panel.
       </div>
     )
@@ -383,7 +374,7 @@ export function DetailDrawer({
       : "linear-gradient(160deg, hsl(var(--foreground)) 0%, hsl(var(--chart-1)) 100%)"
   const tabBorder = accent === "emerald" ? "border-signal-emerald-ink/40" : "border-signal-cyan-ink/40"
   return (
-    <section className="sticky top-6 overflow-hidden rounded-[1.4rem] border border-border bg-card shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+    <section className="sticky top-20 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
       <div className="px-5 py-4 text-white" style={{ backgroundImage: headerGradient }}>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -486,7 +477,7 @@ export function Modal({
       onClick={onClose}
     >
       <div
-        className={cn("w-full max-h-[88vh] overflow-hidden rounded-[1.4rem] border border-border bg-white text-foreground shadow-[0_30px_80px_rgba(15,23,42,0.25)]", sizeCls)}
+        className={cn("w-full max-h-[88vh] overflow-hidden rounded-xl border border-border bg-white text-foreground shadow-[0_30px_80px_rgba(15,23,42,0.25)]", sizeCls)}
         style={{ colorScheme: "light" }}
         onClick={(e) => e.stopPropagation()}
       >

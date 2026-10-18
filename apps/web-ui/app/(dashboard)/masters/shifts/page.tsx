@@ -146,7 +146,7 @@ function ShiftsPage() {
 
   return (
     <CockpitShell
-      hero={<MasterHero eyebrow="Master · Shifts" title={`${kpis.active} active shifts · ${kpis.totalHours.toFixed(0)} working hours/day`} description="Named work windows per plant. Drives OEE Availability denominator, planner board day boundaries, and night-premium attribution." accent="cyan" chips={[
+      hero={<MasterHero eyebrow={`Shop floor · ${kpis.active} active · ${kpis.totalHours.toFixed(0)} working hours/day`} title="Shifts" description="Named work windows per plant. Drives OEE Availability denominator, planner board day boundaries, and night-premium attribution." accent="cyan" chips={[
         { label: `${kpis.total} total`, tone: "neutral" },
         { label: `${kpis.night} night`, tone: "warn" },
         { label: "Owner / Admin write", tone: "warn" },

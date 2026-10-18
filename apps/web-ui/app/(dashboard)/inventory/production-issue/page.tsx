@@ -1,511 +1,156 @@
 "use client"
 
-import { BulkMaterialReturns } from "@/components/procurement/bulk-material-returns"
+import { FormEvent, useEffect, useMemo, useState } from "react"
+import { Barcode, PackageCheck, Search } from "lucide-react"
+
 import { IssueDeskTabs } from "@/components/procurement/issue-desk-tabs"
-import { useDeferredValue, useEffect, useMemo, useState } from "react"
-import { ArrowRight, Barcode, PackageCheck, RefreshCw, Search } from "lucide-react"
-
-import {
-  useCreateTransaction,
-  useInventoryItemBalance,
-  useInventoryItems,
-  useInventoryLocations,
-  useIssueBatchToWip,
-} from "@/hooks/use-inventory"
-import { usePlanningJobCards } from "@/hooks/use-production"
+import { Field, MessageBar, ProcurementShell, WorkPanel, fieldClass, primaryButton, secondaryButton } from "@/components/procurement/procurement-shell"
+import { RoleGate } from "@/components/workspace/role-gate"
+import { useCreateTransaction, useInventoryItemBalance, useInventoryItems, useInventoryTransactions } from "@/hooks/use-inventory"
 import { inventoryApi } from "@/lib/api"
-import { jobCardRef, jobCardSearchText, jobCardSubtitle } from "@/lib/job-card-display"
+import { businessDate } from "@/lib/business-date"
+import { cn } from "@/lib/utils"
 
-const STAGE_OPTIONS = ["SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING"]
-
-function normalizeStage(value: any) {
-  const normalized = String(value || "").trim().toUpperCase()
-  return STAGE_OPTIONS.includes(normalized) ? normalized : "PROCESS"
+const SHIFTS = [{ value: "A", label: "Shift A" }, { value: "B", label: "Shift B" }, { value: "GENERAL", label: "General" }]
+const clockShift = () => { const hour = new Date().getHours(); return hour >= 8 && hour < 20 ? "A" : "B" }
+const qtyText = (value: any, uom?: string) => `${Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 3 })} ${uom || ""}`.trim()
+const errorText = (error: any) => {
+  const detail = error?.response?.data?.detail
+  if (typeof detail === "string") return detail
+  if (Array.isArray(detail)) return detail.map((row: any) => row?.msg || String(row)).join("; ")
+  return error?.message || "Issue failed"
 }
 
 function parseInventoryQr(raw: string) {
-  const trimmed = raw.trim()
-  const parts = trimmed.split("|")
-  if (parts.length >= 5 && parts[0].toUpperCase() === "HARIOM") {
-    return {
-      entityType: parts[1].toUpperCase(),
-      entityId: parts[3],
-      code: parts[4],
-    }
-  }
-  return { entityType: "", entityId: "", code: trimmed }
+  const parts = raw.trim().split("|")
+  if (parts.length >= 5 && parts[0].toUpperCase() === "HARIOM") return { entityType: parts[1].toUpperCase(), entityId: parts[3], code: parts[4] }
+  return { entityType: "", entityId: "", code: raw.trim() }
 }
 
-export default function InventoryProductionIssuePage() {
-  const { data: items = [], isLoading } = useInventoryItems()
-  const { data: locations = [] } = useInventoryLocations()
+/** Adhesive, parchment and packing go to the floor by shift (client rule 2026-10-18). */
+export default function MaterialFloorIssuePage() {
+  const { data: items = [] } = useInventoryItems()
   const createIssue = useCreateTransaction()
-  const issueBatchToWip = useIssueBatchToWip()
-  const [jobSearch, setJobSearch] = useState("")
+  const [notice, setNotice] = useState<{ tone: "success" | "error" | "info"; text: string } | null>(null)
   const [itemSearch, setItemSearch] = useState("")
-  const [batchScan, setBatchScan] = useState("")
-  const [batchScanMessage, setBatchScanMessage] = useState("")
-  const [pendingBatchId, setPendingBatchId] = useState("")
-  const deferredJobSearch = useDeferredValue(jobSearch.trim())
-  const jobCardsQuery = usePlanningJobCards(
-    {
-      limit: 80,
-      ...(deferredJobSearch ? { search: deferredJobSearch } : {}),
-    },
-    true,
-  )
-  const [formData, setFormData] = useState({
-    movement_mode: "WIP",
-    item_id: "",
-    batch_id: "",
-    qty: "",
-    production_job_id: "",
-    stage: "PROCESS",
-    wip_location_id: "",
-    reason_code: "NON_RECIPE_CONSUMABLE",
-    external_ref: "",
-    notes: "",
-    allow_raw_paper_exception: false,
-  })
-  const itemBalanceQuery = useInventoryItemBalance(formData.item_id, Boolean(formData.item_id))
+  const [scan, setScan] = useState("")
+  const [pendingBatch, setPendingBatch] = useState("")
+  const [form, setForm] = useState({ item_id: "", batch_id: "", qty: "", shift: clockShift(), effective_date: businessDate(), notes: "" })
+  const balance = useInventoryItemBalance(form.item_id, Boolean(form.item_id))
+  const today = useInventoryTransactions({ transaction_type: "ISSUE_PRODUCTION", date_from: businessDate(), date_to: businessDate() })
 
-  const rawItems = useMemo(() => {
+  const materials = useMemo(() => {
     const needle = itemSearch.trim().toLowerCase()
     return (Array.isArray(items) ? items : [])
-      .filter((item: any) => String(item.type || item.category || "").toUpperCase() !== "FINISHED_GOOD")
-      .filter((item: any) => {
-        if (!needle) return true
-        return [item.name, item.item_name, item.code, item.item_code, item.type, item.category]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase()
-          .includes(needle)
-      })
+      .filter((item: any) => !["FINISHED_GOOD"].includes(String(item.type || "").toUpperCase()) && String(item.tracking_mode || "").toUpperCase() !== "REEL")
+      .filter((item: any) => !needle || `${item.item_code} ${item.name} ${item.type}`.toLowerCase().includes(needle))
   }, [items, itemSearch])
+  const itemName = (id: string) => { const item = (Array.isArray(items) ? items : []).find((row: any) => String(row.id) === String(id)); return item ? `${item.item_code} · ${item.name}` : "Material" }
+  const selectedItem = materials.find((item: any) => String(item.id) === form.item_id)
+  const batches = useMemo(() => (Array.isArray(balance.data?.batches) ? balance.data.batches : []).filter((batch: any) => Number(batch.available_qty ?? batch.current_balance ?? 0) > 0 && ["UNRESTRICTED", "WIP"].includes(String(batch.stock_status || "").toUpperCase())), [balance.data])
+  const selectedBatch = batches.find((batch: any) => String(batch.batch_id) === form.batch_id)
+  const available = selectedBatch ? Number(selectedBatch.available_qty ?? selectedBatch.current_balance ?? 0) : batches.reduce((sum: number, batch: any) => sum + Number(batch.available_qty ?? batch.current_balance ?? 0), 0)
+  const issuedToday = (Array.isArray(today.data) ? today.data : []).filter((row: any) => row.movement_metadata?.destination === "FLOOR")
 
-  const openJobCards = useMemo(() => {
-    const rows = Array.isArray(jobCardsQuery.data) ? jobCardsQuery.data : []
-    return rows.filter((job: any) => String(job.current_stage || "").toUpperCase() !== "DONE")
-  }, [jobCardsQuery.data])
-
-  const selectedItem = rawItems.find((item: any) => String(item.id) === formData.item_id)
-  const selectedItemType = String(selectedItem?.type || selectedItem?.category || "").toUpperCase()
-  const selectedJob = openJobCards.find((job: any) => String(job.id) === formData.production_job_id)
-  const itemBatches = useMemo(() => {
-    const rows = Array.isArray(itemBalanceQuery.data?.batches) ? itemBalanceQuery.data.batches : []
-    return rows.filter((batch: any) => {
-      const status = String(batch.stock_status || "").toUpperCase()
-      return Number(batch.available_qty ?? batch.current_balance ?? 0) > 0 && ["UNRESTRICTED", "WIP"].includes(status)
-    })
-  }, [itemBalanceQuery.data])
-  const selectedBatch = itemBatches.find((batch: any) => String(batch.batch_id) === formData.batch_id)
-  const wipLocations = useMemo(() => {
-    return (Array.isArray(locations) ? locations : []).filter((location: any) =>
-      [location.purpose, location.location_type, location.code, location.name]
-        .filter(Boolean)
-        .join(" ")
-        .toUpperCase()
-        .includes("WIP"),
-    )
-  }, [locations])
-  const isWipMode = formData.movement_mode === "WIP"
-  const actionPending = isWipMode ? issueBatchToWip.isPending : createIssue.isPending
-  const actionError = isWipMode ? issueBatchToWip.isError : createIssue.isError
-  const actionSuccess = isWipMode ? issueBatchToWip.isSuccess : createIssue.isSuccess
-
+  useEffect(() => { setForm((current) => ({ ...current, batch_id: "" })) }, [form.item_id])
   useEffect(() => {
-    if (selectedItemType !== "RAW_PAPER" && formData.allow_raw_paper_exception) {
-      setFormData((current) => ({ ...current, allow_raw_paper_exception: false }))
-    }
-  }, [formData.allow_raw_paper_exception, selectedItemType])
+    if (!pendingBatch || !batches.length) return
+    const wanted = pendingBatch.toUpperCase()
+    const matched = batches.find((batch: any) => [batch.batch_id, batch.batch_no, batch.inward_no, batch.grn_no].some((value) => String(value || "").toUpperCase() === wanted))
+    if (matched) { setForm((current) => ({ ...current, batch_id: matched.batch_id })); setNotice({ tone: "info", text: `Lot ${matched.inward_no || matched.batch_no} selected.` }); setPendingBatch("") }
+  }, [batches, pendingBatch])
 
-  useEffect(() => {
-    setFormData((current) => ({ ...current, batch_id: "" }))
-  }, [formData.item_id])
-
-  useEffect(() => {
-    if (!pendingBatchId || !itemBatches.length) return
-    const pending = pendingBatchId.toUpperCase()
-    const matched = itemBatches.find((batch: any) =>
-      String(batch.batch_id || "").toUpperCase() === pending ||
-      String(batch.batch_no || "").toUpperCase() === pending ||
-      String(batch.inward_no || "").toUpperCase() === pending ||
-      String(batch.grn_no || "").toUpperCase() === pending
-    )
-    if (!matched) return
-    setFormData((current) => ({ ...current, batch_id: matched.batch_id }))
-    setBatchScanMessage(`Batch ${matched.batch_no || matched.batch_id} selected.`)
-    setPendingBatchId("")
-  }, [itemBatches, pendingBatchId])
-
-  useEffect(() => {
-    if (selectedJob) {
-      setFormData((current) => ({ ...current, stage: normalizeStage(selectedJob.current_stage || current.stage) }))
-    }
-  }, [selectedJob])
-
-  async function resolveBatchScan() {
-    const parsed = parseInventoryQr(batchScan)
-    const scanId = parsed.entityId.trim()
-    const scanCode = parsed.code.trim().toUpperCase()
-    setBatchScanMessage("")
-
-    if (parsed.entityType && parsed.entityType !== "BATCH") {
-      setBatchScanMessage("Scan a batch QR label for bulk production issue.")
-      return
-    }
-
-    if (scanId) {
+  async function resolveScan() {
+    const parsed = parseInventoryQr(scan)
+    if (parsed.entityType && parsed.entityType !== "BATCH") return setNotice({ tone: "error", text: "Scan a batch label (reels and coils are issued on the reel tab)." })
+    if (parsed.entityId) {
       try {
-        const { data } = await inventoryApi.getBatchLabel(scanId)
-        const itemId = data?.item_id
-        const batchId = data?.entity_id || scanId
-        if (!itemId || !batchId) {
-          setBatchScanMessage("Batch QR could not be resolved.")
-          return
-        }
-        setItemSearch(data?.item_code || data?.item_name || "")
-        setPendingBatchId(batchId)
-        setFormData((current) => ({ ...current, item_id: itemId, batch_id: "" }))
-        return
-      } catch (error: any) {
-        setBatchScanMessage(error?.response?.data?.detail || error?.message || "Batch QR lookup failed.")
-        return
-      }
-    }
-
-    const matched = itemBatches.find((batch: any) =>
-      String(batch.batch_id || "").toUpperCase() === scanCode ||
-      String(batch.batch_no || "").toUpperCase() === scanCode ||
-      String(batch.inward_no || "").toUpperCase() === scanCode ||
-      String(batch.grn_no || "").toUpperCase() === scanCode
-    )
-    if (!matched) {
-      setBatchScanMessage(formData.item_id ? "Batch not available for the selected material." : "Select material first or scan the printed batch QR.")
+        const { data } = await inventoryApi.getBatchLabel(parsed.entityId)
+        if (!data?.item_id) return setNotice({ tone: "error", text: "That label could not be read." })
+        setItemSearch(""); setPendingBatch(data.entity_id || parsed.entityId)
+        setForm((current) => ({ ...current, item_id: String(data.item_id), batch_id: "" }))
+        setScan("")
+      } catch (error) { setNotice({ tone: "error", text: errorText(error) }) }
       return
     }
-    setFormData((current) => ({ ...current, batch_id: matched.batch_id }))
-    setBatchScanMessage(`Batch ${matched.batch_no || matched.batch_id} selected.`)
+    const code = parsed.code.toUpperCase()
+    const matched = batches.find((batch: any) => [batch.batch_no, batch.inward_no, batch.grn_no].some((value) => String(value || "").toUpperCase() === code))
+    if (!matched) return setNotice({ tone: "error", text: form.item_id ? "That Amigo inward number is not available for this material." : "Choose the material first, or scan the printed lot QR." })
+    setForm((current) => ({ ...current, batch_id: matched.batch_id })); setScan("")
   }
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent) {
     event.preventDefault()
-    if (!formData.item_id || !formData.qty || !formData.production_job_id) return
-
-    if (isWipMode) {
-      if (!formData.batch_id) return
-      await issueBatchToWip.mutateAsync({
-        item_id: formData.item_id,
-        batch_id: formData.batch_id,
-        qty: Number(formData.qty),
-        job_card_id: formData.production_job_id,
-        stage: formData.stage,
-        wip_location_id: formData.wip_location_id || undefined,
-        external_ref: formData.external_ref || `${jobCardRef(selectedJob)}:${selectedBatch?.batch_no || "WIP"}`,
-      })
-    } else {
+    const qty = Number(form.qty)
+    if (!selectedItem) return setNotice({ tone: "error", text: "Choose the material." })
+    if (!(qty > 0)) return setNotice({ tone: "error", text: "Enter the quantity going to the floor." })
+    if (qty > available + 1e-9) return setNotice({ tone: "error", text: `Only ${qtyText(available, selectedItem.uom)} is available${selectedBatch ? " in this lot" : ""}.` })
+    try {
       await createIssue.mutateAsync({
-        item_id: formData.item_id,
-        qty: Number(formData.qty),
-        production_job_id: formData.production_job_id,
-        reason_code: formData.reason_code,
-        allow_raw_paper_exception: Boolean(formData.allow_raw_paper_exception),
-        external_ref: formData.external_ref || jobCardRef(selectedJob),
-        notes: formData.notes || undefined,
+        item_id: form.item_id, batch_id: form.batch_id || undefined, qty, shift: form.shift, reason_code: "FLOOR_ISSUE",
+        effective_date: form.effective_date, notes: form.notes.trim() || undefined,
+        external_ref: `FLOOR:${form.effective_date}:${form.shift}:${selectedBatch?.inward_no || selectedBatch?.batch_no || "FIFO"}:${crypto.randomUUID().slice(0, 8)}`,
       })
-    }
-
-    setFormData((current) => ({
-      ...current,
-      batch_id: "",
-      qty: "",
-      external_ref: "",
-      notes: "",
-    }))
+      setNotice({ tone: "success", text: `${qtyText(qty, selectedItem.uom)} of ${selectedItem.name} issued to the floor for shift ${form.shift}.` })
+      setForm((current) => ({ ...current, batch_id: "", qty: "", notes: "" }))
+    } catch (error) { setNotice({ tone: "error", text: errorText(error) }) }
   }
 
   return (
-    <div className="space-y-6" data-testid="inventory-production-issue-form">
-      <IssueDeskTabs />
-      <section className="tube-hero-card animate-enter-up">
-        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="text-[12px] font-semibold text-muted-foreground">Store to Production</p>
-            <h1 className="mt-2 text-3xl font-semibold">Production Issue</h1>
-            <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-              Issue material from a selected batch into WIP against a job card. Controlled manual issue remains available for corrections only.
-            </p>
-          </div>
-          <div className="rounded-2xl border border-border/15 bg-card/10 px-4 py-3 text-[12px]">
-            FG inward remains auto-posted from job close.
-          </div>
-        </div>
-      </section>
-
-      <form onSubmit={handleSubmit} className="glass grid gap-5 rounded-2xl border border-border/60 p-6 shadow-xl">
-        <div className="flex items-center gap-3">
-          <div className="rounded-2xl bg-primary p-3 text-primary-foreground">
-            <PackageCheck className="h-5 w-5" />
-          </div>
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">Issue Material</h2>
-            <p className="text-sm text-muted-foreground">Default posting creates Store Out and WIP In ledger rows from the same batch.</p>
-          </div>
-        </div>
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          <div className="lg:col-span-2">
-            <div className="inline-flex rounded-xl border border-border bg-card p-1 text-sm font-semibold text-muted-foreground">
-              <button
-                type="button"
-                onClick={() => setFormData((current) => ({ ...current, movement_mode: "WIP" }))}
-                className={`rounded-lg px-4 py-2 transition ${isWipMode ? "bg-primary text-primary-foreground shadow" : "hover:bg-muted"}`}
-              >
-                Issue to WIP
-              </button>
-              <button
-                type="button"
-                onClick={() => setFormData((current) => ({ ...current, movement_mode: "MANUAL" }))}
-                className={`rounded-lg px-4 py-2 transition ${!isWipMode ? "bg-primary text-primary-foreground shadow" : "hover:bg-muted"}`}
-              >
-                Manual exception
-              </button>
+    <RoleGate allow={["Store", "PlantManager", "RMIssue"]}>
+      <ProcurementShell eyebrow="Stores" title="Material issue to floor" description="Adhesive, parchment and packing go to the floor for a shift — not to a job card or machine. Issue daily; what goes to the floor is consumed in full. The job card records production, and the stock count settles real consumption." actions={<IssueDeskTabs />}>
+        {notice ? <MessageBar tone={notice.tone}>{notice.text}</MessageBar> : null}
+        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+          <WorkPanel title="Issue to floor" description="Scan the Amigo inward number on the lot label, or choose the material; the oldest lot is used when no lot is chosen.">
+            <div className="flex flex-wrap gap-2">
+              <label className="flex min-w-[220px] flex-1 items-center gap-2"><Barcode className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" /><input aria-label="Scan lot label" className={fieldClass} value={scan} placeholder="Scan lot QR or type Amigo inward number" onChange={(e) => setScan(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void resolveScan() } }} /></label>
+              <button type="button" className={secondaryButton} onClick={() => void resolveScan()}><PackageCheck className="h-4 w-4" />Select</button>
             </div>
-          </div>
-
-          <label className="space-y-2 text-sm font-medium text-muted-foreground">
-            Search Materials
-            <div className="flex h-11 items-center gap-2 rounded-xl border border-border bg-card px-3">
-              <Search className="h-4 w-4 text-muted-foreground" />
-              <input
-                value={itemSearch}
-                onChange={(event) => setItemSearch(event.target.value)}
-                placeholder="Paper, adhesive, parchment, code..."
-                className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
-              />
-            </div>
-          </label>
-
-          <label className="space-y-2 text-sm font-medium text-muted-foreground">
-            Material
-            <select
-              value={formData.item_id}
-              onChange={(event) => setFormData((current) => ({ ...current, item_id: event.target.value, batch_id: "" }))}
-              className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-signal-cyan-ink/40"
-              required
-            >
-              <option value="">{isLoading ? "Loading items..." : "Select inventory item"}</option>
-              {rawItems.map((item: any) => (
-                <option key={item.id} value={item.id}>
-                  {item.item_code || item.code || item.id} - {item.name || item.item_name || "Unnamed item"}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {isWipMode ? (
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-muted-foreground">Amigo inward number (GRN / label)</label>
-              <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
-                <div className="flex h-11 items-center gap-2 rounded-xl border border-border bg-card px-3">
-                  <Barcode className="h-4 w-4 text-muted-foreground" />
-                  <input
-                    value={batchScan}
-                    onChange={(event) => setBatchScan(event.target.value)}
-                    placeholder="Scan the inward label QR or type the inward / GRN number"
-                    className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={resolveBatchScan}
-                  className="h-11 rounded-xl border border-border bg-card px-4 text-sm font-semibold text-muted-foreground transition hover:border-signal-cyan-line hover:text-signal-cyan-ink"
-                >
-                  Select
-                </button>
+            <form onSubmit={submit} className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <Field label="Material">
+                  <div className="space-y-2">
+                    <label className="flex h-9 items-center gap-2 rounded-lg border border-input px-3"><Search className="h-4 w-4 text-muted-foreground" aria-hidden="true" /><input className="w-full bg-transparent text-[13px] outline-none" aria-label="Find material" placeholder="Find adhesive, parchment, packing…" value={itemSearch} onChange={(e) => setItemSearch(e.target.value)} /></label>
+                    <select className={fieldClass} value={form.item_id} onChange={(e) => setForm({ ...form, item_id: e.target.value })}>
+                      <option value="">Choose material</option>
+                      {materials.map((item: any) => <option key={item.id} value={item.id}>{item.item_code} · {item.name} ({String(item.type || "").replace(/_/g, " ").toLowerCase()})</option>)}
+                    </select>
+                  </div>
+                </Field>
               </div>
-              <select
-                value={formData.batch_id}
-                onChange={(event) => setFormData((current) => ({ ...current, batch_id: event.target.value }))}
-                className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-signal-cyan-ink/40"
-                required
-              >
-                <option value="">{itemBalanceQuery.isLoading ? "Loading batches..." : "Select available batch"}</option>
-                {itemBatches.map((batch: any) => (
-                  <option key={batch.batch_id} value={batch.batch_id}>
-                    {batch.inward_no || batch.grn_no || batch.batch_no || batch.batch_id}{batch.inward_no && batch.batch_no && batch.inward_no !== batch.batch_no ? ` (batch ${batch.batch_no})` : ""} - {Number(batch.available_qty ?? 0).toLocaleString("en-IN")} available - {batch.stock_status}
-                  </option>
-                ))}
-              </select>
-              {batchScanMessage ? <p className="text-xs font-semibold text-signal-cyan-ink">{batchScanMessage}</p> : null}
-            </div>
-          ) : null}
-
-          <label className="space-y-2 text-sm font-medium text-muted-foreground">
-            Quantity / Weight
-            <input
-              type="number"
-              step="0.001"
-              min="0.001"
-              value={formData.qty}
-              onChange={(event) => setFormData((current) => ({ ...current, qty: event.target.value }))}
-              className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-signal-cyan-ink/40"
-              required
-            />
-          </label>
-
-          <label className="space-y-2 text-sm font-medium text-muted-foreground">
-            Search Job Cards
-            <div className="flex h-11 items-center gap-2 rounded-xl border border-border bg-card px-3">
-              <Search className="h-4 w-4 text-muted-foreground" />
-              <input
-                value={jobSearch}
-                onChange={(event) => setJobSearch(event.target.value)}
-                placeholder="Job card, customer, product..."
-                className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
-              />
-            </div>
-          </label>
-
-          <label className="space-y-2 text-sm font-medium text-muted-foreground">
-            Job Card
-            <select
-              value={formData.production_job_id}
-              onChange={(event) => setFormData((current) => ({ ...current, production_job_id: event.target.value }))}
-              className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-signal-cyan-ink/40"
-              required
-            >
-              <option value="">{jobCardsQuery.isLoading ? "Loading job cards..." : "Select live job card"}</option>
-              {openJobCards
-                .filter((job: any) => !jobSearch.trim() || jobCardSearchText(job).includes(jobSearch.trim().toLowerCase()))
-                .map((job: any) => (
-                  <option key={job.id} value={job.id}>
-                    {jobCardRef(job)} - {jobCardSubtitle(job)} - {Number(job.planned_qty || job.released_qty || 0).toLocaleString("en-IN")} pcs
-                  </option>
-                ))}
-            </select>
-          </label>
-
-          {isWipMode ? (
-            <>
-              <label className="space-y-2 text-sm font-medium text-muted-foreground">
-                Production Stage
-                <select
-                  value={formData.stage}
-                  onChange={(event) => setFormData((current) => ({ ...current, stage: event.target.value }))}
-                  className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-signal-cyan-ink/40"
-                  required
-                >
-                  {STAGE_OPTIONS.map((stage) => (
-                    <option key={stage} value={stage}>{stage}</option>
-                  ))}
+              <Field label="Lot (Amigo inward no.)" hint="optional">
+                <select className={fieldClass} value={form.batch_id} disabled={!form.item_id} onChange={(e) => setForm({ ...form, batch_id: e.target.value })}>
+                  <option value="">Oldest lot first</option>
+                  {batches.map((batch: any) => <option key={batch.batch_id} value={batch.batch_id}>{batch.inward_no || batch.grn_no || batch.batch_no} · {qtyText(batch.available_qty ?? batch.current_balance, selectedItem?.uom)}</option>)}
                 </select>
-              </label>
-
-              <label className="space-y-2 text-sm font-medium text-muted-foreground">
-                WIP Location
-                <select
-                  value={formData.wip_location_id}
-                  onChange={(event) => setFormData((current) => ({ ...current, wip_location_id: event.target.value }))}
-                  className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-signal-cyan-ink/40"
-                >
-                  <option value="">System WIP bucket</option>
-                  {wipLocations.map((location: any) => (
-                    <option key={location.id} value={location.id}>
-                      {location.code || location.name || location.id} - {location.warehouse || location.purpose || "WIP"}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </>
-          ) : (
-            <label className="space-y-2 text-sm font-medium text-muted-foreground">
-              Reason Code
-              <select
-                value={formData.reason_code}
-                onChange={(event) => setFormData((current) => ({ ...current, reason_code: event.target.value }))}
-                className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-signal-cyan-ink/40"
-                required
-              >
-                <option value="NON_RECIPE_CONSUMABLE">Non-recipe consumable</option>
-                <option value="DIRECT_CORRECTION">Direct stock correction</option>
-                <option value="CONTROLLED_FALLBACK">Controlled fallback issue</option>
-              </select>
-            </label>
-          )}
-
-          <label className="space-y-2 text-sm font-medium text-muted-foreground">
-            External Reference
-            <input
-              value={formData.external_ref}
-              onChange={(event) => setFormData((current) => ({ ...current, external_ref: event.target.value }))}
-              placeholder={selectedJob ? jobCardRef(selectedJob) : "Optional store slip / issue note"}
-              className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-signal-cyan-ink/40"
-            />
-          </label>
-
-          {!isWipMode ? (
-            <label className="flex items-center gap-3 rounded-xl border border-signal-amber-line bg-signal-amber-soft px-3 py-3 text-sm font-medium text-signal-amber-ink lg:col-span-2">
-              <input
-                type="checkbox"
-                checked={formData.allow_raw_paper_exception}
-                onChange={(event) => setFormData((current) => ({ ...current, allow_raw_paper_exception: event.target.checked }))}
-                disabled={selectedItemType !== "RAW_PAPER"}
-                className="h-4 w-4 rounded border-signal-amber-line"
-              />
-              Allow raw-paper manual exception. Normal raw paper must go through RM issue-to-section/reel issue, not this exception screen.
-            </label>
-          ) : null}
+              </Field>
+              <Field label={`Quantity${selectedItem ? ` · ${selectedItem.uom}` : ""}`} hint={selectedItem ? `${qtyText(available, selectedItem.uom)} available` : undefined}>
+                <input className={fieldClass} type="number" min="0.001" step="0.001" inputMode="decimal" value={form.qty} onChange={(e) => setForm({ ...form, qty: e.target.value })} />
+              </Field>
+              <Field label="Shift">
+                <div role="radiogroup" aria-label="Shift" className="flex gap-1 rounded-lg bg-muted p-1">
+                  {SHIFTS.map((item) => <button key={item.value} type="button" role="radio" aria-checked={form.shift === item.value} onClick={() => setForm({ ...form, shift: item.value })} className={cn("min-h-8 flex-1 rounded-md text-[13px] font-semibold", form.shift === item.value ? "bg-card shadow-sm ring-1 ring-border" : "text-muted-foreground")}>{item.label}</button>)}
+                </div>
+              </Field>
+              <Field label="Issue date"><input className={fieldClass} type="date" value={form.effective_date} max={businessDate()} onChange={(e) => setForm({ ...form, effective_date: e.target.value })} /></Field>
+              <div className="sm:col-span-2"><Field label="Note" hint="optional"><input className={fieldClass} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field></div>
+              <button type="submit" className={cn(primaryButton, "justify-center sm:col-span-2")} disabled={createIssue.isPending || !form.item_id}><PackageCheck className="h-4 w-4" />Issue to floor</button>
+            </form>
+          </WorkPanel>
+          <WorkPanel title={`Issued to floor today · ${issuedToday.length}`} description="Today's business date, all shifts.">
+            {issuedToday.length ? (
+              <ul className="divide-y divide-border">
+                {issuedToday.map((row: any) => (
+                  <li key={row.transaction_id} className="flex items-center justify-between gap-3 py-2 text-[13px]">
+                    <span className="min-w-0 truncate"><span className="font-medium">{itemName(row.item_id)}</span><span className="block text-[12px] text-muted-foreground">Shift {row.movement_metadata?.shift || "—"}{row.movement_metadata?.notes ? ` · ${row.movement_metadata.notes}` : ""}</span></span>
+                    <span className="shrink-0 font-semibold tabular-nums">{qtyText(Math.abs(Number(row.qty_change || 0)))}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="text-sm text-muted-foreground">Nothing issued to the floor yet today.</p>}
+          </WorkPanel>
         </div>
-
-        {isWipMode && selectedBatch ? (
-          <div className="rounded-2xl border border-signal-emerald-line bg-signal-emerald-soft px-4 py-3 text-sm text-signal-emerald-ink">
-            Inward <span className="font-semibold">{selectedBatch.inward_no || selectedBatch.grn_no || selectedBatch.batch_no || selectedBatch.batch_id}</span> has{" "}
-            {Number(selectedBatch.available_qty ?? 0).toLocaleString("en-IN")} available at {selectedBatch.location || "store"}.
-          </div>
-        ) : null}
-
-        {selectedJob ? (
-          <div className="rounded-2xl border border-signal-cyan-line bg-signal-cyan-soft px-4 py-3 text-sm text-signal-cyan-ink">
-            <span className="font-semibold">{jobCardRef(selectedJob)}</span> selected for {jobCardSubtitle(selectedJob)}.
-            Stage {selectedJob.current_stage || "-"} · Qty {Number(selectedJob.planned_qty || selectedJob.released_qty || 0).toLocaleString("en-IN")} pcs.
-          </div>
-        ) : null}
-
-        <label className="space-y-2 text-sm font-medium text-muted-foreground">
-          Notes
-          <textarea
-            value={formData.notes}
-            onChange={(event) => setFormData((current) => ({ ...current, notes: event.target.value }))}
-            rows={3}
-            className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition focus:border-signal-cyan-ink/40"
-          />
-        </label>
-
-        {actionError ? (
-          <div className="rounded-xl border border-signal-rose-line bg-signal-rose-soft px-4 py-3 text-sm text-signal-rose-ink">
-            Issue failed. Check stock balance, item selection, and service logs.
-          </div>
-        ) : null}
-
-        {actionSuccess ? (
-          <div className="rounded-xl border border-signal-emerald-line bg-signal-emerald-soft px-4 py-3 text-sm text-signal-emerald-ink">
-            Material issue posted successfully.
-          </div>
-        ) : null}
-
-        <div className="flex justify-end">
-          <button
-            type="submit"
-            disabled={actionPending}
-            className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground shadow-lg transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {actionPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-            {isWipMode ? "Post WIP Issue" : "Post Manual Issue"}
-          </button>
-        </div>
-      </form>
-      <BulkMaterialReturns />
-    </div>
+      </ProcurementShell>
+    </RoleGate>
   )
 }

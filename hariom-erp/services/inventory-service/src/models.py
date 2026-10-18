@@ -252,6 +252,12 @@ class ItemMaster(Base):
     safety_stock = Column(Float, nullable=False, default=0.0)
     lead_time_days = Column(Float, nullable=False, default=0.0)
     quality_profile = Column(JSON, nullable=True)
+    # Inward QC standards (client rule 2026-10-18): the material's group / sub-group in its
+    # master (paper variety, parchment company + colour, adhesive variety, packing kind) and
+    # the master's nominal values, used to resolve the tolerance band for each QC parameter.
+    material_group = Column(String(120), nullable=True)
+    material_subgroup = Column(String(120), nullable=True)
+    qc_nominals = Column(JSON, nullable=True)
     plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
     active = Column(SQLEnum("true", "false", name="boolean_enum"), default="true")
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -345,11 +351,68 @@ class InventoryQualityTemplate(Base):
     required = Column(Boolean, nullable=False, default=False)
     sort_order = Column(Float, nullable=False, default=0.0)
     active = Column(SQLEnum("true", "false", name="boolean_enum"), default="true")
+    unit = Column(String(30), nullable=True)
+    # Set once QC edits the row; seeded presets never overwrite an edited parameter.
+    updated_by = Column(String(200), nullable=True)
+    updated_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (
         UniqueConstraint("plant_id", "material_type", "parameter_key", name="uq_inventory_qc_template_key"),
     )
+
+
+class InventoryQualityTolerance(Base):
+    """Masters-owned tolerance band for one QC parameter.
+
+    Scope resolves most specific first: ITEM (one material line, keyed by its code as in the
+    paper / adhesive / packing master) > SUBGROUP (e.g. parchment
+    company + colour) > GROUP (e.g. paper variety, parchment company) > TYPE (all of the type).
+    RANGE stores min/max; PLUS_MINUS and PERCENT are +/- around the line's master nominal.
+    """
+
+    __tablename__ = "inventory_quality_tolerances"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    material_type = Column(String(40), nullable=False, index=True)
+    scope = Column(String(20), nullable=False)
+    scope_key = Column(String(250), nullable=False, default="")
+    parameter_key = Column(String(80), nullable=False)
+    mode = Column(String(20), nullable=False, default="RANGE")
+    min_value = Column(Float, nullable=True)
+    max_value = Column(Float, nullable=True)
+    tolerance_value = Column(Float, nullable=True)
+    # Version of the scope's band set this row was last saved in (each save = one new version).
+    version = Column(Integer, nullable=False, default=1)
+    note = Column(Text, nullable=True)
+    updated_by = Column(String(200), nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("material_type", "scope", "scope_key", "parameter_key", name="uq_inventory_qc_tolerance_scope"),
+        CheckConstraint("scope IN ('TYPE','GROUP','SUBGROUP','ITEM')", name="ck_inventory_qc_tolerance_scope"),
+        CheckConstraint("mode IN ('RANGE','PLUS_MINUS','PERCENT')", name="ck_inventory_qc_tolerance_mode"),
+    )
+
+
+class InventoryQualityStandardEvent(Base):
+    """Audit trail of parameter (QC) and tolerance (Masters) changes."""
+
+    __tablename__ = "inventory_quality_standard_events"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    material_type = Column(String(40), nullable=False, index=True)
+    kind = Column(String(30), nullable=False)
+    scope = Column(String(20), nullable=True)
+    scope_key = Column(String(250), nullable=True)
+    parameter_key = Column(String(80), nullable=True)
+    version = Column(Integer, nullable=True)
+    before = Column(JSON, nullable=True)
+    after = Column(JSON, nullable=True)
+    note = Column(Text, nullable=True)
+    actor = Column(String(200), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 
 class InventoryQualityInspection(Base):
@@ -577,6 +640,11 @@ class ReelIssue(Base):
     remaining_weight_kg = Column(Float, nullable=False)
     status = Column(SQLEnum(ReelIssueStatus), nullable=False, default=ReelIssueStatus.OPEN)
     closed_at = Column(DateTime, nullable=True)
+    # FLOOR (client rule 2026-10-18): the whole reel/coil goes to the floor for the shift and
+    # is consumed in full; a reel then gets a slitting card (coils made + wastage).
+    # LEGACY rows came from the earlier issue-to-machine / return flow.
+    issue_mode = Column(String(20), nullable=False, default="LEGACY")
+    slitting_card = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     reel = relationship("PaperReel", back_populates="issues")

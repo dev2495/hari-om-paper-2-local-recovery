@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { LockKeyhole, AlertTriangle, BarChart3, Boxes, CheckCircle2, Inbox, TrendingUp, Users, Wrench, ChevronRight, ClipboardList, Factory, FileText, Gauge, Info, Layers, LineChart, LogOut, Menu, Package, PanelLeftClose, PanelLeftOpen, BookOpen, ScrollText, Search, ShieldCheck, Sparkles, Truck, X, CircleDot, CornerDownLeft } from "lucide-react"
+import { LockKeyhole, AlertTriangle, BarChart3, Boxes, CheckCircle2, Inbox, TrendingUp, Users, Wrench, ChevronRight, ClipboardList, Factory, FileText, Gauge, Info, Layers, LineChart, LogOut, Menu, Package, PanelLeftClose, PanelLeftOpen, BookOpen, ScrollText, Search, ShieldCheck, Sparkles, Truck, X, CircleDot, CornerDownLeft, Undo2 } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { PlantSwitcher } from "@/components/PlantSwitcher"
 import { BooksLockedChip } from "@/components/workspace/books-locked-chip"
@@ -109,18 +109,19 @@ const navigationUnits: NavGroup[] = [
     title: "Quality",
     items: [
       {
-        name: "Quality",
+        name: "QC desk",
         href: "/quality",
         icon: ShieldCheck,
-        description: "Inspection lifecycle, holds, release decisions, and audit evidence.",
+        description: "What needs QC now: incoming lots, stage checks, holds and returns.",
         roles: ["Owner", "Admin", "PlantManager", "QC", "InwardQC", "Dispatch", "Store", "Sales"],
       },
-      { name: "Incoming inspections", href: "/quality/incoming", icon: ClipboardList, description: "Receive, inspect and release material lots.", roles: ["Owner", "Admin", "QC", "InwardQC"] },
-      { name: "Production inspections", href: "/quality/stage", icon: Factory, description: "Winding, oven and process checks.", roles: ["Owner", "Admin", "QC", "PlantManager"] },
-      { name: "Material standards", href: "/quality/material-standards", icon: ShieldCheck, description: "Approved tolerances and revision history.", roles: ["Owner", "Admin", "QC", "InwardQC"] },
-      { name: "Seasonal stage rules", href: "/quality/stage-rules", icon: ShieldCheck, description: "Published seasonal rules and customer overlays.", roles: ["Owner", "Admin", "QC"] },
+      { name: "Incoming QC", href: "/quality/incoming", icon: ClipboardList, description: "Inspect GRN lots; out-of-band readings hold the lot.", roles: ["Owner", "Admin", "QC", "InwardQC"] },
+      { name: "In-process QC", href: "/quality/stage", icon: Factory, description: "Winding, oven and process checks; the next stage opens on acceptance.", roles: ["Owner", "Admin", "QC", "PlantManager"] },
+      { name: "Holds & inspections", href: "/quality/results", icon: LockKeyhole, description: "Held inward lots and job cards, with every inspection result.", roles: ["Owner", "Admin", "QC", "InwardQC", "PlantManager", "Store", "Sales", "Dispatch"] },
+      { name: "Customer returns", href: "/quality/returns", icon: Undo2, description: "Customer rejections and returns, held for QC, followed to closure.", roles: ["Owner", "Admin", "QC", "PlantManager", "Store", "Sales", "Dispatch"] },
+      { name: "Material standards", href: "/quality/material-standards", icon: ShieldCheck, description: "The checks QC does on each incoming material.", roles: ["Owner", "Admin", "QC", "InwardQC"] },
+      { name: "Process stage rules", href: "/quality/stage-rules", icon: ShieldCheck, description: "Seasonal winding, oven and process tolerances, versioned.", roles: ["Owner", "Admin", "QC"] },
       { name: "Production season", href: "/settings/production-season", icon: Factory, description: "Global season and release readiness.", ownerOnly: true },
-      { name: "Results & holds", href: "/quality/results", icon: LockKeyhole, description: "Quality decisions and customer returns.", roles: ["Owner", "Admin", "QC", "InwardQC", "PlantManager", "Store", "Sales", "Dispatch"] },
       { name: "Quality analytics", href: "/reports/quality", icon: BarChart3, description: "Quality trends and variance.", roles: ["Owner", "Admin", "QC", "PlantManager"] },
     ],
   },
@@ -155,8 +156,8 @@ const navigationUnits: NavGroup[] = [
     items: [
       { name: "Goods inward", href: "/purchase/inward", icon: Package, description: "Manual or approved-PO receipt with individual reel and coil labels.", roles: ["Owner", "Admin", "Store", "PlantManager", "GRN"] },
       { name: "GRN register & labels", href: "/purchase/receipts", icon: ClipboardList, description: "Saved receipts, pending invoices, QC and label reprints.", roles: ["Owner", "Admin", "Store", "PlantManager", "Accounts", "GRN", "InwardQC"] },
-      { name: "Reel issue", href: "/inventory/reels/issue", icon: Layers, description: "Scan and issue reels to a winder and shift; close with returned weight.", roles: ["Owner", "Admin", "Store", "PlantManager", "RMIssue"] },
-      { name: "Material issue", href: "/inventory/production-issue", icon: Boxes, description: "Issue adhesive, parchment and packing to a job card.", roles: ["Owner", "Admin", "Store", "PlantManager", "RMIssue"] },
+      { name: "Reel & coil issue", href: "/inventory/reels/issue", icon: Layers, description: "Issue reels and coils to the floor by shift; each reel gets a slitting card.", roles: ["Owner", "Admin", "Store", "PlantManager", "RMIssue"] },
+      { name: "Material issue", href: "/inventory/production-issue", icon: Boxes, description: "Issue adhesive, parchment and packing to the floor by shift.", roles: ["Owner", "Admin", "Store", "PlantManager", "RMIssue"] },
       {
         name: "Stock Lifecycle",
         href: "/inventory/lifecycle",
@@ -246,6 +247,7 @@ const navigationUnits: NavGroup[] = [
       { name: "Customer 360", href: "/reports/customer-360", icon: Users, description: "Per-customer demand, delivery and risk.", roles: ["Sales"] },
       { name: "Inventory intelligence", href: "/reports/inventory", icon: Boxes, description: "Stock value, ageing and velocity.", roles: ["Store", "Planner", "PlantManager"] },
       { name: "Supplier & reels", href: "/reports/loss", icon: Package, description: "Supplier and reel performance, losses.", roles: ["Store", "PlantManager"] },
+      { name: "Slitting report", href: "/reports/slitting", icon: Layers, description: "Reels to the slitter: coils made, wastage and pending slitting cards.", roles: ["Store", "PlantManager", "Planner", "RMIssue"] },
       { name: "Quality & variance", href: "/reports/quality", icon: ShieldCheck, description: "Inspections, fail causes and variance.", roles: ["QC", "InwardQC", "PlantManager"] },
       { name: "Dispatch & SLA", href: "/reports/dispatch", icon: Truck, description: "Dispatch volume, readiness and SLA.", roles: ["Dispatch", "Sales"] },
       { name: "Tooling ledger", href: "/reports/tooling", icon: Wrench, description: "Tool assets, grinding and usage trail.", roles: ["PlantManager"] },
