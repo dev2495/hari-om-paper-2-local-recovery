@@ -268,6 +268,8 @@ export const masterApi = {
   deletePackagingFadda: (id: string) => api.delete(`/api/master/packaging/fadda/${id}`),
 
   getTools: (params?: any) => api.get("/api/master/tools", { params }),
+  /** Add every tool named in saved specification sheets that the Tool master lacks. */
+  backfillToolsFromSpecs: () => api.post("/api/master/tools/backfill-from-specs", {}),
   getToolCategories: () => api.get("/api/master/tools/categories"),
   getToolOptions: (params?: any) => api.get("/api/master/tools/options", { params }),
   createToolOption: (data: any) => api.post("/api/master/tools/options", data),
@@ -513,6 +515,8 @@ export const productionApi = {
 
 export const inventoryApi = {
   getItems: () => api.get("/api/inventory/items"),
+  /** Create the stock item for every master that has none (safe to repeat; never changes items). */
+  syncMasterItems: () => api.post("/api/inventory/items/sync-masters", {}),
   createItem: (data: any) => api.post("/api/inventory/items", data),
   updateItem: (id: string, data: any) => api.put(`/api/inventory/items/${id}`, data),
   upsertItemQualityProfile: (id: string, data: any) => api.put(`/api/inventory/items/${id}/quality-profile`, data),
@@ -604,7 +608,7 @@ export const inventoryApi = {
     material_type: string
     scope: "TYPE" | "GROUP" | "SUBGROUP" | "ITEM"
     scope_key?: string
-    lines: Array<{ parameter_key: string; mode: "RANGE" | "PLUS_MINUS" | "PERCENT"; min_value?: number | null; max_value?: number | null; tolerance_value?: number | null }>
+    lines: Array<{ parameter_key: string; mode: "RANGE" | "PLUS_MINUS" | "PERCENT" | "AT_LEAST" | "AT_MOST"; min_value?: number | null; max_value?: number | null; tolerance_value?: number | null }>
     note?: string
     nominals?: Record<string, number | null>
     material_group?: string | null

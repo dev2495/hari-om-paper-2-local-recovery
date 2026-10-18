@@ -53,6 +53,9 @@ def ensure_runtime_schema() -> None:
       "ALTER TABLE IF EXISTS customer_rejections ADD COLUMN IF NOT EXISTS complaint_batch VARCHAR(120)",
       "ALTER TABLE IF EXISTS customer_rejections ADD COLUMN IF NOT EXISTS size_label VARCHAR(160)",
       "ALTER TABLE IF EXISTS inventory_quality_standard_events ADD COLUMN IF NOT EXISTS version INTEGER",
+      # Band types "at least / at most the master value" (client QC sheet 2026-10-18).
+      "ALTER TABLE IF EXISTS inventory_quality_tolerances DROP CONSTRAINT IF EXISTS ck_inventory_qc_tolerance_mode",
+      "ALTER TABLE IF EXISTS inventory_quality_tolerances ADD CONSTRAINT ck_inventory_qc_tolerance_mode CHECK (mode IN ('RANGE','PLUS_MINUS','PERCENT','AT_LEAST','AT_MOST'))",
     ):
       connection.execute(text(statement))
     connection.execute(
@@ -862,12 +865,14 @@ def apply_quality_standards() -> None:
 
   Bands QC had approved per item are carried over first, so no live check is loosened."""
   from .database import SessionLocal
-  from .quality_standards import MATERIAL_TYPES, adopt_existing_profile_bands, materialize_type, rekey_item_tolerances
+  from .quality_standards import MATERIAL_TYPES, adopt_existing_profile_bands, convert_rule_text_checks, materialize_type, rekey_item_tolerances, seed_client_paper_rules
 
   db = SessionLocal()
   try:
     rekey_item_tolerances(db)
     adopt_existing_profile_bands(db)
+    convert_rule_text_checks(db)
+    seed_client_paper_rules(db)
     for material in MATERIAL_TYPES:
       materialize_type(db, material, actor="standards", reason="Material standards applied")
     db.commit()

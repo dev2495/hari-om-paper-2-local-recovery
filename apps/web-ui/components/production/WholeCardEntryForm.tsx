@@ -37,7 +37,9 @@ export function WholeCardEntryForm({ card, flow, onDone }: { card: any; flow: an
   const stages = flow.stages.map((s: any) => s.stage)
   const [rows, setRows] = useState<any[]>(() =>
     flow.stages
-      .filter((s: any) => s.status !== "COMPLETED" && !["SLITTING", "DISPATCH"].includes(s.stage))
+      // Packing and Final QC are system steps closed with Process (client rule 2026-10-18); an older
+      // card already packing on the floor keeps its Packing row.
+      .filter((s: any) => s.status !== "COMPLETED" && !["SLITTING", "DISPATCH", "QC"].includes(s.stage) && !(s.stage === "PACKING" && s.system_step))
       .map((s: any) => ({
         ...s,
         include: false,
@@ -121,7 +123,7 @@ export function WholeCardEntryForm({ card, flow, onDone }: { card: any; flow: an
     ...selected.map((r) => (Number(r.rejected || 0) > Number(r.produced || 0) ? `${label(r.stage)} rejected not more than output` : "")),
     ...selected.map((r) => (r.stage === "PROCESS" && r.input === "" ? "Process bamboo taken total" : "")),
     selected.some((r) => r.close) && !supervisor ? "the supervisor (to close stages)" : "",
-    selected.some((r) => r.close && r.stage === "PACKING") && !fgItem ? "the finished-good item" : "",
+    "",
     selected.some(
       (r) =>
         Number(r.rejected || 0) - Number(r.rejected_total || 0) > 0 ||
@@ -252,11 +254,12 @@ export function WholeCardEntryForm({ card, flow, onDone }: { card: any; flow: an
                 <label className="flex items-center gap-2 text-sm">
                   <input type="checkbox" className="h-5 w-5" checked={r.close} onChange={(e) => update(index, "close", e.target.checked)} /> Close {label(r.stage).toLowerCase()} after saving
                 </label>
+                {r.close && (r.stage === "PROCESS" || r.stage === "PACKING") ? <p className="text-xs text-muted-foreground">Closing {label(r.stage)} completes the job card: its good pieces become finished goods, packing material is consumed from the spec sheet, and Dispatch opens.</p> : null}
                 {r.close && r.stage === "PACKING" ? (
                   <label className="block text-sm">
-                    Finished-good item
+                    Finished-good item (optional)
                     <select className={selectClass} value={fgItem} onChange={(e) => setFgItem(e.target.value)}>
-                      <option value="">Choose finished good</option>
+                      <option value="">Automatic — from the order&apos;s product code</option>
                       {(items.data || [])
                         .filter((i: any) => i.type === "FINISHED_GOOD")
                         .map((i: any) => (

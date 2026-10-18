@@ -134,7 +134,8 @@ PROCESSES = [
         cwd=ROOT / "hariom-erp/services/masterdata-service",
         command=[PYTHON, "-m", "uvicorn", "src.main:app", "--host", "127.0.0.1", "--port", MASTER_PORT],
         health_url=f"{MASTER_URL}/health",
-        extra_env={"DATABASE_URL": database_url("masterdb")},
+        # Read-only: the Tool master is filled with tools named in specification sheets.
+        extra_env={"DATABASE_URL": database_url("masterdb"), "SPEC_DATABASE_URL": database_url("specdb")},
     ),
     ManagedProcess(
         name="spec-service",

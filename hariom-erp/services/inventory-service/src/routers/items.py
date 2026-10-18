@@ -1,5 +1,6 @@
 import logging
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from typing import Any, List, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -355,6 +356,159 @@ def update_item(
     except Exception as exc:
         _audit_logger.warning("audit emit failed for item_updated %s: %s", db_item.id, exc)
     return db_item
+
+MASTER_ITEM_TYPES = {"RAW_PAPER", "ADHESIVE", "PARCHMENT", "PACKAGING", "TOOL", "OTHER"}
+MASTER_SYNC_ROLES = ["Admin", "Owner", "PlantManager", "Purchase", "Store", "GRN", "Planner", "RMIssue"]
+
+
+class MasterItemLine(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    item_code: str = Field(min_length=1, max_length=50)
+    name: str = Field(min_length=1, max_length=200)
+    type: str
+    uom: str = "KG"
+    # The master's own values for inward QC (paper GSM, BF, thickness...) and its group (variety).
+    nominals: Optional[dict[str, Optional[float]]] = None
+    group: Optional[str] = Field(default=None, max_length=120)
+
+    @field_validator("type")
+    @classmethod
+    def _type(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if normalized not in MASTER_ITEM_TYPES:
+            raise ValueError("Masters create paper, adhesive, parchment, packaging, tool or other materials only")
+        return normalized
+
+    @field_validator("uom")
+    @classmethod
+    def _uom(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if normalized not in {"KG", "PCS"}:
+            raise ValueError("uom must be KG or PCS")
+        return normalized
+
+
+class MasterItemSync(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    lines: list[MasterItemLine] = Field(default_factory=list, max_length=3000)
+
+
+@router.post("/sync-from-masters")
+def sync_items_from_masters(
+    payload: MasterItemSync,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(MASTER_SYNC_ROLES)),
+):
+    """Every master record (paper, adhesive, parchment colour, packing, tool) is a material the
+    plant can buy, receive and issue. Create the stock item for any master that has none in this
+    plant, matched by code. Existing items are never changed; a code already used by another
+    material type is reported, not overwritten."""
+    # Pages and master saves may call this at the same moment: one sync per plant at a time.
+    db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"item-master-sync:{plant_id}"})
+    existing = {
+        str(row.item_code or "").strip().upper(): row
+        for row in db.query(ItemMaster).filter(ItemMaster.plant_id == plant_id).all()
+    }
+    created: list[str] = []
+    conflicts: list[dict[str, str]] = []
+    seen: set[str] = set()
+    refreshed = 0
+    for line in payload.lines:
+        code = line.item_code.strip()
+        key = code.upper()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        current = existing.get(key)
+        if current is not None:
+            current_type = current.type.value if hasattr(current.type, "value") else str(current.type)
+            if current_type != line.type:
+                conflicts.append({"item_code": code, "existing_type": current_type, "master_type": line.type})
+                continue
+            # The master stays the source of its own QC values: keys it supplies follow it; values
+            # typed in Masters for checks the master has no field for are kept. A group set in
+            # Masters is never replaced.
+            nominals = dict(current.qc_nominals or {}) if isinstance(current.qc_nominals, dict) else {}
+            merged = {**nominals, **{k: float(v) for k, v in (line.nominals or {}).items() if v is not None and float(v) > 0}}
+            group_changed = bool(line.group and not (current.material_group or "").strip())
+            if merged != nominals or group_changed:
+                current.qc_nominals = merged
+                if group_changed:
+                    current.material_group = line.group.strip()
+                db.flush()
+                materialize_item(db, current, actor=current_user.get("sub") or "masters", reason="Master values updated")
+                refreshed += 1
+            continue
+        uom = "KG" if line.type in {"RAW_PAPER", "PARCHMENT"} else line.uom
+        item = ItemMaster(
+            item_code=code,
+            name=line.name.strip(),
+            type=line.type,
+            tracking_mode=TrackingMode.REEL.value if line.type in {"RAW_PAPER", "PARCHMENT"} else TrackingMode.BULK.value,
+            uom=uom,
+            plant_id=plant_id,
+            qc_nominals={k: float(v) for k, v in (line.nominals or {}).items() if v is not None and float(v) > 0} or None,
+            material_group=(line.group or "").strip() or None,
+        )
+        db.add(item)
+        db.flush()
+        materialize_item(db, item, actor=current_user.get("sub") or "masters", reason="Created from master")
+        existing[key] = item
+        created.append(code)
+    db.commit()
+    return {"created": created, "refreshed": refreshed, "conflicts": conflicts, "checked": len(seen)}
+
+
+class FinishedGoodForSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    item_code: str = Field(min_length=1, max_length=50)
+    name: str = Field(min_length=1, max_length=200)
+
+
+@router.post("/finished-good-for-spec", response_model=ItemResponse)
+def finished_good_for_spec(
+    payload: FinishedGoodForSpec,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "Production", "ProductionEffects", "Planner"])),
+):
+    """The finished-good item a job card posts into: the plant's FG item with the order line's
+    product code, created on first use (client rule 2026-10-18: closing Process creates the FG)."""
+    db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"item-master-sync:{plant_id}"})
+    code = payload.item_code.strip()
+    rows = db.query(ItemMaster).filter(ItemMaster.plant_id == plant_id).all()
+    by_code = {str(row.item_code or "").strip().upper(): row for row in rows}
+    found = by_code.get(code.upper())
+    if found is not None and (found.type.value if hasattr(found.type, "value") else str(found.type)) == ItemType.FINISHED_GOOD.value:
+        if str(found.active) == "false":
+            found.active = "true"
+            db.commit()
+            db.refresh(found)
+        return found
+    if found is not None:
+        # The product code is taken by a raw material; keep the FG apart with an FG- prefix.
+        code = f"FG-{code}"[:50]
+        found = by_code.get(code.upper())
+        if found is not None and (found.type.value if hasattr(found.type, "value") else str(found.type)) == ItemType.FINISHED_GOOD.value:
+            return found
+        suffix = 2
+        while code.upper() in by_code:
+            code = f"FG-{payload.item_code.strip()}"[:46] + f"-{suffix}"
+            suffix += 1
+    item = ItemMaster(
+        item_code=code,
+        name=payload.name.strip(),
+        type=ItemType.FINISHED_GOOD.value,
+        tracking_mode=TrackingMode.BULK.value,
+        uom="PCS",
+        plant_id=plant_id,
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
 
 @router.get("/{item_id}", response_model=ItemResponse)
 def get_item(

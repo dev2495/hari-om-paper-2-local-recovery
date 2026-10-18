@@ -9,6 +9,7 @@ import hashlib
 import io
 import json
 import math
+import re
 from typing import Any, Optional
 import uuid
 from zoneinfo import ZoneInfo
@@ -493,6 +494,54 @@ def _job_card_produced_qty_for_theory(job_card: JobCard) -> float:
     return best_qty
 
 
+def _parchment_item_code(color: str) -> str:
+    """Stock code of a parchment colour (same rule the masters sync uses)."""
+    return ("PARCHMENT-" + re.sub(r"[^A-Z0-9]+", "-", color.strip().upper()).strip("-"))[:50]
+
+
+def _packaging_theory_rows(
+    *,
+    job_card: JobCard,
+    inventory_items: list[dict[str, Any]],
+    produced_qty: float,
+) -> list[dict[str, Any]]:
+    """Packing material consumed by the card, from its spec sheet (client rule 2026-10-18:
+    packing is not a floor step; boxes, plastic and fadda are consumed from the spec).
+
+    Boxes = good pieces / Qty per box (rounded up); plastic and fadda = boxes x per-box count.
+    Posted in the stock item's unit: pieces for PCS items, pieces x unit weight for KG items."""
+    spec_snapshot = dict(getattr(job_card, "spec_snapshot", {}) or {})
+    packing = getattr(job_card, "packing_record", None)
+    consumption = dict(((getattr(packing, "snapshot", None) or {}).get("packaging_consumption")) or {})
+    if not consumption and produced_qty > 0:
+        consumption = _packing_consumption_snapshot(packed_qty=produced_qty, spec_snapshot=spec_snapshot)
+    by_code = {str(row.get("item_code") or "").strip().upper(): row for row in inventory_items}
+    lines = [
+        ("Box", consumption.get("box_code"), int(consumption.get("box_count") or 0), _snapshot_float(spec_snapshot.get("box_unit_weight_kg")) or 0.0),
+        ("Plastic sheet", (consumption.get("plastic") or {}).get("sku"), int((consumption.get("plastic") or {}).get("consumed_pcs") or 0), float((consumption.get("plastic") or {}).get("unit_weight_kg") or 0.0)),
+        ("Fadda", (consumption.get("fadda") or {}).get("sku"), int((consumption.get("fadda") or {}).get("consumed_pcs") or 0), float((consumption.get("fadda") or {}).get("unit_weight_kg") or 0.0)),
+    ]
+    rows: list[dict[str, Any]] = []
+    for label, code, pieces, unit_weight in lines:
+        item_code = str(code or "").strip().upper()
+        if not item_code or pieces <= 0:
+            continue
+        item = by_code.get(item_code) or {}
+        in_kg = str(item.get("uom") or "PCS").upper() == "KG"
+        quantity = round(pieces * unit_weight, 6) if in_kg else float(pieces)
+        if quantity <= 0:
+            continue
+        rows.append({
+            "item_code": item_code,
+            "item_name": str(item.get("name") or f"{label} {code}").strip(),
+            "provisional_theory_consumption_kg": quantity,
+            "advisory_allocated_order_qty": round(produced_qty, 4),
+            "unit": "KG" if in_kg else "PCS",
+            "pieces": pieces,
+        })
+    return rows
+
+
 def _build_provisional_material_rows_for_job_card(
     *,
     job_card: JobCard,
@@ -504,13 +553,14 @@ def _build_provisional_material_rows_for_job_card(
     paper_rows = list((((bom_snapshot.get("raw_materials") or {}).get("papers")) or []))
     adhesive_rows = list(((((bom_snapshot.get("raw_materials") or {}).get("adhesives")) or {}).get("components")) or [])
     parchment_row = dict((((bom_snapshot.get("raw_materials") or {}).get("parchment")) or {}))
+    produced_qty = _job_card_produced_qty_for_theory(job_card)
+    packaging_rows = _packaging_theory_rows(job_card=job_card, inventory_items=inventory_items, produced_qty=produced_qty)
     if not paper_rows and not adhesive_rows and not parchment_row:
-        return []
+        return packaging_rows
 
     planned_output_qty = float(material_snapshot.get("planned_output_qty") or getattr(job_card, "planned_qty", 0.0) or 0.0)
-    produced_qty = _job_card_produced_qty_for_theory(job_card)
     if produced_qty <= 0 or planned_output_qty <= 0:
-        return []
+        return packaging_rows
 
     ratio = max(0.0, min(1.5, produced_qty / planned_output_qty))
     target_bamboo_count = material_snapshot.get("target_bamboo_count")
@@ -524,7 +574,7 @@ def _build_provisional_material_rows_for_job_card(
     except (TypeError, ValueError):
         provisional_bamboo_count = None
     if not provisional_bamboo_count or provisional_bamboo_count <= 0:
-        return []
+        return packaging_rows
 
     aggregated: dict[str, dict[str, Any]] = {}
 
@@ -616,7 +666,13 @@ def _build_provisional_material_rows_for_job_card(
             exact_codes=["PARCHMENT"],
             loose_tokens=[color.upper()] if color else None,
         )
-        item_code = "PARCHMENT"
+        # Parchment is stocked per colour (PARCHMENT-<COLOUR>, as the masters create it), so the
+        # month-end stock count of that colour meets this theory; older plants with one generic
+        # PARCHMENT item keep posting to it.
+        colour_code = _parchment_item_code(color) if color else ""
+        colour_item = next((row for row in inventory_items if str(row.get("item_code") or "").strip().upper() == colour_code), None) if colour_code else None
+        item_code = colour_code if colour_item or (colour_code and not any(str(row.get("item_code") or "").strip().upper() == "PARCHMENT" for row in inventory_items)) else "PARCHMENT"
+        inventory_match = colour_item or inventory_match
         item_name = str((inventory_match or {}).get("name") or (f"Parchment · {color}" if color else "Parchment")).strip() or None
         accumulate(
             item_code,
@@ -624,6 +680,9 @@ def _build_provisional_material_rows_for_job_card(
             round(float(parchment_row.get("weight_kg") or 0.0) * provisional_bamboo_count, 6),
         )
 
+    for row in packaging_rows:
+        bucket = aggregated.setdefault(row["item_code"], {**row, "provisional_theory_consumption_kg": 0.0})
+        bucket["provisional_theory_consumption_kg"] = round(float(bucket["provisional_theory_consumption_kg"] or 0.0) + float(row["provisional_theory_consumption_kg"]), 6)
     return list(aggregated.values())
 
 
@@ -636,7 +695,9 @@ def _upsert_monthly_provisional_theory(
     plant_id: str,
     current_user: dict[str, Any],
 ) -> None:
-    if selected_stage not in {"PACKING", "QC"}:
+    # Theory posts once the card's good output is known: at Process close (Process is the last
+    # floor step, client rule 2026-10-18) or, on older cards, at Packing / final QC close.
+    if selected_stage not in {"PROCESS", "PACKING", "QC"}:
         return
 
     paper_catalog = _fetch_paper_catalog_for_theory(token, plant_id)
@@ -685,6 +746,7 @@ def _upsert_monthly_provisional_theory(
             "selected_stage": selected_stage,
             "job_card_status": job_card.status,
             "planned_qty": float(job_card.planned_qty or 0.0),
+            **({"unit": row["unit"], "pieces": row.get("pieces")} if row.get("unit") else {}),
         }
 
     for item_code, existing in existing_rows.items():

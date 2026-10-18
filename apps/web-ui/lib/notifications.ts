@@ -102,6 +102,7 @@ export const ACTION_LABELS: Record<string, string> = {
   inspect: "Inspect",
   decide_return: "Open complaint",
   approve: "Approve",
+  attach_invoice: "Attach invoice",
 }
 
 export function relativeTime(value?: string, now = Date.now()) {

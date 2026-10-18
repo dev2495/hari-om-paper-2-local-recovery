@@ -129,6 +129,39 @@ async def notify_receipt(path: str, response: Response, request: Request, token:
     if not isinstance(body, dict) or body.get("idempotent") is True:
         return
     plant_id = _plant(request, body)
+    commercial = str(body.get("commercial_status") or "").upper()
+    grn_label = body.get("grn_no") or "GRN"
+    supplier_label = body.get("supplier_name") or "Supplier"
+    receipt_id = str(body.get("id") or body.get("receipt_id") or "")
+    # Stock held for a commercial reason goes to the people who clear it (client 2026-10-18:
+    # "approval ke liye kiske pass jayega").
+    if path in {"receipts", "manual-receipts"} or path.endswith("/attach-invoice"):
+        if commercial in {"RATE_REVIEW", "REVIEW_REQUIRED"}:
+            await _emit(
+                token,
+                event_type="PURCHASE_INVOICE_DIFFERENCE",
+                title=f"{grn_label}: invoice differs from the PO — decide",
+                message=f"{supplier_label}: the invoice rate or quantity is not what the PO says, so the stock is held. Plant head or Accounts accepts the difference, raises a debit note or releases the stock (not the person who made the GRN).",
+                href="/purchase/discrepancies",
+                recipient_roles=["PlantManager", "Accounts", "Owner", "Admin"],
+                role_context="PlantManager",
+                plant_id=plant_id,
+                payload={"receipt_id": receipt_id, "action": "approve", "priority": "action", "plant_id": plant_id},
+                event_id=f"grn-difference:{receipt_id}:{commercial}",
+            )
+        elif commercial == "INVOICE_PENDING" and path in {"receipts", "manual-receipts"}:
+            await _emit(
+                token,
+                event_type="PURCHASE_INVOICE_PENDING",
+                title=f"{grn_label}: attach the supplier invoice",
+                message=f"{supplier_label} goods were received without an invoice, so the stock is held. Store attaches the invoice in the GRN register when it arrives; matching rates release the stock.",
+                href=f"/purchase/receipts?receipt={receipt_id}",
+                recipient_roles=["Store", "GRN", "PlantManager"],
+                role_context="Store",
+                plant_id=plant_id,
+                payload={"receipt_id": receipt_id, "action": "attach_invoice", "priority": "action", "plant_id": plant_id},
+                event_id=f"grn-invoice:{receipt_id}",
+            )
     if path in {"receipts", "manual-receipts"}:
         lots = body.get("lots") or body.get("created_lots") or []
         grn = body.get("grn_no") or "GRN"
@@ -150,9 +183,9 @@ async def notify_receipt(path: str, response: Response, request: Request, token:
                 token,
                 event_type="PURCHASE_MANUAL_GRN_APPROVAL",
                 title=f"Manual {grn} needs approval",
-                message=f"{body.get('supplier_name') or 'Supplier'} goods were received without a PO. Another Owner / Admin approves it before the stock is usable.",
+                message=f"{body.get('supplier_name') or 'Supplier'} goods were received without a PO. Plant head or Accounts (not the person who made the GRN) approves it before the stock is usable.",
                 href=f"/purchase/receipts?receipt={body.get('id')}",
-                recipient_roles=["Owner", "Admin"],
+                recipient_roles=["PlantManager", "Accounts", "Owner", "Admin"],
                 role_context="Owner",
                 plant_id=plant_id,
                 payload={"receipt_id": str(body.get("id") or ""), "action": "approve", "priority": "action", "plant_id": plant_id},

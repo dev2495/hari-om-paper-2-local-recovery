@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import uuid
 from datetime import datetime
 from typing import Any, Iterable, Optional
@@ -35,7 +36,10 @@ MATERIAL_TYPES: dict[str, dict[str, Optional[str]]] = {
     "OTHER": {"label": "Other material", "group": "Group", "subgroup": None, "master": None},
 }
 SCOPES = ("ITEM", "SUBGROUP", "GROUP", "TYPE")
-MODES = ("RANGE", "PLUS_MINUS", "PERCENT")
+# RANGE: min-max. PLUS_MINUS / PERCENT: around the line's master value. AT_LEAST / AT_MOST: not
+# below / not above the line's master value, less / plus an optional allowance (client QC sheet
+# 2026-10-18: "GSM, BF, polybond >= required").
+MODES = ("RANGE", "PLUS_MINUS", "PERCENT", "AT_LEAST", "AT_MOST")
 NUMERIC_INPUTS = frozenset({"number", "numeric", "measured", ""})
 SUBGROUP_SEPARATOR = "||"
 
@@ -102,6 +106,11 @@ def band_from_row(row: InventoryQualityTolerance, nominal: Optional[float]) -> O
     if mode == "RANGE":
         lower, upper = _number(row.min_value), _number(row.max_value)
         return None if lower is None and upper is None else (lower, upper)
+    if mode in ("AT_LEAST", "AT_MOST"):
+        if nominal is None:
+            return None
+        allowance = abs(_number(row.tolerance_value) or 0.0)
+        return (round(nominal - allowance, 6), None) if mode == "AT_LEAST" else (None, round(nominal + allowance, 6))
     spread = _number(row.tolerance_value)
     if spread is None or nominal is None:
         return None
@@ -292,3 +301,66 @@ def adopt_existing_profile_bands(db: Session) -> int:
             created += 1
     db.flush()
     return created
+
+
+# Client QC sheet (2026-10-18), as typed on the live Material standards page: these paper checks
+# are measured, and their acceptance rule applies to every paper line unless Masters set another.
+CLIENT_PAPER_RULES: dict[str, dict[str, Any]] = {
+    "gsm": {"mode": "AT_LEAST", "tolerance_value": 0.0, "label": "GSM", "unit": "g/m²", "rule": "at least the line's GSM"},
+    "moisture_pct": {"mode": "RANGE", "min_value": 6.0, "max_value": 9.0, "label": "Moisture", "unit": "%", "rule": "6 to 9 %"},
+    "caliper_mm": {"mode": "PLUS_MINUS", "tolerance_value": 0.025, "label": "Thickness", "unit": "mm", "rule": "± 0.025 mm of the line's thickness"},
+    "bf": {"mode": "AT_LEAST", "tolerance_value": 0.0, "label": "BF", "unit": "", "rule": "at least the line's BF"},
+    "ply_bond": {"mode": "AT_LEAST", "tolerance_value": 0.0, "label": "Polybond", "unit": "", "rule": "at least the line's polybond"},
+    "bulk": {"mode": "AT_LEAST", "tolerance_value": 0.0, "label": "Bulk", "unit": "", "rule": "at least the line's bulk"},
+}
+_RULE_WORDS = re.compile(r"GREATER|LESS|REQUIRED|>=|<=|>|<|\+/-|±|FROM_THE|MM_FROM|ALWAYS|%")
+
+
+def convert_rule_text_checks(db: Session) -> int:
+    """A measured paper check that was set up as pass / fail with its acceptance rule typed as the
+    outcomes (live 2026-10-18: "IF GREATER THAN REQUIRED PASS / OK IF LESS THAN REQUIRED FAILED")
+    can never be judged. Turn it back into a measured check; its rule becomes a band (below).
+    The typed text is kept in the change history."""
+    converted = 0
+    rows = db.query(InventoryQualityTemplate).filter_by(plant_id="GLOBAL", material_type="RAW_PAPER").all()
+    for row in rows:
+        rule = CLIENT_PAPER_RULES.get(row.parameter_key)
+        if rule is None or is_numeric(row.input_type):
+            continue
+        options = [str(option) for option in (row.options or [])]
+        if not options or not any(_RULE_WORDS.search(option.upper()) for option in options):
+            continue
+        before = {"input_type": row.input_type, "options": options, "unit": row.unit}
+        row.input_type, row.options = "number", []
+        if not (row.unit or "").strip():
+            row.unit = rule["unit"] or None
+        row.updated_by, row.updated_at = "standards", datetime.utcnow()
+        record_event(db, material_type="RAW_PAPER", kind="PARAMETER_UPDATED", actor="standards", before=before,
+                     after={"input_type": "number", "options": [], "unit": row.unit},
+                     parameter_key=row.parameter_key,
+                     note=f"Rule typed as pass / fail outcomes; check made measurable, rule kept as the band: {rule['rule']}")
+        converted += 1
+    db.flush()
+    return converted
+
+
+def seed_client_paper_rules(db: Session) -> int:
+    """All-paper default bands from the client's QC sheet, only where none was ever set."""
+    created = 0
+    for code, rule in CLIENT_PAPER_RULES.items():
+        exists = db.query(InventoryQualityTolerance).filter_by(material_type="RAW_PAPER", scope="TYPE", scope_key="", parameter_key=code).first()
+        history = db.query(InventoryQualityStandardEvent).filter_by(material_type="RAW_PAPER", scope="TYPE", scope_key="", parameter_key=code).first()
+        if exists or history:
+            continue
+        version = next_scope_version(db, "RAW_PAPER", "TYPE", "")
+        row = InventoryQualityTolerance(material_type="RAW_PAPER", scope="TYPE", scope_key="", parameter_key=code, mode=rule["mode"],
+                                        min_value=rule.get("min_value"), max_value=rule.get("max_value"), tolerance_value=rule.get("tolerance_value"),
+                                        version=version, note="Client QC sheet rule", updated_by="standards", updated_at=datetime.utcnow())
+        db.add(row)
+        db.flush()
+        record_event(db, material_type="RAW_PAPER", kind="TOLERANCE_SET", actor="standards", after=tolerance_dict(row), scope="TYPE", scope_key="",
+                     parameter_key=code, note=f"Client QC sheet rule: {rule['rule']}", version=version)
+        created += 1
+    db.flush()
+    return created
+

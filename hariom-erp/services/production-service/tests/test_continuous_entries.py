@@ -443,3 +443,78 @@ def test_winding_before_slitting_record_is_flagged_and_closes_slitting_with_wind
     assert slitting.actuals_snapshot['close_kind']=='CLOSED_WITH_WINDING' and slitting.actuals_snapshot['material_prep_pending']
     flags={row['flag'] for row in a.flagged_entries(30,200,db,PLANT,USER) if row['job_card_id']==str(job.id)}
     assert 'MATERIAL_PREP_PENDING' in flags
+
+
+def process_samples(job):
+    """Two passing readings for every Process check, from the card's own resolved bands."""
+    readings={}
+    for p in job.spec_snapshot['qc_profile']['stages']['PROCESS']['parameters']:
+        if not p.get('applicable',True):continue
+        low,high=p.get('min'),p.get('max')
+        readings[p['code']]=(low+high)/2 if low is not None and high is not None else low+1 if low is not None else high-1 if high is not None else 10
+    return [{'sample_id':str(uuid.uuid4()),'readings':dict(readings)} for _ in range(2)]
+
+
+def run_to_process(a,db,job,monkeypatch):
+    monkeypatch.setattr(a,'fg_item_for',lambda *args:'11111111-1111-1111-1111-111111111111')
+    create(a,db,job,produced=10,accepted=10,samples=winding_samples())
+    a.close_stage(job.id,'WINDER',close_input(),db,PLANT,USER)
+    create(a,db,job,'OVEN',produced=10,accepted=10,input_quantity=10,samples=oven_samples())
+    a.close_stage(job.id,'OVEN',close_input(),db,PLANT,USER)
+
+
+def test_process_close_completes_the_card_with_packing_from_the_spec(card,monkeypatch):
+    # Client rule 2026-10-18: Process is the last floor step and its QC is the final QC.
+    from src.entry_models import CompletionEffect
+    from src.models import PackingRecord
+    a,db,job=card
+    job.spec_snapshot={**job.spec_snapshot,'qty_per_box':40,'box_code':'R-150','fadda_per_box':3,'fadda_sku':'FD-3','product_code':'FG-TEST'};db.commit()
+    run_to_process(a,db,job,monkeypatch)
+    create(a,db,job,'PROCESS',produced=100,accepted=100,input_quantity=10,samples=process_samples(job))
+    process=next(s for s in a.flow(db,job)['stages'] if s['stage']=='PROCESS')
+    assert process['completes_card'] and process['completion_preview']['packing']['box_count']==3
+    states={s['stage']:s for s in a.close_stage(job.id,'PROCESS',close_input(expected_version=process['row_version']),db,PLANT,USER)['flow']['stages']}
+    assert states['PACKING']['status']=='COMPLETED' and states['QC']['status']=='COMPLETED'
+    assert states['PACKING']['accepted_total']==100 and states['PACKING']['system_step']
+    assert states['DISPATCH']['available_from_upstream']==100
+    packing=db.query(PackingRecord).filter_by(job_card_id=job.id).one()
+    assert packing.total_packed_qty==100 and str(packing.fg_item_id)=='11111111-1111-1111-1111-111111111111'
+    assert packing.snapshot['packaging_consumption']['box_count']==3 and packing.snapshot['packaging_consumption']['fadda']['consumed_pcs']==9
+    kinds={(e.kind,e.payload['stage']) for e in db.query(CompletionEffect).filter_by(job_card_id=job.id)}
+    assert ('theory','PROCESS') in kinds and ('fg_inward','PACKING') in kinds
+    assert job.current_stage=='DISPATCH'
+
+
+def test_process_cannot_close_while_a_batch_waits_for_qc(card,monkeypatch):
+    # Process QC is the final QC: every good Process batch must be QC-accepted before the card completes.
+    a,db,job=card
+    run_to_process(a,db,job,monkeypatch)
+    create(a,db,job,'PROCESS',produced=50,accepted=50,input_quantity=5,samples=process_samples(job))
+    create(a,db,job,'PROCESS',produced=50,accepted=50,input_quantity=5)
+    process=next(s for s in a.flow(db,job)['stages'] if s['stage']=='PROCESS')
+    assert any('50 pcs on Process still need QC accepted' in b for b in process['blockers'])
+    with pytest.raises(HTTPException) as err:
+        a.close_stage(job.id,'PROCESS',close_input(expected_version=process['row_version']),db,PLANT,USER)
+    assert err.value.status_code==409
+    db.rollback()
+    assert a.stage_row(db,job,'PACKING').status!='COMPLETED'
+
+
+def test_card_already_packing_closes_without_choosing_an_fg_item(card,monkeypatch):
+    # A card whose Process closed under the old flow and is packing on the floor (client screenshot
+    # 2026-10-18: "Select the finished-good item before closing Packing"): closing Packing picks the
+    # FG item automatically and completes final QC, which Process QC already covered.
+    from src.entry_models import CompletionEffect
+    a,db,job=card
+    run_to_process(a,db,job,monkeypatch)
+    create(a,db,job,'PROCESS',produced=100,accepted=100,input_quantity=10,samples=process_samples(job))
+    process=a.stage_row(db,job,'PROCESS');process.status='COMPLETED';db.commit()
+    create(a,db,job,'PACKING',produced=100,accepted=100,input_quantity=100)
+    packing=next(s for s in a.flow(db,job)['stages'] if s['stage']=='PACKING')
+    assert not packing['system_step']
+    states={s['stage']:s for s in a.close_stage(job.id,'PACKING',close_input(expected_version=packing['row_version']),db,PLANT,USER)['flow']['stages']}
+    assert states['PACKING']['status']=='COMPLETED' and states['QC']['status']=='COMPLETED'
+    assert a.stage_row(db,job,'PACKING').entry_snapshot['fg_item_id']=='11111111-1111-1111-1111-111111111111'
+    assert states['DISPATCH']['available_from_upstream']==100
+    kinds={(e.kind,e.payload['stage']) for e in db.query(CompletionEffect).filter_by(job_card_id=job.id)}
+    assert ('fg_inward','PACKING') in kinds and ('theory','PACKING') in kinds

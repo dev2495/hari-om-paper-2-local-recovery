@@ -23,6 +23,7 @@ import { BreadcrumbCapsule } from "@/components/workspace/breadcrumb-capsule"
 import { useNotificationSummary } from "@/hooks/use-workspace"
 import { useSalesOrderAggregates } from "@/hooks/use-sales"
 import { useJobCardAggregates } from "@/hooks/use-production"
+import { MessageMirror } from "@/components/workspace/message-mirror"
 
 type NavLink = {
   name: string
@@ -434,6 +435,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <main id="workspace-content" tabIndex={-1} className="tube-content focus:outline-none"><div key={pathname} className="tube-page">{children}</div></main>
     </div>
     <RouteProgress />
+    <MessageMirror />
     {toast ? <div key={toast.message} className="tube-toast fixed bottom-4 right-4 z-[70] w-[min(400px,calc(100vw-32px))] overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-pop" role={toast.type === "error" ? "alert" : "status"}><div className="flex items-start gap-3 p-3.5"><span className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full ${toast.type === "error" ? "bg-signal-rose-soft text-signal-rose-ink" : toast.type === "success" ? "bg-signal-emerald-soft text-signal-emerald-ink" : "bg-signal-blue-soft text-signal-blue-ink"}`}>{toast.type === "error" ? <AlertTriangle size={13} /> : toast.type === "success" ? <CheckCircle2 size={13} /> : <Info size={13} />}</span><p className="flex-1 text-[13px] leading-5">{toast.message}</p><button className="grid h-6 w-6 place-items-center rounded-md text-muted-foreground hover:bg-foreground/[.06] hover:text-foreground" aria-label="Dismiss notification" onClick={clearToast}><X size={14} /></button></div><div className={`h-0.5 ${toast.type === "error" ? "bg-signal-rose-ink/60" : toast.type === "success" ? "bg-signal-emerald-ink/60" : "bg-primary/60"}`} /></div> : null}
   </div>
 }

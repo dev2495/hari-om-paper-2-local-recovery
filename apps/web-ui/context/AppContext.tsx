@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useCallback, useContext, useMemo, useState } from "react"
+import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react"
 
 type ToastTone = "success" | "error" | "info"
 
@@ -19,12 +19,22 @@ const AppContext = createContext<AppContextValue | undefined>(undefined)
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [toast, setToast] = useState<ToastState>(null)
+  const timer = useRef<number | undefined>(undefined)
 
+  // Bottom-right banner (client 2026-10-18): every message is visible without scrolling and
+  // clears itself; errors stay longer than confirmations.
   const showToast = useCallback((message: string, tone: ToastTone = "info") => {
-    setToast({ message, type: tone })
+    const text = String(message || "").trim()
+    if (!text) return
+    setToast({ message: text, type: tone })
+    if (typeof window !== "undefined") {
+      window.clearTimeout(timer.current)
+      timer.current = window.setTimeout(() => setToast(null), tone === "error" ? 12000 : 6000)
+    }
   }, [])
 
   const clearToast = useCallback(() => {
+    if (typeof window !== "undefined") window.clearTimeout(timer.current)
     setToast(null)
   }, [])
 

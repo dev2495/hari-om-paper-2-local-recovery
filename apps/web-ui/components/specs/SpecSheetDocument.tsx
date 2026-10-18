@@ -24,6 +24,7 @@ import { PaperPicker } from "@/components/specs/shared/PaperPicker"
 import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
 import { displayPlantScope } from "@/lib/plant-scope"
+import { masterApi } from "@/lib/api"
 import { resolveSpecSummary } from "@/lib/spec-summary"
 import { buildBambooPlan, DELTA_ABS_G, RECIPE_MAX_PAPERS, RECIPE_MAX_PLIES, RECIPE_MIN_PAPERS } from "@/lib/spec-math"
 import {
@@ -715,7 +716,19 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
   const { data: packagingBoxes } = usePackagingBoxes()
   const { data: packagingPlasticSheets } = usePackagingPlasticSheets()
   const { data: packagingFadda } = usePackagingFadda()
-  const { data: tools } = useTools()
+  const { data: tools, refetch: refetchTools } = useTools()
+  const [toolBackfill, setToolBackfill] = useState<"" | "running" | "done" | "failed">("")
+  const canFillTools = ["Owner", "Admin", "PlantManager"].some((role) => userRoles.has(role))
+  const fillMissingTools = async () => {
+    setToolBackfill("running")
+    try {
+      await masterApi.backfillToolsFromSpecs()
+      await refetchTools()
+      setToolBackfill("done")
+    } catch {
+      setToolBackfill("failed")
+    }
+  }
   const { data: toolMasterOptions } = useToolOptions()
   const { data: specConstants } = useSpecConstants()
   const { data: specDefaults } = useSpecDefaults(hasConcreteWritePlant ? activePlant : null)
@@ -3842,6 +3855,15 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
             {notchSetupRequested && (!notchGeometryValid || !notchToolsLinked) ? (
               <div className="rounded-xl border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-xs font-semibold text-signal-amber-ink">
                 Complete master-linked tools, direction, distance and depth. Distance must be greater than zero and no longer than the finished tube.
+                {!notchToolsLinked && canFillTools ? (
+                  <span className="mt-2 flex flex-wrap items-center gap-2" data-print-hidden="true">
+                    <button type="button" className="rounded-lg border border-signal-amber-line bg-card px-2.5 py-1 text-xs font-semibold text-foreground hover:bg-muted disabled:opacity-60" disabled={toolBackfill === "running"} onClick={() => void fillMissingTools()}>
+                      {toolBackfill === "running" ? "Adding tools…" : "Add the tools named in saved spec sheets to the Tool master"}
+                    </button>
+                    {toolBackfill === "done" ? <span className="font-normal">Done. Tools not yet saved on this sheet: save the sheet first, then press again.</span> : null}
+                    {toolBackfill === "failed" ? <span className="font-normal">Could not add tools. Add them in Masters › Tools.</span> : null}
+                  </span>
+                ) : null}
               </div>
             ) : null}
             <div className="grid gap-3 md:grid-cols-4">

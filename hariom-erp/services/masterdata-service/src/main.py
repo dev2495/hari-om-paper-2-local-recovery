@@ -1,3 +1,4 @@
+import os
 import uuid
 
 from fastapi import FastAPI
@@ -742,6 +743,11 @@ def _seed_tool_attribute_options() -> None:
 
 
 _seed_tool_attribute_options()
+
+
+from .tool_backfill import backfill_tools_from_specs
+
+backfill_tools_from_specs()
 
 
 @app.get("/")

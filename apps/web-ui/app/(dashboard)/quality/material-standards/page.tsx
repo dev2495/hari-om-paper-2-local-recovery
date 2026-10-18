@@ -15,13 +15,15 @@ import {
   useCreateQualityStandardParameter,
   useQualityStandardHistory,
   useQualityStandardParameters,
+  useQualityStandardTolerances,
   useUpdateQualityStandardParameter,
 } from "@/hooks/use-inventory"
+import { describeBand } from "@/lib/qc-bands"
 import { cn } from "@/lib/utils"
 
 const KINDS = [
   { value: "number", label: "Measured value", hint: "A number checked against the band Masters set" },
-  { value: "select", label: "Pass / fail", hint: "Pick one outcome, e.g. OK / NOT OK" },
+  { value: "select", label: "Pass / fail", hint: "QC ticks one outcome (e.g. OK / NOT OK); FAIL, NOT OK, NO or REJECT hold the lot. For a number with a rule (≥ required, ± 0.025, 6–9 %) use Measured value — the rule is set in Masters" },
   { value: "text", label: "Note", hint: "Written observation; never holds a lot" },
 ]
 const kindLabel = (value: string) => KINDS.find((kind) => kind.value === value)?.label || "Measured value"
@@ -40,6 +42,9 @@ export default function MaterialStandardsPage() {
   const canSetBands = ["Owner", "Admin"].some((role) => roles.has(role))
   const [materialType, setMaterialType] = useState("RAW_PAPER")
   const parameters = useQualityStandardParameters(materialType)
+  // The rule each measured check follows for every line of this material (its "all <type>" band).
+  const bands = useQualityStandardTolerances(materialType)
+  const typeRule = (code: string) => (bands.data?.tolerances || []).find((row: any) => row.scope === "TYPE" && row.parameter_key === code)
   const history = useQualityStandardHistory(materialType)
   const create = useCreateQualityStandardParameter()
   const update = useUpdateQualityStandardParameter()
@@ -116,8 +121,20 @@ export default function MaterialStandardsPage() {
                 {kindLabel(item.input_type)}
                 {item.input_type === "select" && item.options?.length ? ` · ${item.options.map((option: string) => option.replace(/_/g, " ")).join(" / ")}` : ""}
                 {" · "}{item.required ? "required" : "optional"}
-                {!item.active ? " · switched off" : item.measured ? " · band set in Masters" : ""}
+                {!item.active ? " · switched off" : ""}
               </p>
+              {item.active && item.measured ? (
+                <p className="mt-0.5 text-[12.5px]">
+                  {typeRule(item.parameter_key)
+                    ? <><span className="text-muted-foreground">Rule for every line: </span><span className="font-medium">{describeBand(typeRule(item.parameter_key), null, item.unit || "")}</span><span className="text-muted-foreground"> · a line or group may have its own band in Masters</span></>
+                    : <span className="text-signal-amber-ink">No rule for all lines yet — readings are recorded only unless a line or group has a band in Masters.</span>}
+                </p>
+              ) : null}
+              {item.active && item.input_type === "select" && (item.options || []).some((option: string) => /GREATER|LESS|REQUIRED|>=|<=|\+\/-|±|%|_MM_/.test(String(option).toUpperCase())) ? (
+                <p className="mt-1 rounded-md border border-signal-amber-line bg-signal-amber-soft px-2 py-1 text-[12px] text-signal-amber-ink">
+                  These outcomes read like a rule. A pass / fail check only records what QC ticks, so the rule is never checked. Edit it to <b>Measured value</b> and set the rule in Masters (for example ≥ master value, ± 0.025).
+                </p>
+              ) : null}
             </div>
           </div>
         )}

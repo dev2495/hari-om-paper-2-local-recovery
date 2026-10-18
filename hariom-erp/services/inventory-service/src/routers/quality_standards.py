@@ -29,7 +29,7 @@ from ..quality_standards import (
     tolerance_dict,
     tolerance_index,
 )
-from ..utils.auth import get_current_plant, get_current_user, require_role
+from ..utils.auth import authorized_plant_ids, get_current_plant_scope, get_current_user, require_role
 
 router = APIRouter(prefix="/inventory/quality/standards", tags=["inventory-quality-standards"])
 
@@ -194,13 +194,23 @@ def _item_row(item: ItemMaster, measured: list[InventoryQualityTemplate], index:
 
 
 @router.get("/tolerances")
-def read_tolerances(material_type: str = Query(...), db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant),
+def read_tolerances(material_type: str = Query(...), db: Session = Depends(get_db), plant_scope: dict = Depends(get_current_plant_scope),
                     current_user: dict = Depends(get_current_user)):
+    """Master-level read: works for one plant or "All visible plants". A material line is its code,
+    so the same code in two plants is listed once (bands and groups are kept per code)."""
     material = _material(material_type)
     parameters = parameters_for(db, material, include_inactive=False)
     measured = [row for row in parameters if is_numeric(row.input_type)]
     index = tolerance_index(db, material)
-    items = db.query(ItemMaster).filter(ItemMaster.type == material, ItemMaster.plant_id == plant_id).order_by(ItemMaster.item_code).all()
+    plants = authorized_plant_ids(plant_scope)
+    items: list[ItemMaster] = []
+    seen: set[str] = set()
+    for item in db.query(ItemMaster).filter(ItemMaster.type == material, ItemMaster.plant_id.in_(plants)).order_by(ItemMaster.item_code, ItemMaster.plant_id).all():
+        code = line_key(item.item_code)
+        if code in seen:
+            continue
+        seen.add(code)
+        items.append(item)
     groups: dict[str, set[str]] = {}
     for item in items:
         if item.material_group:
@@ -252,7 +262,7 @@ def _line_items(db: Session, code: str) -> list[ItemMaster]:
     return db.query(ItemMaster).filter(func.upper(func.trim(ItemMaster.item_code)) == line_key(code)).all()
 
 
-def _validate_scope(db: Session, material: str, scope: str, key: str, plant_id: str) -> tuple[str, str]:
+def _validate_scope(db: Session, material: str, scope: str, key: str) -> tuple[str, str]:
     scope = str(scope or "").upper()
     if scope not in SCOPES:
         raise HTTPException(400, "scope must be ITEM, SUBGROUP, GROUP or TYPE")
@@ -272,10 +282,11 @@ def _validate_scope(db: Session, material: str, scope: str, key: str, plant_id: 
 
 
 @router.put("/tolerances")
-def save_tolerances(payload: ToleranceSave, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant),
+def save_tolerances(payload: ToleranceSave, db: Session = Depends(get_db),
                     current_user: dict = Depends(require_role(TOLERANCE_ROLES))):
+    # Bands are master data for every plant (keyed by material code / group), so no plant is needed.
     material = _material(payload.material_type)
-    scope, key = _validate_scope(db, material, payload.scope, payload.scope_key, plant_id)
+    scope, key = _validate_scope(db, material, payload.scope, payload.scope_key)
     measured = {row.parameter_key: row for row in parameters_for(db, material) if is_numeric(row.input_type)}
     actor = current_user.get("sub")
     line_items = _line_items(db, key) if scope == "ITEM" else []
@@ -308,8 +319,9 @@ def save_tolerances(payload: ToleranceSave, db: Session = Depends(get_db), plant
         label = measured[line.parameter_key].label
         mode = str(line.mode or "RANGE").upper()
         if mode not in MODES:
-            raise HTTPException(422, f"{label}: choose min–max, ± value or ± %")
-        blank = (line.min_value is None and line.max_value is None) if mode == "RANGE" else line.tolerance_value is None
+            raise HTTPException(422, f"{label}: choose ± value, ± %, at least / at most the master value, or min–max")
+        relative = mode in ("AT_LEAST", "AT_MOST")
+        blank = (line.min_value is None and line.max_value is None) if mode == "RANGE" else (line.tolerance_value is None and not relative)
         if mode == "RANGE" and line.min_value is not None and line.max_value is not None and line.min_value > line.max_value:
             raise HTTPException(422, f"{label}: min {line.min_value:g} is above max {line.max_value:g}")
         if mode != "RANGE" and scope == "ITEM" and not blank:
@@ -327,7 +339,7 @@ def save_tolerances(payload: ToleranceSave, db: Session = Depends(get_db), plant
                 changed_codes.append(line.parameter_key)
             continue
         values = {"mode": mode, "min_value": line.min_value if mode == "RANGE" else None, "max_value": line.max_value if mode == "RANGE" else None,
-                  "tolerance_value": line.tolerance_value if mode != "RANGE" else None}
+                  "tolerance_value": (line.tolerance_value if line.tolerance_value is not None else 0.0) if relative else line.tolerance_value if mode != "RANGE" else None}
         if row and all(getattr(row, field) == value for field, value in values.items()):
             continue
         if not row:
@@ -351,11 +363,11 @@ def save_tolerances(payload: ToleranceSave, db: Session = Depends(get_db), plant
 
 @router.get("/scope")
 def read_scope(material_type: str = Query(...), scope: str = Query(...), scope_key: str = Query(""), group: str = Query(""),
-               subgroup: str = Query(""), db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant),
+               subgroup: str = Query(""), db: Session = Depends(get_db),
                current_user: dict = Depends(get_current_user)):
     """One scope's bands, what a line inherits above it, and the scope's versioned history (master-row popup)."""
     material = _material(material_type)
-    scope, key = _validate_scope(db, material, scope, scope_key, plant_id)
+    scope, key = _validate_scope(db, material, scope, scope_key)
     parameters = [row for row in parameters_for(db, material) if is_numeric(row.input_type)]
     index = tolerance_index(db, material)
     rows = {code: tolerance_dict(row) for (s_, k_, code), row in index.items() if s_ == scope and k_ == key}
@@ -405,41 +417,50 @@ class ItemStandards(BaseModel):
 
 
 @router.put("/items/{item_id}")
-def save_item_standards(item_id: uuid.UUID, payload: ItemStandards, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant),
+def save_item_standards(item_id: uuid.UUID, payload: ItemStandards, db: Session = Depends(get_db), plant_scope: dict = Depends(get_current_plant_scope),
                         current_user: dict = Depends(require_role(["Owner", "Admin", "Store"]))):
-    item = db.query(ItemMaster).filter(ItemMaster.id == item_id, ItemMaster.plant_id == plant_id).with_for_update().first()
+    item = db.query(ItemMaster).filter(ItemMaster.id == item_id, ItemMaster.plant_id.in_(authorized_plant_ids(plant_scope))).with_for_update().first()
     if not item:
         raise HTTPException(404, "Material not found")
     material = item_type(item)
     if material not in MATERIAL_TYPES:
         raise HTTPException(400, "Finished goods have no inward QC standard")
-    before = {"material_group": item.material_group, "material_subgroup": item.material_subgroup, "qc_nominals": item.qc_nominals}
     data = payload.model_dump(exclude_unset=True)
-    if "material_group" in data:
-        item.material_group = (data["material_group"] or "").strip() or None
-        if not item.material_group:
-            item.material_subgroup = None
-    if "material_subgroup" in data:
-        item.material_subgroup = (data["material_subgroup"] or "").strip() or None
-        if item.material_subgroup and not item.material_group:
-            raise HTTPException(422, "Choose the group before the sub-group")
-    if "qc_nominals" in data:
-        measured = {row.parameter_key for row in parameters_for(db, material) if is_numeric(row.input_type)}
-        nominals = dict(item.qc_nominals or {}) if isinstance(item.qc_nominals, dict) else {}
-        for code, value in (data["qc_nominals"] or {}).items():
-            if code not in measured:
-                raise HTTPException(422, f"{code} is not a measured QC parameter for this material")
-            if value is None:
-                nominals.pop(code, None)
-            else:
-                nominals[code] = float(value)
-        item.qc_nominals = nominals
-    after = {"material_group": item.material_group, "material_subgroup": item.material_subgroup, "qc_nominals": item.qc_nominals}
-    if after == before:
+    measured = {row.parameter_key for row in parameters_for(db, material) if is_numeric(row.input_type)}
+    for code in (data.get("qc_nominals") or {}):
+        if code not in measured:
+            raise HTTPException(422, f"{code} is not a measured QC parameter for this material")
+    if "material_subgroup" in data and (data["material_subgroup"] or "").strip() and not ((data.get("material_group") if "material_group" in data else item.material_group) or "").strip():
+        raise HTTPException(422, "Choose the group before the sub-group")
+    # The material line is its code: every stock material carrying the code (any plant) moves together,
+    # the same way a line band saved from a master row does.
+    lines = [row for row in _line_items(db, item.item_code) if item_type(row) == material] or [item]
+    changed_any = False
+    for row in lines:
+        before = {"material_group": row.material_group, "material_subgroup": row.material_subgroup, "qc_nominals": row.qc_nominals}
+        if "material_group" in data:
+            row.material_group = (data["material_group"] or "").strip() or None
+            if not row.material_group:
+                row.material_subgroup = None
+        if "material_subgroup" in data:
+            row.material_subgroup = (data["material_subgroup"] or "").strip() or None
+        if "qc_nominals" in data:
+            nominals = dict(row.qc_nominals or {}) if isinstance(row.qc_nominals, dict) else {}
+            for code, value in (data["qc_nominals"] or {}).items():
+                if value is None:
+                    nominals.pop(code, None)
+                else:
+                    nominals[code] = float(value)
+            row.qc_nominals = nominals
+        after = {"material_group": row.material_group, "material_subgroup": row.material_subgroup, "qc_nominals": row.qc_nominals}
+        if after == before:
+            continue
+        changed_any = True
+        record_event(db, material_type=material, kind="ITEM_STANDARDS", actor=current_user.get("sub"), before=before, after=after, scope="ITEM", scope_key=str(row.id))
+        db.flush()
+        materialize_item(db, row, actor=current_user.get("sub") or "Masters", reason="Material group / nominal changed")
+    if not changed_any:
         return {"changed": False}
-    record_event(db, material_type=material, kind="ITEM_STANDARDS", actor=current_user.get("sub"), before=before, after=after, scope="ITEM", scope_key=str(item.id))
-    db.flush()
-    materialize_item(db, item, actor=current_user.get("sub") or "Masters", reason="Material group / nominal changed")
     db.commit()
     return {"changed": True, "item": _item_row(item, [r for r in parameters_for(db, material) if is_numeric(r.input_type)], tolerance_index(db, material))}
 

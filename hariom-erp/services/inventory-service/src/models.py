@@ -392,7 +392,7 @@ class InventoryQualityTolerance(Base):
     __table_args__ = (
         UniqueConstraint("material_type", "scope", "scope_key", "parameter_key", name="uq_inventory_qc_tolerance_scope"),
         CheckConstraint("scope IN ('TYPE','GROUP','SUBGROUP','ITEM')", name="ck_inventory_qc_tolerance_scope"),
-        CheckConstraint("mode IN ('RANGE','PLUS_MINUS','PERCENT')", name="ck_inventory_qc_tolerance_mode"),
+        CheckConstraint("mode IN ('RANGE','PLUS_MINUS','PERCENT','AT_LEAST','AT_MOST')", name="ck_inventory_qc_tolerance_mode"),
     )
 
 

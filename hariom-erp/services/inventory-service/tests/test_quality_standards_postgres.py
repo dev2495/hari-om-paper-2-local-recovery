@@ -10,7 +10,7 @@ if "procurement_test" not in os.environ.get("DATABASE_URL", ""):
     pytest.skip("Requires isolated procurement_test PostgreSQL database", allow_module_level=True)
 
 from src.database import SessionLocal
-from src.models import InventoryQualityTemplate, ItemMaster
+from src.models import InventoryQualityTemplate, InventoryQualityTolerance, ItemMaster
 from src.quality_eval import evaluate_incoming
 from src.quality_standards import materialize_item
 from src.routers.quality_standards import (
@@ -57,6 +57,10 @@ def test_bands_resolve_line_over_group_over_type_and_every_save_is_a_version():
     db = SessionLocal()
     try:
         _registry(db)
+        # Start from no bands at all (start-up seeds the client's paper rules as type defaults;
+        # this test builds its own type / group / line bands).
+        db.query(InventoryQualityTolerance).filter_by(material_type="RAW_PAPER").delete()
+        db.commit()
         code = f"STD-{uuid.uuid4().hex[:6].upper()}"
         group = f"Kraft-{uuid.uuid4().hex[:4]}"
         item = ItemMaster(item_code=code, name="Kraft 300", type="RAW_PAPER", tracking_mode="REEL", uom="KG", plant_id=PLANT, active="true")
@@ -69,10 +73,10 @@ def test_bands_resolve_line_over_group_over_type_and_every_save_is_a_version():
         assert evaluate_incoming(profile=profile, readings=_readings(profile, gsm=999, moisture_pct=50, bf=1)).verdict == "OBSERVATION_ONLY"
 
         # Type default, group band (± % around the line nominal) and a line band.
-        save_tolerances(ToleranceSave(material_type="RAW_PAPER", scope="TYPE", lines=[{"parameter_key": "moisture_pct", "mode": "RANGE", "min_value": 5, "max_value": 9}]), db, PLANT, OWNER)
-        save_tolerances(ToleranceSave(material_type="RAW_PAPER", scope="GROUP", scope_key=group, lines=[{"parameter_key": "gsm", "mode": "PERCENT", "tolerance_value": 4}]), db, PLANT, OWNER)
+        save_tolerances(ToleranceSave(material_type="RAW_PAPER", scope="TYPE", lines=[{"parameter_key": "moisture_pct", "mode": "RANGE", "min_value": 5, "max_value": 9}]), db, OWNER)
+        save_tolerances(ToleranceSave(material_type="RAW_PAPER", scope="GROUP", scope_key=group, lines=[{"parameter_key": "gsm", "mode": "PERCENT", "tolerance_value": 4}]), db, OWNER)
         first = save_tolerances(ToleranceSave(material_type="RAW_PAPER", scope="ITEM", scope_key=code, material_group=group, nominals={"gsm": 300},
-                                              lines=[{"parameter_key": "bf", "mode": "RANGE", "min_value": 18, "max_value": 22}], note="supplier spec"), db, PLANT, OWNER)
+                                              lines=[{"parameter_key": "bf", "mode": "RANGE", "min_value": 18, "max_value": 22}], note="supplier spec"), db, OWNER)
         assert first["version"] == 1
         db.expire_all()
         profile = db.get(ItemMaster, item.id).quality_profile
@@ -84,15 +88,15 @@ def test_bands_resolve_line_over_group_over_type_and_every_save_is_a_version():
 
         # The line overrides the group; the next save is version 2 and the old one stays in the audit.
         second = save_tolerances(ToleranceSave(material_type="RAW_PAPER", scope="ITEM", scope_key=code,
-                                               lines=[{"parameter_key": "gsm", "mode": "RANGE", "min_value": 295, "max_value": 305}]), db, PLANT, OWNER)
+                                               lines=[{"parameter_key": "gsm", "mode": "RANGE", "min_value": 295, "max_value": 305}]), db, OWNER)
         assert second["version"] == 2
-        scope = read_scope("RAW_PAPER", "ITEM", code, "", "", db, PLANT, OWNER)
+        scope = read_scope("RAW_PAPER", "ITEM", code, "", "", db, OWNER)
         assert scope["version"] == 2 and [v["version"] for v in scope["history"]] == [2, 1]
         assert scope["inherited"]["moisture_pct"]["from"] == "TYPE"
         db.expire_all()
         assert (_band(db.get(ItemMaster, item.id).quality_profile, "gsm")["min"]) == 295.0
         with pytest.raises(HTTPException) as inverted:
-            save_tolerances(ToleranceSave(material_type="RAW_PAPER", scope="ITEM", scope_key=code, lines=[{"parameter_key": "gsm", "mode": "RANGE", "min_value": 310, "max_value": 300}]), db, PLANT, OWNER)
+            save_tolerances(ToleranceSave(material_type="RAW_PAPER", scope="ITEM", scope_key=code, lines=[{"parameter_key": "gsm", "mode": "RANGE", "min_value": 310, "max_value": 300}]), db, OWNER)
         assert inverted.value.status_code == 422
         db.rollback()
     finally:
@@ -118,7 +122,7 @@ def test_qc_owns_the_check_list_and_masters_cannot_band_an_unknown_check():
         db.expire_all()
         assert not any(row["code"] == added["parameter_key"] for row in db.get(ItemMaster, item.id).quality_profile["parameters"])
         with pytest.raises(HTTPException) as unknown:
-            save_tolerances(ToleranceSave(material_type="RAW_PAPER", scope="TYPE", lines=[{"parameter_key": added["parameter_key"], "mode": "RANGE", "min_value": 1}]), db, PLANT, OWNER)
+            save_tolerances(ToleranceSave(material_type="RAW_PAPER", scope="TYPE", lines=[{"parameter_key": added["parameter_key"], "mode": "RANGE", "min_value": 1}]), db, OWNER)
         assert unknown.value.status_code == 422
         # Pass/fail outcomes are stored as tokens so NOT OK holds the lot.
         outcome = create_parameter(ParameterCreate(material_type="RAW_PAPER", label=f"Core {uuid.uuid4().hex[:4]}", input_type="select", options=["OK", "Not ok"]), db, QC)

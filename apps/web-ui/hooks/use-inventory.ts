@@ -1,10 +1,28 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { inventoryApi } from "@/lib/api"
+import { getStoredPlant, inventoryApi } from "@/lib/api"
+
+// Masters are the materials: once per page load and plant, make sure every master has its
+// stock item before the first item list is read (client 2026-10-18: PO showed no materials).
+const masterItemSync = new Map<string, Promise<void>>()
+function ensureMasterItems(): Promise<void> {
+  const plant = getStoredPlant() || ""
+  if (!masterItemSync.has(plant)) {
+    // Master saves sync on their own; this catch-up runs at most every 10 minutes per plant.
+    const key = `hariom.masterItemSync.${plant}`
+    let recent = false
+    try { recent = Date.now() - Number(window.sessionStorage.getItem(key) || 0) < 10 * 60 * 1000 } catch { recent = false }
+    masterItemSync.set(plant, recent ? Promise.resolve() : inventoryApi.syncMasterItems().then(() => {
+      try { window.sessionStorage.setItem(key, String(Date.now())) } catch { /* optional */ }
+    }, () => undefined))
+  }
+  return masterItemSync.get(plant) as Promise<void>
+}
 
 export function useInventoryItems() {
   return useQuery({
     queryKey: ["inventory-items"],
     queryFn: async () => {
+      if (typeof window !== "undefined") await ensureMasterItems()
       const { data } = await inventoryApi.getItems()
       return data
     },

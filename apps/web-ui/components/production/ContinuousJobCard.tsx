@@ -7,7 +7,6 @@
 import Link from "next/link"
 import { ResidualWipPanel } from "./ResidualWipPanel"
 import { InstrumentFields } from "./InstrumentFields"
-import { FinalQcForm } from "./FinalQcForm"
 import { WholeCardEntryForm } from "./WholeCardEntryForm"
 import { JobCardShortagePanel } from "./JobCardShortagePanel"
 import { OPTIONAL_QC_CODES, SeasonQcMatrix, allowedText } from "./SeasonQcMatrix"
@@ -140,7 +139,18 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
     queryFn: async () => (await entryApi.reelIssues(winderMachine)).data,
     enabled: Boolean(winderMachine && panel === "close" && stage === "WINDER"),
   })
-  const stages: any[] = useMemo(() => flow.data?.stages || [], [flow.data])
+  // Process is the last floor step (client rule 2026-10-18): Packing and Final QC are system steps
+  // closed with Process, so they are not shown. An older card already packing on the floor keeps
+  // its Packing tab, and a card whose Packing closed before this rule shows Final QC to complete.
+  const stages: any[] = useMemo(() => {
+    const all: any[] = flow.data?.stages || []
+    const packing = all.find((s: any) => s.stage === "PACKING")
+    return all.filter((s: any) => {
+      if (s.stage === "PACKING") return !s.system_step
+      if (s.stage === "QC") return s.status !== "COMPLETED" && packing?.status === "COMPLETED"
+      return true
+    })
+  }, [flow.data])
   const state = stages.find((s: any) => s.stage === stage)
   const stageIndex = stages.findIndex((s: any) => s.stage === stage)
   const prevStage = stages[stageIndex - 1]?.stage
@@ -253,7 +263,7 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
   useEffect(() => {
     if (typeof window === "undefined") return
     const wanted = new URLSearchParams(window.location.search).get("stage")
-    if (wanted && ["WINDER", "OVEN", "PROCESS", "PACKING", "QC"].includes(wanted)) setStage(wanted)
+    if (wanted && ["WINDER", "OVEN", "PROCESS", "PACKING", "QC", "DISPATCH"].includes(wanted)) setStage(wanted)
   }, [])
   // New stage: who ran it last time on this stage, the planned machine, fresh sample columns.
   useEffect(() => {
@@ -580,14 +590,26 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
             </Button>
           ) : null}
           {stage === "DISPATCH" ? (
-            <Button asChild className="mt-3">
-              <Link href="/logistics/dispatch">Open dispatch</Link>
-            </Button>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {Number(state.available_from_upstream) > 0 ? (
+                <Button asChild>
+                  <Link href={`/logistics/dispatch/new?job_card_id=${card.id}`}>Create dispatch slip · {fmt(state.available_from_upstream)} pcs ready</Link>
+                </Button>
+              ) : null}
+              <Button asChild variant={Number(state.available_from_upstream) > 0 ? "outline" : "default"}>
+                <Link href="/logistics/dispatch">Open dispatch</Link>
+              </Button>
+            </div>
           ) : null}
         </section>
       ) : null}
 
-      {stage === "QC" && canQc ? <FinalQcForm card={card} /> : null}
+      {stage === "QC" ? (
+        <section className="rounded-xl border border-border bg-card p-4 text-sm" data-testid="final-qc-system-step">
+          <p className="font-semibold">Process QC is the final QC.</p>
+          <p className="mt-1 text-muted-foreground">This card was packed before that rule. Close this step to post its finished goods and open Dispatch; no further samples are needed.</p>
+        </section>
+      ) : null}
 
       {gateLocked && !forceOpen && !editing && !qcOnly && state ? (
         <section className="rounded-xl border-2 border-dashed border-signal-amber-line bg-signal-amber-soft/50 p-4 sm:p-5" data-testid="stage-qc-lock">
@@ -1034,9 +1056,9 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
 
       {/* Less frequent actions: finishing a stage, typing a whole printed card, QC desk readings. */}
       <div className="flex flex-wrap gap-2" data-testid="season-stage-actions">
-        {canSubmit && loggable ? (
-          <Button variant="outline" onClick={() => setPanel(panel === "close" ? "" : "close")}>
-            Close {label(stage).toLowerCase()} stage
+        {canSubmit && (loggable || (stage === "QC" && state?.status !== "COMPLETED")) ? (
+          <Button variant={state?.completes_card || stage === "QC" ? "default" : "outline"} onClick={() => setPanel(panel === "close" ? "" : "close")}>
+            {state?.completes_card || stage === "QC" ? `Close ${label(stage).toLowerCase()} and complete the job card` : `Close ${label(stage).toLowerCase()} stage`}
           </Button>
         ) : null}
         {canSubmit && stages.some((s: any) => !["COMPLETED", "CANCELLED"].includes(s.status) && !["DISPATCH", "SLITTING"].includes(s.stage)) ? (
@@ -1059,7 +1081,26 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
 
       {panel === "close" && state ? (
         <section className="space-y-3 rounded-xl border border-border bg-card p-4 sm:p-5">
-          <h2 className="font-semibold">Close {label(stage)}</h2>
+          <h2 className="font-semibold">{state.completes_card || stage === "QC" ? `Close ${label(stage)} and complete the job card` : `Close ${label(stage)}`}</h2>
+          {state.completes_card ? (
+            <div className="rounded-lg border border-primary/25 bg-primary/[.04] p-3 text-sm" data-testid="process-completion-preview">
+              <p className="font-semibold">Closing Process completes this card:</p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                <li>{fmt(state.completion_preview?.fg_qty ?? state.accepted_total)} pcs become finished goods{state.completion_preview?.fg_code ? ` (item ${state.completion_preview.fg_code}, created if new)` : ""} and are ready for dispatch.</li>
+                {Number(state.completion_preview?.packing?.box_count) > 0 ? (
+                  <li>
+                    Packing from the spec sheet is consumed: {fmt(state.completion_preview.packing.box_count)} box{Number(state.completion_preview.packing.box_count) === 1 ? "" : "es"}{state.completion_preview.packing.box_code ? ` ${state.completion_preview.packing.box_code}` : ""} ({fmt(state.completion_preview.packing.qty_per_box)} per box)
+                    {Number(state.completion_preview.packing.plastic?.consumed_pcs) > 0 ? `, ${fmt(state.completion_preview.packing.plastic.consumed_pcs)} plastic sheet${state.completion_preview.packing.plastic.sku ? ` ${state.completion_preview.packing.plastic.sku}` : ""}` : ""}
+                    {Number(state.completion_preview.packing.fadda?.consumed_pcs) > 0 ? `, ${fmt(state.completion_preview.packing.fadda.consumed_pcs)} fadda${state.completion_preview.packing.fadda.sku ? ` ${state.completion_preview.packing.fadda.sku}` : ""}` : ""}.
+                  </li>
+                ) : (
+                  <li className="text-signal-amber-ink">The spec sheet has no Qty / box, so no packing material is posted. Add it on the spec sheet to post boxes, plastic and fadda.</li>
+                )}
+                <li>Theoretical paper, adhesive and parchment use is posted for the month; it is reconciled with issues and the stock count.</li>
+                <li>Process QC is the final QC: there is no separate packing or final QC step.</li>
+              </ul>
+            </div>
+          ) : null}
           <p className="text-sm text-muted-foreground">
             {fmt(state.accepted_total)} of {fmt(state.target)} {state.unit} good{state.accepted_total < state.target ? " — closing now is a short close and needs a reason" : ""}.
             {state.draft_count ? ` ${state.draft_count} draft must be submitted or voided first.` : ""}
@@ -1093,12 +1134,12 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
               )}
             </details>
           ) : null}
-          {stage === "PACKING" ? (
+          {stage === "PACKING" || state.completes_card ? (
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="text-sm">
-                Finished-good item
+                Finished-good item <span className="text-muted-foreground">(optional)</span>
                 <select className={selectClass} value={fgItem} onChange={(e) => setFgItem(e.target.value)}>
-                  <option value="">Choose finished good</option>
+                  <option value="">Automatic — from the order&apos;s product code</option>
                   {(items.data || [])
                     .filter((i: any) => i.type === "FINISHED_GOOD")
                     .map((i: any) => (
@@ -1144,7 +1185,7 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
                       expected_version: state.row_version,
                       supervisor_id: supervisor,
                       reel_issue_ids: stage === "WINDER" ? reelLinks : [],
-                      fg_item_id: stage === "PACKING" ? fgItem || null : null,
+                      fg_item_id: stage === "PACKING" || state.completes_card ? fgItem || null : null,
                       location_id: location || null,
                       short_close: state.accepted_total < state.target,
                       residual_disposition: residual,
@@ -1152,7 +1193,9 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
                     }),
                   )
                   setPanel("")
-                  setNotice(`${label(stage)} closed.`)
+                  const completed = state.completes_card || stage === "PACKING" || stage === "QC"
+                  setNotice(completed ? `Job card complete: ${fmt(stage === "PROCESS" ? state.accepted_total : state.accepted_total || 0)} pcs go to finished goods and are ready for dispatch. Open the Dispatch tab to create the dispatch slip.` : `${label(stage)} closed.`)
+                  if (completed) setStage("DISPATCH")
                   return result
                 })
               }

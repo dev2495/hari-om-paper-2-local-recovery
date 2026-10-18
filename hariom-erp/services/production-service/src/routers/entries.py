@@ -241,15 +241,19 @@ def flow(db,job):
                 if disposition and item.get("verdict")=="FAIL" and not item.get("non_waivable"):item["gating"]="advisory";item["disposition_id"]=disposition
             result["results"]=results;evaluations.append(result)
         readiness=stage_readiness(stage,profile,evaluations)
-        if stage=="QC":
+        if stage=="QC" and "PROCESS" in route(job):
+            # Process QC is the final QC: nothing more to sample here.
+            readiness={"ready":True,"missing":[],"blockers":[],"unrecorded":[]}
+        elif stage=="QC":
             final_samples={i.sample_id for i in inspections if i.stage_type=="QC" and i.status=="PASS" and i.sample_id and (i.evaluation or {}).get("workflow_status")!="SUPERSEDED" and planning._inspection_has_full_final_spec(i,job.spec_snapshot or {}) and all((i.readings or {}).get(k) not in (None,"") for k in ("id","od","length","weight","cs"))}
             final_pass=planning._final_spec_qc_passed(db=db,plant_id=job.plant_id,job_card=job,inline_quality_checks=None)
             readiness={"ready":len(final_samples)>=2 and final_pass,"missing":[] if len(final_samples)>=2 else [{"parameter":"final_spec","label":"Final specification QC","have":len(final_samples),"need":2}],"blockers":[] if final_pass else ["Final specification acceptance required"],"unrecorded":[]}
         drafts=sum(e.stage==stage and e.status=="DRAFT" for e in all_entries)
         upstream=previous(job,stage);upstream_closed=not upstream or stage_map[upstream].status=="COMPLETED" or (stage=="WINDER" and upstream=="SLITTING")
         target=int(snapshot.get("effective_target",planned_in_stage_units(stage,job.planned_qty,planning._pcs_per_bamboo_from_snapshot(job.spec_snapshot or {}))))
-        accepted=int(shipped) if stage=="DISPATCH" else int(row.output_qty or 0) if stage=="SLITTING" else sum(e.accepted for e in actual)
-        produced=accepted if stage in ("SLITTING","DISPATCH") else sum(e.produced for e in actual);blockers=[]
+        system_closed=stage in SYSTEM_STAGES and not actual and row.status=="COMPLETED"
+        accepted=int(shipped) if stage=="DISPATCH" else int(row.output_qty or 0) if stage=="SLITTING" or system_closed else sum(e.accepted for e in actual)
+        produced=accepted if stage in ("SLITTING","DISPATCH") or system_closed else sum(e.produced for e in actual);blockers=[]
         cap=None;waiting=0
         if upstream and not (stage=="WINDER" and upstream=="SLITTING"):
             source=[e for e in all_entries if e.stage==upstream and e.status=="SUBMITTED"]
@@ -261,6 +265,9 @@ def flow(db,job):
         if drafts:blockers.append(f"{drafts} draft entries remain")
         if not readiness["ready"]:blockers.append("Required QC samples or dispositions incomplete")
         if accepted<target:blockers.append("Target not reached; short-close reason required")
+        if stage=="PROCESS" and stage_has_qc(job,stage):
+            waiting_final=sum(e.accepted for e in actual if e.id not in qc_cleared_ids(db,job,stage))
+            if waiting_final>0:blockers.append(f"{waiting_final} pcs on Process still need QC accepted (Process QC is the final QC)")
         status=row.status;retained=0
         if stage=="DISPATCH":
             packed=int(dispatchable_quantity(job,packing_record,stage_map.get("QC")))
@@ -268,7 +275,10 @@ def flow(db,job):
             status="COMPLETED" if packed>0 and accepted+retained>=packed or snapshot.get("all_qc_rejected") else "RUNNING" if accepted>0 else row.status
             cap=max(0,packed-accepted-retained);blockers=[] if status=="COMPLETED" else ["Complete shipment through Logistics Dispatch"]
         stage_segments=[s for s in segments if s.stage_type==stage]
-        states.append({"stage":stage,"status":status,"unit":stage_unit(stage),"target":target,"unscheduled_entries":sum(1 for e in actual if (e.details or {}).get("unscheduled_entry")),"produced_total":produced,"accepted_total":accepted,"rejected_total":produced-accepted,"input_total":accepted if stage=="DISPATCH" else sum(e.input_quantity for e in actual),"cutting_loss_total":sum(e.cutting_loss_pcs for e in actual),"carryover_pcs":sum(e.carry_out_pcs-e.carry_in_pcs for e in actual),"available_from_upstream":cap,"awaiting_qc_from_upstream":waiting,"upstream_has_qc":bool(upstream and stage_has_qc(job,upstream)),"input_unit":stage_unit(upstream) if upstream else None,"qc":readiness,"draft_count":drafts,"can_close":status!="COMPLETED" and stage not in ("SLITTING","DISPATCH") and not blockers,"blockers":blockers,"row_version":int(snapshot.get("row_version",1)),"supervisor_name":snapshot.get("supervisor_name"),"closed_at":snapshot.get("closed_at"),"residual_quantity":snapshot.get("residual_quantity"),"residual_disposition":snapshot.get("residual_disposition"),"segments":[{"id":str(s.id),"machine_id":str(s.machine_id) if s.machine_id else None,"plan_date":s.plan_date,"shift_code":s.shift_code,"status":s.status,**planning._planner_gate_context(current_stage=stage,active_stage=row,active_segment=s)} for s in stage_segments]})
+        states.append({"stage":stage,"status":status,"unit":stage_unit(stage),"target":target,"unscheduled_entries":sum(1 for e in actual if (e.details or {}).get("unscheduled_entry")),"produced_total":produced,"accepted_total":accepted,"rejected_total":produced-accepted,"input_total":accepted if stage=="DISPATCH" else sum(e.input_quantity for e in actual),"cutting_loss_total":sum(e.cutting_loss_pcs for e in actual),"carryover_pcs":sum(e.carry_out_pcs-e.carry_in_pcs for e in actual),"available_from_upstream":cap,"awaiting_qc_from_upstream":waiting,"upstream_has_qc":bool(upstream and stage_has_qc(job,upstream)),"input_unit":stage_unit(upstream) if upstream else None,"qc":readiness,"draft_count":drafts,"can_close":status!="COMPLETED" and stage not in ("SLITTING","DISPATCH") and not blockers,"system_step":stage in SYSTEM_STAGES and not drafts and not any(e.stage==stage for e in all_entries),"completes_card":stage=="PROCESS" and any(s in route(job) for s in SYSTEM_STAGES),"blockers":blockers,"row_version":int(snapshot.get("row_version",1)),"supervisor_name":snapshot.get("supervisor_name"),"closed_at":snapshot.get("closed_at"),"residual_quantity":snapshot.get("residual_quantity"),"residual_disposition":snapshot.get("residual_disposition"),"segments":[{"id":str(s.id),"machine_id":str(s.machine_id) if s.machine_id else None,"plan_date":s.plan_date,"shift_code":s.shift_code,"status":s.status,**planning._planner_gate_context(current_stage=stage,active_stage=row,active_segment=s)} for s in stage_segments]})
+        if stage=="PROCESS" and states[-1]["completes_card"]:
+            snap=job.spec_snapshot or {}
+            states[-1]["completion_preview"]={"fg_qty":accepted,"fg_code":snap.get("product_code") or snap.get("sales_order_line_product_code"),"packing":planning._packing_consumption_snapshot(packed_qty=float(accepted),spec_snapshot=dict(snap))}
         if stage=="DISPATCH":states[-1].update({"retained_fg_qty":retained,"surplus_settlement":snapshot.get("surplus_settlement"),"dispatchable_qty":packed,"max_ship_qty":max(0,shipping_allowance(job,packed,row)-accepted),**qc_excluded_quantities(job,packing_record,stage_map.get("QC")),"all_qc_rejected":bool(snapshot.get("all_qc_rejected"))})
     pending=db.query(func.count(CompletionEffect.id)).filter(CompletionEffect.job_card_id==job.id,CompletionEffect.status.in_(["PENDING","RUNNING","FAILED"])).scalar()
     return {"job_card_id":str(job.id),"season":(job.spec_snapshot or {}).get("season"),"recipe_revision":((job.material_plan_snapshot or {}).get("recipe_snapshot") or {}).get("season_revision"),"stages":states,"pending_effects":pending,"residual_wip":[residual_dict(r) for r in residuals],"final_samples":[{"sample_id":i.sample_id,"status":i.status,"readings":i.readings,"qc_name":i.created_by,"recorded_at":i.created_at,"workflow_status":(i.evaluation or {}).get("workflow_status")} for i in inspections if i.stage_type=="QC"],"active_stages":[s["stage"] for s in states if s["status"]=="RUNNING"]}
@@ -322,6 +332,53 @@ def verified_fg(item_id,user,plant):
     except (httpx.HTTPError,ValueError) as exc:raise HTTPException(503,"Could not verify the finished-good item") from exc
     if item.get("type")!="FINISHED_GOOD":raise HTTPException(422,"Selected item must be a finished good")
     return item
+
+
+# Client rule 2026-10-18: Process is the last floor step and its QC is the final QC. Packing is
+# not a separate step (its material is consumed from the spec sheet) and there is no separate
+# final-QC step; closing Process completes the card, posts finished goods and opens Dispatch.
+SYSTEM_STAGES=("PACKING","QC")
+
+
+def fg_item_for(job,user,plant):
+    """The card's finished-good item: the plant's FG item for the order line's product code,
+    created on first use. Resolved before the card is locked (no HTTP under the card lock)."""
+    snap=job.spec_snapshot or {}
+    if snap.get("fg_item_id"):return str(snap["fg_item_id"])
+    code=str(snap.get("product_code") or snap.get("sales_order_line_product_code") or snap.get("spec_reference") or f"FG-{str(job.spec_id)[:8].upper()}").strip()[:50]
+    name=" · ".join(str(v).strip() for v in (snap.get("customer_name_snapshot") or snap.get("customer_name"),snap.get("sales_order_line_size_label") or snap.get("spec_reference"),code) if v and str(v).strip())
+    try:
+        response=httpx.post(f"{planning.settings.INVENTORY_SERVICE_URL}/items/finished-good-for-spec",headers={"Authorization":f"Bearer {user.get('token','')}","X-Plant-ID":plant},json={"item_code":code,"name":(name or code)[:200]},timeout=10)
+        response.raise_for_status();return str(response.json()["id"])
+    except (httpx.HTTPError,ValueError,KeyError) as exc:raise HTTPException(503,"Could not find or create the finished-good item for this card; retry in a moment") from exc
+
+
+def system_stages_open(db,job):
+    return [s for s in SYSTEM_STAGES if s in route(job) and stage_row(db,job,s).status!="COMPLETED"]
+
+
+def complete_system_stages(db,job,user,qty,fg_item_id,location_id,source):
+    """Close the remaining system steps (Packing, then QC) with the good quantity of ``source``."""
+    now=datetime.utcnow();done=[]
+    for name in system_stages_open(db,job):
+        row=stage_row(db,job,name)
+        row.status="COMPLETED";row.output_qty=qty;row.input_qty=qty;row.scrap_qty=0;row.entered_by=user["sub"];row.entered_at=now
+        if hasattr(row,"actual_end") and not row.actual_end:row.actual_end=now
+        snapshot=dict(row.actuals_snapshot or {});snapshot.update(closed_at=now.isoformat(),closed_by=user["sub"],close_kind=f"AUTO_AFTER_{source}",produced_total=qty,accepted_total=qty,rejected_total=0,auto_reason="Process QC is the final QC; packing material is consumed from the spec sheet",row_version=int(snapshot.get("row_version",1))+1);row.actuals_snapshot=snapshot
+        if name=="PACKING":
+            row.location_id=location_id
+            row.entry_snapshot={**(row.entry_snapshot or {}),"entry_model":"V2","fg_item_id":fg_item_id,"stock_status":"UNRESTRICTED","total_packed_qty":qty,"auto_completed":True}
+            planning._sync_packing_record(db=db,plant_id=job.plant_id,job_card=job,stage=row,current_user=user)
+        for segment in db.query(JobCardStageSegment).filter_by(job_card_id=job.id,stage_type=name).all():segment.status="COMPLETED";segment.completed_at=now
+        done.append(name)
+    return done
+
+
+def uncleared_quantity(db,job,stage):
+    """Good quantity of ``stage`` whose batch QC is not accepted yet (0 when the stage has no QC)."""
+    if not stage_has_qc(job,stage):return 0
+    cleared=qc_cleared_ids(db,job,stage)
+    return sum(e.accepted for e in entries(db,job,stage) if e.id not in cleared)
 
 
 def verified_reel_links(db,job,issue_ids,user,plant):
@@ -728,9 +785,10 @@ def batch_entries(card_id:uuid.UUID,payload:BatchInput,db:Session=Depends(get_db
         if step.close:
             key=(str(step.close.supervisor_id),"supervisor")
             if key not in employees:employees[key]=employee(step.close.supervisor_id,user,plant,"supervisor")
-            if step.entry.stage=="PACKING":fg[str(step.close.fg_item_id)]=verified_fg(step.close.fg_item_id,user,plant)
+            if step.entry.stage=="PACKING" and step.close.fg_item_id:fg[str(step.close.fg_item_id)]=verified_fg(step.close.fg_item_id,user,plant)
+            elif step.entry.stage in ("PROCESS","PACKING") and "auto_fg" not in fg and system_stages_open(db,job):fg["auto_fg"]=fg_item_for(job,user,plant)
             if step.close.reel_issue_ids:verified_reel_links(db,job,step.close.reel_issue_ids,user,plant)
-    db.info.update(entry_batch=True,entry_batch_employees=employees,entry_batch_fg=fg,entry_machines=machines,entry_batch_reels={str(i) for step in payload.steps if step.close for i in step.close.reel_issue_ids})
+    db.info.update(entry_batch=True,entry_batch_auto_fg=fg.pop("auto_fg",None),entry_batch_employees=employees,entry_batch_fg=fg,entry_machines=machines,entry_batch_reels={str(i) for step in payload.steps if step.close for i in step.close.reel_issue_ids})
     try:
         job=card(db,card_id,plant,True);cached=replay(db,job,payload,"entries_batch")
         if cached:return cached
@@ -760,7 +818,7 @@ def batch_entries(card_id:uuid.UUID,payload:BatchInput,db:Session=Depends(get_db
     except Exception:
         db.rollback();raise
     finally:
-        for key in ("entry_batch","entry_batch_employees","entry_batch_fg","entry_machines","entry_batch_reels"):db.info.pop(key,None)
+        for key in ("entry_batch","entry_batch_auto_fg","entry_batch_employees","entry_batch_fg","entry_machines","entry_batch_reels"):db.info.pop(key,None)
 
 
 @router.post("/job-cards/{card_id}/entries/{entry_id}/submit")
@@ -839,8 +897,12 @@ def close_stage(card_id:uuid.UUID,stage:str,payload:CloseInput,db:Session=Depend
     if payload.reel_issue_ids:
         if stage!='WINDER':raise HTTPException(422,'Link reel issues to Winding only')
         verified_reel_links(db,preliminary,payload.reel_issue_ids,user,plant)
-    if stage=="PACKING":
+    fg_item_id=None
+    if stage in ("PACKING","PROCESS") and payload.fg_item_id:
         if str(payload.fg_item_id) not in db.info.get("entry_batch_fg",{}):verified_fg(payload.fg_item_id,user,plant)
+        fg_item_id=str(payload.fg_item_id)
+    elif stage in ("PROCESS","PACKING","QC") and system_stages_open(db,preliminary):
+        fg_item_id=db.info.get("entry_batch_auto_fg") or (None if stage=="QC" else fg_item_for(preliminary,user,plant))
     job=card(db,card_id,plant,True);prior=replay(db,job,payload,f"close:{stage}")
     if prior:return prior
     row=stage_row(db,job,stage);state=next(s for s in flow(db,job)["stages"] if s["stage"]==stage)
@@ -855,7 +917,9 @@ def close_stage(card_id:uuid.UUID,stage:str,payload:CloseInput,db:Session=Depend
     if state["accepted_total"]<state["target"] and not (payload.short_close and payload.reason.strip()):raise HTTPException(409,"Short close requires an explicit reason")
     # Reel issues may be linked here but are never required: issue to the floor happens any time and
     # consumption is settled by the monthly stock count and reconciliation (client rule 2026-10-17).
-    if stage=="QC" and not planning._final_spec_qc_passed(db=db,plant_id=job.plant_id,job_card=job,inline_quality_checks=None):raise HTTPException(409,"Final specification QC acceptance required")
+    # Process QC is the final QC (client rule 2026-10-18): every good Process batch must be QC-accepted.
+    if stage=="PROCESS" and uncleared_quantity(db,job,stage):raise HTTPException(409,{"code":"PROCESS_QC_PENDING","pending":uncleared_quantity(db,job,stage),"message":"Some Process batches still need QC accepted; Process QC is the final QC"})
+    if stage=="QC" and "PROCESS" not in route(job) and not planning._final_spec_qc_passed(db=db,plant_id=job.plant_id,job_card=job,inline_quality_checks=None):raise HTTPException(409,"Final specification QC acceptance required")
     if stage=="PROCESS" and state["carryover_pcs"]:raise HTTPException(409,"Use or explicitly dispose all held Process carryover before closing")
     # An inventory issue is attributed to one card. Serialize different cards
     # linking the same issue, so purchasing never subtracts its kg twice.
@@ -889,12 +953,17 @@ def close_stage(card_id:uuid.UUID,stage:str,payload:CloseInput,db:Session=Depend
                 next_snapshot.update(effective_target=qty,row_version=int(next_snapshot.get('row_version',1))+1);nxt.actuals_snapshot=next_snapshot
     if stage=="PACKING":
         row.location_id=payload.location_id
-        row.entry_snapshot={**(row.entry_snapshot or {}),"fg_item_id":str(payload.fg_item_id),"stock_status":"UNRESTRICTED"}
+        row.entry_snapshot={**(row.entry_snapshot or {}),"fg_item_id":fg_item_id,"stock_status":"UNRESTRICTED"}
     if stage=="PACKING":planning._sync_packing_record(db=db,plant_id=job.plant_id,job_card=job,stage=row,current_user=user)
+    # Process (or a Packing step already under way on an older card) completes the card: the
+    # remaining system steps close with its good quantity, finished goods post, Dispatch opens.
+    auto_closed=[]
+    if stage in ("PROCESS","PACKING") and system_stages_open(db,job):
+        auto_closed=complete_system_stages(db,job,user,int(state["accepted_total"]),fg_item_id,payload.location_id,stage)
     job.current_stage,job.status=planning._derive_job_current_stage_and_status(db.query(JobCardStage).filter_by(job_card_id=job.id).all())
     if stage!="DISPATCH":effect(db,job,"tools",stage)
-    if stage in ("PACKING","QC"):effect(db,job,"theory",stage)
-    if stage=="QC":effect(db,job,"fg_inward","PACKING")
+    if stage in ("PROCESS","PACKING","QC") and (stage!="PROCESS" or auto_closed):effect(db,job,"theory",stage)
+    if stage=="QC" or "QC" in auto_closed:effect(db,job,"fg_inward","PACKING")
     db.flush()
     return finish(db,job,payload,f"close:{stage}",user,{"flow":flow(db,job)})
 

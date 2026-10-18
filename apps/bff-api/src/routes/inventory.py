@@ -39,6 +39,18 @@ async def get_items(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(INVENTORY_SERVICE_URL, "/items/", request, token)
 
 
+@router.post("/items/sync-masters")
+async def sync_items_from_masters(request: Request, token: str = Depends(get_token)):
+    """Create the stock item for every master that has none (papers, adhesives, parchment
+    colours, packing). Safe to call any time; existing items are never changed."""
+    from fastapi import HTTPException
+    from src.services.master_items import sync_master_items
+    try:
+        return await sync_master_items(token, request.headers.get("X-Plant-ID"))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=f"Masters could not be synced to stock items: {exc}") from exc
+
+
 @router.post("/items")
 async def create_item(request: Request, token: str = Depends(get_token)):
     response = await proxy_to_service(INVENTORY_SERVICE_URL, "/items/", request, token)

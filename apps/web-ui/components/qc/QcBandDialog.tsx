@@ -8,34 +8,22 @@ import { Field, fieldClass } from "@/components/procurement/procurement-shell"
 import { useQualityStandardScope, useSaveQualityStandardTolerances } from "@/hooks/use-inventory"
 import { useAuth } from "@/context/AuthContext"
 import { cn } from "@/lib/utils"
+import { BAND_MODES, bandLineFrom, bandPayload, blankBand, describeBand, previewBand, showNumber, type BandLine } from "@/lib/qc-bands"
 
-type Line = { mode: "RANGE" | "PLUS_MINUS" | "PERCENT"; min: string; max: string; spread: string }
+type Line = BandLine
 type Scope = "ITEM" | "GROUP" | "SUBGROUP" | "TYPE"
 
-const MODES = [
-  { value: "RANGE", label: "Min – max" },
-  { value: "PLUS_MINUS", label: "± value" },
-  { value: "PERCENT", label: "± %" },
-] as const
 const FROM: Record<string, string> = { SUBGROUP: "colour", GROUP: "group", TYPE: "all-material default" }
-const blank: Line = { mode: "RANGE", min: "", max: "", spread: "" }
+const blank: Line = blankBand
+const show = showNumber
 const num = (value: unknown) => (value === null || value === undefined || value === "" ? "" : String(Number(value)))
-const show = (value: unknown) => (value === null || value === undefined || value === "" || !Number.isFinite(Number(value)) ? "—" : Number(value).toLocaleString("en-IN", { maximumFractionDigits: 4 }))
 const errorText = (error: any) => {
   const detail = error?.response?.data?.detail
   if (typeof detail === "string") return detail
   if (Array.isArray(detail)) return detail.map((row: any) => row?.msg || String(row)).join("; ")
   return detail?.message || error?.message || "Could not save"
 }
-const describe = (band: any, nominal?: number | null) => {
-  if (!band) return "none"
-  if (band.mode === "RANGE") return `${show(band.min_value)} to ${show(band.max_value)}`
-  const spread = Number(band.tolerance_value)
-  const suffix = band.mode === "PERCENT" ? "%" : ""
-  if (nominal == null || !Number.isFinite(Number(nominal))) return `± ${show(spread)}${suffix}`
-  const width = band.mode === "PERCENT" ? Math.abs(Number(nominal)) * spread / 100 : spread
-  return `${show(Number(nominal) - width)} to ${show(Number(nominal) + width)} (± ${show(spread)}${suffix})`
-}
+const describe = (band: any, nominal?: number | null) => describeBand(band, nominal)
 
 export type QcBandTarget = {
   materialType: string
@@ -65,11 +53,20 @@ export function QcBandDialog({ target, onClose }: { target: QcBandTarget | null;
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
   const [showHistory, setShowHistory] = useState(false)
+  const [nominalEdits, setNominalEdits] = useState<Record<string, string>>({})
   const data = query.data
   const parameters: any[] = useMemo(() => data?.parameters || [], [data])
-  const masterNominal = (code: string) => {
+  // The master row's own value (GSM, thickness, BF…) is the nominal; checks the master has no field for
+  // (width, moisture…) take a nominal typed here, kept on the material line.
+  const fromMaster = (code: string) => {
     const value = target?.nominals?.[code]
-    if (value !== null && value !== undefined && Number.isFinite(Number(value)) && Number(value) > 0) return Number(value)
+    return value !== null && value !== undefined && Number.isFinite(Number(value)) && Number(value) > 0 ? Number(value) : null
+  }
+  const masterNominal = (code: string) => {
+    const master = fromMaster(code)
+    if (master !== null) return master
+    const typed = nominalEdits[code]
+    if (typed !== undefined) return typed.trim() !== "" && Number.isFinite(Number(typed)) ? Number(typed) : null
     const saved = data?.nominals?.[code]
     return saved !== null && saved !== undefined && Number.isFinite(Number(saved)) ? Number(saved) : null
   }
@@ -80,36 +77,26 @@ export function QcBandDialog({ target, onClose }: { target: QcBandTarget | null;
     const next: Record<string, Line> = {}
     for (const parameter of parameters) {
       const band = data.bands?.[parameter.parameter_key]
-      next[parameter.parameter_key] = band ? { mode: band.mode, min: num(band.min_value), max: num(band.max_value), spread: num(band.tolerance_value) } : { ...blank }
+      next[parameter.parameter_key] = band ? bandLineFrom(band) : { ...blank }
     }
-    setLines(next); setNote(""); setError(""); setNotice("")
+    setLines(next); setNominalEdits({}); setNote(""); setError(""); setNotice("")
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature])
 
   const setLine = (code: string, patch: Partial<Line>) => setLines((current) => ({ ...current, [code]: { ...(current[code] || blank), ...patch } }))
-  const preview = (code: string) => {
-    const line = lines[code] || blank
-    if (line.mode === "RANGE") return line.min || line.max ? `${line.min || "—"} to ${line.max || "—"}` : null
-    if (!line.spread) return null
-    return describe({ mode: line.mode, tolerance_value: line.spread }, target?.scope === "ITEM" ? masterNominal(code) : null) + (target?.scope === "ITEM" ? "" : " around each line's nominal")
-  }
+  const preview = (code: string) => previewBand(lines[code] || blank, masterNominal(code), target?.scope === "ITEM")
 
   const submit = async () => {
     if (!target) return
     setError(""); setNotice("")
     try {
       const nominals = target.scope === "ITEM"
-        ? Object.fromEntries(parameters.map((p) => [p.parameter_key, masterNominal(p.parameter_key)]).filter(([, value]) => value !== null))
+        ? Object.fromEntries(parameters.map((p) => [p.parameter_key, masterNominal(p.parameter_key)]).filter(([code, value]) => value !== null || nominalEdits[code as string] !== undefined))
         : undefined
       const result = await save.mutateAsync({
         material_type: target.materialType, scope: target.scope, scope_key: target.scopeKey, note,
         ...(target.scope === "ITEM" ? { nominals: nominals as Record<string, number>, material_group: target.group || null } : {}),
-        lines: parameters.map((p) => {
-          const line = lines[p.parameter_key] || blank
-          return line.mode === "RANGE"
-            ? { parameter_key: p.parameter_key, mode: "RANGE" as const, min_value: line.min === "" ? null : Number(line.min), max_value: line.max === "" ? null : Number(line.max) }
-            : { parameter_key: p.parameter_key, mode: line.mode, tolerance_value: line.spread === "" ? null : Number(line.spread) }
-        }),
+        lines: parameters.map((p) => bandPayload(p.parameter_key, lines[p.parameter_key] || blank)),
       })
       const changed = result.data?.changed?.length || 0
       setNotice(changed ? `Saved as version ${result.data?.version}. Lots received from now on are checked against it.` : "Nothing changed.")
@@ -143,8 +130,15 @@ export function QcBandDialog({ target, onClose }: { target: QcBandTarget | null;
                     return (
                       <tr key={code}>
                         <td><p className="font-medium">{parameter.label}</p><p className="text-[11.5px] text-muted-foreground">{parameter.unit || "no unit"}</p></td>
-                        {target?.scope === "ITEM" ? <td className="tabular-nums">{show(nominal)}</td> : null}
-                        <td><select disabled={!canEdit} className={cn(fieldClass, "w-[8.75rem]")} aria-label={`${parameter.label} band type`} value={line.mode} onChange={(e) => setLine(code, { mode: e.target.value as Line["mode"] })}>{MODES.map((mode) => <option key={mode.value} value={mode.value}>{mode.label}</option>)}</select></td>
+                        {target?.scope === "ITEM" ? (
+                          <td className="tabular-nums">
+                            {fromMaster(code) !== null || !canEdit ? show(nominal) : (
+                              <input className={cn(fieldClass, "w-24")} type="number" step="any" placeholder="nominal" aria-label={`${parameter.label} nominal`}
+                                value={nominalEdits[code] ?? num(data?.nominals?.[code])} onChange={(e) => setNominalEdits((current) => ({ ...current, [code]: e.target.value }))} />
+                            )}
+                          </td>
+                        ) : null}
+                        <td><select disabled={!canEdit} className={cn(fieldClass, "w-[9.5rem]")} aria-label={`${parameter.label} band type`} value={line.mode} onChange={(e) => setLine(code, { mode: e.target.value as Line["mode"] })}>{BAND_MODES.map((mode) => <option key={mode.value} value={mode.value}>{mode.label}</option>)}</select></td>
                         <td>
                           {line.mode === "RANGE" ? (
                             <div className="flex items-center gap-1.5">
@@ -152,8 +146,10 @@ export function QcBandDialog({ target, onClose }: { target: QcBandTarget | null;
                               <span className="text-muted-foreground">to</span>
                               <input disabled={!canEdit} className={cn(fieldClass, "w-24")} type="number" step="any" placeholder="max" aria-label={`${parameter.label} maximum`} value={line.max} onChange={(e) => setLine(code, { max: e.target.value })} />
                             </div>
+                          ) : line.mode === "NONE" ? (
+                            <span className="text-[12.5px] text-muted-foreground">—</span>
                           ) : (
-                            <div className="flex items-center gap-1.5"><span className="text-muted-foreground">±</span><input disabled={!canEdit} className={cn(fieldClass, "w-24")} type="number" step="any" min="0" aria-label={`${parameter.label} tolerance`} value={line.spread} onChange={(e) => setLine(code, { spread: e.target.value })} /><span className="text-muted-foreground">{line.mode === "PERCENT" ? "%" : parameter.unit}</span></div>
+                            <div className="flex items-center gap-1.5"><span className="text-muted-foreground">{line.mode === "AT_LEAST" ? "less" : line.mode === "AT_MOST" ? "plus" : "±"}</span><input disabled={!canEdit} className={cn(fieldClass, "w-24")} type="number" step="any" min="0" placeholder={line.mode === "AT_LEAST" || line.mode === "AT_MOST" ? "0" : ""} aria-label={`${parameter.label} ${line.mode === "AT_LEAST" || line.mode === "AT_MOST" ? "allowance" : "tolerance"}`} value={line.spread} onChange={(e) => setLine(code, { spread: e.target.value })} /><span className="text-muted-foreground">{line.mode === "PERCENT" ? "%" : parameter.unit}</span></div>
                           )}
                         </td>
                         <td className="text-[12.5px]">
@@ -169,7 +165,7 @@ export function QcBandDialog({ target, onClose }: { target: QcBandTarget | null;
             {notice ? <p role="status" className="rounded-lg border border-signal-emerald-line bg-signal-emerald-soft px-3 py-2 text-sm text-signal-emerald-ink">{notice}</p> : null}
             {canEdit ? (
               <div className="flex flex-wrap items-end gap-3">
-                <div className="min-w-[240px] flex-1"><Field label="Reason for the change" hint="kept with this version"><input className={fieldClass} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. supplier agreed GSM ±4%" /></Field></div>
+                <div className="min-w-[240px] flex-1"><Field label="Reason for the change" hint="kept with this version"><input className={fieldClass} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. thickness ± 0.05 agreed with supplier" /></Field></div>
                 <button type="button" className="erp-btn-primary" disabled={save.isPending} onClick={submit}><Save className="h-4 w-4" />Save as new version</button>
               </div>
             ) : <p className="text-[12.5px] text-muted-foreground">Only Owner or Admin can change QC bands.</p>}

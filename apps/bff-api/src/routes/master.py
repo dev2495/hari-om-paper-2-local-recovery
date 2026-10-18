@@ -20,6 +20,17 @@ def _master_headers(token: str, request: Request | None = None) -> dict[str, str
     return headers
 
 
+def _after_master_save(response, request: Request, token: str):
+    """A saved paper / adhesive / parchment / packing master becomes a stock item in the plant
+    (best effort, in the background) so purchase, inward and issue lists show it at once."""
+    if getattr(response, "status_code", 500) < 300:
+        from src.services.handoff_events import run_in_background
+        from src.services.master_items import sync_quietly
+        plant = request.headers.get("X-Plant-ID")
+        run_in_background(lambda: sync_quietly(token, plant))
+    return response
+
+
 @router.get("/papers")
 async def get_papers(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(MASTER_SERVICE_URL, "/master/papers/", request, token)
@@ -27,12 +38,12 @@ async def get_papers(request: Request, token: str = Depends(get_token)):
 
 @router.post("/papers")
 async def create_paper(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(MASTER_SERVICE_URL, "/master/papers/", request, token)
+    return _after_master_save(await proxy_to_service(MASTER_SERVICE_URL, "/master/papers/", request, token), request, token)
 
 
 @router.put("/papers/{paper_id}")
 async def update_paper(paper_id: str, request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/papers/{paper_id}", request, token)
+    return _after_master_save(await proxy_to_service(MASTER_SERVICE_URL, f"/master/papers/{paper_id}", request, token), request, token)
 
 
 @router.delete("/papers/{paper_id}")
@@ -47,12 +58,12 @@ async def get_adhesives(request: Request, token: str = Depends(get_token)):
 
 @router.post("/adhesives")
 async def create_adhesive(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(MASTER_SERVICE_URL, "/master/adhesives/", request, token)
+    return _after_master_save(await proxy_to_service(MASTER_SERVICE_URL, "/master/adhesives/", request, token), request, token)
 
 
 @router.put("/adhesives/{adhesive_id}")
 async def update_adhesive(adhesive_id: str, request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/adhesives/{adhesive_id}", request, token)
+    return _after_master_save(await proxy_to_service(MASTER_SERVICE_URL, f"/master/adhesives/{adhesive_id}", request, token), request, token)
 
 
 @router.delete("/adhesives/{adhesive_id}")
@@ -164,7 +175,7 @@ async def create_parchment_color(request: Request, token: str = Depends(get_toke
         json={"vendor_id": vendor_id, "color_name": color_name},
         headers=headers,
     )
-    return JSONResponse(status_code=create_color_resp.status_code, content=create_color_resp.json())
+    return _after_master_save(JSONResponse(status_code=create_color_resp.status_code, content=create_color_resp.json()), request, token)
 
 
 @router.put("/parchments/{color_id}")
@@ -212,7 +223,7 @@ async def update_parchment_color(color_id: str, request: Request, token: str = D
         json=payload,
         headers=headers,
     )
-    return JSONResponse(status_code=update_color_resp.status_code, content=update_color_resp.json())
+    return _after_master_save(JSONResponse(status_code=update_color_resp.status_code, content=update_color_resp.json()), request, token)
 
 
 @router.delete("/parchments/{color_id}")
@@ -456,12 +467,12 @@ async def get_packaging_boxes(request: Request, token: str = Depends(get_token))
 
 @router.post("/packaging/boxes")
 async def create_packaging_box(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(MASTER_SERVICE_URL, "/master/packaging/boxes", request, token)
+    return _after_master_save(await proxy_to_service(MASTER_SERVICE_URL, "/master/packaging/boxes", request, token), request, token)
 
 
 @router.put("/packaging/boxes/{box_id}")
 async def update_packaging_box(box_id: str, request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/packaging/boxes/{box_id}", request, token)
+    return _after_master_save(await proxy_to_service(MASTER_SERVICE_URL, f"/master/packaging/boxes/{box_id}", request, token), request, token)
 
 
 @router.delete("/packaging/boxes/{box_id}")
@@ -476,12 +487,12 @@ async def get_packaging_plastic_sheets(request: Request, token: str = Depends(ge
 
 @router.post("/packaging/plastic-sheets")
 async def create_packaging_plastic_sheet(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(MASTER_SERVICE_URL, "/master/packaging/plastic-sheets", request, token)
+    return _after_master_save(await proxy_to_service(MASTER_SERVICE_URL, "/master/packaging/plastic-sheets", request, token), request, token)
 
 
 @router.put("/packaging/plastic-sheets/{plastic_id}")
 async def update_packaging_plastic_sheet(plastic_id: str, request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/packaging/plastic-sheets/{plastic_id}", request, token)
+    return _after_master_save(await proxy_to_service(MASTER_SERVICE_URL, f"/master/packaging/plastic-sheets/{plastic_id}", request, token), request, token)
 
 
 @router.delete("/packaging/plastic-sheets/{plastic_id}")
@@ -496,12 +507,12 @@ async def get_packaging_fadda(request: Request, token: str = Depends(get_token))
 
 @router.post("/packaging/fadda")
 async def create_packaging_fadda(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(MASTER_SERVICE_URL, "/master/packaging/fadda", request, token)
+    return _after_master_save(await proxy_to_service(MASTER_SERVICE_URL, "/master/packaging/fadda", request, token), request, token)
 
 
 @router.put("/packaging/fadda/{fadda_id}")
 async def update_packaging_fadda(fadda_id: str, request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/packaging/fadda/{fadda_id}", request, token)
+    return _after_master_save(await proxy_to_service(MASTER_SERVICE_URL, f"/master/packaging/fadda/{fadda_id}", request, token), request, token)
 
 
 @router.delete("/packaging/fadda/{fadda_id}")
@@ -517,6 +528,11 @@ async def get_tools(request: Request, token: str = Depends(get_token)):
 @router.post("/tools")
 async def create_tool(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(MASTER_SERVICE_URL, "/master/tools/", request, token)
+
+
+@router.post("/tools/backfill-from-specs")
+async def backfill_tools_from_specs(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/tools/backfill-from-specs", request, token)
 
 
 @router.get("/tools/categories")

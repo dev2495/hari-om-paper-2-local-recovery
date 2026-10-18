@@ -7,6 +7,7 @@ import { ArrowUpRight, ChevronRight, Layers, RefreshCw, Save, Search, Tag } from
 
 import { MATERIAL_TYPES, MaterialTypeTabs, materialTypeMeta } from "@/components/qc/MaterialTypeTabs"
 import { Field, MessageBar, ProcurementShell, fieldClass } from "@/components/procurement/procurement-shell"
+import { BAND_MODES, bandLineFrom, bandPayload, blankBand, previewBand, type BandLine } from "@/lib/qc-bands"
 import { ErrorState, LoadingState } from "@/components/workspace/query-state"
 import { RoleGate } from "@/components/workspace/role-gate"
 import { useAdhesives, usePapers, useParchments } from "@/hooks/use-master-data"
@@ -14,13 +15,8 @@ import { useQualityStandardTolerances, useSaveQualityStandardItem, useSaveQualit
 import { cn } from "@/lib/utils"
 
 type Scope = { scope: "TYPE" | "GROUP" | "SUBGROUP" | "ITEM"; key: string; label: string }
-type Line = { mode: "RANGE" | "PLUS_MINUS" | "PERCENT"; min: string; max: string; spread: string }
+type Line = BandLine
 
-const MODES = [
-  { value: "RANGE", label: "Min – max" },
-  { value: "PLUS_MINUS", label: "± value" },
-  { value: "PERCENT", label: "± %" },
-] as const
 const SCOPE_WORD: Record<string, string> = { ITEM: "this line", SUBGROUP: "colour", GROUP: "group", TYPE: "all" }
 const PACKING_KINDS = ["Box", "Plastic sheet", "Fadda"]
 const norm = (value: unknown) => String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "")
@@ -125,8 +121,8 @@ function ToleranceWorkspace() {
     for (const parameter of parameters) {
       const row = tolerances.find((t) => t.scope === selected.scope && t.scope_key === selected.key && t.parameter_key === parameter.parameter_key)
       next[parameter.parameter_key] = row
-        ? { mode: row.mode, min: num(row.min_value), max: num(row.max_value), spread: num(row.tolerance_value) }
-        : { mode: "RANGE", min: "", max: "", spread: "" }
+        ? bandLineFrom(row)
+        : { ...blankBand }
     }
     setLines(next)
     setNominals(Object.fromEntries(parameters.map((p) => [p.parameter_key, num(selectedItem?.qc_nominals?.[p.parameter_key])])))
@@ -148,12 +144,9 @@ function ToleranceWorkspace() {
   const preview = (code: string) => {
     const line = lines[code]
     if (!line) return null
-    const nominal = selected.scope === "ITEM" ? Number(nominals[code]) : NaN
-    if (line.mode === "RANGE") return line.min || line.max ? `${line.min || "—"} to ${line.max || "—"}` : null
-    if (!line.spread) return null
-    if (!Number.isFinite(nominal) || nominals[code] === "") return `± ${line.spread}${line.mode === "PERCENT" ? "%" : ""} around each line's nominal`
-    const spread = line.mode === "PERCENT" ? Math.abs(nominal) * Number(line.spread) / 100 : Number(line.spread)
-    return `${show(nominal - spread)} to ${show(nominal + spread)}`
+    const typed = nominals[code]
+    const nominal = selected.scope === "ITEM" && typed !== "" && typed !== undefined && Number.isFinite(Number(typed)) ? Number(typed) : null
+    return previewBand(line, nominal, selected.scope === "ITEM")
   }
 
   const save = async () => {
@@ -167,12 +160,7 @@ function ToleranceWorkspace() {
       }
       const result = await saveBands.mutateAsync({
         material_type: materialType, scope: selected.scope, scope_key: selected.key, note,
-        lines: parameters.map((p) => {
-          const line = lines[p.parameter_key] || { mode: "RANGE", min: "", max: "", spread: "" }
-          return line.mode === "RANGE"
-            ? { parameter_key: p.parameter_key, mode: "RANGE" as const, min_value: line.min === "" ? null : Number(line.min), max_value: line.max === "" ? null : Number(line.max) }
-            : { parameter_key: p.parameter_key, mode: line.mode, tolerance_value: line.spread === "" ? null : Number(line.spread) }
-        }),
+        lines: parameters.map((p) => bandPayload(p.parameter_key, lines[p.parameter_key] || blankBand)),
       })
       const changed = result.data?.changed?.length || 0
       setNotice(changed || itemChanged ? `Saved. ${result.data?.items_updated ?? 0} material line(s) now inspect against the new band${changed === 1 ? "" : "s"}; lots already received keep the band they arrived with.` : "No change to save.")
@@ -215,7 +203,7 @@ function ToleranceWorkspace() {
       <MaterialTypeTabs value={materialType} onChange={setMaterialType} />
       {error ? <MessageBar tone="error">{error}</MessageBar> : null}
       {notice ? <MessageBar tone="success">{notice}</MessageBar> : null}
-      {data.isLoading ? <LoadingState label="Loading tolerances…" /> : data.isError ? <ErrorState message="Tolerances could not be loaded." onRetry={() => data.refetch()} /> : !parameters.length ? (
+      {data.isLoading ? <LoadingState label="Loading tolerances…" /> : data.isError ? <ErrorState message={`Tolerances could not be loaded: ${errorText(data.error)}`} onRetry={() => data.refetch()} /> : !parameters.length ? (
         <MessageBar tone="info">QC has no measured checks switched on for {meta.label.toLowerCase()}. <Link className="font-semibold underline" href="/quality/material-standards">Open Material standards</Link> to add one.</MessageBar>
       ) : (
         <div className="grid items-start gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
@@ -281,15 +269,15 @@ function ToleranceWorkspace() {
                 <tbody>
                   {parameters.map((parameter) => {
                     const code = parameter.parameter_key
-                    const line = lines[code] || { mode: "RANGE", min: "", max: "", spread: "" }
+                    const line = lines[code] || blankBand
                     const inherited = selectedItem?.bands?.[code]
                     return (
                       <tr key={code}>
                         <td><p className="font-medium">{parameter.label}</p><p className="text-[11.5px] text-muted-foreground">{parameter.unit || "no unit"}{parameter.required ? "" : " · optional"}</p></td>
                         {selectedItem ? <td><input className={cn(fieldClass, "w-24")} type="number" step="any" aria-label={`${parameter.label} nominal`} value={nominals[code] ?? ""} onChange={(e) => setNominals({ ...nominals, [code]: e.target.value })} placeholder={master?.values[code] != null ? String(master.values[code]) : ""} /></td> : null}
                         <td>
-                          <select className={cn(fieldClass, "w-[8.75rem]")} aria-label={`${parameter.label} band type`} value={line.mode} onChange={(e) => setLine(code, { mode: e.target.value as Line["mode"] })}>
-                            {MODES.map((mode) => <option key={mode.value} value={mode.value}>{mode.label}</option>)}
+                          <select className={cn(fieldClass, "w-[9.5rem]")} aria-label={`${parameter.label} band type`} value={line.mode} onChange={(e) => setLine(code, { mode: e.target.value as Line["mode"] })}>
+                            {BAND_MODES.map((mode) => <option key={mode.value} value={mode.value}>{mode.label}</option>)}
                           </select>
                         </td>
                         <td>
@@ -299,13 +287,15 @@ function ToleranceWorkspace() {
                               <span className="text-muted-foreground">to</span>
                               <input className={cn(fieldClass, "w-24")} type="number" step="any" aria-label={`${parameter.label} maximum`} placeholder="max" value={line.max} onChange={(e) => setLine(code, { max: e.target.value })} />
                             </div>
+                          ) : line.mode === "NONE" ? (
+                            <span className="text-[12.5px] text-muted-foreground">—</span>
                           ) : (
-                            <div className="flex items-center gap-1.5"><span className="text-muted-foreground">±</span><input className={cn(fieldClass, "w-24")} type="number" step="any" min="0" aria-label={`${parameter.label} tolerance`} value={line.spread} onChange={(e) => setLine(code, { spread: e.target.value })} /><span className="text-muted-foreground">{line.mode === "PERCENT" ? "%" : parameter.unit}</span></div>
+                            <div className="flex items-center gap-1.5"><span className="text-muted-foreground">{line.mode === "AT_LEAST" ? "less" : line.mode === "AT_MOST" ? "plus" : "±"}</span><input className={cn(fieldClass, "w-24")} type="number" step="any" min="0" placeholder={line.mode === "AT_LEAST" || line.mode === "AT_MOST" ? "0" : ""} aria-label={`${parameter.label} ${line.mode === "AT_LEAST" || line.mode === "AT_MOST" ? "allowance" : "tolerance"}`} value={line.spread} onChange={(e) => setLine(code, { spread: e.target.value })} /><span className="text-muted-foreground">{line.mode === "PERCENT" ? "%" : parameter.unit}</span></div>
                           )}
                         </td>
                         <td className="text-[12.5px]">
                           {preview(code) ? <span className="font-medium">{preview(code)}</span> : selectedItem && inherited && (inherited.min != null || inherited.max != null) && inherited.source !== "ITEM" ? (
-                            <span>{show(inherited.min)} to {show(inherited.max)} <span className="text-muted-foreground">· from {SCOPE_WORD[inherited.source] || "default"}</span></span>
+                            <span>{inherited.min != null && inherited.max != null ? `${show(inherited.min)} to ${show(inherited.max)}` : inherited.min != null ? `at least ${show(inherited.min)}` : `at most ${show(inherited.max)}`} <span className="text-muted-foreground">· from {SCOPE_WORD[inherited.source] || "default"}</span></span>
                           ) : <span className="text-muted-foreground">Recorded only — no band</span>}
                         </td>
                       </tr>

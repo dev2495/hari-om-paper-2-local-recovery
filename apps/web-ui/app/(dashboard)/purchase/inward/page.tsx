@@ -23,6 +23,18 @@ const newLot = (previous?: Lot): Lot => ({ key: crypto.randomUUID(), source_reel
 const newLine = (): Line => ({ key: crypto.randomUUID(), item_id: "", po_line_id: "", quantity: "", invoice_quantity: "", invoice_rate: "", batch_no: "", lots: [newLot()] })
 const errorText = (error: any) => typeof error?.response?.data?.detail === "string" ? error.response.data.detail : error.message || "Review the form and try again."
 
+/** Where held stock goes next, and who clears it (client 2026-10-18: "approval ke liye kiske pass jayega"). */
+function commercialNext(status: string | null | undefined): string {
+  switch (String(status || "").toUpperCase()) {
+    case "CLEAR": return "Commercial rates matched; lots go to incoming QC."
+    case "INVOICE_PENDING": return "Stock is held until the supplier invoice is attached: Store attaches it in Purchase › GRN register when it arrives."
+    case "RATE_REVIEW":
+    case "REVIEW_REQUIRED": return "Invoice rate or quantity differs from the PO, so stock is held. The plant head or Accounts decides it in Purchase › Invoice differences (not the person who made this GRN). They have been notified."
+    case "MANUAL_REVIEW": return "Manual GRN without a PO: the plant head or Accounts approves it in Purchase › GRN register (not the person who made it). They have been notified."
+    default: return "Stock is held pending commercial approval by the plant head or Accounts."
+  }
+}
+
 export default function PurchaseInwardPage() {
   const { activePlant } = useAuth(); const client = useQueryClient()
   const vendorsQuery = useVendors(); const itemsQuery = useInventoryItems()
@@ -125,7 +137,7 @@ export default function PurchaseInwardPage() {
     return { ...body, request_id: request.current.key }
   }
   const validate = useMutation({ mutationFn: (body: any) => mode === "PO" ? purchaseApi.previewReceipt(body) : purchaseApi.previewManualReceipt(body), onSuccess: ({ data }, body) => { setPreview(data); setReviewedPayload(body); setNotice(null) }, onError: (error) => setNotice({ tone: "error", text: errorText(error) }) })
-  const post = useMutation({ mutationFn: () => { if (!reviewedPayload || JSON.stringify(payload()) !== JSON.stringify(reviewedPayload)) throw new Error("Receipt details changed. Validate them again before posting."); return mode === "PO" ? purchaseApi.createReceipt(reviewedPayload) : purchaseApi.createManualReceipt(reviewedPayload) }, onSuccess: ({ data }) => { setPosted(data); setNotice({ tone: "success", text: `${data.grn_no} saved. ${data.lot_count} individual lots recorded. ${data.commercial_status === "CLEAR" ? "Commercial rates matched." : "Stock is held pending commercial approval."}` }); client.invalidateQueries({ queryKey: ["purchase-v2"] }) }, onError: (error) => setNotice({ tone: "error", text: errorText(error) }) })
+  const post = useMutation({ mutationFn: () => { if (!reviewedPayload || JSON.stringify(payload()) !== JSON.stringify(reviewedPayload)) throw new Error("Receipt details changed. Validate them again before posting."); return mode === "PO" ? purchaseApi.createReceipt(reviewedPayload) : purchaseApi.createManualReceipt(reviewedPayload) }, onSuccess: ({ data }) => { setPosted(data); setNotice({ tone: "success", text: `${data.grn_no} saved. ${data.lot_count} individual lots recorded. ${commercialNext(data.commercial_status)}` }); client.invalidateQueries({ queryKey: ["purchase-v2"] }) }, onError: (error) => setNotice({ tone: "error", text: errorText(error) }) })
   const busy = post.isPending || validate.isPending
   const exceedsPo = mode === "PO" && lines.some((line) => { const row: any = material(line); return row && quantity(line) > Number(row.open_qty || 0) + 1e-9 })
 

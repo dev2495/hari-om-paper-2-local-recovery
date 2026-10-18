@@ -563,6 +563,14 @@ def get_tool_report(
     }
 
 
+@router.post("/backfill-from-specs")
+def backfill_from_specs(current_user: dict = Depends(require_role(TOOL_MASTER_WRITE_ROLES))):
+    """Add every tool named in specification sheets that the Tool master is missing."""
+    from ..tool_backfill import backfill_tools_from_specs
+
+    return {"created": backfill_tools_from_specs()}
+
+
 @router.post("/log-usage", response_model=ToolUsageLogResponse)
 def log_tool_usage(
     payload: ToolUsageLogCreate,
