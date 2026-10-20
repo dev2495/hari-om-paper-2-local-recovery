@@ -9,7 +9,7 @@ import { BooksLockedChip } from "@/components/workspace/books-locked-chip"
 import { SeasonChip } from "@/components/workspace/SeasonChip"
 import { NotificationCenter } from "@/components/workspace/notification-center"
 import { RoleSwitcher } from "@/components/workspace/role-switcher"
-import { AppearanceControls } from "@/components/workspace/appearance-controls"
+import { AppearanceControls, ThemeToggle } from "@/components/workspace/appearance-controls"
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { useApp } from "@/context/AppContext"
@@ -427,7 +427,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </DialogContent>
         </Dialog>
         <div className="ml-auto flex shrink-0 items-center gap-1 sm:ml-0">
-          <SeasonChip /><AppearanceControls /><BooksLockedChip compact /><RoleSwitcher compact /><NotificationCenter />
+          <SeasonChip /><ThemeToggle /><AppearanceControls /><BooksLockedChip compact /><RoleSwitcher compact /><NotificationCenter />
           {userRoles.has("Owner") || userRoles.has("Admin") ? <PlantSwitcher compact /> : null}
           <Link href={`/help?route=${encodeURIComponent(pathname)}`} className="tube-icon-button max-[400px]:!hidden" aria-label="Open page guide" title="Open page guide"><BookOpen size={17} /></Link>
         </div>

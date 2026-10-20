@@ -99,7 +99,7 @@ export default function PlanningPrintPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[1180px] bg-white p-6 text-slate-950 print:max-w-none print:p-0">
+    <div className="tube-paper mx-auto max-w-[1180px] bg-white p-6 text-slate-950 print:max-w-none print:p-0">
       <div className="no-print mb-4 flex justify-end">
         <button
           type="button"

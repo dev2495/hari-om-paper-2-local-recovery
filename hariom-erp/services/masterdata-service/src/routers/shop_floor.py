@@ -709,7 +709,8 @@ reason_router = APIRouter(prefix="/master/reason-codes", tags=["Master · Reason
 
 
 # CUSTOMER_COMPLAINT: the "Customer complaints" master the client keeps updating (2026-10-18).
-REASON_CATEGORIES = {"DOWNTIME", "SCRAP", "QC_REJECT", "SHORT_CLOSE", "RM_ISSUE", "RETURN", "CUSTOMER_COMPLAINT", "OTHER"}
+# SO_CLOSE: reasons for cancelling or short-closing a sales order (2026-10-20, seeded by reason_seed.py).
+REASON_CATEGORIES = {"DOWNTIME", "SCRAP", "QC_REJECT", "SHORT_CLOSE", "RM_ISSUE", "RETURN", "CUSTOMER_COMPLAINT", "SO_CLOSE", "OTHER"}
 REASON_SEVERITIES = {"OK", "WATCH", "CRITICAL"}
 
 

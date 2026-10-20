@@ -132,7 +132,7 @@ export function SpecSheetPrint({ enabled, data, embedded = false }: SpecSheetPri
   const combinedGsm = data.recipe.reduce((sum, row) => sum + row.gsm * row.plies, 0)
 
   return (
-    <div className="spec-print-preview">
+    <div className="spec-print-preview tube-paper">
       {embedded ? null : <div className="spec-print-actions no-print">
         <div>
           <strong>Client-approved one-page specification</strong>

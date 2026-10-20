@@ -8,7 +8,9 @@
  * Every colour is a token so light, dark and print stay in lockstep.
  */
 @layer base {
-  :root {
+  /* .tube-paper: a printed document preview (job card, spec print) keeps the light tokens and stays
+     paper-white with dark ink in dark mode, exactly as it prints. */
+  :root, .tube-paper {
     --font-body: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI Variable Text", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
     --font-heading: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", "Segoe UI Variable Display", "Segoe UI", Roboto, sans-serif;
     --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
@@ -65,6 +67,8 @@
     color-scheme: dark;
   }
 
+  .tube-paper { color: hsl(var(--foreground)); }
+
   * { @apply border-border; }
 
   html { text-size-adjust: 100%; -webkit-text-size-adjust: 100%; }
@@ -96,6 +100,9 @@
   /* Native form controls follow the theme */
   input, select, textarea { color: inherit; }
   select { background-color: hsl(var(--card)); }
+  /* Fields without their own background use the card colour (white in light mode, as before), not the
+     browser's grey dark-mode field colour. :where() keeps any background class in charge. */
+  :where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]), textarea) { background-color: hsl(var(--card)); }
   input[type="checkbox"], input[type="radio"] { accent-color: hsl(var(--primary)); }
   input[type="date"]::-webkit-calendar-picker-indicator { opacity: .6; cursor: pointer; }
   :root[data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator,

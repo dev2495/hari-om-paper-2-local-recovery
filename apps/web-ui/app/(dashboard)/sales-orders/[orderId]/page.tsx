@@ -5,8 +5,10 @@ import dayjs from "dayjs"
 import {
   ArrowLeft,
   ArrowRight,
+  Ban,
   CalendarDays,
   CheckCircle2,
+  CircleSlash2,
   ClipboardCheck,
   Factory,
   History,
@@ -29,6 +31,7 @@ import { EVENT_LABEL, JobCardLifecycleSheet, eventText } from "@/components/prod
 import { PageHeader } from "@/components/workspace/page-header"
 import { ErrorState, LoadingState } from "@/components/workspace/query-state"
 import { ReleaseToQueueDialog } from "@/components/sales/release-to-queue-dialog"
+import { OrderClosureDialog, orderClosureAction } from "@/components/sales/order-closure-dialog"
 import { LineDeliveryEditor } from "@/components/sales/line-delivery-editor"
 import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
@@ -43,7 +46,9 @@ const fmt = (value: unknown) => Number(value || 0).toLocaleString("en-IN", { max
 
 function formatDate(value?: string | null, template = "DD MMM YYYY") {
   if (!value) return "—"
-  const parsed = dayjs(value)
+  // Server times are UTC without a zone mark; read them as UTC so they show in plant (local) time.
+  const text = String(value)
+  const parsed = dayjs(/T\d{2}:\d{2}/.test(text) && !/(Z|[+-]\d{2}:?\d{2})$/.test(text) ? `${text}Z` : text)
   return parsed.isValid() ? parsed.format(template) : String(value)
 }
 
@@ -55,6 +60,8 @@ const SALES_ICON: Record<string, any> = {
   SALES_ORDER_LINE_RELEASED: Factory,
   SALES_ORDER_LOT_RETURNED: Undo2,
   SALES_ORDER_DISPATCH_RECORDED: Truck,
+  SALES_ORDER_CANCELLED: Ban,
+  SALES_ORDER_SHORT_CLOSED: CircleSlash2,
 }
 const STAGE_ORDER = ["SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING", "QC"]
 const PRODUCTION_LABEL: Record<string, string> = {
@@ -96,10 +103,12 @@ export default function SalesOrderDetailPage() {
   const [selectedLineIds, setSelectedLineIds] = useState<string[]>([])
   const [releaseOpen, setReleaseOpen] = useState(false)
   const [sheetJobId, setSheetJobId] = useState<string | null>(null)
+  const [closureOpen, setClosureOpen] = useState(false)
 
   const orderQuery = useSalesOrder(orderId)
   const timelineQuery = useSalesOrderTimeline(orderId)
-  const trailQuery = useOrderProductionTrail(orderId)
+  const orderQueryPlant = orderQuery.data?.plant_id && String(orderQuery.data.plant_id).toUpperCase() !== "ALL" ? String(orderQuery.data.plant_id) : undefined
+  const trailQuery = useOrderProductionTrail(orderQueryPlant ? orderId : undefined, orderQueryPlant)
   const schedulesQuery = useOrderDeliverySchedules(orderId)
   const customersQuery = useCustomers()
   const jobCardsQuery = usePlanningJobCards({ sales_order_id: orderId, limit: 250 }, Boolean(orderId))
@@ -116,7 +125,11 @@ export default function SalesOrderDetailPage() {
   )
   const jobById = useMemo(() => new Map(orderJobs.map((job: any) => [String(job.id), job])), [orderJobs])
   const customerLabel = order ? customerMap.get(String(order.customer_id || "")) || order.customer_name || String(order.customer_id || "—") : "—"
-  const flow = useMemo(() => orderFlow(order?.lines || [], orderJobs), [order?.lines, orderJobs])
+  const flow = useMemo(() => {
+    const value = orderFlow(order?.lines || [], orderJobs)
+    // A cancelled order has nothing left to release or send.
+    return String(order?.status || "") === "cancelled" ? { ...value, unreleased: 0, pending: 0 } : value
+  }, [order?.lines, order?.status, orderJobs])
   const scheduleItems: any[] = useMemo(() => (Array.isArray((schedulesQuery.data as any)?.items) ? (schedulesQuery.data as any).items : []), [schedulesQuery.data])
   const scheduleRevision = Number((schedulesQuery.data as any)?.schedule_revision ?? order?.schedule_revision ?? 0)
   const unsyncedReleaseLots = useMemo(
@@ -127,6 +140,7 @@ export default function SalesOrderDetailPage() {
   const status = String(order?.status || "").toLowerCase()
   const canApprove = ["draft", "submitted"].includes(status)
   const canRelease = ["approved", "released", "partially_released", "partially_dispatched"].includes(status)
+  const closure = orderClosureAction(order)
 
   const handleApprove = async () => {
     try {
@@ -158,13 +172,25 @@ export default function SalesOrderDetailPage() {
       <PageHeader
         badge={`${salesOrderOriginLabel(order.origin)} · ${String(order.status || "").replaceAll("_", " ")}`}
         title={`${order.order_no || "Sales order"} · ${customerLabel}`}
-        description={`${salesOrderReferenceLabel(order)} · ${isInternalOrigin(order.origin) ? `internal ${formatDate(order.internal_order_date)}` : `PO date ${formatDate(order.po_date)}`} · valid till ${formatDate(order.expiry_date)}${order.is_held ? " · on customer hold" : ""}`}
+        description={`${salesOrderReferenceLabel(order)} · ${isInternalOrigin(order.origin) ? `internal ${formatDate(order.internal_order_date)}` : `PO date ${formatDate(order.po_date)}`} · valid till ${formatDate(order.expiry_date)}${order.is_held ? " · on customer hold" : ""}${status === "cancelled" ? " · cancelled" : order.closure_kind === "SHORT_CLOSED" ? " · short-closed" : ""}`}
         actions={
           <>
             <Link href="/sales-orders" className="erp-btn-secondary"><ArrowLeft className="h-4 w-4" />Orders</Link>
             {canApprove ? <Link href={`/sales-orders/${order.id}/edit`} className="erp-btn-secondary"><Pencil className="h-4 w-4" />Edit</Link> : null}
             <button type="button" className="erp-btn-secondary" onClick={() => window.print()}><Printer className="h-4 w-4" />Print</button>
             <Link href={`/planning/board?section=winder&order_id=${order.id}&view=calendar`} className="erp-btn-secondary">Planner<ArrowRight className="h-4 w-4" /></Link>
+            {closure.kind ? (
+              <button
+                type="button"
+                data-testid={closure.kind === "cancel" ? "sales-order-detail:cancel" : "sales-order-detail:short-close"}
+                className={cn("erp-btn-secondary", closure.kind === "cancel" ? "!text-signal-rose-ink" : "!text-signal-amber-ink")}
+                onClick={() => setClosureOpen(true)}
+                title={closure.kind === "cancel" ? "Nothing is released or dispatched yet: cancel the whole order with a reason" : "Drop the balance not yet released; released job cards still finish"}
+              >
+                {closure.kind === "cancel" ? <Ban className="h-4 w-4" /> : <CircleSlash2 className="h-4 w-4" />}
+                {closure.kind === "cancel" ? "Cancel order" : "Short close"}
+              </button>
+            ) : null}
             {canApprove && String(order.created_by || "").toLowerCase() === String(user?.email || "").toLowerCase() ? (
               <span className="rounded-lg border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-[12.5px] font-medium text-signal-amber-ink" title="Maker-checker: the person who created the order cannot approve it, even after switching role.">You created this order — another user approves it</span>
             ) : null}
@@ -190,6 +216,8 @@ export default function SalesOrderDetailPage() {
       />
 
       <OrderFlowStrip flow={flow} jobsFailed={jobCardsQuery.isError} jobCount={orderJobs.length} />
+
+      {order.closure_kind ? <ClosureBanner order={order} /> : null}
 
       {unsyncedReleaseLots.length > 0 ? (
         <div data-testid="sales-order-detail:unsynced-release-lots" className="rounded-xl border border-signal-rose-line bg-signal-rose-soft px-4 py-2.5 text-[13px] text-signal-rose-ink">
@@ -220,7 +248,7 @@ export default function SalesOrderDetailPage() {
               onSelect={(checked) => setSelectedLineIds((current) => (checked ? [...current, String(line.id)] : current.filter((value) => value !== String(line.id))))}
               onRelease={canRelease ? () => handleOpenRelease([String(line.id)]) : canApprove ? async () => { if (await handleApprove()) handleOpenRelease([String(line.id)]) } : undefined}
               onOpenCard={setSheetJobId}
-              editable={!["closed"].includes(status)}
+              editable={!["closed", "cancelled"].includes(status)}
             />
           ))}
         </div>
@@ -244,6 +272,7 @@ export default function SalesOrderDetailPage() {
         open={releaseOpen}
         onOpenChange={setReleaseOpen}
       />
+      <OrderClosureDialog order={order} open={closureOpen} onOpenChange={setClosureOpen} />
       <JobCardLifecycleSheet jobCardId={sheetJobId} open={Boolean(sheetJobId)} onOpenChange={(next) => { if (!next) setSheetJobId(null) }} />
     </div>
   )
@@ -273,6 +302,32 @@ function OrderFlowStrip({ flow, jobsFailed, jobCount }: { flow: ReturnType<typeo
         </div>
       ))}
     </section>
+  )
+}
+
+/** Who cancelled or short-closed the order, when and why. */
+function ClosureBanner({ order }: { order: any }) {
+  const cancelled = String(order.status || "") === "cancelled"
+  const dropped = (order.lines || []).reduce((sum: number, line: any) => sum + Number(line.short_closed_qty || 0), 0)
+  const stillOpen = !cancelled && String(order.status || "") !== "closed"
+  return (
+    <div
+      data-testid="sales-order-detail:closure"
+      className={cn("flex gap-3 rounded-xl border px-4 py-3 text-[13px]", cancelled ? "border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink" : "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink")}
+    >
+      {cancelled ? <Ban className="mt-0.5 h-4 w-4 shrink-0" /> : <CircleSlash2 className="mt-0.5 h-4 w-4 shrink-0" />}
+      <div className="min-w-0">
+        <p className="font-semibold">
+          {cancelled ? "Order cancelled" : `Order short-closed · ${fmt(dropped)} pcs not released were dropped`}
+          {" — "}{order.closure_reason || order.closure_reason_code} <span className="font-normal opacity-80">({order.closure_reason_code})</span>
+        </p>
+        <p className="opacity-90">
+          {formatDate(order.closure_at, "DD MMM YYYY, HH:mm")} by {order.closure_by || "—"}
+          {order.closure_note ? ` · ${order.closure_note}` : ""}
+          {cancelled ? " · it cannot be released or dispatched." : stillOpen ? " · job cards already released finish; the order closes once they are dispatched." : " · the order is closed."}
+        </p>
+      </div>
+    </div>
   )
 }
 
@@ -347,7 +402,8 @@ function LineTracker({
             {line.parchment_required ? (splits.length ? splits.map((split) => <ColorChip key={split.color} color={split.color} className="!text-[11.5px]" />) : <span className="text-[12px] font-normal text-signal-amber-ink">colour not decided</span>) : <span className="text-[12px] font-normal text-muted-foreground">plain</span>}
           </h3>
           <p className="text-[12.5px] text-muted-foreground">
-            <strong className="text-foreground tabular-nums">{fmt(qty)} pcs</strong> · due {formatDate(line.due_date)}
+            <strong className="text-foreground tabular-nums">{fmt(qty)} pcs</strong>
+            {Number(line.short_closed_qty || 0) > 0 ? <span className="text-signal-amber-ink"> ({fmt(line.short_closed_qty)} short-closed)</span> : null} · due {formatDate(line.due_date)}
             {nextCallOff ? <> · next delivery <strong className="text-foreground">{formatDate(nextCallOff.delivery_date, "DD MMM")}</strong> ({fmt(nextCallOff.quantity)})</> : null}
             {line.rate_per_pc ? ` · ₹${Number(line.rate_per_pc).toLocaleString("en-IN")}/pc` : ""}
             {line.line_value != null ? <> · value <strong className="text-foreground tabular-nums">₹{Number(line.line_value).toLocaleString("en-IN", { maximumFractionDigits: 2 })}</strong></> : null}

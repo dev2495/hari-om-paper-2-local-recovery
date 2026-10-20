@@ -338,8 +338,14 @@ export const salesApi = {
   getPendingOrders: (params?: any) => api.get("/api/sales/orders/pending", { params }),
   exportPendingOrders: (params?: any) => api.get("/api/sales/orders/pending/export", { params, responseType: "blob" }),
   getOrderDeliverySchedules: (id: string) => api.get(`/api/sales/orders/${id}/delivery-schedules`),
-  holdOrder: (id: string, reason: string) => api.post(`/api/sales/orders/${id}/hold`, { reason }),
-  resumeOrder: (id: string) => api.post(`/api/sales/orders/${id}/resume`),
+  holdOrder: (id: string, reason: string, plantId?: string) => api.post(`/api/sales/orders/${id}/hold`, { reason }, withPlantHeader(plantId)),
+  resumeOrder: (id: string, plantId?: string) => api.post(`/api/sales/orders/${id}/resume`, {}, withPlantHeader(plantId)),
+  /** Cancel the whole order (nothing released or dispatched yet) with an "Order cancel / short close" reason code. */
+  cancelOrder: (id: string, data: { reason_code: string; note?: string }, plantId?: string) =>
+    api.post(`/api/sales/orders/${id}/cancel`, data, withPlantHeader(plantId)),
+  /** Drop the balance not yet released; released job cards finish and the order then closes. */
+  shortCloseOrder: (id: string, data: { reason_code: string; note?: string }, plantId?: string) =>
+    api.post(`/api/sales/orders/${id}/short-close`, data, withPlantHeader(plantId)),
   previewOrderDeliverySchedules: (id: string, data: any) => api.post(`/api/sales/orders/${id}/delivery-schedules/preview`, data),
   commitOrderDeliverySchedules: (id: string, data: any) => api.post(`/api/sales/orders/${id}/delivery-schedules/commit`, data),
   patchOrderDeliverySchedule: (orderId: string, scheduleId: string, data: any) =>
@@ -420,7 +426,9 @@ export const productionApi = {
   postRunningEntry: (jobCardId: string, data: any) => api.post(`/api/production/job-cards/${jobCardId}/running-entry`, data),
   emergencyInsert: (data: { job_card_id: string; machine_id: string; plan_date: string; shift_code: string; reason: string }) =>
     api.post("/api/production/planning/emergency-insert", data),
-  getOrderTrail: (salesOrderId: string) => api.get(`/api/production/planning/order-trail`, { params: { sales_order_id: salesOrderId } }),
+  // The trail needs one plant: under "All Visible Plants" send the order's own plant.
+  getOrderTrail: (salesOrderId: string, plantId?: string) =>
+    api.get(`/api/production/planning/order-trail`, { params: { sales_order_id: salesOrderId }, ...withPlantHeader(plantId) }),
   getWinderLoad: () => api.get("/api/production/planning/winder-load"),
   sweepMissedSlots: () => api.post("/api/production/planning/missed-slots/sweep", {}),
   getMissedSlots: (params?: { include_resolved?: boolean }) => api.get("/api/production/planning/missed-slots", { params }),

@@ -1,5 +1,5 @@
 /* ───────────────────────── Signal palette (status tints) ───────────────────────── */
-:root {
+:root, .tube-paper {
   --signal-cyan-soft: 186 60% 96%; --signal-cyan-ink: 188 72% 26%; --signal-cyan-line: 186 48% 84%;
   --signal-emerald-soft: 152 50% 95.5%; --signal-emerald-ink: 155 64% 24%; --signal-emerald-line: 152 40% 82%;
   --signal-amber-soft: 42 90% 95.5%; --signal-amber-ink: 30 80% 30%; --signal-amber-line: 40 70% 80%;
@@ -550,3 +550,6 @@ a.tube-kpi:hover .tube-kpi-icon, button:hover > .tube-kpi .tube-kpi-icon { trans
   opacity: 1 !important;
 }
 :is(button, [role="button"]):disabled:not(:is(.erp-btn-primary, [class*="bg-primary"])) { opacity: .6 !important; }
+/* Dark theme (client 2026-10-20): locked values (e.g. a live spec's mandrel or notch tool) stay readable,
+ * so disabled controls are dimmed less on the dark page. */
+:root[data-theme="dark"] :is(button, [role="button"]):disabled:not(:is(.erp-btn-primary, [class*="bg-primary"])) { opacity: .8 !important; }

@@ -61,7 +61,7 @@ export default function PlannerPrintPage() {
         </button>
       </div>
 
-      <section className="rounded-2xl border border-slate-300 bg-white p-6 shadow-xl print:rounded-none print:border-black print:shadow-none">
+      <section className="tube-paper rounded-2xl border border-slate-300 bg-white p-6 shadow-xl print:rounded-none print:border-black print:shadow-none">
         <div className="border-b border-slate-200 pb-3">
           <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Hari Om Paper</p>
           <h1 className="mt-1 text-2xl font-bold text-slate-900">Daily Planner Sheet</h1>

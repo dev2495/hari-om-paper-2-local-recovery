@@ -3408,7 +3408,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             </button>
           </div>
         </div>
-        <div className="jc-root" style={{ zoom: paperZoom }}>
+        <div className="jc-root tube-paper" style={{ zoom: paperZoom }}>
 
         {/* ---------------- FRONT: client job card (final format) ---------------- */}
         <section className="jc-page jc-front" data-testid="print-page-winding">

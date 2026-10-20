@@ -54,6 +54,14 @@ class SalesOrder(Base):
     held_at = Column(DateTime, nullable=True)
     held_by = Column(String(200), nullable=True)
     hold_prev_status = Column(String(40), nullable=True)
+    # Cancel / short close (order_closure.py): kind CANCELLED | SHORT_CLOSED, reason code from
+    # Masters › Reason codes, who and when. A cancelled order is stored CLOSED and reported "cancelled".
+    closure_kind = Column(String(20), nullable=True, index=True)
+    closure_reason_code = Column(String(40), nullable=True)
+    closure_reason = Column(String(200), nullable=True)
+    closure_note = Column(Text, nullable=True)
+    closure_by = Column(String(200), nullable=True)
+    closure_at = Column(DateTime, nullable=True)
 
     lines = relationship("SalesOrderLine", back_populates="sales_order", cascade="all, delete-orphan")
 
@@ -76,6 +84,8 @@ class SalesOrderLine(Base):
     due_date = Column(Date, nullable=False)
     fulfilled_qty = Column(Float, nullable=False, default=0.0)
     hold_qty = Column(Float, nullable=False, default=0.0)
+    # Pieces dropped from this line by a short close (qty already excludes them).
+    short_closed_qty = Column(Float, nullable=False, default=0.0)
 
     sales_order = relationship("SalesOrder", back_populates="lines")
     dispatch_logs = relationship("SalesOrderDispatchLog", back_populates="line", cascade="all, delete-orphan")

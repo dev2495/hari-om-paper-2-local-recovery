@@ -189,7 +189,7 @@ export function usePendingSalesOrders(params?: any) {
 export function useHoldSalesOrder() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ orderId, reason }: { orderId: string; reason: string }) => salesApi.holdOrder(orderId, reason),
+    mutationFn: ({ orderId, reason, plantId }: { orderId: string; reason: string; plantId?: string }) => salesApi.holdOrder(orderId, reason, plantId),
     onSuccess: (_response, variables) => invalidateSalesQueries(queryClient, variables.orderId),
   })
 }
@@ -197,8 +197,25 @@ export function useHoldSalesOrder() {
 export function useResumeSalesOrder() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ orderId }: { orderId: string }) => salesApi.resumeOrder(orderId),
+    mutationFn: ({ orderId, plantId }: { orderId: string; plantId?: string }) => salesApi.resumeOrder(orderId, plantId),
     onSuccess: (_response, variables) => invalidateSalesQueries(queryClient, variables.orderId),
+  })
+}
+
+type OrderClosureInput = { orderId: string; kind: "cancel" | "short_close"; reasonCode: string; note?: string; plantId?: string }
+
+/** Cancel or short-close an order with a reason code (one hook so both share one dialog). */
+export function useCloseSalesOrder() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ orderId, kind, reasonCode, note, plantId }: OrderClosureInput) => {
+      const body = { reason_code: reasonCode, note: note?.trim() || undefined }
+      return kind === "cancel" ? salesApi.cancelOrder(orderId, body, plantId) : salesApi.shortCloseOrder(orderId, body, plantId)
+    },
+    onSuccess: (_response, variables) => {
+      invalidateSalesQueries(queryClient, variables.orderId)
+      void queryClient.invalidateQueries({ queryKey: ["planning"] })
+    },
   })
 }
 

@@ -38,7 +38,7 @@ const guides: GuideContent[] = [
       "Critical alerts should be cleared by completing the source workflow, not by hiding the alert.",
     ],
     primaryActions: [
-      "Use Jump to workspace or Command/Ctrl + K to find a workflow by name. Open Appearance settings for Light, Dark or System and table density.",
+      "Use Jump to workspace or Command/Ctrl + K to find a workflow by name. The sun/moon button switches light and dark in one click; Appearance settings has System (follow the device) and table density.",
       "Open the notification center for recent operational messages.",
       "Use the guide button in the header to understand the page you are on.",
     ],
@@ -61,6 +61,7 @@ const guides: GuideContent[] = [
       { label: "Approve", detail: "Approver validates demand, customer terms, and any exception notes." },
       { label: "Release", detail: "Select a winder number or name as a release hint. The released job enters the planning queue; the planner may use another available winder." },
       { label: "Track", detail: "Tracking page follows the order through job card, FG, QC, and dispatch." },
+      { label: "Cancel or short close", detail: "Nothing released or dispatched yet: Cancel order withdraws the whole order. Work started: Short close drops the quantity not yet released; job cards already released finish and the order closes when they are dispatched. Both need a reason from Masters › Reason codes (Order cancel / short close); Other needs a note. Customer hold stays the reversible pause." },
     ],
     fieldRules: [
       "Customer and specification must be selected from masters.",
@@ -71,6 +72,7 @@ const guides: GuideContent[] = [
       "Create new order from Sales Orders.",
       "Approve and release selected approved orders.",
       "Open order audit to review who changed demand or release status.",
+      "Use the order's ⋯ menu or the order page to cancel or short close it with a reason code.",
     ],
     controlChecks: [
       "Do not release an order without a valid specification.",
@@ -714,7 +716,7 @@ const guides: GuideContent[] = [
       },
       {
         label: "Set appearance",
-        detail: "Open Appearance settings in the top bar. Choose Light, Dark or System. System follows your device preference. Density changes table spacing on supported pages."
+        detail: "The theme follows your device (System) until you change it. Click the sun/moon button in the top bar to switch between light and dark in one click. Open Appearance settings to choose Light, Dark or System again; density changes table spacing on supported pages. Job cards, spec print views and anything you print stay white paper."
       },
       {
         label: "Keep your context",

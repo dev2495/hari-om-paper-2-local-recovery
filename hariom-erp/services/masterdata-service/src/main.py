@@ -750,6 +750,11 @@ from .tool_backfill import backfill_tools_from_specs
 backfill_tools_from_specs()
 
 
+from .reason_seed import seed_order_close_reasons
+
+seed_order_close_reasons()
+
+
 @app.get("/")
 def health_check():
     return {

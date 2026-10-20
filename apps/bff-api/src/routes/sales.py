@@ -1,12 +1,15 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
+import httpx
 import os
 
 from src.middleware.auth import get_token
-from src.services.http_client import proxy_to_service
+from src.services.http_client import http_client, proxy_to_service
 from src.services.workspace import emit_from_response, response_body_json
 
 router = APIRouter()
 SALES_SERVICE_URL = os.getenv("SALES_SERVICE_URL", "http://127.0.0.1:18008")
+MASTER_SERVICE_URL = os.getenv("MASTER_SERVICE_URL", "http://127.0.0.1:18002")
+ORDER_CLOSE_CATEGORY = "SO_CLOSE"
 
 
 @router.get("/orders")
@@ -161,6 +164,73 @@ async def resume_order(order_id: str, request: Request, token: str = Depends(get
         href=f"/sales-orders/{order_id}",
         recipient_roles=["Owner", "Admin", "Sales", "Planner", "PlantManager", "Dispatch"],
         payload={"order_id": order_id},
+    )
+    return response
+
+
+async def _order_close_body(request: Request, token: str) -> dict:
+    """The reason code must be an active "Order cancel / short close" code of this plant (Masters ›
+    Reason codes); its name is stored with the order so the record reads the same later."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    code = str(body.get("reason_code") or "").strip().upper()
+    if not code:
+        raise HTTPException(status_code=422, detail="Choose a reason code.")
+    headers = {"Authorization": f"Bearer {token}"}
+    if request.headers.get("X-Plant-ID"):
+        headers["X-Plant-ID"] = request.headers["X-Plant-ID"]
+    try:
+        response = await http_client.get(f"{MASTER_SERVICE_URL}/master/reason-codes/", params={"category": ORDER_CLOSE_CATEGORY}, headers=headers)
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=503, detail="Reason codes could not be checked right now. Try again.") from exc
+    if response.status_code >= 400:
+        raise HTTPException(status_code=503, detail="Reason codes could not be checked right now. Try again.")
+    data = response.json()
+    rows = data if isinstance(data, list) else []
+    match = next((row for row in rows if str(row.get("code") or "").upper() == code and row.get("category") == ORDER_CLOSE_CATEGORY), None)
+    if not match:
+        raise HTTPException(status_code=422, detail=f"{code} is not an active order cancel / short close reason in Masters › Reason codes.")
+    return {"reason_code": code, "reason_label": match.get("label") or code, "note": str(body.get("note") or "").strip() or None}
+
+
+@router.post("/orders/{order_id}/cancel")
+async def cancel_order(order_id: str, request: Request, token: str = Depends(get_token)):
+    body = await _order_close_body(request, token)
+    response = await proxy_to_service(SALES_SERVICE_URL, f"/sales-orders/{order_id}/cancel", request, token, json_body=body)
+    payload = response_body_json(response) or {}
+    total = sum(float(line.get("qty") or 0) for line in payload.get("lines") or [] if isinstance(line, dict))
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="SALES_ORDER_CANCELLED",
+        title=f"Sales order cancelled: {payload.get('po_number') or payload.get('order_no') or order_id}",
+        message=f"{total:,.0f} pcs cancelled — {payload.get('closure_reason') or body['reason_code']}. Nothing was released or dispatched; remove it from any plans.",
+        href=f"/sales-orders/{order_id}",
+        recipient_roles=["Owner", "Admin", "Sales", "Planner", "PlantManager"],
+        payload={"order_id": order_id, "reason_code": body["reason_code"]},
+    )
+    return response
+
+
+@router.post("/orders/{order_id}/short-close")
+async def short_close_order(order_id: str, request: Request, token: str = Depends(get_token)):
+    body = await _order_close_body(request, token)
+    response = await proxy_to_service(SALES_SERVICE_URL, f"/sales-orders/{order_id}/short-close", request, token, json_body=body)
+    payload = response_body_json(response) or {}
+    dropped = sum(float(line.get("short_closed_qty") or 0) for line in payload.get("lines") or [] if isinstance(line, dict))
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="SALES_ORDER_SHORT_CLOSED",
+        title=f"Sales order short-closed: {payload.get('po_number') or payload.get('order_no') or order_id}",
+        message=f"{dropped:,.0f} pcs not yet released were dropped — {payload.get('closure_reason') or body['reason_code']}. Released job cards finish and are dispatched; do not release more.",
+        href=f"/sales-orders/{order_id}",
+        recipient_roles=["Owner", "Admin", "Sales", "Planner", "PlantManager", "Dispatch"],
+        payload={"order_id": order_id, "reason_code": body["reason_code"]},
     )
     return response
 

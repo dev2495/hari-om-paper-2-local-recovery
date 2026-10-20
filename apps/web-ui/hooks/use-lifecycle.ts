@@ -154,10 +154,10 @@ export function newRequestId() {
 export type OrderTrailEvent = { id: string; action: string; entity_type: string; job_card_id: string; job_card_no: string | null; actor: string | null; actor_role: string | null; at: string | null; payload: Record<string, any> }
 
 /** Production events on all job cards of one sales order (plan moves, entries, splits, closes). */
-export function useOrderProductionTrail(salesOrderId?: string) {
+export function useOrderProductionTrail(salesOrderId?: string, plantId?: string) {
   return useQuery({
-    queryKey: ["production", "order-trail", salesOrderId],
+    queryKey: ["production", "order-trail", salesOrderId, plantId],
     enabled: Boolean(salesOrderId),
-    queryFn: async () => ((await productionApi.getOrderTrail(String(salesOrderId))).data?.items || []) as OrderTrailEvent[],
+    queryFn: async () => ((await productionApi.getOrderTrail(String(salesOrderId), plantId)).data?.items || []) as OrderTrailEvent[],
   })
 }

@@ -4,7 +4,9 @@ import dayjs from "dayjs"
 import Link from "next/link"
 import {
   ArrowRightLeft,
+  Ban,
   CheckCircle2,
+  CircleSlash2,
   ChevronLeft,
   Download,
   Printer,
@@ -32,6 +34,7 @@ import {
 } from "@/components/erp/shell"
 import { PageHeader } from "@/components/workspace/page-header"
 import { ReleaseToQueueDialog } from "@/components/sales/release-to-queue-dialog"
+import { OrderClosureDialog, orderClosureAction } from "@/components/sales/order-closure-dialog"
 import { RowMenu } from "@/components/common/row-menu"
 import { QuerySwitch } from "@/components/workspace/query-state"
 import {
@@ -96,6 +99,7 @@ export default function SalesOrdersPage() {
   const [statusFilter, setStatusFilter] = useState(() => searchParams?.get("status") || "open")
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [holdOrder, setHoldOrder] = useState<any | null>(null)
+  const [closureOrder, setClosureOrder] = useState<any | null>(null)
   const [holdReason, setHoldReason] = useState("")
   const holdSalesOrder = useHoldSalesOrder()
   const resumeSalesOrder = useResumeSalesOrder()
@@ -267,7 +271,7 @@ export default function SalesOrdersPage() {
   const handleHold = async () => {
     if (!holdOrder || holdReason.trim().length < 3) return
     try {
-      await holdSalesOrder.mutateAsync({ orderId: String(holdOrder.id), reason: holdReason.trim() })
+      await holdSalesOrder.mutateAsync({ orderId: String(holdOrder.id), reason: holdReason.trim(), plantId: orderPlantId(holdOrder) })
       showToast(`${holdOrder.order_no || "Order"} is on customer hold. The pending balance is held and the PO closed.`, "success")
       setHoldOrder(null)
     } catch (error: any) {
@@ -278,7 +282,7 @@ export default function SalesOrdersPage() {
 
   const handleResume = async (order: any) => {
     try {
-      await resumeSalesOrder.mutateAsync({ orderId: String(order.id) })
+      await resumeSalesOrder.mutateAsync({ orderId: String(order.id), plantId: orderPlantId(order) })
       showToast(`Customer hold lifted on ${order.order_no || "the order"}.`, "success")
     } catch (error: any) {
       const detail = error?.response?.data?.detail || error?.message || "Could not lift the hold."
@@ -290,7 +294,7 @@ export default function SalesOrdersPage() {
 
   const releasableStatuses = ["approved", "released", "partially_released", "partially_dispatched"]
   const releasableLineIds = (order: any) =>
-    (order.lines || [])
+    (["closed", "cancelled"].includes(String(order.status || "")) ? [] : order.lines || [])
       .filter((line: any) => Number(line.release_remaining_qty ?? line.remaining_qty ?? 0) > 0)
       .map((line: any) => String(line.id))
   const toggleAllLines = (order: any, checked: boolean) => {
@@ -384,6 +388,7 @@ export default function SalesOrdersPage() {
               <option value="partially_released">Partially released</option>
               <option value="partially_dispatched">Partially dispatched</option>
               <option value="closed">Closed</option>
+              <option value="cancelled">Cancelled</option>
             </select>
             <button type="button" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((value) => !value)} className={`erp-btn-secondary !h-9 ${activeFilterCount ? "!border-primary/40 !text-primary" : ""}`}>
               <SlidersHorizontal className="h-4 w-4" />Filters{activeFilterCount ? <span className="rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground">{activeFilterCount}</span> : null}
@@ -503,6 +508,8 @@ export default function SalesOrdersPage() {
                   const colors = Array.from(new Set(lines.filter((line) => line.parchment_required && line.parchment_color).map((line) => String(line.parchment_color))))
                   const expiryDays = order.expiry_date ? dayjs(order.expiry_date).startOf("day").diff(dayjs().startOf("day"), "day") : null
                   const isHeld = Boolean(order.is_held)
+                  const isCancelled = order.status === "cancelled"
+                  const closure = orderClosureAction(order)
                   const canApprove = order.status === "draft" || order.status === "submitted"
                   const canRelease = releasableStatuses.includes(order.status) && !isHeld
                   const releaseBusy = false
@@ -553,13 +560,13 @@ export default function SalesOrdersPage() {
                           {fmt(delivered)}
                           {ordered > 0 ? <div className="ml-auto mt-1 h-1 w-14 overflow-hidden rounded-full bg-muted" aria-hidden="true"><div className="h-full rounded-full bg-signal-emerald-ink/70" style={{ width: `${Math.min(100, (delivered / ordered) * 100)}%` }} /></div> : null}
                         </td>
-                        <td className={`num font-semibold ${pending > 0 ? "text-foreground" : "text-muted-foreground"}`}>{fmt(pending)}</td>
+                        <td className={`num font-semibold ${pending > 0 && !isCancelled ? "text-foreground" : "text-muted-foreground"}`}>{isCancelled ? "—" : fmt(pending)}</td>
                         <td className={`num hidden sm:table-cell ${hold > 0 ? "font-semibold text-signal-amber-ink" : "text-muted-foreground"}`}>{hold > 0 ? fmt(hold) : "—"}</td>
                         <td className="hidden whitespace-nowrap lg:table-cell">
                           {order.expiry_date ? (
                             <>
                               <span className="block tabular-nums text-foreground/85">{formatDate(order.expiry_date)}</span>
-                              {pending > 0 && !isHeld && order.status !== "closed" && expiryDays !== null ? (
+                              {pending > 0 && !isHeld && !isCancelled && order.status !== "closed" && expiryDays !== null ? (
                                 <span className={`text-[11px] font-medium ${expiryDays < 0 ? "text-signal-rose-ink" : expiryDays <= 7 ? "text-signal-amber-ink" : "text-muted-foreground"}`}>
                                   {expiryDays < 0 ? `Expired ${Math.abs(expiryDays)}d ago` : expiryDays === 0 ? "Expires today" : `${expiryDays}d left`}
                                 </span>
@@ -572,7 +579,7 @@ export default function SalesOrdersPage() {
                             <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-signal-amber-line bg-signal-amber-soft px-2 py-0.5 text-[11.5px] font-medium text-signal-amber-ink" title={order.hold_reason || undefined}>
                               <PauseCircle className="h-3 w-3" />Customer hold
                             </span>
-                          ) : <StatusBadge value={order.status} />}
+                          ) : <span title={order.closure_reason ? `${order.closure_reason}${order.closure_note ? ` — ${order.closure_note}` : ""}` : undefined}><StatusBadge value={order.status} />{order.closure_kind === "SHORT_CLOSED" ? <span className="mt-0.5 block text-[11px] text-signal-amber-ink">Short-closed</span> : null}</span>}
                         </td>
                         <td>
                           <div className="flex items-center justify-end gap-1">
@@ -606,8 +613,13 @@ export default function SalesOrdersPage() {
                                 { label: "Audit trail", href: `/sales-orders/${order.id}/audit`, icon: History },
                                 ...(isHeld
                                   ? [{ label: "Lift customer hold", icon: PlayCircle, onSelect: () => void handleResume(order) }]
-                                  : pending > 0 && order.status !== "closed"
+                                  : pending > 0 && !isCancelled && order.status !== "closed"
                                     ? [{ label: "Customer hold & close…", icon: PauseCircle, tone: "warn" as const, onSelect: () => { setHoldOrder(order); setHoldReason("") } }]
+                                    : []),
+                                ...(closure.kind === "cancel"
+                                  ? [{ label: "Cancel order…", icon: Ban, tone: "danger" as const, testId: "sales-orders:cancel", onSelect: () => setClosureOrder(order) }]
+                                  : closure.kind === "short_close"
+                                    ? [{ label: "Short close balance…", icon: CircleSlash2, tone: "warn" as const, testId: "sales-orders:short-close", onSelect: () => setClosureOrder(order) }]
                                     : []),
                               ]}
                             />
@@ -766,6 +778,8 @@ export default function SalesOrdersPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <OrderClosureDialog order={closureOrder} open={Boolean(closureOrder)} onOpenChange={(open) => { if (!open) setClosureOrder(null) }} />
 
       <ReleaseToQueueDialog
         order={releaseDialogOrder}

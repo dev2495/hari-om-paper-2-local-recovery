@@ -44,6 +44,17 @@ from ..commercial import (
     validate_persisted_order,
     resolve_parchment_variant,
 )
+from ..order_closure import (
+    CANCELLED as CLOSURE_CANCELLED,
+    CLOSURE_ROLES,
+    SHORT_CLOSED as CLOSURE_SHORT_CLOSED,
+    closure_options,
+    display_status,
+    lines_after_drop,
+    shrink_colour_splits,
+    trim_schedules,
+    validate_reason,
+)
 from ..pending_workspace import (
     build_pending_workspace,
     export_pending_csv,
@@ -277,6 +288,7 @@ class SalesOrderLineResponse(BaseModel):
     remaining_qty: float
     release_remaining_qty: float
     hold_qty: float = 0.0
+    short_closed_qty: float = 0.0
     pending_qty: float = 0.0
     release_lots: List[SalesOrderReleaseLotResponse] = Field(default_factory=list)
     color_splits: List[dict] = Field(default_factory=list)
@@ -310,6 +322,14 @@ class SalesOrderResponse(BaseModel):
     hold_reason: Optional[str] = None
     held_at: Optional[datetime] = None
     held_by: Optional[str] = None
+    closure_kind: Optional[str] = None
+    closure_reason_code: Optional[str] = None
+    closure_reason: Optional[str] = None
+    closure_note: Optional[str] = None
+    closure_by: Optional[str] = None
+    closure_at: Optional[datetime] = None
+    # What the order allows now (cancel / short close), with the reason when not allowed.
+    closure_options: dict = Field(default_factory=dict)
     lines: List[SalesOrderLineResponse]
 
 
@@ -384,6 +404,7 @@ def _serialize_line(line: SalesOrderLine) -> dict:
         "remaining_qty": max(0.0, line.qty - line.fulfilled_qty),
         "release_remaining_qty": max(0.0, line.qty - released_qty),
         "hold_qty": round(float(getattr(line, "hold_qty", 0.0) or 0.0), 2),
+        "short_closed_qty": round(float(getattr(line, "short_closed_qty", 0.0) or 0.0), 2),
         "pending_qty": round(max(0.0, float(line.qty or 0.0) - float(line.fulfilled_qty or 0.0) - float(getattr(line, "hold_qty", 0.0) or 0.0)), 2),
         "remaining_to_schedule_qty": remaining_to_schedule(line, schedules),
         "delivery_schedules": [
@@ -435,7 +456,7 @@ def _serialize_order(order: SalesOrder) -> dict:
         "po_date": order.po_date,
         "internal_order_date": getattr(order, "internal_order_date", None),
         "notes": order.notes,
-        "status": order.status.value,
+        "status": display_status(order),
         "created_by": order.created_by,
         "approved_by": order.approved_by,
         "released_by": order.released_by,
@@ -448,6 +469,13 @@ def _serialize_order(order: SalesOrder) -> dict:
         "hold_reason": getattr(order, "hold_reason", None),
         "held_at": getattr(order, "held_at", None),
         "held_by": getattr(order, "held_by", None),
+        "closure_kind": getattr(order, "closure_kind", None),
+        "closure_reason_code": getattr(order, "closure_reason_code", None),
+        "closure_reason": getattr(order, "closure_reason", None),
+        "closure_note": getattr(order, "closure_note", None),
+        "closure_by": getattr(order, "closure_by", None),
+        "closure_at": getattr(order, "closure_at", None),
+        "closure_options": closure_options(order),
         "plant_id": str(order.plant_id),
         "lines": [
             _serialize_line(line)
@@ -910,12 +938,17 @@ def list_sales_orders(
         SalesOrder.plant_id,
         plant_scope,
     )
-    if status:
+    if status and status.strip().lower() == "cancelled":
+        query = query.filter(SalesOrder.closure_kind == CLOSURE_CANCELLED)
+    elif status:
         try:
             status_enum = SalesOrderStatus(status)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid status")
         query = query.filter(SalesOrder.status == status_enum)
+        if status_enum == SalesOrderStatus.CLOSED:
+            # Closed = finished (dispatched, short-closed or on hold); cancelled orders have their own filter.
+            query = query.filter(or_(SalesOrder.closure_kind.is_(None), SalesOrder.closure_kind != CLOSURE_CANCELLED))
     elif status_group:
         normalized_group = status_group.strip().lower()
         if normalized_group != "open":
@@ -946,9 +979,9 @@ def list_sales_orders(
     if origin:
         query = query.filter(SalesOrder.origin == origin.strip().upper())
     if due == "overdue":
-        query = query.filter(SalesOrder.lines.any(and_(open_line, SalesOrderLine.due_date < today)))
+        query = query.filter(SalesOrder.status != SalesOrderStatus.CLOSED, SalesOrder.lines.any(and_(open_line, SalesOrderLine.due_date < today)))
     elif due == "week":
-        query = query.filter(SalesOrder.lines.any(and_(open_line, SalesOrderLine.due_date >= today, SalesOrderLine.due_date <= today + timedelta(days=7))))
+        query = query.filter(SalesOrder.status != SalesOrderStatus.CLOSED, SalesOrder.lines.any(and_(open_line, SalesOrderLine.due_date >= today, SalesOrderLine.due_date <= today + timedelta(days=7))))
     if unreleased:
         released_subq = (
             select(func.coalesce(func.sum(SalesOrderReleaseLot.released_qty), 0.0))
@@ -989,6 +1022,7 @@ def list_sales_orders(
 
 
 class SalesOrderAggregatesResponse(BaseModel):
+    cancelled_order_count: int = 0
     draft_count: int
     ready_count: int
     approved_count: int
@@ -1102,11 +1136,13 @@ def get_sales_order_aggregates(
     )
     planner_synced_count = int(synced_query.scalar() or 0)
 
+    not_cancelled = or_(SalesOrder.closure_kind.is_(None), SalesOrder.closure_kind != CLOSURE_CANCELLED)
+    cancelled_order_count = int(base.filter(SalesOrder.closure_kind == CLOSURE_CANCELLED).count() or 0)
     booked_value = float(
         apply_plant_scope(
             db.query(func.coalesce(func.sum(SalesOrderLine.qty * func.coalesce(SalesOrderLine.rate_per_pc, 0.0)), 0.0)).join(
                 SalesOrder, SalesOrder.id == SalesOrderLine.sales_order_id
-            ),
+            ).filter(not_cancelled),
             SalesOrder.plant_id,
             plant_scope,
         ).scalar()
@@ -1205,6 +1241,7 @@ def get_sales_order_aggregates(
     hold_qty = float(hold_qty_query.scalar() or 0.0)
 
     return {
+        "cancelled_order_count": cancelled_order_count,
         "expired_open_count": expired_open_count,
         "expiring_7d_count": expiring_7d_count,
         "held_order_count": held_order_count,
@@ -1787,6 +1824,25 @@ def get_sales_order_timeline(
             )
         )
 
+    if getattr(order, "closure_at", None):
+        cancelled = str(order.closure_kind or "").upper() == CLOSURE_CANCELLED
+        dropped = sum(float(getattr(line, "short_closed_qty", 0.0) or 0.0) for line in order.lines)
+        events.append(
+            _timeline_event(
+                event_id=f"{order.id}:closure",
+                event_type="SALES_ORDER_CANCELLED" if cancelled else "SALES_ORDER_SHORT_CLOSED",
+                title="Order cancelled" if cancelled else "Order short-closed",
+                message=(
+                    f"{order.closure_reason_code} · {order.closure_reason or ''}".strip(" ·")
+                    + ("" if cancelled else f" · {dropped:,.0f} pcs not released were dropped")
+                    + (f" · {order.closure_note}" if order.closure_note else "")
+                ),
+                created_at=order.closure_at,
+                actor=order.closure_by,
+                metadata={"order_no": order.order_no, "reason_code": order.closure_reason_code},
+            )
+        )
+
     if not order.lines:
         warnings.append("Sales order has no lines.")
 
@@ -2115,6 +2171,171 @@ def resume_sales_order(
     except Exception:
         pass
     return _serialize_order(_load_scoped_order(db, order_id, plant_id))
+
+
+class SalesOrderClosurePayload(BaseModel):
+    reason_code: str = Field(..., min_length=1, max_length=40)
+    # The reason's name as shown in Masters › Reason codes (the BFF fills it from the master).
+    reason_label: Optional[str] = Field(None, max_length=200)
+    note: Optional[str] = Field(None, max_length=1000)
+
+
+def _lock_order_for_closure(db: Session, order_id: uuid.UUID, plant_id: str) -> SalesOrder:
+    """Lock the order and its lines (releases and dispatches lock the line), then read them fresh."""
+    _load_scoped_order(db, order_id, plant_id)
+    db.query(SalesOrder).filter(SalesOrder.id == order_id).with_for_update().first()
+    db.query(SalesOrderLine).filter(SalesOrderLine.sales_order_id == order_id).with_for_update().all()
+    order = (
+        db.query(SalesOrder)
+        .options(
+            joinedload(SalesOrder.lines).joinedload(SalesOrderLine.release_lots),
+            joinedload(SalesOrder.lines).joinedload(SalesOrderLine.delivery_schedules),
+            joinedload(SalesOrder.lines).joinedload(SalesOrderLine.dispatch_logs),
+        )
+        .filter(SalesOrder.id == order_id, SalesOrder.plant_id == plant_id)
+        .populate_existing()
+        .first()
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Sales order not found")
+    return order
+
+
+def _closure_reason(payload: SalesOrderClosurePayload) -> tuple[str, str, str]:
+    try:
+        code, note = validate_reason(payload.reason_code, payload.note)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    label = (payload.reason_label or "").strip() or code
+    return code, label, note
+
+
+def _end_hold(order: SalesOrder) -> None:
+    """Cancel / short close also ends a customer hold: the hold qty is released back to the lines."""
+    if order.held_at is None:
+        return
+    for line in order.lines:
+        line.hold_qty = 0.0
+    try:
+        order.status = SalesOrderStatus(order.hold_prev_status or SalesOrderStatus.APPROVED.value)
+    except ValueError:
+        order.status = SalesOrderStatus.APPROVED
+    order.hold_reason = None
+    order.held_at = None
+    order.held_by = None
+    order.hold_prev_status = None
+
+
+def _emit_closure_audit(current_user: dict, plant_id: str, order: SalesOrder, event_type: str, summary: str, payload: dict) -> None:
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type=event_type,
+            entity_type="sales_order",
+            entity_id=str(order.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["Sales"])[0]),
+            actor_email=current_user.get("sub"),
+            summary=summary,
+            payload={"order_no": order.order_no, **payload},
+        )
+    except Exception:
+        pass
+
+
+@router.post("/{order_id}/cancel", response_model=SalesOrderResponse)
+def cancel_sales_order(
+    order_id: uuid.UUID,
+    payload: SalesOrderClosurePayload,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(CLOSURE_ROLES)),
+):
+    """Cancel the whole order with a reason code. Only while nothing is released or dispatched."""
+    code, label, note = _closure_reason(payload)
+    order = _lock_order_for_closure(db, order_id, plant_id)
+    option = closure_options(order)["cancel"]
+    if not option["allowed"]:
+        raise HTTPException(status_code=409, detail=option["reason"])
+    _end_hold(order)
+    for line in order.lines:
+        for row in line.delivery_schedules or []:
+            if str(row.status or "").lower() != "delivered":
+                row.status = "cancelled"
+                row.updated_at = datetime.utcnow()
+    order.status = SalesOrderStatus.CLOSED
+    order.closure_kind = CLOSURE_CANCELLED
+    order.closure_reason_code = code
+    order.closure_reason = label[:200]
+    order.closure_note = note or None
+    order.closure_by = current_user.get("sub", "unknown")
+    order.closure_at = datetime.utcnow()
+    db.commit()
+    total = sum(float(line.qty or 0.0) for line in order.lines)
+    _emit_closure_audit(
+        current_user, plant_id, order, "sales_order_cancelled",
+        f"Sales order {order.order_no} cancelled ({total:,.0f} pcs) — {code} {label}".strip(),
+        {"reason_code": code, "reason": label, "note": note, "qty": total},
+    )
+    return _serialize_order(_load_scoped_order(db, order_id, plant_id))
+
+
+@router.post("/{order_id}/short-close", response_model=SalesOrderResponse)
+def short_close_sales_order(
+    order_id: uuid.UUID,
+    payload: SalesOrderClosurePayload,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(CLOSURE_ROLES)),
+):
+    """Drop the balance not yet released, with a reason code. Released job cards finish; the order then closes."""
+    code, label, note = _closure_reason(payload)
+    order = _lock_order_for_closure(db, order_id, plant_id)
+    option = closure_options(order)["short_close"]
+    if not option["allowed"]:
+        raise HTTPException(status_code=409, detail=option["reason"])
+    _end_hold(order)
+    dropped = _drop_unreleased_balance(order)
+    order.closure_kind = CLOSURE_SHORT_CLOSED
+    order.closure_reason_code = code
+    order.closure_reason = label[:200]
+    order.closure_note = note or None
+    order.closure_by = current_user.get("sub", "unknown")
+    order.closure_at = datetime.utcnow()
+    order.notes = "\n".join(text_ for text_ in [order.notes, f"Short-closed: {dropped:,.0f} pcs not released were dropped ({code})."] if text_)
+    db.commit()
+    _emit_closure_audit(
+        current_user, plant_id, order, "sales_order_short_closed",
+        f"Sales order {order.order_no} short-closed: {dropped:,.0f} pcs dropped — {code} {label}".strip(),
+        {"reason_code": code, "reason": label, "note": note, "dropped_qty": dropped},
+    )
+    return _serialize_order(_load_scoped_order(db, order_id, plant_id))
+
+
+def _drop_unreleased_balance(order: SalesOrder) -> float:
+    """Reduce every line to what is on job cards or dispatched; trim call-offs and colour splits to match.
+
+    Then the order status follows: closed when everything left is dispatched.
+    """
+    dropped = 0.0
+    for line, drop in lines_after_drop(order.lines):
+        line.qty = round(float(line.qty or 0.0) - drop, 4)
+        line.short_closed_qty = round(float(getattr(line, "short_closed_qty", 0.0) or 0.0) + drop, 4)
+        dropped += drop
+        trim_schedules(line, float(line.qty or 0.0))
+        if bool(getattr(line, "parchment_required", False)):
+            kept = shrink_colour_splits(line, _line_splits(line), released_by_color(line.release_lots or []))
+            if kept is not None:
+                _write_line_splits(line, kept)
+    total = sum(float(line.qty or 0.0) for line in order.lines)
+    fulfilled = sum(float(line.fulfilled_qty or 0.0) for line in order.lines)
+    if total - fulfilled <= 1e-6:
+        order.status = SalesOrderStatus.CLOSED
+    else:
+        _sync_release_status(order)
+        _sync_order_status(order)
+    return round(dropped, 4)
 
 
 @router.post("/{order_id}/approve", response_model=ActionResponse)
@@ -2645,6 +2866,9 @@ def return_release_lot_balance(
             order.status = SalesOrderStatus.APPROVED
         else:
             order.status = SalesOrderStatus.PARTIALLY_RELEASED
+    if str(getattr(order, "closure_kind", "") or "").upper() == CLOSURE_SHORT_CLOSED:
+        # The order was short-closed: the handed-back balance is dropped, not released again.
+        _drop_unreleased_balance(order)
     db.commit()
     db.refresh(lot)
     _emit_lot_audit(

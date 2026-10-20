@@ -36,9 +36,10 @@ type ReasonRow = {
   is_active?: boolean
 }
 
-const CATEGORIES = ["DOWNTIME", "SCRAP", "QC_REJECT", "SHORT_CLOSE", "RM_ISSUE", "RETURN", "CUSTOMER_COMPLAINT", "OTHER"] as const
+const CATEGORIES = ["DOWNTIME", "SCRAP", "QC_REJECT", "SHORT_CLOSE", "SO_CLOSE", "RM_ISSUE", "RETURN", "CUSTOMER_COMPLAINT", "OTHER"] as const
 // "Customer complaints" is the master the client keeps updating for the complaints module.
-const CATEGORY_LABELS: Record<string, string> = { CUSTOMER_COMPLAINT: "Customer complaints", QC_REJECT: "QC reject", SHORT_CLOSE: "Short close", RM_ISSUE: "RM issue" }
+// SO_CLOSE: reasons offered when a sales order is cancelled or short-closed. SHORT_CLOSE: job-card shortages.
+const CATEGORY_LABELS: Record<string, string> = { CUSTOMER_COMPLAINT: "Customer complaints", QC_REJECT: "QC reject", SHORT_CLOSE: "Job card short close", SO_CLOSE: "Order cancel / short close", RM_ISSUE: "RM issue" }
 const categoryLabel = (value: string) => CATEGORY_LABELS[value] || value.charAt(0) + value.slice(1).toLowerCase().replace(/_/g, " ")
 const SEVERITIES = ["OK", "WATCH", "CRITICAL"] as const
 

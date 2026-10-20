@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react"
 import {
   AlertTriangle,
   ArrowRightLeft,
+  Ban,
   BarChart3,
   Boxes,
   Building2,
@@ -206,6 +207,13 @@ export const STAGE_APPEARANCES: Record<string, StatusAppearance> = {
 }
 
 export const STATUS_APPEARANCES: Record<string, StatusAppearance> = {
+  CANCELLED: {
+    label: "Cancelled",
+    className: "border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink",
+    accentClassName: "from-rose-500/20 via-rose-500/10 to-transparent",
+    dotClassName: "bg-rose-500",
+    icon: Ban,
+  },
   APPROVED: {
     label: "Approved",
     className: "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink",
