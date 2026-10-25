@@ -4,14 +4,11 @@ import { MutationCache, QueryClient, QueryClientProvider } from "@tanstack/react
 import { useState } from "react"
 
 import { useApp } from "@/context/AppContext"
+import { describeApiError } from "@/lib/api-error"
 
 /** The server's own words for a failed request (FastAPI detail, validation list or message). */
 export function errorMessage(error: any): string {
-  const detail = error?.response?.data?.detail
-  if (typeof detail === "string") return detail
-  if (Array.isArray(detail)) return detail.map((row: any) => row?.msg || String(row)).join("; ")
-  if (detail && typeof detail === "object") return String(detail.message || detail.detail || JSON.stringify(detail))
-  return String(error?.message || "Something went wrong")
+  return describeApiError(error)
 }
 
 export function QueryProvider({ children }: { children: React.ReactNode }) {

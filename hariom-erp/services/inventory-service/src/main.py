@@ -865,13 +865,14 @@ def apply_quality_standards() -> None:
 
   Bands QC had approved per item are carried over first, so no live check is loosened."""
   from .database import SessionLocal
-  from .quality_standards import MATERIAL_TYPES, adopt_existing_profile_bands, convert_rule_text_checks, materialize_type, rekey_item_tolerances, seed_client_paper_rules
+  from .quality_standards import MATERIAL_TYPES, adopt_existing_profile_bands, convert_rule_text_checks, materialize_type, note_checks_as_text, rekey_item_tolerances, seed_client_paper_rules
 
   db = SessionLocal()
   try:
     rekey_item_tolerances(db)
     adopt_existing_profile_bands(db)
     convert_rule_text_checks(db)
+    note_checks_as_text(db)
     seed_client_paper_rules(db)
     for material in MATERIAL_TYPES:
       materialize_type(db, material, actor="standards", reason="Material standards applied")

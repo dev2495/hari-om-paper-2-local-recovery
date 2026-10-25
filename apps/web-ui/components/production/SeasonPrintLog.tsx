@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query"
 
 import { entryApiForPlant, seasonLabel, seasonTimestamp } from "@/lib/season-api"
 import { relativeLimitText } from "@/lib/qc-measurement"
+import { displayStageRule } from "@/lib/qc-measurement"
 
 const stageName = (stage: string) =>
   stage === "WINDER" ? "Winding" : stage === "QC" ? "Final QC" : stage.charAt(0) + stage.slice(1).toLowerCase()
@@ -80,7 +81,7 @@ export function SeasonPrintLog({ card, machineLabel }: { card: any; machineLabel
     .sort((a: any, b: any) => order(a.stage) - order(b.stage) || a.entry_no - b.entry_no)
   const runs = posted.filter((e: any) => e.kind !== "QC_ONLY")
   const profile = card.spec_snapshot?.qc_profile
-  const rulesFor = (stage: string) => (profile?.stages?.[stage]?.parameters || []).filter((r: any) => r.applicable !== false)
+  const rulesFor = (stage: string) => (profile?.stages?.[stage]?.parameters || []).filter((r: any) => r.applicable !== false).map((r: any) => displayStageRule(stage, r))
   const qcStages = stages.filter((s: any) => rulesFor(s.stage).length)
   const isFlagged = (e: any) => e.details?.unscheduled_entry || e.details?.machine_changed || e.details?.material_prep_pending
   const flagged = runs.some(isFlagged)

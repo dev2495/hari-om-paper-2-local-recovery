@@ -8,10 +8,11 @@ import { useAuth } from "@/context/AuthContext"
 import { useInventoryItems } from "@/hooks/use-inventory"
 import { usePlants } from "@/hooks/use-system"
 import { inventoryApi, salesApi } from "@/lib/api"
+import { describeErrorDetail } from "@/lib/api-error"
 
 const errorText = (error: any) => {
   const detail = error?.response?.data?.detail || error?.message
-  return typeof detail === "string" ? detail : detail ? JSON.stringify(detail) : "The reservation operation failed."
+  return detail ? describeErrorDetail(detail) : "The reservation operation failed."
 }
 
 export default function InventoryReservationsPage() {

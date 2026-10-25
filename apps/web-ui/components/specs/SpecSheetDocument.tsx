@@ -59,6 +59,7 @@ import {
   useUpdateSpecSheet,
   useUpsertSpecQcProfile,
 } from "@/hooks/use-specs"
+import { describeErrorDetail } from "@/lib/api-error"
 import {
   AdhesiveComponent,
   AverageValues,
@@ -2499,7 +2500,7 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
       router.refresh()
     } catch (error: any) {
       const message = error?.response?.data?.detail || error?.message || "Failed to obsolete specification."
-      showToast(typeof message === "string" ? message : JSON.stringify(message), "error")
+      showToast(describeErrorDetail(message), "error")
     }
   }
 
@@ -2511,7 +2512,7 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
       router.push(`/specifications/${result.spec.id}/edit`)
     } catch (error: any) {
       const message = error?.response?.data?.detail || error?.message || "Failed to clone specification."
-      showToast(typeof message === "string" ? message : JSON.stringify(message), "error")
+      showToast(describeErrorDetail(message), "error")
     }
   }
 

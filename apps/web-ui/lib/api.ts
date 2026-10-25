@@ -435,6 +435,10 @@ export const productionApi = {
   reorderPlanningQueue: (data: any) => api.patch("/api/production/planning/queues/reorder", data),
   assignMachine: (jobCardId: string, data: any) => api.post(`/api/production/job-cards/${jobCardId}/assign-machine`, data),
   postStageOutput: (jobCardId: string, data: any) => api.post(`/api/production/job-cards/${jobCardId}/stage-output`, data),
+  /** Old-form card (no stage closed yet) moves to batch entry: same flow as every new card. */
+  switchToBatchEntry: (jobCardId: string, plantId?: string) => api.post(`/api/production/job-cards/${jobCardId}/batch-entry`, {}, withPlantHeader(plantId)),
+  /** Each floor run against the slot the planner gave it (Reports › Plan vs actual). */
+  getPlanVsActual: (params: { date_from?: string; date_to?: string; stage?: string }) => api.get("/api/production/reports/plan-vs-actual", { params }),
   postStageOutputsBatch: (jobCardId: string, data: { entries: any[]; request_id: string }) => api.post(`/api/production/job-cards/${jobCardId}/stage-outputs/batch`, data),
   retryFgInward: (jobCardId: string) => api.post(`/api/production/job-cards/${jobCardId}/fg-inward/retry`, {}),
   getQualityInspections: (params?: any) => api.get("/api/production/quality/inspections", { params }),

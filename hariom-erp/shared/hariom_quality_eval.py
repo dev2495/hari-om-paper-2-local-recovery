@@ -19,6 +19,8 @@ Compatibility APIs retained from the p0 correctness slice:
 
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -459,6 +461,9 @@ def _reason_is_linked(reason: Optional[dict[str, Any]]) -> bool:
     return bool(str(reason.get("explanation") or "").strip() or str(reason.get("code") or "").strip())
 
 
+_NOTE_CODE = re.compile(r"^(remarks?|notes?|comments?|observations?)$")
+
+
 def _to_decimal(value: Any) -> Optional[Decimal]:
     number, error = parse_finite_number(value)
     if error:
@@ -542,7 +547,8 @@ def normalize_parameter_rule(
         required=bool(required),
         applicable=bool(applicable),
         pair_group=raw.get("pair_group") or (fallback.pair_group if fallback else None),
-        input_type=str(raw.get("input_type") or "number").strip().lower() or "number",
+        # A remark / note is always written in words (client 2026-10-25), even on a lot frozen as a number.
+        input_type="text" if _NOTE_CODE.match(code.lower()) else str(raw.get("input_type") or "number").strip().lower() or "number",
         options=list(raw.get("options") or []) if isinstance(raw.get("options"), list) else None,
         requires_instrument=requires_instrument,
         required_instrument_id=required_instrument_id or None,

@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from ..lifecycle_rules import canonical_shift
+
 
 PRIORITIES = {"LOW", "NORMAL", "HIGH"}
 SALES_ORDER_STATUSES = {"OPEN", "PLANNED", "COMPLETED", "CANCELLED"}
@@ -330,12 +332,7 @@ class ReorderQueuePayload(BaseModel):
     @field_validator("shift_code")
     @classmethod
     def validate_shift_code(cls, value: Optional[str]) -> Optional[str]:
-        if value is None:
-            return value
-        normalized = _normalize_upper(value)
-        if normalized not in SHIFT_CODES:
-            raise ValueError("shift_code must be one of SHIFT_A, SHIFT_B")
-        return normalized
+        return canonical_shift(value)
 
     @model_validator(mode="after")
     def validate_reorder_target(self):
@@ -366,12 +363,7 @@ class BoardMovePayload(BaseModel):
     @field_validator("shift_code")
     @classmethod
     def validate_board_shift_code(cls, value: Optional[str]) -> Optional[str]:
-        if value is None:
-            return value
-        normalized = _normalize_upper(value)
-        if normalized not in SHIFT_CODES:
-            raise ValueError("shift_code must be one of SHIFT_A, SHIFT_B")
-        return normalized
+        return canonical_shift(value)
 
     @model_validator(mode="after")
     def validate_move_target(self):
@@ -728,12 +720,7 @@ class AssignMachinePayload(BaseModel):
     @field_validator("shift_code")
     @classmethod
     def validate_assign_shift_code(cls, value: Optional[str]) -> Optional[str]:
-        if value is None:
-            return value
-        normalized = _normalize_upper(value)
-        if normalized not in SHIFT_CODES:
-            raise ValueError("shift_code must be one of SHIFT_A, SHIFT_B")
-        return normalized
+        return canonical_shift(value)
 
     @model_validator(mode="after")
     def validate_planned_window(self):
@@ -769,12 +756,7 @@ class StageOutputPayload(BaseModel):
     @field_validator("shift_code")
     @classmethod
     def validate_output_shift_code(cls, value: Optional[str]) -> Optional[str]:
-        if value is None or not value.strip():
-            return None
-        normalized = _normalize_upper(value).replace(" ", "_")
-        if normalized not in SHIFT_CODES:
-            raise ValueError("shift_code must be one of SHIFT_A, SHIFT_B")
-        return normalized
+        return canonical_shift(value)
 
     @model_validator(mode="after")
     def validate_card_window(self):

@@ -5,6 +5,7 @@ import {
   qcExceptionFeedback,
   qcExceptionIssues,
   qcFieldMeta,
+  qcInputKind,
   type QcParameterRule,
 } from "@/lib/qc-measurement"
 
@@ -138,6 +139,30 @@ export function StageQcFields({
                   <div className="text-sm font-semibold text-foreground" data-testid={`stage-qc-not-due-${rule.code}`}>
                     Not yet due
                   </div>
+                ) : editable && qcInputKind(rule) === "text" ? (
+                  <textarea
+                    id={`stage-qc-reading-${rule.code}`}
+                    data-testid={`stage-qc-reading-${rule.code}`}
+                    rows={2}
+                    maxLength={500}
+                    value={readings[rule.code] || ""}
+                    onChange={(event) => onReadingChange?.(rule.code, event.target.value)}
+                    aria-describedby={describedBy || undefined}
+                    placeholder="Write a note"
+                    className="min-h-11 w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground"
+                  />
+                ) : editable && qcInputKind(rule) === "select" ? (
+                  <select
+                    id={`stage-qc-reading-${rule.code}`}
+                    data-testid={`stage-qc-reading-${rule.code}`}
+                    value={readings[rule.code] || ""}
+                    onChange={(event) => onReadingChange?.(rule.code, event.target.value)}
+                    aria-describedby={describedBy || undefined}
+                    className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground"
+                  >
+                    <option value="">Choose</option>
+                    {(rule.options || []).map((option) => <option key={option} value={option}>{option}</option>)}
+                  </select>
                 ) : editable ? (
                   <input
                     id={`stage-qc-reading-${rule.code}`}

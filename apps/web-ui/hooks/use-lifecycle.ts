@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
 
 import { productionApi, salesApi } from "@/lib/api"
+import { describeApiError } from "@/lib/api-error"
 
 export type LifecycleState = "QUEUED" | "SCHEDULED" | "RUNNING" | "COMPLETED" | "FORCE_CLOSED" | "CANCELLED"
 
@@ -111,11 +112,7 @@ export const useUpdateLineColors = lifecycleMutation(({ lineId, colorSplits }: {
 )
 
 export function apiErrorText(error: any, fallback = "Something went wrong") {
-  const detail = error?.response?.data?.detail
-  if (typeof detail === "string") return detail
-  if (detail?.message) return String(detail.message)
-  if (Array.isArray(detail)) return detail.map((row: any) => row?.msg || String(row)).join("; ")
-  return error?.message || fallback
+  return describeApiError(error, fallback)
 }
 
 /** Run the 36h missed-slot sweep when a planning view opens (at most every 10 min per tab). */

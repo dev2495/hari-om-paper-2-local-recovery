@@ -17,6 +17,7 @@ import {
   deliveryDateMustFollowCustomerPoDate,
   isCustomerPoOrigin,
 } from "@/lib/sales-order-entry"
+import { describeErrorDetail } from "@/lib/api-error"
 
 /** One parchment colour of a line. Blank rate = the line's Rate / Pc applies. */
 type ColorRow = { key: string; color_id: string; color: string; qty: string; rate: string }
@@ -467,7 +468,7 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
       router.push(savedId ? `/sales-orders/${savedId}` : "/sales-orders")
     } catch (error: any) {
       const detail = error?.response?.data?.detail || error?.message || "Unable to save sales order."
-      const message = typeof detail === "string" ? detail : JSON.stringify(detail)
+      const message = describeErrorDetail(detail)
       showToast(message, "error")
       if (typeof detail === "string" && /delivery date/i.test(detail)) {
         const match = detail.match(/Line (\d+)/i)

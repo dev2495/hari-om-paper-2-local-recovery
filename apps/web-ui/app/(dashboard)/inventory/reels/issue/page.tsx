@@ -24,6 +24,14 @@ const errorText = (error: any) => {
   return error?.message || "Action failed"
 }
 const isCoil = (row: any) => String(row?.physical_form || "REEL").toUpperCase() === "COIL"
+// Why an in-stock reel or coil cannot go to the floor yet (client 2026-10-25: "issue in item issue to
+// floor" — the list was empty while every reel still waited for incoming QC, with no reason shown).
+function waitingReason(row: any): { text: string; href: string; action: string } {
+  const status = String(row?.stock_status || "").toUpperCase()
+  if (status === "QC_HOLD") return { text: "on QC hold — decide release, concession or return", href: "/quality/results", action: "Holds & inspections" }
+  if (status === "BLOCKED" || status === "PENDING") return { text: "waiting for incoming QC", href: "/quality/incoming", action: "Incoming QC" }
+  return { text: `not cleared (${status.toLowerCase().replace(/_/g, " ") || "unknown"})`, href: "/quality/results", action: "Holds & inspections" }
+}
 
 function parseInventoryQr(raw: string) {
   const parts = raw.trim().split("|")
@@ -44,6 +52,7 @@ export default function ReelAndCoilIssuePage() {
   const [legacyWeights, setLegacyWeights] = useState<Record<string, string>>({})
 
   const reelsQuery = useReels({ status: "IN_STOCK", stock_status: ISSUABLE, limit: 500 })
+  const stockQuery = useReels({ status: "IN_STOCK", limit: 500 })
   const openQuery = useReelIssues({ status: "OPEN", limit: 300 })
   const todayQuery = useReelIssues({ date_from: businessDate(), date_to: businessDate(), limit: 300 })
   const createIssue = useCreateReelIssue()
@@ -51,6 +60,12 @@ export default function ReelAndCoilIssuePage() {
   const closeLegacy = useCloseReelIssue()
 
   const reels: any[] = useMemo(() => (Array.isArray(reelsQuery.data) ? reelsQuery.data : []).filter((row: any) => Number(row.current_weight_kg || 0) > 0), [reelsQuery.data])
+  const waiting: any[] = useMemo(() => {
+    const issuable = new Set(reels.map((row) => String(row.id)))
+    return (Array.isArray(stockQuery.data) ? stockQuery.data : []).filter((row: any) => Number(row.current_weight_kg || 0) > 0 && !issuable.has(String(row.id)) && !ISSUABLE.split(",").includes(String(row.stock_status || "").toUpperCase()))
+  }, [stockQuery.data, reels])
+  const waitingQc = waiting.filter((row) => ["BLOCKED", "PENDING"].includes(String(row.stock_status || "").toUpperCase())).length
+  const waitingHold = waiting.length - waitingQc
   const openIssues: any[] = Array.isArray(openQuery.data) ? openQuery.data : []
   const cardsDue = openIssues.filter((row) => row.issue_mode === "FLOOR" && row.issue_section === "SLITTING_SECTION")
   const legacyOpen = openIssues.filter((row) => row.issue_mode !== "FLOOR")
@@ -64,7 +79,11 @@ export default function ReelAndCoilIssuePage() {
     const id = parsed.entityId.trim().toUpperCase()
     const code = parsed.code.trim().toUpperCase()
     const matched = reels.find((row) => String(row.id).toUpperCase() === id || String(row.reel_code || "").toUpperCase() === code)
-    if (!matched) return setNotice({ tone: "error", text: `${code || "That label"} is not in stock and QC-cleared for issue.` })
+    if (!matched) {
+      const held = waiting.find((row) => String(row.id).toUpperCase() === id || String(row.reel_code || "").toUpperCase() === code)
+      if (held) return setNotice({ tone: "error", text: `${held.reel_code} cannot go to the floor yet: it is ${waitingReason(held).text}. Clear it in ${waitingReason(held).action}.` })
+      return setNotice({ tone: "error", text: `${code || "That label"} is not in stock.` })
+    }
     setReelId(String(matched.id)); setScanCode("")
     setNotice({ tone: "info", text: `${matched.reel_code} selected · ${isCoil(matched) ? "coil → winders" : "reel → slitter"}.` })
   }
@@ -121,10 +140,26 @@ export default function ReelAndCoilIssuePage() {
             <form onSubmit={issue} className="mt-4 space-y-3">
               <Field label="Reel / coil">
                 <select className={fieldClass} value={reelId} onChange={(e) => setReelId(e.target.value)}>
-                  <option value="">Select from stock</option>
+                  <option value="">{reels.length ? "Select from stock" : "Nothing cleared for issue yet"}</option>
                   {reels.map((row) => <option key={row.id} value={row.id}>{row.reel_code} · {isCoil(row) ? "Coil" : "Reel"}{row.width_mm ? ` ${row.width_mm} mm` : ""}{row.gsm ? ` · ${row.gsm} GSM` : ""} · {kg(row.current_weight_kg)}</option>)}
+                  {waiting.length ? (
+                    <optgroup label="Not cleared yet — cannot be issued">
+                      {waiting.map((row) => <option key={row.id} value="" disabled>{row.reel_code} · {isCoil(row) ? "Coil" : "Reel"} · {kg(row.current_weight_kg)} — {waitingReason(row).text}</option>)}
+                    </optgroup>
+                  ) : null}
                 </select>
               </Field>
+              {waiting.length ? (
+                <p className={cn("rounded-lg border px-3 py-2 text-[12.5px]", reels.length ? "border-border bg-muted/60 text-muted-foreground" : "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink")} data-testid="floor-issue-waiting">
+                  {reels.length ? "Also in stock but not cleared: " : "Nothing is cleared for the floor yet. In stock but waiting: "}
+                  {waitingQc ? <><strong>{waitingQc}</strong> for incoming QC (<Link className="font-semibold underline" href="/quality/incoming">Incoming QC</Link>)</> : null}
+                  {waitingQc && waitingHold ? " · " : ""}
+                  {waitingHold ? <><strong>{waitingHold}</strong> on QC hold (<Link className="font-semibold underline" href="/quality/results">Holds & inspections</Link>)</> : null}
+                  . A reel or coil can go to the floor once QC passes it.
+                </p>
+              ) : !reels.length && !reelsQuery.isLoading ? (
+                <p className="rounded-lg border border-border bg-muted/60 px-3 py-2 text-[12.5px] text-muted-foreground">No reels or coils are in stock. Receive them in Goods inward first.</p>
+              ) : null}
               {selected ? (
                 <div className={cn("flex flex-wrap items-center gap-3 rounded-lg border px-3 py-2.5 text-[13px]", isCoil(selected) ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink" : "border-signal-cyan-line bg-signal-cyan-soft text-signal-cyan-ink")}>
                   {isCoil(selected) ? <PackageCheck className="h-4 w-4" aria-hidden="true" /> : <Scissors className="h-4 w-4" aria-hidden="true" />}

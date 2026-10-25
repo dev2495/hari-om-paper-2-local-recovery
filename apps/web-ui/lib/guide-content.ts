@@ -551,6 +551,7 @@ const guides: GuideContent[] = [
       { label: "Select report", detail: "Open owner, production, inventory, sales, or plant reports." },
       { label: "Filter period", detail: "Use plant, date, and status filters to isolate the question." },
       { label: "Review exception", detail: "Trace abnormal stock, WIP, QC, or variance back to documents." },
+      { label: "Plan vs actual", detail: "Reports › Plan vs actual compares every floor run with its planned slot: same day, shift and machine, and card times inside the planned shift. It lists runs entered before planning and planned slots that passed with no entry." },
       { label: "Act", detail: "Correct source workflow or approve the business decision." },
     ],
     fieldRules: [

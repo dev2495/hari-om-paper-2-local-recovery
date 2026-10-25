@@ -25,6 +25,26 @@ OUTPUT_TOLERANCE = 0.10
 # Winder and oven count bamboos; process onwards counts finished tubes (pcs).
 BAMBOO_STAGES = {"WINDER", "OVEN"}
 SHIFT_ORDER = ("SHIFT_A", "SHIFT_B")
+_SHIFT_ALIASES = {"A": "SHIFT_A", "SHIFTA": "SHIFT_A", "SHIFT_A": "SHIFT_A", "B": "SHIFT_B", "SHIFTB": "SHIFT_B", "SHIFT_B": "SHIFT_B"}
+
+
+def canonical_shift(value) -> Optional[str]:
+    """SHIFT_A / SHIFT_B from how a shift is written: "A", "Shift A", "shift-a", "SHIFT_A".
+
+    The Masters shift list uses short codes ("A"); planning and floor entries store SHIFT_A / SHIFT_B
+    (client 2026-10-25: closing a winder stage failed on shift "A"). Blank is None; anything else
+    raises ValueError with a plain message.
+    """
+    if value is None:
+        return None
+    text = str(value).strip().upper()
+    if not text:
+        return None
+    key = text.replace(" ", "_").replace("-", "_")
+    shift = _SHIFT_ALIASES.get(key) or _SHIFT_ALIASES.get(key.replace("_", ""))
+    if not shift:
+        raise ValueError(f"Shift '{value}' is not a production shift. Choose Shift A or Shift B.")
+    return shift
 OPEN = {"PLANNED", "QUEUED", "ASSIGNED", "RUNNING"}
 LIVE_FLOW_STAGES = ("WINDER", "OVEN")
 

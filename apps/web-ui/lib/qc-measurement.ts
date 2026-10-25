@@ -29,6 +29,19 @@ export type QcParameterRule = {
   requires_instrument?: boolean
   required_instrument_id?: string | null
   non_waivable?: boolean
+  /** Incoming QC checks can be a note ("text") or a choice ("select"); measured checks are numbers. */
+  input_type?: string | null
+  options?: string[] | null
+}
+
+/** "number" for measured checks; "text" for notes such as Remark; "select" for a fixed choice. */
+export function qcInputKind(rule: (Pick<QcParameterRule, "input_type"> & { code?: string }) | null | undefined): "number" | "text" | "select" {
+  // A remark / note is always written in words, even on a lot frozen with it as a number.
+  if (/^(remarks?|notes?|comments?|observations?)$/i.test(String(rule?.code || ""))) return "text"
+  const value = String(rule?.input_type || "number").toLowerCase()
+  if (value === "text") return "text"
+  if (["select", "categorical", "enum", "boolean"].includes(value)) return "select"
+  return "number"
 }
 
 export const QC_STAGE_PARAMETERS: Record<QcStageKey, QcParameterDef[]> = {
@@ -209,9 +222,11 @@ export function relativeLimitText(rule: any): string | null {
   return `${Number(lower.factor)}× to ${Number(upper.factor)}× this sample's ${source}`
 }
 
-export function formatAllowedRange(rule: Pick<QcParameterRule, "min" | "max" | "unit" | "applicable"> | null | undefined) {
+export function formatAllowedRange(rule: (Pick<QcParameterRule, "min" | "max" | "unit" | "applicable" | "input_type" | "options"> & { code?: string }) | null | undefined) {
   if (!rule) return "Not applicable"
   if (rule.applicable === false) return "NOT APPLICABLE"
+  if (qcInputKind(rule) === "text") return "Note — write in words"
+  if (qcInputKind(rule) === "select") return `Choose: ${(rule.options || []).join(" / ") || "—"}`
   if ((rule as any).mode === "RECORD_ONLY") return "Record reading (no limit)"
   if ((rule as any).record_only && rule.min == null && rule.max == null) return "Recorded only — no band set in Masters"
   const relative = relativeLimitText(rule)
@@ -255,10 +270,12 @@ function formatQcNumber(value: number) {
 }
 
 export function qcExceptionFeedback(
-  rule: Pick<QcParameterRule, "label" | "unit" | "min" | "max" | "inclusive_min" | "inclusive_max" | "applicable">,
+  rule: Pick<QcParameterRule, "label" | "unit" | "min" | "max" | "inclusive_min" | "inclusive_max" | "applicable" | "input_type"> & { code?: string },
   raw: unknown,
 ): QcExceptionFeedback | null {
   if (rule.applicable === false) return null
+  // Notes and choices are recorded as written; only measured checks are judged here.
+  if (qcInputKind(rule) !== "number") return null
   const parsed = parseNumericReading(raw)
   if (parsed.missing) return null
   const unit = rule.unit ? ` ${rule.unit}` : ""
@@ -324,7 +341,18 @@ export function inspectionProfileRevision(inspection: any, profile: any) {
   return profile?.revision ?? null
 }
 
+/** Winding "height" is the height of the bamboo (client 2026-10-25); older cards call it bamboo length. */
+export function displayStageRule<T extends { code?: string; label?: string }>(stage: string, rule: T): T {
+  if (String(stage).toUpperCase() === "WINDER" && rule?.code === "height") return { ...rule, label: "Height of bamboo" }
+  return rule
+}
+
 export function frozenStageRules(profile: any, stage: QcStageKey): QcParameterRule[] {
+  const frozen = frozenStageRulesRaw(profile, stage)
+  return frozen.map((rule) => displayStageRule(stage, rule))
+}
+
+function frozenStageRulesRaw(profile: any, stage: QcStageKey): QcParameterRule[] {
   const rows = profile?.stages?.[stage]?.parameters
   if (!Array.isArray(rows) || !rows.length) return QC_STAGE_PARAMETERS[stage].map((item) => ({
     code: item.code,

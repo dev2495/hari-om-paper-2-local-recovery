@@ -21,6 +21,7 @@ import { usePreflightSalesOrderRelease, useReleaseSyncSalesOrder } from "@/hooks
 import { useReleaseSalesOrderLinesBulk } from "@/hooks/use-sales"
 import { type ReleaseMachine } from "@/lib/sales-release"
 import { cn } from "@/lib/utils"
+import { describeErrorDetail } from "@/lib/api-error"
 
 type ColorOption = { color: string; color_id: string | null; open: number }
 
@@ -220,7 +221,7 @@ export function ReleaseToQueueDialog({
     if (!open || hydrated || !order) return
     hydrate().catch((error: any) => {
       const detail = error?.response?.data?.detail || error?.message || "Unable to load winder queues."
-      showToast(typeof detail === "string" ? detail : JSON.stringify(detail), "error")
+      showToast(describeErrorDetail(detail), "error")
       onOpenChange(false)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -539,7 +540,7 @@ export function ReleaseToQueueDialog({
                   disabled={!hydrated || problems.size > 0 || releasePreflight.isPending || releaseLinesBulk.isPending || releaseSync.isPending}
                   onClick={() => confirm().catch((error: any) => {
                     const detail = error?.response?.data?.detail || error?.message || "Release failed."
-                    showToast(typeof detail === "string" ? detail : JSON.stringify(detail), "error")
+                    showToast(describeErrorDetail(detail), "error")
                   })}
                   className="erp-btn-primary disabled:opacity-50"
                 >

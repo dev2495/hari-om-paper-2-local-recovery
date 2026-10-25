@@ -53,6 +53,7 @@ import {
 } from "@/hooks/use-production"
 import { classifyDueRisk, DUE_RISK_OVERDUE, DUE_RISK_PRIORITY } from "@/lib/due-risk"
 import { jobCardRef } from "@/lib/job-card-display"
+import { describeErrorDetail } from "@/lib/api-error"
 
 const SECTION_STAGE_MAP: Record<string, string> = {
   winder: "WINDER",
@@ -910,7 +911,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
       showToast(warningMessage || "Planner card moved.", warningMessage ? "info" : "success")
     } catch (error: any) {
       const detail = error?.response?.data?.detail || error?.message || "Unable to move planner card."
-      showToast(typeof detail === "string" ? detail : JSON.stringify(detail), "error")
+      showToast(describeErrorDetail(detail), "error")
     } finally {
       moveInFlight.current = false
       setDraggedJob(null)
@@ -940,7 +941,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
       setSplitQty("")
     } catch (error: any) {
       const detail = error?.response?.data?.detail || error?.message || "Unable to split planner segment."
-      showToast(typeof detail === "string" ? detail : JSON.stringify(detail), "error")
+      showToast(describeErrorDetail(detail), "error")
     }
   }
 

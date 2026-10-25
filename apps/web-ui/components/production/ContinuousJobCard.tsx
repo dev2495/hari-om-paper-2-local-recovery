@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useAuth } from "@/context/AuthContext"
 import { cn } from "@/lib/utils"
+import { displayStageRule } from "@/lib/qc-measurement"
 import { entryApiForPlant, command, errorText, seasonLabel, seasonTimestamp } from "@/lib/season-api"
 
 const label = (stage: string) => (stage === "WINDER" ? "Winding" : stage === "QC" ? "Final QC" : stage.charAt(0) + stage.slice(1).toLowerCase())
@@ -174,7 +175,7 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
   const slotReady = !(state?.segments || []).length || openSegments.some((s: any) => s.planner_gate_ready)
   // Input taken from the previous stage equals what this stage made, except Process (bamboo in → pieces out).
   const inputFollowsOutput = stage !== "PROCESS" && Boolean(prevStage) && prevStage !== "SLITTING"
-  const parameters = card.spec_snapshot?.qc_profile?.stages?.[stage]?.parameters?.filter((r: any) => r.applicable) || []
+  const parameters = (card.spec_snapshot?.qc_profile?.stages?.[stage]?.parameters?.filter((r: any) => r.applicable) || []).map((r: any) => displayStageRule(stage, r))
   const profile = card.spec_snapshot?.qc_profile
   const memory = (what: string) => `hariom-floor-${what}:${card.plant_id}:${stage}`
   const loggable = Boolean(state) && state.status !== "COMPLETED" && !["SLITTING", "DISPATCH", "QC"].includes(stage)
@@ -458,6 +459,13 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
         </div>
       )}
 
+      {stages.some((s: any) => Number(s.unscheduled_entries) > 0) ? (
+        <p className="rounded-lg border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-[13px] text-signal-amber-ink" data-testid="card-unplanned-summary">
+          <span className="font-semibold">Run before planning:</span>{" "}
+          {stages.filter((s: any) => Number(s.unscheduled_entries) > 0).map((s: any) => `${label(s.stage)} (${Number(s.unscheduled_entries)} run${Number(s.unscheduled_entries) === 1 ? "" : "s"})`).join(" · ")}
+          {" "}— each run took the machine, date and shift written on the card. See Reports › Plan vs actual.
+        </p>
+      ) : null}
       {/* Stage tabs with progress: tap the stage the printed card row belongs to. */}
       <nav aria-label="Production stages" className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1" data-testid="season-stage-tabs">
         {stages.map((s: any) => {
@@ -489,6 +497,11 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
               <span className={cn("mt-0.5 block text-[12px] tabular-nums", s.stage === stage ? "opacity-90" : "text-muted-foreground")}>
                 {fmt(s.accepted_total)} / {fmt(s.target)} {s.unit}
               </span>
+              {Number(s.unscheduled_entries) > 0 ? (
+                <span className={cn("mt-0.5 block text-[11px] font-semibold", s.stage === stage ? "opacity-90" : "text-signal-amber-ink")} data-testid={`stage-unplanned-${s.stage.toLowerCase()}`}>
+                  ⚑ {Number(s.unscheduled_entries)} run{Number(s.unscheduled_entries) === 1 ? "" : "s"} before planning
+                </span>
+              ) : done && ["SLITTING", "WINDER", "OVEN", "PROCESS"].includes(s.stage) ? <span className={cn("mt-0.5 block text-[11px]", s.stage === stage ? "opacity-90" : "text-muted-foreground")}>as planned</span> : null}
               <span className={cn("mt-1 block h-1 overflow-hidden rounded-full", s.stage === stage ? "bg-primary-foreground/30" : "bg-muted")}>
                 <span className={cn("block h-full rounded-full", s.stage === stage ? "bg-primary-foreground" : done ? "bg-signal-emerald-ink" : "bg-primary")} style={{ width: `${share}%` }} />
               </span>

@@ -20,10 +20,13 @@ import {
   useSaveStageDraft,
 } from "@/hooks/use-production"
 import { ContinuousJobCard } from "./ContinuousJobCard"
+import { BatchEntrySwitch, OldFormDrafts } from "./BatchEntrySwitch"
 import { SeasonPrintLog, compactLimit } from "./SeasonPrintLog"
 import { entryApiForPlant } from "@/lib/season-api"
 import { useQuery } from "@tanstack/react-query"
 import { StageQcFields } from "@/components/qc/StageQcFields"
+import { describeApiError } from "@/lib/api-error"
+import { canonicalShift } from "@/lib/shift"
 import {
   collectStageQualityChecks,
   formatAllowedRange,
@@ -559,6 +562,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
   const { showToast } = useApp()
   const { user } = useAuth()
   const jobCardQuery = usePlanningJobCard(jobCardId)
+  const allMachinesQuery = useMachines()
   const saveDraftMutation = useSaveStageDraft()
   const completeStageMutation = useCompleteStageEntry()
   const completeBatchMutation = useCompleteStagesBatch()
@@ -583,14 +587,15 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
   }, [employeesQuery.data])
   const employeesLoadFailed = Boolean(employeesQuery.isError)
   const userDefaultShift = (user as any)?.default_shift || ""
+  // Production runs two shifts (SHIFT_A / SHIFT_B). Masters shift names ("A — Day 08:00–20:00")
+  // label them; a master code like "A" never reaches the server as is (client 2026-10-25).
   const shiftOptions = useMemo(() => {
     const rows = Array.isArray(shiftsQuery.data) ? shiftsQuery.data : []
-    return rows
-      .filter((row: any) => row && (row.code || row.shift_code))
-      .map((row: any) => ({
-        code: String(row.code || row.shift_code || ""),
-        name: String(row.name || row.shift_name || row.code || row.shift_code || ""),
-      }))
+    return (["SHIFT_A", "SHIFT_B"] as const).map((code) => {
+      const master = rows.find((row: any) => canonicalShift(row?.code || row?.shift_code) === code)
+      const hours = master?.start_time && master?.end_time ? ` ${master.start_time}–${master.end_time}` : ""
+      return { code, name: master ? `${master.name || master.code}${hours}` : code === "SHIFT_A" ? "Shift A" : "Shift B" }
+    })
   }, [shiftsQuery.data])
 
   const card = jobCardQuery.data
@@ -706,13 +711,13 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
   // Page 3 (production & QC log) prints by default once the card has entries.
   const [includeLogChoice, setIncludeLogChoice] = useState<boolean | null>(null)
   const includeLog = includeLogChoice ?? seasonEntries.length > 0
-  // Print preview: pages are real A4 landscape (297 mm); on narrow screens the whole stack is zoomed to fit.
+  // Print preview: pages are real A4 portrait (210 mm, client 2026-10-25); on narrow screens the stack is zoomed to fit.
   const paperHostRef = useRef<HTMLDivElement | null>(null)
   const [paperZoom, setPaperZoom] = useState(1)
   useEffect(() => {
     const host = paperHostRef.current
     if (mode !== "print" || !host || typeof ResizeObserver === "undefined") return
-    const pagePx = (297 * 96) / 25.4
+    const pagePx = (210 * 96) / 25.4
     const update = () => setPaperZoom(Math.min(1, Math.max(0.3, host.clientWidth / pagePx)))
     update()
     const observer = new ResizeObserver(update)
@@ -1059,23 +1064,24 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
     const segment = stageSegment(stage)
     // Re-queued after a missed slot: entry stays open on the slot it ran in (the save restores it).
     const missed = card?.missed_slot_open && String(card?.last_missed_slot?.stage || "").toUpperCase() === stage ? card.last_missed_slot : null
-    const machineId = row?.machine_id || segment?.machine_id || missed?.machine_id
+    const pickedMachine = stageForms[stage]?.entry_snapshot?.machine_pick || ""
+    const plannedMachineId = row?.machine_id || segment?.machine_id || missed?.machine_id
+    const machineId = plannedMachineId || pickedMachine
     const shiftCode = row?.shift_code || segment?.shift_code || missed?.shift_code
     const planDate = row?.plan_date || segment?.plan_date || missed?.plan_date || ""
     const machineLabel = machineId ? machineLabelMap.get(String(machineId)) || String(machineId).slice(0, 8) : ""
     const shiftLabel = shiftCode ? [String(shiftCode).replace("_", " "), planDate].filter(Boolean).join(" · ") : ""
     const needsPlannerAssignment = ["SLITTING", "WINDER", "OVEN", "PROCESS"].includes(stage)
-    const missingRequiredAssignment = needsPlannerAssignment && (!machineId || !shiftCode)
-    return { machineId, machineLabel, shiftCode, shiftLabel, planDate, missingRequiredAssignment }
+    // Client rule 2026-10-25: a stage can be entered before the planner places it; the run is flagged.
+    const unplanned = needsPlannerAssignment && (!plannedMachineId || !(row?.shift_code || segment?.shift_code || missed?.shift_code))
+    const missingRequiredAssignment = false
+    return { machineId, machineLabel, shiftCode, shiftLabel, planDate, missingRequiredAssignment, unplanned, plannedMachineId }
   }
 
   function stageEditable(stage: StageName) {
     const row = stageRow(stage)
     if (stage === "DISPATCH") return false
-    if (mode !== "supervisor" || row?.status === "COMPLETED" || stageAssignment(stage).missingRequiredAssignment) {
-      return false
-    }
-    if (stage === currentStage && PLANNER_GATED_STAGES.includes(stage) && !plannerGateReady) {
+    if (mode !== "supervisor" || row?.status === "COMPLETED") {
       return false
     }
     return true
@@ -1195,7 +1201,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
     } else if (stageMeta?.machine_id) {
       payload.machine_id = stageMeta.machine_id
     }
-    const submittedShift = (entry.shift_code || "").toString().trim() || assignment.shiftCode || stageMeta?.shift_code || ""
+    const submittedShift = canonicalShift(entry.shift_code) || canonicalShift(assignment.shiftCode) || canonicalShift(stageMeta?.shift_code) || ""
     if (submittedShift) {
       payload.shift_code = submittedShift
     }
@@ -1318,8 +1324,8 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
   async function saveStage(stage: StageName, saveMode: "draft" | "complete") {
     if (!jobCardId) return
     const assignment = stageAssignment(stage)
-    if (assignment.missingRequiredAssignment) {
-      showToast("Planner must assign machine and shift before supervisor entry can continue.", "error")
+    if (["SLITTING", "WINDER", "OVEN", "PROCESS"].includes(stage) && !assignment.machineId) {
+      showToast(`Choose the ${stage.toLowerCase()} machine this ran on — the stage is not planned yet.`, "error")
       return
     }
     if (STAGES_REQUIRING_SHIFT.includes(stage)) {
@@ -1355,12 +1361,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
       }
       jobCardQuery.refetch()
     } catch (error: any) {
-      const message =
-        error?.response?.data?.detail ||
-        error?.response?.data?.message ||
-        error?.message ||
-        "Unable to save stage"
-      showToast(typeof message === "string" ? message : JSON.stringify(message), "error")
+      showToast(describeApiError(error, "Unable to save stage"), "error")
     }
   }
 
@@ -1403,8 +1404,8 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
     }
     const queue = open.filter((row) => row.filled).map((row) => row.stage)
     for (const stage of queue) {
-      if (stageAssignment(stage).missingRequiredAssignment) {
-        showToast(`${stage}: the planner must assign machine and shift first. Nothing was saved.`, "error")
+      if (["SLITTING", "WINDER", "OVEN", "PROCESS"].includes(stage) && !stageAssignment(stage).machineId) {
+        showToast(`${stage}: choose the machine it ran on (not planned yet). Nothing was saved.`, "error")
         return
       }
       if (STAGES_REQUIRING_SHIFT.includes(stage)) {
@@ -1436,8 +1437,8 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
       setWholeCard(false)
     } catch (error: any) {
       if (error?.response) setBatchRequestId(null) // the server answered: a new attempt gets a new id
-      const message = error?.response?.data?.detail || error?.response?.data?.message || error?.message || "Unable to save the card"
-      showToast(error?.response ? (typeof message === "string" ? message : JSON.stringify(message)) : `${message}. The card may have been saved — press save again to check (it will not save twice).`, "error")
+      const message = describeApiError(error, "Unable to save the card")
+      showToast(error?.response ? message : `${message}. The card may have been saved — press save again to check (it will not save twice).`, "error")
     } finally {
       jobCardQuery.refetch()
     }
@@ -1494,7 +1495,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
       <div key={row.stage} className="space-y-3" data-testid={`whole-card-stage-${row.stage}`}>
         <div className="flex items-center justify-between rounded-xl border border-border bg-muted px-4 py-2">
           <span className="text-sm font-semibold text-foreground">{row.stage}</span>
-          <span className="text-xs text-muted-foreground">{stageAssignment(row.stage).missingRequiredAssignment ? "Not planned yet — planner must assign machine and shift" : stageAssignment(row.stage).shiftLabel || ""}</span>
+          <span className="text-xs text-muted-foreground">{stageAssignment(row.stage).unplanned ? "Not planned yet — entry allowed, flagged as run before planning" : stageAssignment(row.stage).shiftLabel || ""}</span>
         </div>
         {renderCurrentStageSection(row.stage)}
       </div>
@@ -1740,12 +1741,12 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
                 <div className={`rounded-2xl border px-4 py-3 ${plannerGateReady ? "border-signal-emerald-line bg-signal-emerald-soft" : "border-signal-amber-line bg-signal-amber-soft"}`}>
                   <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Planner Gate</div>
                   <div className="mt-1 text-sm font-semibold text-foreground">
-                    {plannerGateReady ? "Winding" : "Blocked until planner slot is valid"}
+                    {plannerGateReady ? "Winding" : "Not planned — entry allowed and flagged"}
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">
                     {plannerGateReady
                       ? `Scheduled ${card?.active_segment_plan_date || activeSegment?.plan_date || "-"} · ${currentMachineLabel}`
-                      : plannerGateReason || "Planner must place this stage in the next 3 days before supervisor entry."}
+                      : `${plannerGateReason || "This stage is not in the planner window."} Enter the run with the machine and shift written on the card; it is flagged for the owner.`}
                   </div>
                 </div>
               ) : null}
@@ -1799,8 +1800,12 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
 
         <section className={seasonalCard ? "space-y-4" : "grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_26rem]"}>
           <div className="space-y-4">
+            {!seasonalCard && mode === "supervisor" && !materialPreparationOnly ? <BatchEntrySwitch card={card} onSwitched={() => { void jobCardQuery.refetch() }} /> : null}
             {seasonalCard ? (
-              <ContinuousJobCard key={card?.id} card={card} embedded initialStage={currentStage === "SLITTING" ? undefined : currentStage} />
+              <>
+                <OldFormDrafts card={card} />
+                <ContinuousJobCard key={card?.id} card={card} embedded initialStage={currentStage === "SLITTING" ? undefined : currentStage} />
+              </>
             ) : wholeCard && mode === "supervisor" ? renderWholeCardSections() : (<>
             {renderSegmentSelector(currentStage)}
             <section className="rounded-[1.35rem] border border-border bg-card p-4 shadow-sm">
@@ -2047,14 +2052,35 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
 
   function renderAssignmentWarning(stage: StageName) {
     const assignment = stageAssignment(stage)
-    const shouldShowPlannerGateWarning =
-      stage === currentStage && PLANNER_GATED_STAGES.includes(stage) && !plannerGateReady
-    if (!assignment.missingRequiredAssignment && !shouldShowPlannerGateWarning) return null
+    const outsideWindow = stage === currentStage && PLANNER_GATED_STAGES.includes(stage) && !plannerGateReady
+    if (!assignment.unplanned && !outsideWindow) return null
+    const department = stage === "WINDER" ? "WINDER" : stage
+    const options = (Array.isArray(allMachinesQuery.data) ? allMachinesQuery.data : []).filter(
+      (machine: any) => String(machine?.department || machine?.machine_type || "").toUpperCase() === department && machine?.is_active !== false,
+    )
+    const editable = stageEditable(stage)
     return (
-      <div className="mt-3 rounded-xl border border-signal-rose-line bg-signal-rose-soft px-3 py-3 text-sm text-signal-rose-ink no-print">
-        {assignment.missingRequiredAssignment
-          ? "Planner assignment is missing for this stage. Assign machine and shift on the planning board before supervisor entry."
-          : plannerGateReason || "This stage is not yet scheduled inside the next-three-day planner window."}
+      <div className="mt-3 space-y-2 rounded-xl border border-signal-amber-line bg-signal-amber-soft px-3 py-3 text-sm text-signal-amber-ink no-print" data-testid={`unplanned-${stage.toLowerCase()}`}>
+        <p>
+          <span className="font-semibold">Not planned yet.</span>{" "}
+          {assignment.unplanned
+            ? "You can still enter this run: choose the machine and shift written on the card. The stage is placed on that shift and the run is flagged for the owner as run before planning."
+            : `${plannerGateReason || "This stage is outside the planner window."} The run can still be entered; it is flagged for the owner.`}
+        </p>
+        {editable && !assignment.plannedMachineId ? (
+          <label className="flex flex-wrap items-center gap-2 text-[13px] font-semibold">
+            Machine it ran on *
+            <select
+              data-testid={`unplanned-machine-${stage.toLowerCase()}`}
+              value={stageForms[stage]?.entry_snapshot?.machine_pick || ""}
+              onChange={(event) => updateSnapshotField(stage, "machine_pick", event.target.value)}
+              className="h-9 min-w-[200px] rounded-lg border border-border bg-card px-2 text-[13px] font-medium text-foreground"
+            >
+              <option value="">Choose machine</option>
+              {options.map((machine: any) => <option key={machine.id} value={machine.id}>{machine.name || machine.code}</option>)}
+            </select>
+          </label>
+        ) : null}
       </div>
     )
   }
@@ -2156,8 +2182,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
         setToolSelection((current) => ({ ...current, [stage]: "" }))
         showToast("Physical tool issued and linked to this stage", "success")
       } catch (error: any) {
-        const detail = error?.response?.data?.detail || error?.message || "Physical tool could not be issued"
-        showToast(String(detail), "error")
+        showToast(describeApiError(error, "Physical tool could not be issued"), "error")
       }
     }
     return (
@@ -2300,7 +2325,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
   }
 
   function renderShiftPicker(stage: StageName) {
-    const currentValue = stageForms[stage]?.entry_snapshot?.shift_code ?? ""
+    const currentValue = canonicalShift(stageForms[stage]?.entry_snapshot?.shift_code) || ""
     const isRequired = STAGES_REQUIRING_SHIFT.includes(stage)
     const label = `Shift${isRequired ? " *" : ""}`
     if (!stageEditable(stage)) {
@@ -2320,7 +2345,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             <option value="">{isRequired ? "Select shift…" : "Optional"}</option>
             {options.map((opt) => (
               <option key={opt.code} value={opt.code}>
-                {opt.code}{opt.name && opt.name !== opt.code ? ` — ${opt.name}` : ""}
+                {opt.code === "SHIFT_A" ? "Shift A" : "Shift B"}{opt.name && !/^shift [ab]$/i.test(opt.name) ? ` — ${opt.name}` : ""}
               </option>
             ))}
           </select>
@@ -2450,13 +2475,13 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
           Rejected = Produced − Accepted.{pcsPerBamboo > 0 ? ` Pieces equivalent: produced ${formatNumber((winderQty(entry.bamboo_count_produced, entry.winding_meters_produced) || 0) * pcsPerBamboo, 0)} · accepted ${formatNumber((winderQty(entry.accepted_bamboo_count, entry.accepted_winding_meters) || 0) * pcsPerBamboo, 0)} pcs (${formatNumber(pcsPerBamboo, 0)} pcs/bamboo).` : ""}
         </div>
 
-        <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Dimension Readings (Height, not Length)</div>
+        <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Dimension readings — height of bamboo, not tube length</div>
         <table className="mt-1 w-full border-collapse text-sm">
           <thead>
             <tr className="bg-muted text-left">
               {(["height", "id", "od", "weight", "cs"] as const).map((code) => {
                 const rule = winderEntryRules.find((item) => item.code === code) || null
-                const label = { height: "Height", id: "I.D.", od: "O.D.", weight: "Weight", cs: "C.S." }[code]
+                const label = { height: "Height of bamboo", id: "I.D.", od: "O.D.", weight: "Weight", cs: "C.S." }[code]
                 return (
                   <th key={code} className="border border-border px-2 py-2">
                     {label}
@@ -3382,8 +3407,8 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
       <div className="jc-print-host" ref={paperHostRef}>
         <div className="no-print jc-toolbar" data-testid="print-structure">
           <ol className="jc-structure">
-            <li><strong>Page 1 · front</strong> job card: header, then winding + oven beside process line + dispatch + tolerances</li>
-            <li><strong>Page 2 · back</strong> the order&apos;s spec sheet</li>
+            <li><strong>Page 1 · front</strong> job card: header, then winding, oven, process line, dispatch and tolerances one below the other</li>
+            <li><strong>Page 2 · back</strong> the order&apos;s spec sheet (turned to fit the portrait page)</li>
             {seasonalCard ? (
               <li>
                 <label className="jc-qc-toggle">
@@ -3401,7 +3426,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             )}
           </ol>
           <div className="jc-toolbar-actions">
-            <span>A4 landscape · two-sided, flip on short edge · scale 100%</span>
+            <span>A4 portrait · two-sided, flip on long edge · scale 100%</span>
             <button type="button" onClick={() => window.print()} className="jc-print-btn">
               <Printer className="h-4 w-4" />
               Print Job Card
@@ -3879,14 +3904,15 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
           .jc-print-host {
             width: 100%;
           }
-          /* Each page is a real A4 landscape sheet (297 x 210 mm, 5 mm margin) so the preview matches the paper. */
+          /* Each page is a real A4 portrait sheet (210 x 297 mm, 5 mm margin) so the preview matches the paper
+             (client 2026-10-25: "need to portrait mode"). */
           .jc-root {
             --jc-ink: #0f172a;
             --jc-muted: #475569;
             --jc-shade: #eef2f6;
             --jc-band: #1e293b;
             color: var(--jc-ink);
-            width: 297mm;
+            width: 210mm;
             margin: 0 auto;
             font-family: Arial, "Helvetica Neue", "Nirmala UI", "Mangal", "Noto Sans Devanagari", sans-serif;
           }
@@ -3896,7 +3922,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             align-items: flex-start;
             justify-content: space-between;
             gap: 10px 16px;
-            max-width: 297mm;
+            max-width: 210mm;
             margin: 0 auto 12px;
             border: 1px solid #e2e8f0;
             border-radius: 12px;
@@ -3942,8 +3968,8 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
           }
           .jc-page {
             box-sizing: border-box;
-            width: 297mm;
-            height: 210mm;
+            width: 210mm;
+            height: 297mm;
             overflow: visible;
             display: flex;
             flex-direction: column;
@@ -3954,13 +3980,13 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
           .jc-log-page,
           .jc-qc-sheet {
             height: auto;
-            min-height: 210mm;
+            min-height: 297mm;
           }
-          /* Landscape front: Winding + Oven on the left, Process line + Dispatch + tolerances on the right. */
+          /* Portrait front: Winding, Oven, Process line, Dispatch + tolerances, one below the other. */
           .jc-columns {
             display: grid;
-            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-            gap: 0 3mm;
+            grid-template-columns: minmax(0, 1fr);
+            gap: 0;
             align-items: start;
           }
           .jc-col > .jc-section:first-child { margin-top: 1.5mm; }
@@ -4122,9 +4148,9 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
           .jc-tolerance { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.6mm 3.2mm; margin-top: 1mm; border: 0.8pt solid var(--jc-ink); padding: 0.8mm 1.6mm; font-size: 7.4pt; }
           .jc-tolerance strong { font-size: 7.6pt; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; }
           .jc-tolerance b { font-size: 8.4pt; font-weight: 900; color: #000; }
-          /* Back: the landscape spec sheet fills the landscape page exactly (287 x 200 mm). */
-          .jc-spec-back { overflow: hidden; }
-          .jc-spec-wrap { width: 287mm; }
+          /* Back: the landscape spec sheet (287 x 200 mm) is turned a quarter to fill the portrait page (200 x 287 mm). */
+          .jc-spec-back { overflow: hidden; position: relative; }
+          .jc-spec-wrap { width: 287mm; height: 200mm; transform-origin: top left; transform: translateX(200mm) rotate(90deg); }
           .jc-spec-wrap .spec-print-preview { width: 287mm; max-width: none; margin: 0; padding: 0; }
           .jc-spec-wrap .spec-print-sheet { width: 287mm; height: 200mm; box-shadow: none; }
           /* Page 3: production & QC log, fixed column widths so it never runs off the page. */
@@ -4237,7 +4263,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
 
           @media print {
             @page {
-              size: A4 landscape;
+              size: A4 portrait;
               margin: 5mm;
             }
             html,
@@ -4253,7 +4279,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
               display: none !important;
             }
             /* Strip the dashboard shell (sidebar offset, padding, mesh) so the
-               card sits flush inside the A4 landscape print margins. */
+               card sits flush inside the A4 portrait print margins. */
             .bg-dashboard-mesh {
               background: #fff !important;
             }
@@ -4267,14 +4293,14 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
               width: auto;
             }
             .jc-root {
-              width: 287mm;
+              width: 200mm;
               max-width: none !important;
               zoom: 1 !important;
             }
             .jc-page {
-              width: 287mm;
+              width: 200mm;
               min-height: 0;
-              height: 200mm;
+              height: 287mm;
               max-height: none;
               overflow: visible;
               padding: 0;
@@ -4292,14 +4318,14 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             .jc-page + .jc-page {
               margin-top: 0;
             }
-            .jc-front { height: 200mm; min-height: 0; overflow: visible; }
+            .jc-front { height: 287mm; min-height: 0; overflow: visible; }
             .jc-spec-back {
-              width: 287mm;
-              height: 200mm;
+              width: 200mm;
+              height: 287mm;
               min-height: 0;
               overflow: hidden;
             }
-            /* The back carries the landscape spec sheet as it is: same page size, no rotation. */
+            /* The back carries the landscape spec sheet turned a quarter onto the portrait page. */
             .jc-spec-wrap .spec-print-preview,
             .jc-spec-wrap .spec-print-sheet {
               width: 287mm !important;

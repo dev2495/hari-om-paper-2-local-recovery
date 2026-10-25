@@ -387,9 +387,14 @@ def _default_issue_section(stage_type: str) -> Optional[str]:
 
 
 def _normalize_shift(shift_code: str) -> str:
-    normalized = str(shift_code or "").strip().upper()
-    if normalized not in {"SHIFT_A", "SHIFT_B"}:
-        raise HTTPException(status_code=400, detail="shift_code must be one of SHIFT_A, SHIFT_B")
+    from ..lifecycle_rules import canonical_shift
+
+    try:
+        normalized = canonical_shift(shift_code)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Choose Shift A or Shift B.")
     return normalized
 
 

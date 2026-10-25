@@ -231,7 +231,9 @@ test("print contracts: job card front (final client format) and the spec sheet o
   assert.match(jobCardPrint, /<SpecSheetDocument mode="print" specId=\{String\(card\.spec_id\)\} embedded \/>/)
   // The QC evidence page is optional (off by default) so a standard print is exactly two sides.
   assert.match(jobCardPrint, /includeQcSheet && hasFrozenQc \? \(\s*<section className="jc-page jc-qc-sheet"/)
-  assert.match(jobCardPrint, /size: A4 landscape;/)
+  // Client 2026-10-25: the job card prints A4 portrait (the stand-alone spec print stays landscape).
+  assert.match(jobCardPrint, /size: A4 portrait;/)
+  assert.doesNotMatch(jobCardPrint, /size: A4 landscape;/)
   for (const testId of ["print-page-winding", "print-page-oven", "print-page-process", "print-tolerance-strip", "print-winder-allowed-row", "print-process-allowed-row"]) {
     assert.match(jobCardPrint, new RegExp(`data-testid="${testId}"`))
   }
@@ -247,7 +249,7 @@ test("print contracts: job card front (final client format) and the spec sheet o
   }
 })
 
-test("print structure: one-page landscape front with the client's fixed rows, spec back with its header, page-width log", () => {
+test("print structure: one-page portrait front with the client's fixed rows, spec back with its header, page-width log", () => {
   const jobCardPrint = readFileSync(resolve(process.cwd(), "components/production/JobCardDocument.tsx"), "utf8")
   const log = readFileSync(resolve(process.cwd(), "components/production/SeasonPrintLog.tsx"), "utf8")
   // Client card rows: winder 2 runs + 4 samples, oven 3 + 3, process 2 + 6; extra runs/samples are summed on the last row.
@@ -258,10 +260,10 @@ test("print structure: one-page landscape front with the client's fixed rows, sp
   assert.match(jobCardPrint, /data-testid="print-more-runs"/)
   // The front scales to fit one page instead of spilling or clipping.
   assert.match(jobCardPrint, /<div className="jc-fit" ref=\{frontFitRef\}>/)
-  assert.match(jobCardPrint, /\.jc-front \{ height: 200mm; min-height: 0; overflow: visible; \}/)
-  // Landscape: header across the page, Winding + Oven beside Process + Dispatch; spec back is not rotated.
+  assert.match(jobCardPrint, /\.jc-front \{ height: 287mm; min-height: 0; overflow: visible; \}/)
+  // Portrait: sections run down the page in one column; the landscape spec sheet is turned a quarter onto the portrait back.
   assert.match(jobCardPrint, /<div className="jc-columns">/)
-  assert.doesNotMatch(jobCardPrint, /rotate\(90deg\)/)
+  assert.match(jobCardPrint, /\.jc-spec-wrap \{ width: 287mm; height: 200mm; transform-origin: top left; transform: translateX\(200mm\) rotate\(90deg\); \}/)
   // Hiding the app header in print must not hide the spec sheet's own header on the back.
   assert.match(jobCardPrint, /header:not\(\.spec-print-header\)/)
   assert.doesNotMatch(jobCardPrint, /^\s+header,$/m)

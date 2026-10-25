@@ -344,6 +344,29 @@ def convert_rule_text_checks(db: Session) -> int:
     return converted
 
 
+_NOTE_KEYS = re.compile(r"^(remarks?|notes?|comments?|observations?)$")
+
+
+def note_checks_as_text(db: Session) -> int:
+    """A remark / note check is written in words (client 2026-10-25: "format of remark is number,
+    need to change as word"). Any such check set up as a number becomes a text note again."""
+    converted = 0
+    for row in db.query(InventoryQualityTemplate).all():
+        key = str(row.parameter_key or "").strip().lower()
+        label = str(row.label or "").strip().lower()
+        if not (_NOTE_KEYS.match(key) or _NOTE_KEYS.match(label)) or str(row.input_type or "").lower() == "text":
+            continue
+        before = {"input_type": row.input_type, "options": list(row.options or []), "unit": row.unit}
+        row.input_type, row.options, row.unit = "text", [], None
+        row.updated_by, row.updated_at = "standards", datetime.utcnow()
+        record_event(db, material_type=row.material_type, kind="PARAMETER_UPDATED", actor="standards", before=before,
+                     after={"input_type": "text", "options": [], "unit": None}, parameter_key=row.parameter_key,
+                     note="A remark is written in words, not a number")
+        converted += 1
+    db.flush()
+    return converted
+
+
 def seed_client_paper_rules(db: Session) -> int:
     """All-paper default bands from the client's QC sheet, only where none was ever set."""
     created = 0

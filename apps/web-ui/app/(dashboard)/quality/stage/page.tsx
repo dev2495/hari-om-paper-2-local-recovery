@@ -15,6 +15,7 @@ import { useAttachJobCardQcProfile, useCompleteJobCardQc, useCreateQualityInspec
 import { ContinuousJobCard } from "@/components/production/ContinuousJobCard"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
 import { frozenStageRules, inspectionProfileRevision, qcExceptionIssues, type QcStageKey } from "@/lib/qc-measurement"
+import { describeErrorDetail } from "@/lib/api-error"
 
 // "QC" is the final acceptance check against the spec sheet's own final limits
 // (I.D./O.D./Length/Weight/C.S.); dispatch requires a current passing one.
@@ -420,7 +421,7 @@ export default function StageQualityPage() {
         return
       }
       const detail = error?.response?.data?.detail || error?.message || "Inspection save failed."
-      showToast(typeof detail === "string" ? detail : JSON.stringify(detail), "error")
+      showToast(describeErrorDetail(detail), "error")
     }
   }
 
@@ -472,7 +473,7 @@ export default function StageQualityPage() {
       )
     } catch (error: any) {
       const detail = error?.response?.data?.detail || error?.message || "Complete job card submit failed."
-      showToast(typeof detail === "string" ? detail : JSON.stringify(detail), "error")
+      showToast(describeErrorDetail(detail), "error")
     }
   }
 

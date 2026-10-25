@@ -65,6 +65,7 @@ import {
   salesOrderOriginLabel,
   salesOrderReferenceLabel,
 } from "@/lib/sales-order-entry"
+import { describeErrorDetail } from "@/lib/api-error"
 
 type SyncResultMap = Record<string, string[]>
 
@@ -208,7 +209,7 @@ export default function SalesOrdersPage() {
       showToast("Sales order approved.", "success")
     } catch (error: any) {
       const detail = error?.response?.data?.detail || error?.message || "Approval failed."
-      showToast(typeof detail === "string" ? detail : JSON.stringify(detail), "error")
+      showToast(describeErrorDetail(detail), "error")
     }
   }
 
@@ -276,7 +277,7 @@ export default function SalesOrdersPage() {
       setHoldOrder(null)
     } catch (error: any) {
       const detail = error?.response?.data?.detail || error?.message || "Could not put the order on hold."
-      showToast(typeof detail === "string" ? detail : JSON.stringify(detail), "error")
+      showToast(describeErrorDetail(detail), "error")
     }
   }
 
@@ -286,7 +287,7 @@ export default function SalesOrdersPage() {
       showToast(`Customer hold lifted on ${order.order_no || "the order"}.`, "success")
     } catch (error: any) {
       const detail = error?.response?.data?.detail || error?.message || "Could not lift the hold."
-      showToast(typeof detail === "string" ? detail : JSON.stringify(detail), "error")
+      showToast(describeErrorDetail(detail), "error")
     }
   }
 

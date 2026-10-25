@@ -49,6 +49,18 @@ async def continuous_close(card_id: str, stage: str, action: str, request: Reque
     return response
 
 
+@router.get("/reports/plan-vs-actual")
+async def plan_vs_actual(request: Request, token: str = Depends(get_token)):
+    """Each floor run against the slot the planner gave it (production reports)."""
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/reports/plan-vs-actual", request, token)
+
+
+@router.post("/job-cards/{card_id}/batch-entry")
+async def switch_to_batch_entry(card_id: str, request: Request, token: str = Depends(get_token)):
+    """Old-form card (released before batch entry) moves to batch entry; see production planning."""
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{card_id}/batch-entry", request, token)
+
+
 @router.get("/job-cards/{card_id}/effects")
 @router.post("/job-cards/{card_id}/effects/{path:path}")
 async def continuous_effects(card_id:str,request:Request,path:str="",token:str=Depends(get_token)):

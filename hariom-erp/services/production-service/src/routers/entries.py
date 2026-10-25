@@ -25,6 +25,9 @@ router=APIRouter(tags=["continuous entries"])
 CONTINUOUS={("WINDER","OVEN"),("OVEN","PROCESS")}
 
 
+from ..lifecycle_rules import canonical_shift
+
+
 class Mutation(BaseModel):
     model_config=ConfigDict(extra="forbid")
     request_id:str=Field(min_length=8,max_length=100)
@@ -38,6 +41,11 @@ class EntryInput(Mutation):
     kind:str="PRODUCTION"
     business_date:date|None=None
     shift_code:str|None=None
+
+    @field_validator("shift_code")
+    @classmethod
+    def _shift(cls,value):
+        return canonical_shift(value)
     operator_id:uuid.UUID|None=None
     machine_id:uuid.UUID|None=None
     segment_id:uuid.UUID|None=None
@@ -493,6 +501,9 @@ def validate_setup(db,job,e):
     reference=segment or stage
     if not e.machine_id:e.machine_id=reference.machine_id
     gate=planning._planner_gate_context(current_stage=e.stage,active_stage=stage,active_segment=segment)
+    if gate["planner_gate_ready"] and getattr(reference,"plan_date",None) and e.kind=="PRODUCTION" and not (e.details or {}).get("planned_slot"):
+        # The slot in force when the run was entered, for Reports › Plan vs actual.
+        e.details={**(e.details or {}),"planned_slot":{"plan_date":reference.plan_date.isoformat(),"shift_code":reference.shift_code,"machine_id":str(reference.machine_id) if reference.machine_id else None}}
     if not gate["planner_gate_ready"]:
         # Released cards may be run before the planner places them (client rule 2026-10-16):
         # the entry is accepted, the stage takes this entry's date/shift/machine as its slot,

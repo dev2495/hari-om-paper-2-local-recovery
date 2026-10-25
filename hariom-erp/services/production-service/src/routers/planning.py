@@ -424,6 +424,22 @@ def _fetch_paper_catalog_for_theory(token: str, plant_id: str) -> dict[str, dict
     return {str(row.get("id") or ""): row for row in rows}
 
 
+def _fetch_adhesive_catalog_for_theory(token: str, plant_id: str) -> dict[str, dict[str, Any]]:
+    """Adhesive masters by id: the stock item of an adhesive carries the master's internal code."""
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            response = client.get(
+                f"{settings.MASTERDATA_SERVICE_URL}/master/adhesives/",
+                headers={"Authorization": f"Bearer {token}", "X-Plant-ID": plant_id},
+            )
+    except httpx.HTTPError:
+        return {}
+    if response.status_code != 200:
+        return {}
+    rows = response.json() or []
+    return {str(row.get("id") or ""): row for row in rows if isinstance(row, dict)}
+
+
 def _fetch_inventory_item_catalog_for_theory(token: str, plant_id: str) -> list[dict[str, Any]]:
     with httpx.Client(timeout=15.0) as client:
         response = client.get(
@@ -547,6 +563,7 @@ def _build_provisional_material_rows_for_job_card(
     job_card: JobCard,
     paper_catalog: dict[str, dict[str, Any]],
     inventory_items: list[dict[str, Any]],
+    adhesive_catalog: Optional[dict[str, dict[str, Any]]] = None,
 ) -> list[dict[str, Any]]:
     material_snapshot = dict(getattr(job_card, "material_plan_snapshot", {}) or {})
     bom_snapshot = dict(material_snapshot.get("bom_snapshot") or material_snapshot.get("theoretical_consumption") or {})
@@ -632,6 +649,18 @@ def _build_provisional_material_rows_for_job_card(
 
     for adhesive_row in adhesive_rows:
         component_name = str(adhesive_row.get("name") or "").strip() or "Adhesive"
+        # The adhesive's own stock item (master internal code) is what the floor issues and the stock
+        # count counts, so theory posts there (client 2026-10-25: reconcile issue vs theory vs count).
+        master = (adhesive_catalog or {}).get(str(adhesive_row.get("adhesive_id") or ""))
+        master_code = str(adhesive_row.get("item_code") or (master or {}).get("internal_code") or (master or {}).get("code") or "").strip().upper()
+        stock_item = next((row for row in inventory_items if master_code and str(row.get("item_code") or "").strip().upper() == master_code), None)
+        if stock_item:
+            accumulate(
+                master_code,
+                str(stock_item.get("name") or component_name).strip() or None,
+                round(float(adhesive_row.get("weight_kg") or 0.0) * provisional_bamboo_count, 6),
+            )
+            continue
         normalized_name = component_name.upper().replace(" ", "").replace("-", "")
         adhesive_code = next(
             (
@@ -706,6 +735,7 @@ def _upsert_monthly_provisional_theory(
         job_card=job_card,
         paper_catalog=paper_catalog,
         inventory_items=inventory_items,
+        adhesive_catalog=_fetch_adhesive_catalog_for_theory(token, plant_id),
     )
     activity_dt = None
     for stage_row in getattr(job_card, "stages", []) or []:
@@ -2842,6 +2872,75 @@ def _primary_recipe_snapshot(spec_id: uuid.UUID, token: str, plant_id: str) -> d
     }
 
 
+_V2_STAGE_CODES = {"WINDER", "OVEN", "PROCESS"}
+
+
+def _legacy_spec_bands(spec: dict[str, Any]) -> dict[tuple[str, str], tuple[Optional[float], Optional[float]]]:
+    """Stage tolerances QC approved on the spec itself (older QC tolerance dialog), by (stage, code)."""
+    profile = spec.get("qc_profile") if isinstance(spec.get("qc_profile"), dict) else {}
+    if not profile or profile.get("source") == "GLOBAL_RULES":
+        return {}
+    from ..quality_eval import qc_profile_setup_status
+
+    if qc_profile_setup_status(profile) not in {"approved", "attached"}:
+        return {}
+    bands: dict[tuple[str, str], tuple[Optional[float], Optional[float]]] = {}
+    for stage, block in (profile.get("stages") or {}).items():
+        for row in (block or {}).get("parameters") or []:
+            if not isinstance(row, dict):
+                continue
+            code = str(row.get("code") or row.get("parameter") or "").strip()
+            low, high = row.get("min"), row.get("max")
+            if code and (low is not None or high is not None):
+                bands[(str(stage).upper(), code)] = (float(low) if low is not None else None, float(high) if high is not None else None)
+    return bands
+
+
+def _batch_entry_profile(spec: dict[str, Any], token: str, plant_id: str) -> tuple[str, dict[str, Any]]:
+    """Stage QC for a card released from a specification made before the seasonal release.
+
+    Client rule 2026-10-25: every new job card runs the same floor flow (batch entries, Process last,
+    no planning block, flags instead of stops). Its QC comes from the published stage rules for the
+    active season, resolved against the spec's own values (winding height = bamboo length ± 15,
+    C.S., I.D., O.D. …), with any tolerance QC approved on the spec itself taking precedence. A rule
+    whose spec value is missing (or that contradicts itself) is recorded only and listed on the card.
+    """
+    from season_quality import fingerprint
+
+    headers = {"Authorization": f"Bearer {token}", "X-Plant-ID": plant_id}
+    try:
+        season_row = httpx.get(f"{settings.SPEC_SERVICE_URL}/season", headers=headers, timeout=10)
+        season = str((season_row.json() if season_row.status_code < 400 else {}).get("active_season") or "ROY")
+        response = httpx.get(f"{settings.SPEC_SERVICE_URL}/specs/{spec['id']}/qc-resolved", params={"season": season}, headers=headers, timeout=20)
+    except httpx.HTTPError as exc:
+        raise HTTPException(503, "Stage QC rules could not be read from the specification service. Try the release again.") from exc
+    if response.status_code >= 400:
+        raise HTTPException(503, f"Stage QC rules for this specification could not be resolved (spec service answered {response.status_code}). Try again.")
+    profile = response.json()
+    approved_bands = _legacy_spec_bands(spec)
+    record_only: list[dict[str, Any]] = []
+    unresolved = {(row.get("stage"), row.get("parameter")) for row in profile.get("unresolved") or [] if isinstance(row, dict)}
+    conflicts = {(row.get("stage"), row.get("parameter")) for row in profile.get("conflicts") or [] if isinstance(row, dict) and row.get("stage")}
+    for stage, block in (profile.get("stages") or {}).items():
+        for rule in (block or {}).get("parameters") or []:
+            key = (stage, rule.get("code"))
+            band = approved_bands.get(key)
+            if band and rule.get("applicable", True):
+                rule.update(mode="BAND", min=band[0], max=band[1], lower=[], upper=[], dynamic=False, band_source="SPEC_QC_APPROVED")
+                continue
+            if not rule.get("applicable", True) or rule.get("mode") != "BAND" or rule.get("dynamic"):
+                continue
+            if key in conflicts or key in unresolved or (rule.get("min") is None and rule.get("max") is None):
+                reason = "the limits contradict each other" if key in conflicts else "the specification has no value for this limit"
+                rule.update(mode="RECORD_ONLY", min=None, max=None, lower=[], upper=[])
+                record_only.append({"stage": stage, "parameter": rule.get("code"), "label": rule.get("label"), "reason": reason})
+    profile["unresolved"], profile["conflicts"] = [], []
+    profile["record_only"] = record_only
+    profile["provenance"] = {**(profile.get("provenance") or {}), "pre_seasonal_spec": True, "spec_qc_bands_applied": len(approved_bands)}
+    profile["fingerprint"] = fingerprint({k: v for k, v in profile.items() if k != "fingerprint"})
+    return season, profile
+
+
 def _build_job_card_snapshots(
     *,
     spec: dict[str, Any],
@@ -2867,6 +2966,11 @@ def _build_job_card_snapshots(
     spec_snapshot = _build_spec_snapshot(spec, priority=priority)
     if seasonal_bundle:
         spec_snapshot.update(entry_model="V2", season=seasonal_bundle["season"], season_epoch=seasonal_bundle["season_epoch"], qc_profile=seasonal_bundle["qc_profile"], qc_setup_status="approved", missing_qc_setup=False, release_authorization_id=authorization["authorization_id"], release_bundle_hash=authorization["bundle_hash"])
+    else:
+        # Older (pre-seasonal) specification: same batch-entry floor flow as every other card.
+        if not float(planned_qty).is_integer():raise HTTPException(422,"Job-card quantities must be whole pieces")
+        season, profile = _batch_entry_profile(spec, token, plant_id)
+        spec_snapshot.update(entry_model="V2", season=season, qc_profile=profile, qc_setup_status="approved", missing_qc_setup=False, missing_profile_marker=False, qc_rules_source="PUBLISHED_STAGE_RULES")
     requires_slitting = _line_requires_slitting(line, spec_snapshot)
     spec_snapshot["requires_slitting"] = requires_slitting
     spec_snapshot["sales_order_line_id"] = str(line.get("id") or "")
@@ -3866,10 +3970,7 @@ def _validate_stage_completion_payload(
             missing_fields.append("entry_snapshot.pre_weight")
         if not _present(entry_snapshot.get("post_weight")):
             missing_fields.append("entry_snapshot.post_weight")
-        if not _present(entry_snapshot.get("pre_moisture")):
-            missing_fields.append("entry_snapshot.pre_moisture")
-        if not _present(entry_snapshot.get("post_moisture")):
-            missing_fields.append("entry_snapshot.post_moisture")
+        # Moisture is recorded when measured but never required (client rule 2026-10-17).
         if _present(entry_snapshot.get("pre_weight")) and _present(entry_snapshot.get("post_weight")):
             try:
                 pre_weight = float(entry_snapshot.get("pre_weight"))
@@ -7457,6 +7558,69 @@ def retry_fg_inward(
     return {"posted": bool(result), "inventory_transaction_id": (result or {}).get("transaction_id")}
 
 
+@router.post("/job-cards/{job_card_id}/batch-entry")
+def switch_to_batch_entry(
+    job_card_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Operator"])),
+):
+    """Move a card released on the old entry form to batch entry (client 2026-10-25).
+
+    Only while no production stage was closed on the old form. Stage QC is resolved from the published
+    stage rules (as for a new release); what was typed on the old form stays on the card as
+    "old_drafts" so it can be entered again as a batch. Idempotent.
+    """
+    from sqlalchemy.orm.attributes import flag_modified
+
+    job_card = db.query(JobCard).filter(JobCard.id == job_card_id, JobCard.plant_id == _to_uuid(plant_id)).with_for_update().first()
+    if not job_card:
+        raise HTTPException(status_code=404, detail="Job card not found")
+    snapshot = dict(job_card.spec_snapshot or {})
+    if snapshot.get("entry_model") == "V2":
+        return {"job_card_id": str(job_card.id), "entry_model": "V2", "switched": False}
+    if job_card.status in ("COMPLETED", "CANCELLED"):
+        raise HTTPException(status_code=409, detail="This job card is closed.")
+    stages = db.query(JobCardStage).filter(JobCardStage.job_card_id == job_card.id).all()
+    closed = [row.stage_type for row in stages if row.status == "COMPLETED" and row.stage_type != "SLITTING"]
+    if closed:
+        raise HTTPException(status_code=409, detail=f"{', '.join(closed)} was already closed on the old form; finish this card there.")
+    spec = _fetch_spec(job_card.spec_id, current_user.get("token", ""), plant_id, require_approved_active=False)
+    season, profile = _batch_entry_profile(spec, current_user.get("token", ""), plant_id)
+    drafts = {
+        row.stage_type: {key: value for key, value in (row.entry_snapshot or {}).items() if value not in (None, "", [], {})}
+        for row in stages
+        if row.status != "COMPLETED" and row.entry_snapshot
+    }
+    drafts = {stage: values for stage, values in drafts.items() if values}
+    snapshot.update(
+        entry_model="V2", season=season, qc_profile=profile, qc_setup_status="approved", missing_qc_setup=False,
+        missing_profile_marker=False, qc_rules_source="PUBLISHED_STAGE_RULES",
+        switched_to_batch_entry={"at": datetime.utcnow().isoformat(), "by": current_user.get("sub"), "old_drafts": drafts},
+    )
+    job_card.spec_snapshot = snapshot
+    flag_modified(job_card, "spec_snapshot")
+    first_stage = (job_card.routing_snapshot or {}).get("first_stage")
+    for row in stages:
+        if row.status == "COMPLETED":
+            continue
+        row.entry_snapshot, row.actuals_snapshot, row.quality_checks = {}, {}, {}
+        row.input_qty, row.output_qty, row.scrap_qty = None, 0.0, 0.0
+        if row.status == "RUNNING":
+            row.status = _queue_status_for_stage(row.machine_id) if row.stage_type == first_stage else "PLANNED"
+    for segment in db.query(JobCardStageSegment).filter(JobCardStageSegment.job_card_id == job_card.id).all():
+        if segment.status == "RUNNING":
+            segment.status = "ASSIGNED" if segment.machine_id and segment.shift_code else "QUEUED"
+            segment.input_qty, segment.output_qty, segment.scrap_qty = None, 0.0, 0.0
+    _record_audit_event(
+        db=db, plant_id=job_card.plant_id, entity_type="job_card", entity_id=job_card.id, action="switched_to_batch_entry",
+        actor_id=current_user.get("sub"), actor_role=_current_actor_role(current_user), job_card_id=job_card.id,
+        payload={"season": season, "old_draft_stages": sorted(drafts), "record_only": profile.get("record_only") or []},
+    )
+    db.commit()
+    return {"job_card_id": str(job_card.id), "entry_model": "V2", "switched": True, "old_drafts": drafts, "record_only": profile.get("record_only") or []}
+
+
 @router.post("/job-cards/{job_card_id}/stage-output", response_model=StageActionResponse)
 def capture_stage_output(
     job_card_id: uuid.UUID,
@@ -7621,6 +7785,32 @@ def capture_stage_output(
         stage.machine_id = payload.machine_id
         segment.machine_id = payload.machine_id
 
+    # Client rule 2026-10-25: a stage can be entered before the planner places it. The stage takes
+    # the machine and shift written on the card and today's date as its slot; the run is flagged.
+    unscheduled_entry = None
+    planned_slot = None
+    if selected_stage in {"SLITTING", "WINDER", "OVEN", "PROCESS"}:
+        gate = _planner_gate_context(current_stage=selected_stage, active_stage=stage, active_segment=segment)
+        if gate["planner_gate_ready"] and segment.plan_date:
+            planned_slot = {"plan_date": segment.plan_date.isoformat(), "shift_code": segment.shift_code, "machine_id": str(segment.machine_id) if segment.machine_id else None}
+        if not gate["planner_gate_ready"]:
+            today_local = plant_today()
+            entry_shift = payload.shift_code or segment.shift_code or stage.shift_code
+            unscheduled_entry = {
+                "reason": gate["planner_gate_reason"],
+                "placed_on": today_local.isoformat(),
+                "shift_code": entry_shift,
+                "machine_id": str(segment.machine_id or stage.machine_id) if (segment.machine_id or stage.machine_id) else None,
+                "planned": {"plan_date": segment.plan_date.isoformat() if segment.plan_date else None, "shift_code": segment.shift_code, "machine_id": str(segment.machine_id) if segment.machine_id else None},
+            }
+            segment.plan_date = today_local
+            stage.plan_date = today_local
+            if entry_shift:
+                segment.shift_code = entry_shift
+                stage.shift_code = entry_shift
+            if segment.machine_id and segment.status in ("QUEUED", "PLANNED"):
+                segment.status = "ASSIGNED"
+
     # Validate card times before touching any stage state.
     override_reason_for_times = (payload.override_reason or "").strip() or None
     now = datetime.utcnow()
@@ -7665,6 +7855,10 @@ def capture_stage_output(
     if payload.shift_code and not stage.entry_snapshot.get("shift_code"):
         stage.entry_snapshot["shift_code"] = payload.shift_code
     stage.actuals_snapshot = payload.actuals or {}
+    if unscheduled_entry or previous_actuals.get("unscheduled_entry"):
+        stage.actuals_snapshot = {**stage.actuals_snapshot, "unscheduled_entry": unscheduled_entry or previous_actuals.get("unscheduled_entry")}
+    if planned_slot or previous_actuals.get("planned_slot"):
+        stage.actuals_snapshot = {**stage.actuals_snapshot, "planned_slot": previous_actuals.get("planned_slot") or planned_slot}
     if active_holds and not override_reason:
         stage.actuals_snapshot = _restricted_stock_actuals(stage.actuals_snapshot)
     quality_checks = dict(payload.quality_checks or {})
@@ -7882,11 +8076,8 @@ def capture_stage_output(
             status_code=409,
             detail=f"Cannot complete {selected_stage} before {', '.join(prior_incomplete)}. Provide override_reason to continue.",
         )
-    if selected_stage == "WINDER" and not (payload.reel_issue_ids or stage.reel_issue_ids or override_reason):
-        raise HTTPException(
-            status_code=409,
-            detail="WINDER completion requires linked reel_issue_ids or an override_reason.",
-        )
+    # Reels and coils go to the floor by shift, never to a card (client rule 2026-10-18), so a winding
+    # close does not need a linked reel issue; paper is settled by the month-end stock count.
     _enforce_stage_quality_gate(
         db=db,
         plant_id=plant_uuid,

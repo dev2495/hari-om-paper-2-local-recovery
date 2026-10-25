@@ -436,10 +436,12 @@ def _create_or_update_dispatch(payload,db,plant_id,current_user):
     if active_holds:
         raise HTTPException(status_code=409, detail=f"Cannot seal dispatch while {active_holds} quality hold(s) are active")
 
-    _require_final_qc(db, plant_uuid, job_card)
-
     qc_stage = None
-    if (getattr(job_card,"spec_snapshot",None) or {}).get("entry_model")=="V2":
+    if (getattr(job_card,"spec_snapshot",None) or {}).get("entry_model")!="V2":
+        _require_final_qc(db, plant_uuid, job_card)
+    else:
+        # Batch-entry card: final QC is the closed QC stage. On a Process-last card that is the Process
+        # QC — every good batch QC-accepted before Process closes (client rule 2026-10-18).
         stages={s.stage_type:s for s in db.query(JobCardStage).filter_by(job_card_id=job_card.id).all()}
         if any(not stages.get(s) or stages[s].status!="COMPLETED" for s in ("PACKING","QC")):
             raise HTTPException(409,"Close Packing and final QC before dispatch")
