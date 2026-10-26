@@ -283,7 +283,7 @@ def flow(db,job):
             status="COMPLETED" if packed>0 and accepted+retained>=packed or snapshot.get("all_qc_rejected") else "RUNNING" if accepted>0 else row.status
             cap=max(0,packed-accepted-retained);blockers=[] if status=="COMPLETED" else ["Complete shipment through Logistics Dispatch"]
         stage_segments=[s for s in segments if s.stage_type==stage]
-        states.append({"stage":stage,"status":status,"unit":stage_unit(stage),"target":target,"unscheduled_entries":sum(1 for e in actual if (e.details or {}).get("unscheduled_entry")),"produced_total":produced,"accepted_total":accepted,"rejected_total":produced-accepted,"input_total":accepted if stage=="DISPATCH" else sum(e.input_quantity for e in actual),"cutting_loss_total":sum(e.cutting_loss_pcs for e in actual),"carryover_pcs":sum(e.carry_out_pcs-e.carry_in_pcs for e in actual),"available_from_upstream":cap,"awaiting_qc_from_upstream":waiting,"upstream_has_qc":bool(upstream and stage_has_qc(job,upstream)),"input_unit":stage_unit(upstream) if upstream else None,"qc":readiness,"draft_count":drafts,"can_close":status!="COMPLETED" and stage not in ("SLITTING","DISPATCH") and not blockers,"system_step":stage in SYSTEM_STAGES and not drafts and not any(e.stage==stage for e in all_entries),"completes_card":stage=="PROCESS" and any(s in route(job) for s in SYSTEM_STAGES),"blockers":blockers,"row_version":int(snapshot.get("row_version",1)),"supervisor_name":snapshot.get("supervisor_name"),"closed_at":snapshot.get("closed_at"),"residual_quantity":snapshot.get("residual_quantity"),"residual_disposition":snapshot.get("residual_disposition"),"segments":[{"id":str(s.id),"machine_id":str(s.machine_id) if s.machine_id else None,"plan_date":s.plan_date,"shift_code":s.shift_code,"status":s.status,**planning._planner_gate_context(current_stage=stage,active_stage=row,active_segment=s)} for s in stage_segments]})
+        states.append({"stage":stage,"status":status,"unit":stage_unit(stage),"target":target,"unscheduled_entries":sum(1 for e in actual if (e.details or {}).get("unscheduled_entry")),"produced_total":produced,"accepted_total":accepted,"rejected_total":produced-accepted,"input_total":accepted if stage=="DISPATCH" else sum(e.input_quantity for e in actual),"cutting_loss_total":sum(e.cutting_loss_pcs for e in actual),"carryover_pcs":sum(e.carry_out_pcs-e.carry_in_pcs for e in actual),"available_from_upstream":cap,"awaiting_qc_from_upstream":waiting,"upstream_has_qc":bool(upstream and stage_has_qc(job,upstream)),"input_unit":stage_unit(upstream) if upstream else None,"pcs_per_bamboo":planning._pcs_per_bamboo_from_snapshot(job.spec_snapshot or {}) if stage=="PROCESS" else None,"qc":readiness,"draft_count":drafts,"can_close":status!="COMPLETED" and stage not in ("SLITTING","DISPATCH") and not blockers,"system_step":stage in SYSTEM_STAGES and not drafts and not any(e.stage==stage for e in all_entries),"completes_card":stage=="PROCESS" and any(s in route(job) for s in SYSTEM_STAGES),"blockers":blockers,"row_version":int(snapshot.get("row_version",1)),"supervisor_name":snapshot.get("supervisor_name"),"closed_at":snapshot.get("closed_at"),"residual_quantity":snapshot.get("residual_quantity"),"residual_disposition":snapshot.get("residual_disposition"),"segments":[{"id":str(s.id),"machine_id":str(s.machine_id) if s.machine_id else None,"plan_date":s.plan_date,"shift_code":s.shift_code,"status":s.status,**planning._planner_gate_context(current_stage=stage,active_stage=row,active_segment=s)} for s in stage_segments]})
         if stage=="PROCESS" and states[-1]["completes_card"]:
             snap=job.spec_snapshot or {}
             states[-1]["completion_preview"]={"fg_qty":accepted,"fg_code":snap.get("product_code") or snap.get("sales_order_line_product_code"),"packing":planning._packing_consumption_snapshot(packed_qty=float(accepted),spec_snapshot=dict(snap))}
@@ -578,7 +578,9 @@ def allocate(db,job,e):
         prior=entries(db,job,"PROCESS")
         carry=sum(x.carry_out_pcs-x.carry_in_pcs for x in prior if x.id!=e.id)
         if e.carry_in_pcs>carry:raise HTTPException(409,"Process carryover balance is insufficient")
-        if not pcs or e.input_quantity*pcs+e.carry_in_pcs!=e.produced+e.cutting_loss_pcs+e.carry_out_pcs:raise HTTPException(422,"Input bamboos × pieces per bamboo + carry-in must equal produced pcs + cutting loss + held carry-out")
+        if not pcs:raise HTTPException(422,"This card's spec has no pieces per bamboo, so Process pieces cannot be checked. Ask the planner to correct the spec.")
+        possible,counted=e.input_quantity*pcs+e.carry_in_pcs,e.produced+e.cutting_loss_pcs+e.carry_out_pcs
+        if possible!=counted:raise HTTPException(422,process_balance_message(e,pcs,possible,counted))
         if (e.carry_out_pcs or e.carry_in_pcs) and not str(e.details.get("carryover_reason") or "").strip():raise HTTPException(422,"Carryover reason required")
     elif e.carry_in_pcs or e.carry_out_pcs or e.cutting_loss_pcs:raise HTTPException(422,"Cutting loss/carryover are Process-only")
     elif e.input_quantity!=e.produced:raise HTTPException(422,"Input quantity must equal produced quantity for this stage")
@@ -598,6 +600,12 @@ def allocate(db,job,e):
             if remaining==0:break
         if remaining==0:break
     if remaining:raise HTTPException(409,"Upstream allocation changed")
+
+
+def process_balance_message(e,pcs,possible,counted):
+    held=f" + {e.carry_in_pcs} held" if e.carry_in_pcs else ""
+    fix="Write the missing pieces as cutting loss or held carry-out." if possible>counted else "That is more pieces than the bamboo can give: check the bamboo count and the output."
+    return f"{e.input_quantity} bamboo × {pcs} pcs{held} = {possible} pcs, but this run counts {counted} pcs ({e.produced} made + {e.cutting_loss_pcs} cutting loss + {e.carry_out_pcs} held). {fix}"
 
 
 def label_stage(stage):

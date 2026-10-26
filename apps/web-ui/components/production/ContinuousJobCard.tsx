@@ -102,6 +102,7 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
   const [carryIn, setCarryIn] = useState("")
   const [carryOut, setCarryOut] = useState("")
   const [remark, setRemark] = useState("")
+  const [lossNote, setLossNote] = useState("")
   const [startTime, setStartTime] = useState("")
   const [endTime, setEndTime] = useState("")
   const [segment, setSegment] = useState("")
@@ -122,6 +123,9 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
   const [notice, setNotice] = useState("")
   const formRef = useRef<HTMLElement | null>(null)
   const pending = useRef<{ fingerprint: string; body: any } | null>(null)
+  // Process: bamboo in and pieces out fill themselves from the card until the operator types over them.
+  const inputTouched = useRef(false)
+  const outputTouched = useRef(false)
   const roles = new Set([user?.role, ...(user?.roles || [])])
   const canSubmit = ["Owner", "Admin", "PlantManager"].some((r) => roles.has(r))
   const canReopen = ["Owner", "Admin"].some((r) => roles.has(r))
@@ -209,6 +213,9 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
     setCarryIn("")
     setCarryOut("")
     setRemark("")
+    setLossNote("")
+    inputTouched.current = false
+    outputTouched.current = false
     setStartTime("")
     setEndTime("")
     setSamples(padSamples([]))
@@ -247,6 +254,9 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
       setCarryIn(entry.carry_in_pcs ? String(entry.carry_in_pcs) : "")
       setCarryOut(entry.carry_out_pcs ? String(entry.carry_out_pcs) : "")
       setRemark(entry.details?.carryover_reason || "")
+      setLossNote(entry.details?.cutting_loss_reason || "")
+      inputTouched.current = true
+      outputTouched.current = true
       setStartTime(clockOf(entry.details?.start_time))
       setEndTime(clockOf(entry.details?.end_time))
       setSegment(entry.segment_id || "")
@@ -314,15 +324,34 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
   const bad = count(rejected)
   const good = Math.max(0, made - bad)
   const takenIn = inputFollowsOutput ? made : count(input)
-  const lossQty = count(loss)
   const carryInQty = count(carryIn)
   const carryOutQty = count(carryOut)
+  // Process balance (client 2026-10-26): bamboo × pieces per bamboo + held carry-in = made + cutting loss
+  // + held carry-out. Cutting loss is whatever the made and held pieces leave, never typed by hand.
+  const pcsPerBamboo = stage === "PROCESS" ? Number(state?.pcs_per_bamboo || 0) : 0
+  const possiblePcs = takenIn * pcsPerBamboo + carryInQty
+  const lossQty = pcsPerBamboo ? Math.max(0, possiblePcs - made - carryOutQty) : count(loss)
+  const overPcs = pcsPerBamboo ? Math.max(0, made + carryOutQty - possiblePcs) : 0
   const disposition = stage === "PROCESS" && made === 0 && carryInQty > 0
+  const readyFromOven = Number(state?.available_from_upstream || 0)
+  useEffect(() => {
+    if (stage !== "PROCESS" || editing || qcOnly || inputTouched.current) return
+    const next = readyFromOven > 0 ? String(readyFromOven) : ""
+    if (input !== next) setInput(next)
+  }, [stage, editing, qcOnly, readyFromOven, input])
+  useEffect(() => {
+    if (stage !== "PROCESS" || !pcsPerBamboo || editing || qcOnly || outputTouched.current) return
+    const next = takenIn ? String(Math.max(0, takenIn * pcsPerBamboo + carryInQty - carryOutQty)) : ""
+    if (output !== next) setOutput(next)
+  }, [stage, pcsPerBamboo, editing, qcOnly, takenIn, carryInQty, carryOutQty, output])
   const startStamp = stamp(businessDate, startTime)
   const endStamp = stamp(businessDate, endTime, startTime || undefined)
   const overTarget = state ? Number(state.produced_total || 0) + made > Number(state.target || 0) * 1.1 : false
   const codeText = REJECT_CODES.find(([code]) => code === rejectCode)?.[1] || ""
-  const rejectReason = rejectNote.trim() || (rejectCode && rejectCode !== "OT" ? `${rejectCode} · ${codeText}` : "") || (lossQty ? remark.trim() : "")
+  const rejectPart = rejectNote.trim() || (rejectCode && rejectCode !== "OT" ? `${rejectCode} · ${codeText}` : "")
+  // One reason on the entry covers rejected pieces and cutting loss; writing off held pieces uses the carryover reason.
+  const lossPart = disposition ? remark.trim() : lossQty ? (pcsPerBamboo ? lossNote.trim() : remark.trim()) : ""
+  const rejectReason = [bad ? rejectPart : "", lossPart && !disposition && pcsPerBamboo ? `Cutting loss: ${lossPart}` : lossPart].filter(Boolean).join(" · ")
   const filledSamples = samples
     .filter((s) => Object.values(s.readings || {}).some((v) => v !== "" && v != null))
     .map((s) => ({ ...s, readings: Object.fromEntries(Object.entries(s.readings).filter(([, v]) => v !== "" && v != null)) }))
@@ -335,7 +364,10 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
     bad > 0 && !rejectCode ? "the rejection code" : "",
     bad > 0 && rejectCode === "OT" && !rejectNote.trim() ? "what the 'Other' rejection was" : "",
     stage === "PROCESS" && !takenIn && !disposition ? `how many ${state?.input_unit || "bamboo"} were taken from ${label(prevStage || "OVEN")}` : "",
-    (lossQty || disposition) && !rejectReason ? "the reason for the cutting loss" : "",
+    stage === "PROCESS" && !pcsPerBamboo ? "pieces per bamboo on the spec (ask the planner)" : "",
+    overPcs > 0 ? `an output the bamboo can give (at most ${fmt(possiblePcs - carryOutQty)} pcs)` : "",
+    lossQty && !disposition && !lossPart ? "why pieces were lost in cutting" : "",
+    disposition && !rejectReason ? "the reason for the cutting loss" : "",
     (carryInQty || carryOutQty) && !remark.trim() ? "the reason for the held carryover" : "",
     overTarget && !overNote.trim() ? "why output is above the planned +10%" : "",
     gateOverride && !gateReason.trim() ? "why the batch is taken before its QC" : "",
@@ -362,6 +394,7 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
       helper_name: helper.trim() || null,
       overproduction_reason: overTarget ? overNote.trim() : undefined,
       carryover_reason: carryInQty || carryOutQty ? remark.trim() : undefined,
+      cutting_loss_reason: lossQty && !disposition && pcsPerBamboo ? lossNote.trim() : undefined,
       start_time: startStamp,
       end_time: endStamp,
       instrument,
@@ -747,13 +780,17 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
                 <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
                   {stage === "PROCESS" ? (
                     <label className="col-span-2 text-sm lg:col-span-1">
-                      {state.input_unit || "Bamboo"} taken from {label(prevStage || "OVEN")}
-                      <input inputMode="numeric" type="number" min="0" step="1" className={numberClass} value={input} onChange={(e) => setInput(e.target.value)} data-testid="season-entry-input" />
+                      {(state.input_unit || "bamboo").replace(/^./, (c: string) => c.toUpperCase())} taken from {label(prevStage || "OVEN")}
+                      <input inputMode="numeric" type="number" min="0" step="1" className={numberClass} value={input} onChange={(e) => { inputTouched.current = true; setInput(e.target.value) }} data-testid="season-entry-input" />
+                      <span className="mt-1 block text-xs text-muted-foreground" data-testid="process-ready-from-oven">
+                        <span className="whitespace-nowrap">{readyFromOven > 0 ? `${fmt(readyFromOven)} ready from ${label(prevStage || "OVEN")}` : `Nothing ready from ${label(prevStage || "OVEN")} yet`}</span>
+                        {pcsPerBamboo ? <span className="whitespace-nowrap"> · 1 bamboo = {fmt(pcsPerBamboo)} pcs</span> : null}
+                      </span>
                     </label>
                   ) : null}
                   <label className="text-sm">
                     Output ({state.unit})
-                    <input inputMode="numeric" type="number" min="0" step="1" className={numberClass} value={output} onChange={(e) => setOutput(e.target.value)} data-testid="season-entry-produced" />
+                    <input inputMode="numeric" type="number" min="0" step="1" className={numberClass} value={output} onChange={(e) => { outputTouched.current = true; setOutput(e.target.value) }} data-testid="season-entry-produced" />
                   </label>
                   <label className="text-sm">
                     Rejected
@@ -771,6 +808,28 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
                     ) : null}
                   </div>
                 </div>
+                {stage === "PROCESS" && !disposition && (takenIn || made) ? (
+                  !pcsPerBamboo ? (
+                    <p className="rounded-lg border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-sm text-signal-amber-ink" data-testid="process-balance">
+                      This card&apos;s spec has no pieces per bamboo, so Process pieces cannot be checked. Ask the planner to correct the spec.
+                    </p>
+                  ) : overPcs > 0 ? (
+                    <p className="rounded-lg border border-signal-rose-line bg-signal-rose-soft px-3 py-2 text-sm text-signal-rose-ink" data-testid="process-balance">
+                      {fmt(takenIn)} bamboo × {fmt(pcsPerBamboo)} pcs{carryInQty ? ` + ${fmt(carryInQty)} held` : ""} = <b>{fmt(possiblePcs)} pcs at most</b>. Output {fmt(made)}{carryOutQty ? ` + ${fmt(carryOutQty)} held` : ""} is {fmt(overPcs)} more: check the bamboo count or the output.
+                    </p>
+                  ) : lossQty > 0 ? (
+                    <div className="space-y-2 rounded-lg border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-sm" data-testid="process-balance">
+                      <p className="text-signal-amber-ink">
+                        {fmt(takenIn)} bamboo × {fmt(pcsPerBamboo)} pcs{carryInQty ? ` + ${fmt(carryInQty)} held` : ""} = {fmt(possiblePcs)} pcs · {fmt(made)} made{carryOutQty ? ` · ${fmt(carryOutQty)} held` : ""} → <b>{fmt(lossQty)} pcs cutting loss</b>
+                      </p>
+                      <Input className="h-11 bg-card text-[15px]" aria-label="Cutting loss reason" placeholder={`Why were ${fmt(lossQty)} pcs lost in cutting? (required)`} value={lossNote} onChange={(e) => setLossNote(e.target.value)} data-testid="process-loss-reason" />
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground" data-testid="process-balance">
+                      {fmt(takenIn)} bamboo × {fmt(pcsPerBamboo)} pcs{carryInQty ? ` + ${fmt(carryInQty)} held` : ""} = {fmt(possiblePcs)} pcs · all pieces accounted for
+                    </p>
+                  )
+                ) : null}
                 {bad > 0 ? (
                   <div className="space-y-2" data-testid="season-entry-reject">
                     <p className="text-sm">Why rejected?</p>
@@ -813,8 +872,8 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
                   </div>
                 ) : null}
                 {stage === "PROCESS" || openSegments.length > 1 ? (
-                  <details className="rounded-lg border border-border p-3 text-sm" open={Boolean(lossQty || carryInQty || carryOutQty)}>
-                    <summary className="cursor-pointer font-medium">More: {stage === "PROCESS" ? "cutting loss, held carryover" : ""}{stage === "PROCESS" && openSegments.length > 1 ? ", " : ""}{openSegments.length > 1 ? "planned slot" : ""}</summary>
+                  <details className="rounded-lg border border-border p-3 text-sm" open={Boolean((!pcsPerBamboo && lossQty) || carryInQty || carryOutQty)}>
+                    <summary className="cursor-pointer font-medium">More: {stage === "PROCESS" ? (pcsPerBamboo ? "held pieces (carry to the next run)" : "cutting loss, held carryover") : ""}{stage === "PROCESS" && openSegments.length > 1 ? ", " : ""}{openSegments.length > 1 ? "planned slot" : ""}</summary>
                     <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                       {openSegments.length > 1 ? (
                         <label className="text-sm sm:col-span-2">
@@ -831,7 +890,7 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
                       {stage === "PROCESS"
                         ? (
                             [
-                              ["Cutting loss pcs", loss, setLoss],
+                              ...(pcsPerBamboo ? [] : [["Cutting loss pcs", loss, setLoss]]),
                               ["Held carry-in pcs", carryIn, setCarryIn],
                               ["Held carry-out pcs", carryOut, setCarryOut],
                             ] as [string, string, (v: string) => void][]
@@ -844,7 +903,7 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
                         : null}
                       {stage === "PROCESS" ? (
                         <label className="text-sm sm:col-span-2 lg:col-span-4">
-                          Reason for loss or carryover
+                          {pcsPerBamboo ? "Reason for held pieces" : "Reason for loss or carryover"}
                           <Input className="h-11" value={remark} onChange={(e) => setRemark(e.target.value)} aria-label="Loss or carryover reason" />
                         </label>
                       ) : null}
