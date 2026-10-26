@@ -54,6 +54,8 @@ def _ensure_schema_compatibility():
             "ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS held_at TIMESTAMP",
             "ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS held_by VARCHAR(200)",
             "ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS hold_prev_status VARCHAR(40)",
+            # Customer hold & close takes an order cancel / short close reason code too (2026-10-26).
+            "ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS hold_reason_code VARCHAR(40)",
             "ALTER TABLE sales_order_lines ADD COLUMN IF NOT EXISTS hold_qty DOUBLE PRECISION NOT NULL DEFAULT 0",
             "ALTER TABLE sales_order_lines ADD COLUMN IF NOT EXISTS size_label VARCHAR(160)",
             "ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS closure_kind VARCHAR(20)",

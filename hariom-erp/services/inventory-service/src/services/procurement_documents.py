@@ -140,8 +140,8 @@ def render_purchase_order_pdf(order: Any, revision: Any, delivery_schedules: Ite
     story.extend([details, Spacer(1, 4 * mm), Paragraph("Materials and approved rates", styles["section"])])
 
     line_rows: list[list[Any]] = [[
-        Paragraph("#", styles["table_head"]), Paragraph("Material / specification", styles["table_head"]),
-        Paragraph("Quantity", styles["table_head_right"]), Paragraph("Units", styles["table_head_right"]),
+        Paragraph("#", styles["table_head"]), Paragraph("Material", styles["table_head"]),
+        Paragraph("Ordered quantity", styles["table_head_right"]),
         Paragraph("Rate / unit", styles["table_head_right"]), Paragraph("Amount", styles["table_head_right"]),
     ]]
     total_qty_by_uom: dict[str, Decimal] = {}
@@ -153,34 +153,25 @@ def render_purchase_order_pdf(order: Any, revision: Any, delivery_schedules: Ite
         item_code = getattr(getattr(line, "item", None), "item_code", None)
         item_name = getattr(getattr(line, "item", None), "name", None)
         description = spec.get("description") or item_name or str(line.item_id)
-        specification = " | ".join(filter(None, [
-            f"Width {spec.get('width_mm')} mm" if spec.get("width_mm") not in (None, "") else None,
-            f"Tolerance +/- {spec.get('width_tolerance_mm')} mm" if spec.get("width_tolerance_mm") not in (None, "") else None,
-            f"GSM {spec.get('gsm')}" if spec.get("gsm") not in (None, "") else None,
-            f"PB {spec.get('plybond')}" if spec.get("plybond") not in (None, "") else None,
-            f"Bulk {spec.get('bulk')}" if spec.get("bulk") not in (None, "") else None,
-            str(spec.get("cobb")) if spec.get("cobb") else None,
-        ]))
+        # Only the ordered quantity is printed (client 2026-10-26): no expected reel count and no
+        # quality specification; incoming QC checks the material standard at inward.
         material = f"<b>{_text(item_code)}</b> - {_text(description)}"
-        if specification:
-            material += f"<br/><font color='#607381' size='6.5'>{_text(specification)}</font>"
         qty = Decimal(line.qty_ordered)
         rate = Decimal(line.unit_rate)
         amount = (qty * rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         uom = str(getattr(line, "uom", None) or "KG")
         total_qty_by_uom[uom] = total_qty_by_uom.get(uom, Decimal("0")) + qty
         total_amount += amount
-        units = f"{line.expected_unit_count} {_text(line.count_basis).lower()}" if line.expected_unit_count else "-"
         line_rows.append([
             Paragraph(str(index), styles["body"]), Paragraph(material, styles["body"]),
-            Paragraph(f"{_qty(qty)} {_text(uom)}", styles["small_right"]), Paragraph(units, styles["small_right"]),
+            Paragraph(f"{_qty(qty)} {_text(uom)}", styles["small_right"]),
             Paragraph(_money(rate), styles["small_right"]), Paragraph(_money(amount), styles["small_right"]),
         ])
     line_rows.append([
         "", Paragraph("<b>Total</b>", styles["body"]), Paragraph("<br/>".join(f"<b>{_qty(qty)} {_text(unit)}</b>" for unit, qty in total_qty_by_uom.items()), styles["small_right"]),
-        "", "", Paragraph(f"<b>{_money(total_amount)}</b>", styles["small_right"]),
+        "", Paragraph(f"<b>{_money(total_amount)}</b>", styles["small_right"]),
     ])
-    lines = Table(line_rows, repeatRows=1, colWidths=[8 * mm, 79 * mm, 25 * mm, 20 * mm, 24 * mm, 28 * mm])
+    lines = Table(line_rows, repeatRows=1, colWidths=[8 * mm, 99 * mm, 25 * mm, 24 * mm, 28 * mm])
     lines.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), TEAL), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("GRID", (0, 0), (-1, -2), 0.3, LINE), ("LINEABOVE", (0, -1), (-1, -1), 0.8, TEAL),
@@ -336,14 +327,15 @@ def build_lot_label_pdf(labels: list[dict[str, Any]], copies: int = 1, profile: 
         text(meta.get("legal_entity") or "AMIGO INDUSTRIES", left, top, w - 6 * mm, 10, True)
         text(label.get("supplier_name"), left, top - 5 * mm, w * .56, 8)
         text(label.get("inward_date"), w * .64, top - 5 * mm, w * .32, 8)
-        text(f"Bill: {label.get('bill_no') or meta.get('invoice_no') or '-'}", left, top - 9 * mm, w - 6 * mm, 8)
+        grn = label.get("grn_no") or meta.get("grn_no")
+        text(f"Bill: {label.get('bill_no') or meta.get('invoice_no') or '-'}" + (f"   GRN: {grn}" if grn else ""), left, top - 9 * mm, w - 6 * mm, 8)
         text((label.get("item_name") or label.get("item_code")) if is_batch else f"PLYBOND {label.get('ply_bond') or '-'}   VARIETY {label.get('variety') or label.get('item_code') or '-'}   GSM {label.get('gsm') or '-'}", left, top - 14 * mm, w - 6 * mm, 8, True)
         text(f"BATCH {label.get('batch_no') or '-'}" if is_batch else f"ROLL NO. {label.get('source_reel_no') or '-'}", left, top - 19 * mm, w - 6 * mm, 9, True)
         text(label.get("amigo_no") or label.get("code"), left, top - 28 * mm, w - 25 * mm, 23, True)
         text(f"{label.get('inward_qty', label.get('qty', 0))} {label.get('uom') or 'KG'}", left, top - 37 * mm, w - 26 * mm, 22, True)
         text("BATCH | " + str(label.get("item_code") or "") if is_batch else f"{label.get('physical_form') or 'REEL'} | {label.get('width_mm') or '-'} mm", left, 3 * mm, w - 6 * mm, 8)
         if not thermal:
-            text(f"PO {label.get('po_no') or 'Manual inward'}", left, 8 * mm, w - 6 * mm, 8)
+            text(f"PO {label.get('po_no') or 'Manual inward'}" + (f"   GRN {label.get('grn_no')}" if label.get("grn_no") else ""), left, 8 * mm, w - 26 * mm, 8)
             text(label.get("stock_status") or "QC required", left, 13 * mm, w - 26 * mm, 8)
         qr = QrCodeWidget(label["qr_value"])
         bounds = qr.getBounds(); size = 22 * mm

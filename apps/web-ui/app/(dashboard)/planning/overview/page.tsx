@@ -1,5 +1,11 @@
 import { Suspense } from "react"
-import { PlanningWorkspace } from "@/components/planning/planning-workspace"
-export default function StagePlanningPage() {
-  return <Suspense fallback={<p className="p-6 text-sm text-muted-foreground">Loading planner…</p>}><PlanningWorkspace sectionOverride="summary" /></Suspense>
+
+import { PlanningOverview } from "@/components/planning/overview/planning-overview"
+
+export default function PlanningOverviewPage() {
+  return (
+    <Suspense fallback={<p className="p-6 text-sm text-muted-foreground">Loading planning overview…</p>}>
+      <PlanningOverview />
+    </Suspense>
+  )
 }

@@ -140,6 +140,8 @@ export function useCreateTransaction() {
   return useMutation({
     mutationFn: (data: any) => inventoryApi.createTransaction(data),
     onSuccess: () => {
+      // Stock on hand next to each material and lot refreshes after every issue (client 2026-10-26).
+      queryClient.invalidateQueries({ queryKey: ["inventory-item-balance"] })
       queryClient.invalidateQueries({ queryKey: ["inventory-items"] })
       queryClient.invalidateQueries({ queryKey: ["inventory-transactions"] })
       queryClient.invalidateQueries({ queryKey: ["inventory-stock-statement"] })
@@ -630,6 +632,21 @@ export function useCreateReelIssue() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["inventory-reel-issues"] })
       queryClient.invalidateQueries({ queryKey: ["inventory-reels"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-balances"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-stock-statement"] })
+    },
+  })
+}
+
+/** Parchment by colour and kg (no coil number); refreshes stock on hand on both issue tabs. */
+export function useIssueParchmentByWeight() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { item_id: string; qty_kg: number; shift: string; issue_date: string; notes?: string }) => inventoryApi.issueParchmentByWeight(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-reel-issues"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-reels"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-balances"] })
       queryClient.invalidateQueries({ queryKey: ["inventory-stock-statement"] })
     },
   })

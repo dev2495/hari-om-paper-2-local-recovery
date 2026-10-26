@@ -205,6 +205,14 @@ class QueueJobCardItem(BaseModel):
     # queue so it can be re-slotted instead of disappearing from the board.
     stale_slot: bool = False
     stale_plan_date: Optional[date] = None
+    customer_code: Optional[str] = None
+    sales_order_no: Optional[str] = None
+    po_number: Optional[str] = None
+    # Planning rule (client 2026-10-26): Oven opens for planning once Winding has a slot, Process once
+    # Oven has one. A locked card stays visible in the queue but cannot be placed yet.
+    planning_locked: bool = False
+    waiting_for_stage: Optional[str] = None
+    planning_locked_reason: Optional[str] = None
 
 
 class QueueMachineBucket(BaseModel):
@@ -420,6 +428,11 @@ class JobCardPlannerSummary(BaseModel):
     active_segment_plan_date: Optional[date] = None
     open_segment_count: int = 0
     blocked_reason: Optional[str] = None
+    # Plan status (client 2026-10-26): information about the plan, never a block on the floor.
+    plan_status: Optional[str] = None
+    plan_status_label: Optional[str] = None
+    plan_slots: int = 0
+    next_slot: Optional[dict[str, Any]] = None
     planner_gate_ready: bool = False
     planner_gate_reason: Optional[str] = None
     current_machine_id: Optional[str] = None
@@ -606,6 +619,11 @@ class JobCardPlanningDetail(BaseModel):
     active_segment_plan_date: Optional[date] = None
     open_segment_count: int = 0
     blocked_reason: Optional[str] = None
+    # Plan status (client 2026-10-26): information about the plan, never a block on the floor.
+    plan_status: Optional[str] = None
+    plan_status_label: Optional[str] = None
+    plan_slots: int = 0
+    next_slot: Optional[dict[str, Any]] = None
     planner_gate_ready: bool = False
     planner_gate_reason: Optional[str] = None
     carry_forward_suggestion: CarryForwardSuggestion = Field(default_factory=CarryForwardSuggestion)

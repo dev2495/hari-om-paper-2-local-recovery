@@ -21,6 +21,7 @@ import {
 } from "@/hooks/use-production"
 import { ContinuousJobCard } from "./ContinuousJobCard"
 import { BatchEntrySwitch, OldFormDrafts } from "./BatchEntrySwitch"
+import { CardPlanPanel } from "./CardPlanPanel"
 import { SeasonPrintLog, compactLimit } from "./SeasonPrintLog"
 import { entryApiForPlant } from "@/lib/season-api"
 import { useQuery } from "@tanstack/react-query"
@@ -1530,44 +1531,6 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
     )
   }
 
-  function renderSegmentSelector(stage: StageName) {
-    const stageOpenSegments = stageSegments.filter((segment: any) => segment.stage_type === stage && segment.status !== "COMPLETED" && segment.status !== "CANCELLED")
-    if (mode !== "supervisor" || stage !== currentStage || stageOpenSegments.length <= 1) return null
-    return (
-      <div className="rounded-[1.1rem] border border-signal-amber-line bg-signal-amber-soft p-4">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-signal-amber-ink">Open Segments</div>
-        <p className="mt-2 text-sm text-muted-foreground">This stage is split across multiple shifts. Pick the live segment before entering actuals.</p>
-        <div className="mt-3 grid gap-2 sm:grid-cols-2">
-          {stageOpenSegments.map((segment: any) => {
-            const selected = stageForms[stage]?.segment_id === segment.id
-            return (
-              <button
-                key={segment.id}
-                type="button"
-                onClick={() =>
-                  updateStageForm(stage, (current) => ({
-                    ...current,
-                    segment_id: segment.id,
-                  }))
-                }
-                className={`rounded-xl border px-3 py-3 text-left transition ${
-                  selected ? "border-slate-950 bg-slate-950 text-white" : "border-border bg-card text-foreground"
-                }`}
-              >
-                <div className="text-xs font-semibold uppercase tracking-[0.16em]">
-                  Segment {segment.segment_no}
-                </div>
-                <div className="mt-2 text-sm">
-                  {Number(segment.planned_qty || 0).toFixed(0)} pcs · {segment.shift_code || "Open"} · {segment.plan_date || "Unscheduled"}
-                </div>
-              </button>
-            )
-          })}
-        </div>
-      </div>
-    )
-  }
-
   function renderCurrentStageSection(stage: StageName) {
     if (stage === "SLITTING") return renderSlittingSection()
     if (stage === "WINDER") return renderWinderSection()
@@ -1801,13 +1764,13 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
         <section className={seasonalCard ? "space-y-4" : "grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_26rem]"}>
           <div className="space-y-4">
             {!seasonalCard && mode === "supervisor" && !materialPreparationOnly ? <BatchEntrySwitch card={card} onSwitched={() => { void jobCardQuery.refetch() }} /> : null}
+            {card?.id ? <CardPlanPanel jobCardId={String(card.id)} plantId={card.plant_id ? String(card.plant_id) : undefined} open={mode !== "supervisor"} /> : null}
             {seasonalCard ? (
               <>
                 <OldFormDrafts card={card} />
                 <ContinuousJobCard key={card?.id} card={card} embedded initialStage={currentStage === "SLITTING" ? undefined : currentStage} />
               </>
             ) : wholeCard && mode === "supervisor" ? renderWholeCardSections() : (<>
-            {renderSegmentSelector(currentStage)}
             <section className="rounded-[1.35rem] border border-border bg-card p-4 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div>

@@ -72,6 +72,9 @@ def sweep_missed_slots(db: Session, plant_uuid: uuid.UUID, *, now_local: Optiona
             JobCardStageSegment.stage_type == segment.stage_type,
             JobCardStageSegment.status == "ASSIGNED",
         ).all():
+            # Only the slots whose 36 h have passed go back; a later part of a split plan stays planned.
+            if row.plan_date is None or now_local < missed_slot_deadline(row.plan_date, row.shift_code):
+                continue
             row.status = "QUEUED"
             row.shift_code = None
             row.machine_id = None

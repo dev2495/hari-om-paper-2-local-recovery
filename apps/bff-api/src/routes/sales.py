@@ -135,7 +135,9 @@ async def update_order(order_id: str, request: Request, token: str = Depends(get
 
 @router.post("/orders/{order_id}/hold")
 async def hold_order(order_id: str, request: Request, token: str = Depends(get_token)):
-    response = await proxy_to_service(SALES_SERVICE_URL, f"/sales-orders/{order_id}/hold", request, token)
+    # Customer hold closes the PO: same reason code list as cancel / short close (client 2026-10-26).
+    body = await _order_close_body(request, token)
+    response = await proxy_to_service(SALES_SERVICE_URL, f"/sales-orders/{order_id}/hold", request, token, json_body=body)
     payload = response_body_json(response) or {}
     held = sum(float(line.get("hold_qty") or 0) for line in payload.get("lines") or [] if isinstance(line, dict))
     await emit_from_response(

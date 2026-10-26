@@ -21,28 +21,28 @@ import { compactRef, jobCardRef } from "@/lib/job-card-display"
 
 const STAGE_TILES = ["SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING", "QC", "DISPATCH"]
 
-/** Turn the planner gate's reason into plain language and the next action. */
-function gateInfo(job: any): { blocked: boolean; short: string; reason: string; fix: string; cta: string; href?: string } {
-  const reason = String(job.blocked_reason || job.planner_gate_reason || "").trim()
-  const blocked = job.planner_gate_ready === false || Boolean(job.blocked_reason)
-  if (!blocked) return { blocked: false, short: "", reason: "", fix: "", cta: "" }
-  const text = reason.toLowerCase()
-  if (text.includes("stale")) {
-    return { blocked, short: "Planned slot has passed", reason: reason || "The planned slot is in the past.", fix: "Move this stage to a machine slot within the next 3 plant days. The floor can't record output against an expired plan.", cta: "Reschedule in planner" }
+/**
+ * Plan status of the current stage (client 2026-10-26): planning is only the plan and never blocks the
+ * floor, so this is information with the planner as the next step, not a gate.
+ */
+type PlanInfo = { status: string; planned: boolean; short: string; detail: string; tone: "planned" | "split" | "attention" | "neutral" }
+function planInfo(job: any): PlanInfo {
+  const status = String(job.plan_status || "")
+  const label = String(job.plan_status_label || "")
+  const short = label.includes(": ") ? label.split(": ").slice(1).join(": ") : label
+  const tones: Record<string, PlanInfo["tone"]> = { PLANNED: "planned", RUNNING: "planned", SPLIT: "split", MISSED: "attention", PAST: "attention", NOT_PLANNED: "neutral", WAITING: "neutral", NO_PLAN_NEEDED: "neutral", DONE: "neutral" }
+  const details: Record<string, string> = {
+    PLANNED: "The current stage has a planner slot. The floor logs runs on the job card; Planning overview shows if it ran in its slot.",
+    RUNNING: "Runs are being logged for the current stage. Planning overview shows how they match the plan.",
+    SPLIT: "The plan for this stage is in parts (several shifts or machines). The floor logs runs as usual; each run is matched to its part by date and shift.",
+    MISSED: "The planned slot passed and nothing was logged for 36 hours, so the card went back to the planner queue. Plan it again, or log the run if it did happen.",
+    PAST: "The planned slot has passed and nothing is logged yet. Log the run on the job card, or move the slot in the planner. After 36 hours it goes back to the queue.",
+    NOT_PLANNED: "Not on the planner yet. The floor can still log runs (flagged as run before planning).",
+    WAITING: "This stage opens for planning once the stage before it has a slot.",
+    NO_PLAN_NEEDED: "Packing and QC follow the Process close; nothing to plan.",
+    DONE: "All stages are done.",
   }
-  if (text.includes("open segment")) {
-    return { blocked, short: reason.replace(" still need stage completion", " to finish"), reason, fix: "This stage was split. Record output for each open segment (or cancel unused ones in the planner) before the card moves on.", cta: "Record stage output", href: `/production/supervisor-entry?job_card_id=${job.id}` }
-  }
-  if (text.includes("hold") || text.includes("qc")) {
-    return { blocked, short: "Quality hold", reason, fix: "QC must release or disposition the hold before work continues.", cta: "Open quality desk", href: "/quality/results" }
-  }
-  if (text.includes("material") || text.includes("reel") || text.includes("issue")) {
-    return { blocked, short: "Material not issued", reason, fix: "Issue the required reels or paper to this card from stores.", cta: "Issue material", href: "/inventory/production-issue" }
-  }
-  if (text.includes("machine") || text.includes("assign") || text.includes("slot") || !reason) {
-    return { blocked, short: reason ? "Needs a machine slot" : "Not scheduled", reason: reason || "No machine, date and shift are assigned for the current stage.", fix: "Assign a machine, date and shift for the current stage in the planner.", cta: "Schedule in planner" }
-  }
-  return { blocked, short: reason.length > 34 ? `${reason.slice(0, 34)}…` : reason, reason, fix: "Open the planner or the job card to resolve this gate.", cta: "Open planner" }
+  return { status, planned: ["PLANNED", "RUNNING", "SPLIT"].includes(status), short: short || "—", detail: details[status] || label, tone: tones[status] || "neutral" }
 }
 
 function formatDate(value?: string | null) {
@@ -66,7 +66,7 @@ export default function JobCardsPage() {
   const dueRiskParam = dueFilter === "priority" ? "PRIORITY" : dueFilter === "overdue" ? "OVERDUE" : undefined
   const [search, setSearch] = useState("")
   const [status, setStatus] = useState("ALL")
-  const [gateFilter, setGateFilter] = useState<"all" | "blocked" | "ready">("all")
+  const [planFilter, setPlanFilter] = useState<"all" | "planned" | "unplanned">("all")
   const [lifeFilter, setLifeFilter] = useState<string>("ALL")
   const [sheet, setSheet] = useState<{ id: string; action: LifecycleAction | null } | null>(null)
   const deferredSearch = useDeferredValue(search.trim())
@@ -115,14 +115,14 @@ export default function JobCardsPage() {
   }
 
   const visibleCards = jobCards.length
-  const blockedCount = jobCards.filter((job: any) => gateInfo(job).blocked).length
+  const plannedCount = jobCards.filter((job: any) => planInfo(job).planned).length
   const lifeCounts = jobCards.reduce((acc: Record<string, number>, job: any) => {
     const state = lifecycleFromSummary(job)
     acc[state] = (acc[state] || 0) + 1
     return acc
   }, {})
   const visibleJobCards = jobCards
-    .filter((job: any) => gateFilter === "all" || (gateFilter === "blocked") === gateInfo(job).blocked)
+    .filter((job: any) => planFilter === "all" || (planFilter === "planned") === planInfo(job).planned)
     .filter((job: any) => lifeFilter === "ALL" || lifecycleFromSummary(job) === lifeFilter || (lifeFilter === "CLOSED" && ["FORCE_CLOSED", "CANCELLED"].includes(lifecycleFromSummary(job))))
   const priorityCount = Number(aggregates.due_priority || 0)
   const overdueCount = Number(aggregates.due_overdue || 0)
@@ -250,9 +250,9 @@ export default function JobCardsPage() {
                 return <button key={value} type="button" aria-pressed={lifeFilter === value} onClick={() => setLifeFilter(value)}>{label}<span className="tabular-nums text-muted-foreground">{count}</span></button>
               })}
             </div>
-            <div className="tube-segment" role="group" aria-label="Floor gate filter">
-              {([["all", `All ${visibleCards}`], ["blocked", `Blocked ${blockedCount}`], ["ready", `Ready ${visibleCards - blockedCount}`]] as const).map(([value, label]) => (
-                <button key={value} type="button" aria-pressed={gateFilter === value} onClick={() => setGateFilter(value)}>{label}</button>
+            <div className="tube-segment" role="group" aria-label="Plan status filter">
+              {([["all", `All ${visibleCards}`], ["planned", `Planned ${plannedCount}`], ["unplanned", `Not planned ${visibleCards - plannedCount}`]] as const).map(([value, label]) => (
+                <button key={value} type="button" aria-pressed={planFilter === value} onClick={() => setPlanFilter(value)}>{label}</button>
               ))}
             </div>
             <div className="flex h-9 items-center gap-2 rounded-lg border border-input bg-card px-2.5 focus-within:ring-2 focus-within:ring-ring/30">
@@ -314,18 +314,18 @@ export default function JobCardsPage() {
                   <th>Stage</th>
                   <th className="hidden lg:table-cell">Plan</th>
                   <th>Due</th>
-                  <th>Floor gate</th>
+                  <th>Plan status</th>
                   <th className="text-right"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
                 {visibleJobCards.map((job: any) => {
-                  const gate = gateInfo(job)
+                  const plan = planInfo(job)
                   const stage = String(job.current_stage || "").toLowerCase()
                   const planHref = ["winder", "oven", "process", "slitting"].includes(stage) ? `/planning/${stage}?order_id=${job.sales_order_id}` : `/planning/board?order_id=${job.sales_order_id}`
                   const dueDays = job.due_date ? dayjs(job.due_date).startOf("day").diff(dayjs().startOf("day"), "day") : null
                   return (
-                    <tr key={job.id} data-due-risk={job.due_risk_bucket || ""} data-state={gate.blocked ? undefined : undefined}>
+                    <tr key={job.id} data-due-risk={job.due_risk_bucket || ""} data-plan-status={plan.status || undefined}>
                       <td className="max-w-[240px]">
                         <button type="button" onClick={() => setSheet({ id: String(job.id), action: null })} className="text-left hover:text-primary" title="Open lifecycle">
                           <JobCardNo job={job} />
@@ -359,25 +359,27 @@ export default function JobCardsPage() {
                         {dueDays !== null ? <span className={`text-[11.5px] font-medium ${dueDays < 0 ? "text-signal-rose-ink" : dueDays <= 3 ? "text-signal-amber-ink" : "text-muted-foreground"}`}>{dueDays < 0 ? `${Math.abs(dueDays)}d late` : dueDays === 0 ? "Due today" : `in ${dueDays}d`}</span> : null}
                       </td>
                       <td className="max-w-[240px]">
-                        {gate.blocked ? (
-                          <HoverCard
-                            label={`Why ${jobCardRef(job)} is blocked`}
-                            trigger={
-                              <button type="button" className="group inline-flex max-w-full items-center gap-1.5 rounded-full border border-signal-rose-line bg-signal-rose-soft px-2 py-0.5 text-left text-[11.5px] font-medium text-signal-rose-ink">
-                                <AlertTriangle className="h-3 w-3 shrink-0" />
-                                <span className="truncate">{gate.short}</span>
-                              </button>
-                            }
-                          >
-                            <p className="font-semibold text-foreground">Why it&apos;s blocked</p>
-                            <p className="mt-1 text-muted-foreground">{gate.reason}</p>
-                            <p className="mt-2 font-semibold text-foreground">How to clear it</p>
-                            <p className="mt-0.5 text-muted-foreground">{gate.fix}</p>
-                            <Link href={gate.href || planHref} className="erp-btn-primary mt-3 !h-8 w-full">{gate.cta}<ArrowRight className="h-3.5 w-3.5" /></Link>
-                          </HoverCard>
-                        ) : (
-                          <span className="inline-flex items-center gap-1.5 rounded-full border border-signal-emerald-line bg-signal-emerald-soft px-2 py-0.5 text-[11.5px] font-medium text-signal-emerald-ink"><CheckCircle2 className="h-3 w-3" />Ready for floor</span>
-                        )}
+                        <HoverCard
+                          label={`Plan for ${jobCardRef(job)}`}
+                          trigger={
+                            <button
+                              type="button"
+                              data-testid="job-card-plan-status"
+                              className={`group inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-0.5 text-left text-[11.5px] font-medium ${
+                                plan.tone === "planned" ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink"
+                                  : plan.tone === "split" ? "border-signal-blue-line bg-signal-blue-soft text-signal-blue-ink"
+                                    : plan.tone === "attention" ? "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink"
+                                      : "border-border bg-muted text-muted-foreground"}`}
+                            >
+                              {plan.tone === "planned" ? <CheckCircle2 className="h-3 w-3 shrink-0" /> : plan.tone === "attention" ? <AlertTriangle className="h-3 w-3 shrink-0" /> : <CalendarClock className="h-3 w-3 shrink-0" />}
+                              <span className="truncate">{plan.short}</span>
+                            </button>
+                          }
+                        >
+                          <p className="font-semibold text-foreground">{job.plan_status_label || "Plan"}</p>
+                          <p className="mt-1 text-muted-foreground">{plan.detail}</p>
+                          <Link href={planHref} className="erp-btn-secondary mt-3 !h-8 w-full">Open in planner<ArrowRight className="h-3.5 w-3.5" /></Link>
+                        </HoverCard>
                       </td>
                       <td>
                         <div className="flex justify-end">
@@ -386,7 +388,7 @@ export default function JobCardsPage() {
                               { label: "Manage lifecycle", onSelect: () => setSheet({ id: String(job.id), action: null }), icon: Settings2 },
                               ...(lifecycleFromSummary(job) === "QUEUED" ? [{ label: "Edit qty / color", onSelect: () => setSheet({ id: String(job.id), action: "edit" as LifecycleAction }), icon: Pencil }] : []),
                               ...(["QUEUED", "SCHEDULED", "RUNNING"].includes(lifecycleFromSummary(job)) ? [
-                                { label: "Split card…", onSelect: () => setSheet({ id: String(job.id), action: "split" as LifecycleAction }), icon: Scissors },
+                                { label: "Split into a new card…", onSelect: () => setSheet({ id: String(job.id), action: "split" as LifecycleAction }), icon: Scissors },
                                 { label: "Force close…", onSelect: () => setSheet({ id: String(job.id), action: "force_close" as LifecycleAction }), icon: Undo2 },
                               ] : []),
                               ...(["QUEUED", "SCHEDULED"].includes(lifecycleFromSummary(job)) ? [{ label: "Emergency insert…", onSelect: () => setSheet({ id: String(job.id), action: "emergency" as LifecycleAction }), icon: Flame }] : []),

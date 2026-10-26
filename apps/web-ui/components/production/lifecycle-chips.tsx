@@ -93,8 +93,8 @@ export function JobCardNo({ job, className }: { job: any; className?: string }) 
         </span>
       ) : null}
       {child ? (
-        <span title={job?.split_kind === "CARRY_FORWARD" ? "Top-up of an earlier card" : "Split from a parent card"} className="inline-flex h-[18px] items-center rounded bg-muted px-1 text-[10.5px] font-semibold text-muted-foreground">
-          <Scissors className="mr-0.5 h-2.5 w-2.5" />{job?.split_kind === "CARRY_FORWARD" ? "Top-up" : "Split"}
+        <span title={job?.split_kind === "CARRY_FORWARD" ? "Top-up of an earlier card" : "A separate card split from its parent card"} className="inline-flex h-[18px] items-center rounded bg-muted px-1 text-[10.5px] font-semibold text-muted-foreground">
+          <Scissors className="mr-0.5 h-2.5 w-2.5" />{job?.split_kind === "CARRY_FORWARD" ? "Top-up" : "Split card"}
         </span>
       ) : null}
     </span>

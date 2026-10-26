@@ -2,10 +2,11 @@
 
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { FormEvent, useMemo, useState } from "react"
+import { FormEvent, useEffect, useMemo, useState } from "react"
 
 import { EmptyState, ExecutiveHero, Panel, StatusBadge } from "@/components/erp/shell"
 import { QualityDeskNav } from "@/components/qc/QualityDeskNav"
+import { ReelWiseQcTable } from "@/components/qc/ReelWiseQcTable"
 import { StageQcFields } from "@/components/qc/StageQcFields"
 import { RoleGate } from "@/components/workspace/role-gate"
 import { ErrorState, LoadingState } from "@/components/workspace/query-state"
@@ -64,10 +65,6 @@ export default function IncomingQualityPage() {
   const [notes, setNotes] = useState("")
   const [resolvedHoldIds, setResolvedHoldIds] = useState<string[]>([])
   const [disposition, setDisposition] = useState("AUTO")
-  const [certNo, setCertNo] = useState("")
-  const [certMatches, setCertMatches] = useState<"" | "yes" | "no">("")
-  const [sampleCount, setSampleCount] = useState("")
-  const [sampleIds, setSampleIds] = useState("")
   const [concessionReason, setConcessionReason] = useState("")
   const [concessionQty, setConcessionQty] = useState("")
   const [concessionExpiry, setConcessionExpiry] = useState("")
@@ -89,6 +86,19 @@ export default function IncomingQualityPage() {
   const selectedPending = pendingQuality.find((row: any) => `${row.entity_type}:${row.entity_id}` === selectedPendingId) || null
   const profile = selectedPending?.quality_profile || {}
   const parameters = asArray(profile.parameters).filter((row: any) => row?.applicable !== false)
+  // Reel-wise entry (client 2026-10-26): every reel of the selected lot's GRN line in this list.
+  const reelGroup = selectedPending?.entity_type === "REEL" && selectedPending?.receipt_line_id
+    ? visible.filter((row: any) => row.entity_type === "REEL" && row.receipt_line_id === selectedPending.receipt_line_id)
+    : []
+  // The reel-wise table keeps the reels it opened with, so a reel that passes (and leaves the queue)
+  // still shows its saved result; choosing a lot of another inward line replaces it.
+  const [reelWise, setReelWise] = useState<{ lineId: string; grn: string; lots: any[]; rules: any[] } | null>(null)
+  useEffect(() => {
+    if (!selectedPending) return
+    const lineId = String(selectedPending.receipt_line_id || "")
+    if (reelGroup.length > 1 && reelWise?.lineId !== lineId) setReelWise({ lineId, grn: selectedPending.grn_no || "", lots: reelGroup, rules: parameters })
+    else if (reelGroup.length <= 1 && reelWise && reelWise.lineId !== lineId) setReelWise(null)
+  }, [selectedPendingId, reelGroup.length]) // eslint-disable-line react-hooks/exhaustive-deps
   const lastInspection = selectedPending?.last_inspection || null
   const failedInspection = lastInspection && String(lastInspection.status).toUpperCase() === "FAIL" ? lastInspection : null
   const returnable = Boolean(
@@ -104,10 +114,6 @@ export default function IncomingQualityPage() {
     setReasons({})
     setNotes("")
     setDisposition("AUTO")
-    setCertNo("")
-    setCertMatches("")
-    setSampleCount("")
-    setSampleIds("")
     setConcessionReason("")
     setConcessionQty("")
     setConcessionExpiry("")
@@ -130,10 +136,6 @@ export default function IncomingQualityPage() {
             return [key, Number.isFinite(number) ? number : value]
           }),
       )
-      const ids = sampleIds
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean)
       const response = await createInventoryInspection.mutateAsync({
         entity_type: selectedPending.entity_type,
         entity_id: selectedPending.entity_id,
@@ -144,11 +146,6 @@ export default function IncomingQualityPage() {
         notes: notes || undefined,
         resolve_hold_ids: resolvedHoldIds,
         disposition: disposition === "AUTO" ? undefined : disposition,
-        ...(certNo.trim() || certMatches
-          ? { supplier_certificate: { certificate_no: certNo.trim() || undefined, matches_readings: certMatches ? certMatches === "yes" : undefined } }
-          : {}),
-        ...(sampleCount.trim() ? { sample_count: Math.max(0, Math.floor(Number(sampleCount))) } : {}),
-        ...(ids.length ? { sample_ids: ids } : {}),
       })
       const payload = response?.data || {}
       const verdict = payload.status
@@ -265,11 +262,11 @@ export default function IncomingQualityPage() {
                       <StatusBadge value={row.stock_status} />
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {row.material_type} · {row.qty} {row.uom || "KG"} · {row.supplier_or_customer || row.source}
+                      {row.material_type} · {row.qty} {row.uom || "KG"} · {row.supplier_or_customer || row.source}{row.unit_ref ? ` · vendor reel ${row.unit_ref}` : ""}
                     </p>
                     {row.grn_no || row.po_no || row.invoice_no ? (
                       <p className="mt-1 text-xs text-muted-foreground">
-                        {[row.grn_no && `GRN ${row.grn_no}`, row.po_no && `PO ${row.po_no}`, row.invoice_no && `Inv ${row.invoice_no}`].filter(Boolean).join(" · ")}
+                        {[row.grn_no && `Inward ${row.grn_no}`, row.challan_no && `Challan ${row.challan_no}`, row.po_no && `PO ${row.po_no}`, row.invoice_no && `Inv ${row.invoice_no}`].filter(Boolean).join(" · ")}
                       </p>
                     ) : null}
                     {row.last_inspection ? (
@@ -297,7 +294,8 @@ export default function IncomingQualityPage() {
                 {selectedPending ? (
                   <dl className="grid gap-2 rounded-xl border border-border bg-muted px-3 py-2 text-xs sm:grid-cols-3" data-testid="incoming-lot-context">
                     <div><dt className="text-muted-foreground">Supplier / customer</dt><dd className="font-semibold">{selectedPending.supplier_or_customer || "—"}</dd></div>
-                    <div><dt className="text-muted-foreground">GRN · received</dt><dd className="font-semibold">{selectedPending.grn_no || "—"}{selectedPending.received_date ? ` · ${selectedPending.received_date}` : ""}</dd></div>
+                    <div><dt className="text-muted-foreground">Inward no. · received</dt><dd className="font-semibold">{selectedPending.grn_no || "—"}{selectedPending.received_date ? ` · ${selectedPending.received_date}` : ""}</dd></div>
+                    <div><dt className="text-muted-foreground">Supplier challan</dt><dd className="font-semibold">{selectedPending.challan_no || "—"}</dd></div>
                     <div><dt className="text-muted-foreground">PO · invoice</dt><dd className="font-semibold">{selectedPending.po_no || "—"} · {selectedPending.invoice_no || "no invoice yet"}</dd></div>
                     <div><dt className="text-muted-foreground">Quantity</dt><dd className="font-semibold">{selectedPending.qty} {selectedPending.uom || "KG"}</dd></div>
                     <div><dt className="text-muted-foreground">Standard</dt><dd className="font-semibold">{profile.revision ? `Rev ${profile.revision} · ${profile.status || ""}` : "none frozen"}</dd></div>
@@ -317,8 +315,14 @@ export default function IncomingQualityPage() {
                     Only QC (or Owner/Admin) records incoming readings. You can see the lot and, where allowed, resolve a rejection below.
                   </p>
                 ) : null}
+                {canInspect && parameters.length && reelGroup.length > 1 ? (
+                  <p className="rounded-xl border border-signal-cyan-line bg-signal-cyan-soft px-3 py-2 text-xs text-signal-cyan-ink" data-testid="incoming-reel-wise-hint">
+                    This reel came with {reelGroup.length - 1} more on the same inward line. Enter all of them reel by reel in <a className="font-semibold underline" href="#reel-wise-entry">Reel-wise entry</a> below, or this one here.
+                  </p>
+                ) : null}
                 {canInspect && parameters.length ? (
                   <StageQcFields
+                    showSampleId={false}
                     rules={parameters}
                     readings={readings}
                     reasons={reasons}
@@ -328,24 +332,6 @@ export default function IncomingQualityPage() {
                 ) : null}
                 {canInspect && selectedPending ? (
                   <>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <label className="block text-sm font-medium">Supplier test certificate no.
-                        <input className="mt-2 h-11 w-full rounded-xl border border-border bg-card px-3" value={certNo} onChange={(event) => setCertNo(event.target.value)} placeholder="Mill TC / COA number" />
-                      </label>
-                      <label className="block text-sm font-medium">Certificate agrees with our readings?
-                        <select className="mt-2 h-11 w-full rounded-xl border border-border bg-card px-3" value={certMatches} onChange={(event) => setCertMatches(event.target.value as "" | "yes" | "no")}>
-                          <option value="">Not checked</option>
-                          <option value="yes">Yes</option>
-                          <option value="no">No — note the difference</option>
-                        </select>
-                      </label>
-                      <label className="block text-sm font-medium">Samples tested
-                        <input type="number" min={0} className="mt-2 h-11 w-full rounded-xl border border-border bg-card px-3" value={sampleCount} onChange={(event) => setSampleCount(event.target.value)} />
-                      </label>
-                      <label className="block text-sm font-medium">Sample IDs (comma separated)
-                        <input className="mt-2 h-11 w-full rounded-xl border border-border bg-card px-3" value={sampleIds} onChange={(event) => setSampleIds(event.target.value)} />
-                      </label>
-                    </div>
                     <label className="block text-sm font-medium">Disposition
                       <select className="mt-2 h-11 w-full rounded-xl border border-border bg-card px-3" value={disposition} onChange={(event) => setDisposition(event.target.value)}>
                         <option value="AUTO">Accept only if all checks pass</option>
@@ -438,6 +424,21 @@ export default function IncomingQualityPage() {
             ) : null}
           </div>
         </div>
+        {canInspect && reelWise && reelWise.rules.length ? (
+          <div id="reel-wise-entry">
+            <Panel
+              title={`Reel-wise entry · ${reelWise.grn || "inward line"} · ${reelWise.lots.length} reels`}
+              subtitle="Each reel or coil of this inward line gets its own readings and its own decision. A held reel stays out of issue; the others are released on their own."
+            >
+              <ReelWiseQcTable
+                key={reelWise.lineId}
+                lots={reelWise.lots}
+                rules={reelWise.rules}
+                onSaved={(summary, tone) => showToast(summary, tone)}
+              />
+            </Panel>
+          </div>
+        ) : null}
         <Panel title="Concession authorizations" subtitle="Measured FAIL stays FAIL. A concession is a separate limited authorization, not unrestricted interchangeable stock.">
           <div data-testid="quality-incoming-concessions" className="space-y-3">
             {concessionsQuery.isLoading ? (

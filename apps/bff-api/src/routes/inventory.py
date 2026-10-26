@@ -757,6 +757,29 @@ async def create_reel_issue(request: Request, token: str = Depends(get_token)):
     return response
 
 
+@router.post("/reel-issues/by-weight")
+async def issue_parchment_by_weight(request: Request, token: str = Depends(get_token)):
+    """Parchment to the floor by colour and kg; the oldest cleared coils are used (client 2026-10-26)."""
+    plant_id = request.headers.get("X-Plant-ID", "")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if isinstance(body, dict):
+        await assert_not_backdated(token, plant_id, effective_date=body.get("issue_date"))
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/reel-issues/by-weight", request, token, json_body=body if body else None)
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="REEL_ISSUE_CREATED",
+        title="Parchment issued to the floor",
+        message="Parchment went to the floor for the shift by colour and kg.",
+        href="/inventory/production-issue",
+        recipient_roles=["Owner", "Admin", "Store", "PlantManager", "RMIssue"],
+    )
+    return response
+
+
 @router.get("/reel-issues")
 async def list_reel_issues(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(INVENTORY_SERVICE_URL, "/reel-issues", request, token)

@@ -22,8 +22,29 @@ import {
 } from "lucide-react"
 import { PlannerCalendar } from "@/components/planning/planner-calendar"
 import { CustomerCommitments } from "@/components/planning/customer-commitments"
-import { ScheduleBoard, type BoardTarget, type CardAction } from "@/components/planning/schedule-board"
+import { ScheduleBoard, type BoardTarget, type CardAction, type FocusLane } from "@/components/planning/schedule-board"
 import { FloatingWorkload } from "@/components/planning/floating-workload"
+import { QueueFilterBar, type QueueDialogMode } from "@/components/planning/queue-filter-bar"
+import { QueueViewDialog } from "@/components/planning/queue-view-dialog"
+import { usePlannerViews, usePlanningBulkMove, type PlannerView } from "@/hooks/use-planner-views"
+import {
+  EMPTY_QUEUE_FILTERS,
+  QUICK_BADGES,
+  applyQuickBadge,
+  isLocked,
+  lockReason,
+  matchesQueueFilters,
+  normalizeQueueFilters,
+  queueFilterOptions,
+  queueKey,
+  rangeBetween,
+  recallPlannerView,
+  rememberPlannerView,
+  sortQueue,
+  viewMatchesFilters,
+  type QueueFilters,
+  type QuickBadgeKey,
+} from "@/lib/planner-queue-filters"
 import { workloadMachine, type WorkloadGrouping } from "@/lib/planner-workload"
 import { ColorChip, JobCardNo, swatchFor } from "@/components/production/lifecycle-chips"
 import { JobCardLifecycleSheet } from "@/components/production/job-card-lifecycle-sheet"
@@ -307,16 +328,18 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
   const { activePlant, user, isLoading: authLoading } = useAuth()
   const [draggedJob, setDraggedJob] = useState<any | null>(null)
   const [hoverSlot, setHoverSlot] = useState<string | null>(null)
-  const [pendingDrop, setPendingDrop] = useState<{ job: any; target: DropTarget; label: string; overBy: number; unit: string } | null>(null)
+  const [pendingDrop, setPendingDrop] = useState<{ jobs: any[]; target: DropTarget; label: string; overBy: number; unit: string; need: number } | null>(null)
   const [keyboardJob, setKeyboardJob] = useState<any | null>(null)
   const [splitDialogJob, setSplitDialogJob] = useState<any | null>(null)
   const [splitQty, setSplitQty] = useState("")
-  const [queueMachine, setQueueMachine] = useState<string | null>(null)
   const [workloadGrouping, setWorkloadGrouping] = useState<WorkloadGrouping>("release")
   const [hoverDetail, setHoverDetail] = useState<HoverDetail | null>(null)
   const [dateDraft, setDateDraft] = useState("")
-  const [queueSearch, setQueueSearch] = useState("")
-  const [queueSort, setQueueSort] = useState<"due" | "qty" | "age">("due")
+  // Queue filters (search, machine, due, customer, colour, size, qty, flags, sort) shared by board and calendar.
+  const [queueFilters, setQueueFilters] = useState<QueueFilters>(EMPTY_QUEUE_FILTERS)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
+  const lastSelected = useRef<string | null>(null)
+  const [viewDialog, setViewDialog] = useState<QueueDialogMode | null>(null)
   const [sheetJobId, setSheetJobId] = useState<string | null>(null)
   const [sheetAction, setSheetAction] = useState<"split" | "emergency" | "edit" | "force_close" | null>(null)
   useMissedSlotSweep()
@@ -324,16 +347,43 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
   const section = String(sectionOverride || searchParams?.get("section") || "winder").toLowerCase()
   const isSummaryView = section === "summary"
   // Landing (bare /planning/board) opens the month calendar; deep links with a section/date open the 3-day board.
-  const bareLanding = !sectionOverride && !searchParams?.get("section") && !searchParams?.get("plan_date") && !searchParams?.get("order_id") && !searchParams?.get("job_card_id")
+  const bareLanding = !sectionOverride && !searchParams?.get("section") && !searchParams?.get("plan_date") && !searchParams?.get("order_id") && !searchParams?.get("job_card_id") && !searchParams?.get("machine_id")
   const plannerView = String(searchParams?.get("view") || (bareLanding ? "calendar" : "schedule")).toLowerCase() === "calendar" ? "calendar" : "schedule"
   const stage = isSummaryView ? "WINDER" : SECTION_STAGE_MAP[section] || "WINDER"
-  useEffect(() => { setQueueMachine(null); setWorkloadGrouping("release") }, [stage, activePlant])
   const startDate = searchParams?.get("plan_date") || dayjs().format("YYYY-MM-DD")
   const focusedOrderId = String(searchParams?.get("order_id") || "")
   const focusedJobCardId = String(searchParams?.get("job_card_id") || "")
+  // Deep link from the Planning overview: ?machine_id=…&shift=SHIFT_A|A scrolls to and pulses that lane.
+  const focusMachineId = String(searchParams?.get("machine_id") || "")
+  const focusShiftParam = String(searchParams?.get("shift") || "").toUpperCase()
+  const focusLane = useMemo<FocusLane | null>(
+    () => (focusMachineId ? { machine_id: focusMachineId, shift_code: focusShiftParam ? (focusShiftParam.startsWith("SHIFT_") ? focusShiftParam : `SHIFT_${focusShiftParam}`) : null } : null),
+    [focusMachineId, focusShiftParam],
+  )
   const scopedPlantId = activePlant === "ALL" ? undefined : activePlant || undefined
   const needsConcretePlant = activePlant === "ALL"
   const canQuery = !authLoading && Boolean(user) && !needsConcretePlant
+
+  // Saved queue views for this plant and stage (plus "all stages" ones); the last used one is remembered per stage.
+  const viewsQuery = usePlannerViews(stage, scopedPlantId, canQuery && !isSummaryView)
+  const plannerViews = useMemo(() => (Array.isArray(viewsQuery.data) ? viewsQuery.data : []), [viewsQuery.data])
+  const memoryScope = String(activePlant || "")
+  const pendingViewId = useRef<string | null>(null)
+  useEffect(() => {
+    // A new stage or plant starts clean, then gets back what this planner used last here.
+    setWorkloadGrouping("release")
+    setSelectedIds(new Set())
+    lastSelected.current = null
+    const memory = recallPlannerView(memoryScope, stage)
+    setQueueFilters(memory?.quick ? applyQuickBadge(EMPTY_QUEUE_FILTERS, memory.quick) : EMPTY_QUEUE_FILTERS)
+    pendingViewId.current = memory?.viewId || null
+  }, [memoryScope, stage])
+  useEffect(() => {
+    if (!pendingViewId.current || !viewsQuery.data) return
+    const view = plannerViews.find((row) => row.id === pendingViewId.current)
+    pendingViewId.current = null
+    if (view) setQueueFilters(normalizeQueueFilters(view.filters))
+  }, [plannerViews, viewsQuery.data])
 
   // Board window: 2 days by default (bigger, easier to plan), 3 on request.
   const windowDays = searchParams?.get("days") === "3" ? 3 : 2
@@ -390,7 +440,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
   useEffect(() => {
     lastView.current = { key: viewKey, view: plannerView, day0 }
   }, [viewKey, plannerView, day0])
-  const dialogOpen = Boolean(sheetJobId || pendingDrop || splitDialogJob)
+  const dialogOpen = Boolean(sheetJobId || pendingDrop || splitDialogJob || viewDialog)
   useEffect(() => {
     if (plannerView !== "schedule") return
     const onKey = (event: KeyboardEvent) => {
@@ -419,6 +469,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
   const jobsQuery = usePlanningJobCards({ limit: 400 }, canQuery)
   const machinesQuery = useMachines()
   const moveCard = usePlanningBoardMove()
+  const moveMany = usePlanningBulkMove()
   const splitSegment = useSplitPlanningSegment()
 
   const meta = isSummaryView ? { title: "Planner summary", subtitle: "Six-day live WIP, schedule, and risk control.", accent: "" } : SECTION_META[section] || SECTION_META.winder
@@ -491,7 +542,20 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
   )
 
   const queueGroups = useMemo(() => {
-    const staleJobs = queuedJobs.filter((job: any) => job?.stale_slot)
+    // Cards waiting for the previous stage's plan are locked: shown last, under their own heading.
+    const lockedJobs = queuedJobs.filter((job: any) => isLocked(job))
+    const openJobs = queuedJobs.filter((job: any) => !isLocked(job))
+    const reasons: string[] = Array.from(new Set<string>(lockedJobs.map((job: any) => lockReason(job))))
+    const lockedGroup = lockedJobs.length
+      ? [{
+          key: "locked",
+          title: reasons.length === 1 ? reasons[0] : "Waiting for the previous plan",
+          subtitle: "These open for planning once the previous stage has a slot. They cannot be placed yet.",
+          jobs: lockedJobs,
+          locked: true,
+        }]
+      : []
+    const staleJobs = openJobs.filter((job: any) => job?.stale_slot)
     const staleGroup = staleJobs.length
       ? [{
           key: "stale",
@@ -500,7 +564,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
           jobs: staleJobs,
         }]
       : []
-    const liveJobs = queuedJobs.filter((job: any) => !job?.stale_slot)
+    const liveJobs = openJobs.filter((job: any) => !job?.stale_slot)
     if (section !== "winder") {
       const readyNow = liveJobs.filter((job: any) => String(job.current_stage || "").toUpperCase() === stage)
       const waitingOnUpstream = liveJobs.filter((job: any) => String(job.current_stage || "").toUpperCase() !== stage)
@@ -518,6 +582,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
           subtitle: "Plan ahead here even before the previous stage entry is completed.",
           jobs: waitingOnUpstream,
         },
+        ...lockedGroup,
       ].filter((group) => group.jobs.length > 0)
     }
     const grouped = new Map<string, { key: string; title: string; subtitle: string; jobs: any[] }>()
@@ -536,38 +601,97 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
       bucket.jobs.push(job)
       grouped.set(machineId, bucket)
     }
-    return [...staleGroup, ...Array.from(grouped.values()).sort((left, right) => left.title.localeCompare(right.title))]
+    return [...staleGroup, ...Array.from(grouped.values()).sort((left, right) => left.title.localeCompare(right.title)), ...lockedGroup]
   }, [machineLabelMap, queuedJobs, section, stage])
 
-  const visibleQueueGroups = useMemo(() => {
-    const needle = queueSearch.trim().toLowerCase()
-    return queueGroups
-      .map((group) => ({
-        ...group,
-        jobs: group.jobs
-          .filter((job: any) => !queueMachine || workloadMachine(job, stage, workloadGrouping) === queueMachine)
-          .filter((job: any) =>
-            !needle ||
-            [job.job_card_no, job.job_card_ref, job.customer_name, job.product_code, job.product_size_label, job.parchment_color, job.sales_order_ref]
-              .filter(Boolean)
-              .join(" ")
-              .toLowerCase()
-              .includes(needle),
-          )
-          .sort((a: any, b: any) => {
-            if (a.is_emergency !== b.is_emergency) return a.is_emergency ? -1 : 1
-            if (queueSort === "qty") return Number(b.segment_planned_qty || 0) - Number(a.segment_planned_qty || 0)
-            if (queueSort === "age") return String(a.created_at || "").localeCompare(String(b.created_at || ""))
-            return String(a.due_date || "9999").localeCompare(String(b.due_date || "9999"))
-          }),
-      }))
-      .filter((group) => group.jobs.length > 0)
-  }, [queueMachine, workloadGrouping, stage, queueGroups, queueSearch, queueSort])
+  const plantToday = dayjs().format("YYYY-MM-DD")
+  const filterContext = useMemo(() => ({ today: plantToday, stage, grouping: workloadGrouping }), [plantToday, stage, workloadGrouping])
+  const visibleQueueGroups = useMemo(
+    () =>
+      queueGroups
+        .map((group) => ({ ...group, jobs: sortQueue(group.jobs.filter((job: any) => matchesQueueFilters(job, queueFilters, filterContext)), queueFilters.sort) }))
+        .filter((group) => group.jobs.length > 0),
+    [filterContext, queueFilters, queueGroups],
+  )
 
   const filteredQueuedJobs = useMemo(
     () => visibleQueueGroups.flatMap((group) => group.jobs),
     [visibleQueueGroups],
   )
+  const filteredQueuePcs = useMemo(() => filteredQueuedJobs.reduce((sum: number, job: any) => sum + Number(job.segment_planned_qty ?? job.planned_qty ?? 0), 0), [filteredQueuedJobs])
+  const hiddenWaitingCount = queueFilters.show_waiting ? 0 : queuedJobs.filter((job: any) => isLocked(job)).length
+  const quickCounts = useMemo(
+    () =>
+      Object.fromEntries(
+        QUICK_BADGES.map((badge) => [badge.key, queuedJobs.filter((job: any) => matchesQueueFilters(job, applyQuickBadge(EMPTY_QUEUE_FILTERS, badge.key), filterContext)).length]),
+      ) as Record<QuickBadgeKey, number>,
+    [filterContext, queuedJobs],
+  )
+  const plannableQueuedJobs = useMemo(() => queuedJobs.filter((job: any) => !isLocked(job)), [queuedJobs])
+  const machineLabelFor = useCallback((id: string) => machineLabelMap.get(id) || id.slice(0, 8), [machineLabelMap])
+  const filterOptions = useMemo(() => {
+    const base = queueFilterOptions(queuedJobs)
+    // Release winders (the release hint) or, when the workload panel groups by planned machine, this stage's machines.
+    const ids = new Set<string>(queuedJobs.map((job: any) => workloadMachine(job, stage, workloadGrouping)))
+    const department = workloadGrouping === "release" ? "WINDER" : stage
+    for (const machine of Array.isArray(machinesQuery.data) ? machinesQuery.data : []) {
+      if (String(machine?.department || machine?.machine_department || "").toUpperCase() === department && String(machine?.status || "UP").toUpperCase() === "UP") ids.add(String(machine.id))
+    }
+    const machines = Array.from(ids)
+      .map((id) => ({ id, label: id === "unassigned" ? "Not selected" : machineLabelFor(id) }))
+      .sort((left, right) => (left.id === "unassigned" ? 1 : right.id === "unassigned" ? -1 : left.label.localeCompare(right.label)))
+    return { ...base, machines }
+  }, [machineLabelFor, machinesQuery.data, queuedJobs, stage, workloadGrouping])
+
+  // ---- multi-select in the queue --------------------------------------------------------------
+  const selectableIds = useMemo(() => filteredQueuedJobs.filter((job: any) => !isLocked(job)).map(queueKey), [filteredQueuedJobs])
+  const selectableIdsRef = useRef<string[]>([])
+  selectableIdsRef.current = selectableIds
+  useEffect(() => {
+    // Cards that leave the current filter leave the selection too.
+    setSelectedIds((previous) => {
+      if (!previous.size) return previous
+      const allowed = new Set(selectableIds)
+      const next = new Set(Array.from(previous).filter((id) => allowed.has(id)))
+      return next.size === previous.size ? previous : next
+    })
+  }, [selectableIds])
+  const toggleSelect = useCallback((job: any, shiftKey: boolean) => {
+    const id = queueKey(job)
+    setSelectedIds((previous) => {
+      const next = new Set(previous)
+      if (shiftKey && lastSelected.current && lastSelected.current !== id) {
+        for (const key of rangeBetween(selectableIdsRef.current, lastSelected.current, id)) next.add(key)
+      } else if (next.has(id)) next.delete(id)
+      else next.add(id)
+      lastSelected.current = id
+      return next
+    })
+  }, [])
+  const clearSelection = useCallback(() => { setSelectedIds(new Set()); lastSelected.current = null }, [])
+  const selectAllVisible = useCallback(() => setSelectedIds(new Set(selectableIdsRef.current)), [])
+  const selectedJobs = useMemo(() => filteredQueuedJobs.filter((job: any) => !isLocked(job) && selectedIds.has(queueKey(job))), [filteredQueuedJobs, selectedIds])
+  const selectedPcs = useMemo(() => selectedJobs.reduce((sum: number, job: any) => sum + Number(job.segment_planned_qty ?? job.planned_qty ?? 0), 0), [selectedJobs])
+
+  // ---- saved views ---------------------------------------------------------------------------
+  const activeViewId = useMemo(() => plannerViews.find((view) => viewMatchesFilters(view.filters, queueFilters))?.id || null, [plannerViews, queueFilters])
+  const applyQuick = useCallback((key: QuickBadgeKey) => {
+    setQueueFilters((current) => applyQuickBadge(current, key))
+    rememberPlannerView(memoryScope, stage, { quick: key })
+  }, [memoryScope, stage])
+  const applyView = useCallback((view: PlannerView) => {
+    setQueueFilters(normalizeQueueFilters(view.filters))
+    rememberPlannerView(memoryScope, stage, { viewId: view.id })
+  }, [memoryScope, stage])
+  const applyFilters = useCallback((next: QueueFilters) => {
+    setQueueFilters(next)
+    const match = plannerViews.find((view) => viewMatchesFilters(view.filters, next))
+    rememberPlannerView(memoryScope, stage, match ? { viewId: match.id } : {})
+  }, [memoryScope, plannerViews, stage])
+  const onViewSaved = useCallback((view: PlannerView, next: QueueFilters) => {
+    setQueueFilters(next)
+    rememberPlannerView(memoryScope, stage, { viewId: view.id })
+  }, [memoryScope, stage])
 
   const allVisibleJobs = useMemo(
     () => scheduledDays.flatMap((entry) => entry.lanes.flatMap((lane: any) => lane.jobs || [])),
@@ -923,11 +1047,49 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
     await scheduleSegment(draggedJob, target)
   }
 
+  /** Several ticked queue cards onto one slot: one call, all or nothing, in queue order. */
+  async function scheduleMany(jobs: any[], target: DropTarget) {
+    if (!jobs.length || moveInFlight.current) return
+    if (jobs.length === 1) return scheduleSegment(jobs[0], target)
+    if (jobs.length > 50) {
+      showToast("Place up to 50 cards at a time.", "error")
+      return
+    }
+    moveInFlight.current = true
+    const moves = jobs.map((job, index) => ({
+      job_card_id: job.job_card_id || job.id || null,
+      segment_id: job.segment_id || null,
+      stage,
+      machine_id: target.machine_id,
+      plan_date: target.plan_date,
+      shift_code: target.shift_code,
+      sequence_no: target.sequence_no + index,
+    }))
+    try {
+      const response = await moveMany.mutateAsync(moves)
+      const warnings = Array.isArray(response?.data?.warnings) ? Array.from(new Set(response.data.warnings.filter(Boolean))) : []
+      const moved = Number(response?.data?.moved || jobs.length)
+      const machine = target.machine_id ? machineStatsMap.get(String(target.machine_id)) : null
+      const where = target.machine_id
+        ? `${machine?.code || machine?.name || "machine"} · ${formatDate(target.plan_date)} · ${String(target.shift_code || "").replace("SHIFT_", "Shift ")}`
+        : "the queue"
+      showToast(`${moved} cards placed on ${where}.${warnings.length ? ` ${warnings.join(" ")}` : ""}`, warnings.length ? "info" : "success")
+      clearSelection()
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || error?.message || "Unable to move the selected cards."
+      showToast(describeErrorDetail(detail), "error")
+    } finally {
+      moveInFlight.current = false
+      setDraggedJob(null)
+    }
+  }
+
   async function handleSplit() {
     if (!splitDialogJob) return
+    const total = Number(splitDialogJob.segment_planned_qty || 0)
     const primaryQty = Number(splitQty || 0)
-    if (primaryQty <= 0 || primaryQty >= Number(splitDialogJob.segment_planned_qty || 0)) {
-      showToast("Split quantity must be positive and below the segment planned quantity.", "error")
+    if (!Number.isFinite(primaryQty) || primaryQty <= 0 || primaryQty >= total) {
+      showToast(`First part must be between 1 and ${Math.max(1, total - 1).toLocaleString("en-IN")} pcs.`, "error")
       return
     }
     try {
@@ -936,11 +1098,11 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
         stage,
         primary_qty: primaryQty,
       })
-      showToast("Planner segment split.", "success")
+      showToast(`Plan split into ${primaryQty.toLocaleString("en-IN")} + ${(total - primaryQty).toLocaleString("en-IN")} pcs.`, "success")
       setSplitDialogJob(null)
       setSplitQty("")
     } catch (error: any) {
-      const detail = error?.response?.data?.detail || error?.message || "Unable to split planner segment."
+      const detail = error?.response?.data?.detail || error?.message || "Could not split the plan."
       showToast(describeErrorDetail(detail), "error")
     }
   }
@@ -1045,6 +1207,32 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
       </div>
     </div>
   )
+
+  // The queue header (search, badges, saved views, chips, selection) is the same on the board and the calendar.
+  const queueHeader = (
+    <QueueFilterBar
+      filters={queueFilters}
+      onFilters={setQueueFilters}
+      total={queuedJobs.length}
+      visible={filteredQueuedJobs.length}
+      visiblePcs={filteredQueuePcs}
+      hiddenWaiting={hiddenWaitingCount}
+      quickCounts={quickCounts}
+      views={plannerViews}
+      activeViewId={activeViewId}
+      onQuick={applyQuick}
+      onApplyView={applyView}
+      onOpenDialog={setViewDialog}
+      machineLabel={machineLabelFor}
+      selection={{ count: selectedJobs.length, pcs: selectedPcs, selectable: selectableIds.length, onSelectAll: selectAllVisible, onClear: clearSelection }}
+      hint={plannerView === "calendar" ? "Drag a card onto a day to place it" : "Drag a card onto a machine and shift"}
+    />
+  )
+  const queueEmptyMessage = queuedJobs.length
+    ? "No queued card matches these filters."
+    : plannerView === "calendar"
+      ? "Queue is empty — everything released is on the calendar."
+      : "Queue is empty — everything released is on the board."
 
   if (loading) {
     return (
@@ -1300,22 +1488,24 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
               Print<ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
-          {plannerView === "schedule" ? <span className="hidden basis-full text-[11px] text-muted-foreground xl:block">Drag cards onto a machine and shift · card actions: manage, edit, split · drag a placed card back to the queue to unschedule · Esc returns to the month</span> : null}
+          {plannerView === "schedule" ? <span className="hidden basis-full text-[11px] text-muted-foreground xl:block">Drag cards onto a machine and shift · tick several cards to move them together · card actions: manage, edit, split plan · drag a placed card back to the queue to unschedule · Esc returns to the month</span> : null}
         </section>
 
 
 
-        {plannerView === "schedule" ? <FloatingWorkload key={`${stage}:${activePlant}`} jobs={queuedJobs} stage={stage} scope={String(activePlant)} machineLabel={(id) => machineLabelMap.get(id) || id.slice(0, 8)} selected={queueMachine} grouping={workloadGrouping} onGrouping={setWorkloadGrouping} onSelect={setQueueMachine} refreshing={windowRefreshing} /> : null}
+        <FloatingWorkload key={`${stage}:${activePlant}`} jobs={queuedJobs} stage={stage} scope={String(activePlant)} machineLabel={machineLabelFor} selected={queueFilters.machines.length === 1 ? queueFilters.machines[0] : null} grouping={workloadGrouping} onGrouping={setWorkloadGrouping} onSelect={(id) => setQueueFilters((current) => ({ ...current, machines: id ? [id] : [] }))} refreshing={windowRefreshing} />
         {plannerView === "schedule" ? <CustomerCommitments dateFrom={day0} dateTo={windowDays === 3 ? day2 : day1} onDate={date => router.push(boardHref({ date, view: "schedule" }))} /> : null}
         <div key={viewKey} className={motion.current.className} style={{ transformOrigin: motion.current.origin }} data-testid="planner-view" data-view={plannerView}>
         {plannerView === "calendar" ? (
           <PlannerCalendar
             key={`${stage}:${activePlant}`}
             stage={stage}
-            scope={String(activePlant)}
             jobs={allJobCards}
-            queueEntries={queuedJobs}
-            workloadLabel={(id) => machineLabelMap.get(id) || id.slice(0, 8)}
+            queueGroups={visibleQueueGroups}
+            queueHeader={queueHeader}
+            queueEmpty={queueEmptyMessage}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelect}
             machines={machineRows.map((machine: any) => ({ id: String(machine.id), code: String(machine.code || machine.name || ""), capacity_value: machine.capacity_value, capacity_unit: machine.capacity_unit, status: machine.status }))}
             monthDate={startDate}
             maxPlannerDate={maxPlannerDate}
@@ -1332,19 +1522,18 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
           shifts={plannerShifts.map((shift: any) => ({ code: String(shift.code || ""), label: shift.label }))}
           machines={machineRows as any}
           queueGroups={visibleQueueGroups}
-          queueTotal={queuedJobs.length}
-          queueSearch={queueSearch}
-          onQueueSearch={setQueueSearch}
-          queueSort={queueSort}
-          onQueueSort={setQueueSort}
-          queueFilterLabel={queueMachine ? (queueMachine === "unassigned" ? "Unassigned" : machineLabelMap.get(queueMachine) || queueMachine.slice(0, 8)) : undefined}
-          onClearQueueFilter={() => setQueueMachine(null)}
-          machineLabel={(id) => machineLabelMap.get(id) || id.slice(0, 8)}
+          queueHeader={queueHeader}
+          queueEmpty={queueEmptyMessage}
+          selectedIds={selectedIds}
+          onToggleSelect={toggleSelect}
+          focusLane={focusLane}
+          machineLabel={machineLabelFor}
           loadOf={(job) => capacityNeedFor(section, job)}
           unit={capacityUnitFor(section)}
-          busy={moveCard.isPending || windowRefreshing}
+          busy={moveCard.isPending || moveMany.isPending || windowRefreshing}
           onSchedule={(job, target: BoardTarget) => void scheduleSegment(job, target)}
-          onOverCapacity={(job, target: BoardTarget, label, overBy, unitLabel) => setPendingDrop({ job, target, label, overBy, unit: unitLabel })}
+          onScheduleMany={(jobs, target: BoardTarget) => void scheduleMany(jobs, target)}
+          onOverCapacity={(jobs, target: BoardTarget, label, overBy, unitLabel, need) => setPendingDrop({ jobs, target, label, overBy, unit: unitLabel, need })}
           onAction={(job, action: CardAction) => {
             if (action === "segment_split") { setSplitDialogJob(job); setSplitQty(""); return }
             setSheetAction(action === "manage" ? null : action)
@@ -1352,7 +1541,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
           }}
           keyboardForm={
             <KeyboardScheduleForm
-              jobs={queuedJobs}
+              jobs={plannableQueuedJobs}
               machines={machineRows}
               dates={[day0, day1, day2].slice(0, windowDays)}
               shifts={plannerShifts.map((shift: any) => ({ code: String(shift.code || ""), label: shift.label }))}
@@ -1366,6 +1555,19 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
         )}
         </div>
       </div>
+
+      <QueueViewDialog
+        mode={viewDialog}
+        onClose={() => setViewDialog(null)}
+        filters={queueFilters}
+        onApply={applyFilters}
+        onApplyView={applyView}
+        onViewSaved={onViewSaved}
+        options={filterOptions}
+        stage={stage}
+        views={plannerViews}
+        machineLabel={machineLabelFor}
+      />
 
       <JobCardLifecycleSheet jobCardId={sheetJobId} initialAction={sheetAction} open={Boolean(sheetJobId)} onOpenChange={(next) => { if (!next) { setSheetJobId(null); setSheetAction(null) } }} />
 
@@ -1432,41 +1634,51 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
           <DialogHeader>
             <DialogTitle>Slot will be over capacity</DialogTitle>
             <DialogDescription>
-              {pendingDrop ? `${jobCardRef(pendingDrop.job)} needs more than ${pendingDrop.label} has left — over by ${formatLoad(pendingDrop.overBy)} ${pendingDrop.unit}. The planner keeps what fits here and splits the rest into the next shift.` : null}
+              {pendingDrop
+                ? pendingDrop.jobs.length > 1
+                  ? `${pendingDrop.jobs.length} cards (${pendingDrop.jobs.map((job) => jobCardRef(job)).join(", ")}) need ${formatLoad(pendingDrop.need)} ${pendingDrop.unit} together — more than ${pendingDrop.label} has left, over by ${formatLoad(pendingDrop.overBy)} ${pendingDrop.unit}. They are placed in queue order; what does not fit is split into the next shift.`
+                  : `${jobCardRef(pendingDrop.jobs[0])} needs more than ${pendingDrop.label} has left — over by ${formatLoad(pendingDrop.overBy)} ${pendingDrop.unit}. The planner keeps what fits here and splits the rest into the next shift.`
+                : null}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <button type="button" className="erp-btn-secondary" onClick={() => setPendingDrop(null)}>Choose another slot</button>
-            <button type="button" className="erp-btn-primary" onClick={() => { const drop = pendingDrop; setPendingDrop(null); if (drop) void scheduleSegment(drop.job, drop.target) }}>Schedule and split</button>
+            <button type="button" className="erp-btn-primary" data-testid="planner-capacity-confirm-submit" onClick={() => { const drop = pendingDrop; setPendingDrop(null); if (drop) void (drop.jobs.length > 1 ? scheduleMany(drop.jobs, drop.target) : scheduleSegment(drop.jobs[0], drop.target)) }}>
+              {pendingDrop && pendingDrop.jobs.length > 1 ? `Place ${pendingDrop.jobs.length} cards and split` : "Schedule and split"}
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={Boolean(splitDialogJob)} onOpenChange={(open) => !open && setSplitDialogJob(null)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg" data-testid="planner-split-plan">
           <DialogHeader>
-            <DialogTitle>Split planner segment</DialogTitle>
+            <DialogTitle>Split plan</DialogTitle>
             <DialogDescription>
-              Use manual split only when the automatic capacity split is not the right break. The remaining balance will stay as the follow-up segment.
+              Cuts this plan into two parts (time slots). The card stays one card; part 2 goes to the next shift. Use it when the automatic capacity split is not the right break.
             </DialogDescription>
           </DialogHeader>
           {splitDialogJob ? (
             <div className="space-y-4">
               <div className="rounded-2xl border border-border bg-muted p-4 text-sm text-muted-foreground">
                 <p className="font-semibold text-foreground">{jobCardRef(splitDialogJob)}</p>
-                <p className="mt-1">Current segment qty {Number(splitDialogJob.segment_planned_qty || 0).toFixed(0)} pcs</p>
-                <p className="mt-1">Current required capacity {formatLoad(splitDialogJob.required_capacity)}</p>
+                <p className="mt-1">This part: {Number(splitDialogJob.segment_planned_qty || 0).toLocaleString("en-IN")} pcs · needs {formatLoad(splitDialogJob.required_capacity)} {capacityUnitFor(section)}</p>
               </div>
               <div className="space-y-1">
-                <label className="text-sm font-semibold text-muted-foreground">Primary segment qty</label>
+                <label htmlFor="planner-split-first" className="text-sm font-semibold text-muted-foreground">First part (pcs)</label>
                 <input
+                  id="planner-split-first"
                   type="number"
                   min="1"
                   max={Math.max(1, Number(splitDialogJob.segment_planned_qty || 0) - 1)}
                   value={splitQty}
                   onChange={(event) => setSplitQty(event.target.value)}
-                  className="h-11 w-full rounded-xl border border-border px-3 text-sm"
+                  className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm"
+                  data-testid="planner-split-first"
                 />
+                <p className="text-[12px] text-muted-foreground" data-testid="planner-split-rest">
+                  Rest goes to part 2: {Number(splitQty) > 0 && Number(splitQty) < Number(splitDialogJob.segment_planned_qty || 0) ? (Number(splitDialogJob.segment_planned_qty || 0) - Number(splitQty)).toLocaleString("en-IN") : "—"} pcs
+                </p>
               </div>
             </div>
           ) : null}
@@ -1474,7 +1686,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
             <button
               type="button"
               onClick={() => setSplitDialogJob(null)}
-              className="rounded-xl border border-border bg-card px-4 py-2 text-sm font-semibold text-muted-foreground"
+              className="erp-btn-secondary"
             >
               Cancel
             </button>
@@ -1482,9 +1694,10 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
               type="button"
               onClick={handleSplit}
               disabled={splitSegment.isPending}
-              className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+              className="erp-btn-primary"
+              data-testid="planner-split-submit"
             >
-              Confirm split
+              Split plan
             </button>
           </DialogFooter>
         </DialogContent>

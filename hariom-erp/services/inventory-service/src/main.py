@@ -331,6 +331,10 @@ def ensure_runtime_schema() -> None:
     for ddl in (
       "ALTER TABLE IF EXISTS purchase_orders ADD COLUMN IF NOT EXISTS metadata_json JSONB",
       "ALTER TABLE IF EXISTS purchase_order_lines ADD COLUMN IF NOT EXISTS metadata_json JSONB",
+      # Supplier challan on every inward (client 2026-10-26); older GRNs keep it empty.
+      "ALTER TABLE IF EXISTS purchase_receipts ADD COLUMN IF NOT EXISTS supplier_challan_no VARCHAR(120)",
+      "ALTER TABLE IF EXISTS purchase_receipts ADD COLUMN IF NOT EXISTS supplier_challan_key VARCHAR(120)",
+      "CREATE INDEX IF NOT EXISTS ix_purchase_receipts_supplier_challan ON purchase_receipts (plant_id, supplier_id, supplier_challan_key)",
       "ALTER TABLE IF EXISTS inventory_certifications ADD COLUMN IF NOT EXISTS count_session_no VARCHAR(80)",
       "ALTER TABLE IF EXISTS inventory_certifications ADD COLUMN IF NOT EXISTS count_location_scope VARCHAR(200)",
       "ALTER TABLE IF EXISTS inventory_certifications ADD COLUMN IF NOT EXISTS count_state VARCHAR(30) DEFAULT 'DRAFT'",

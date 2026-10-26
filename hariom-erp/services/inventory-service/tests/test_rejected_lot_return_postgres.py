@@ -35,7 +35,7 @@ def _receipt(db):
         tracking_mode='REEL', uom='KG', plant_id=PLANT, quality_profile={'status': 'approved', 'revision': 1,
         'parameters': [{'code': 'gsm', 'unit': 'g/m2', 'min': 200, 'max': 260}]})
     db.add(item); db.commit()
-    payload = ManualReceiptCreate(request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name='Return mill',
+    payload = ManualReceiptCreate(supplier_challan_no=f"CH-{uuid.uuid4().hex[:8]}", request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name='Return mill',
         reason='Isolated return receipt', received_date=date.today(), invoice_no=uuid.uuid4().hex,
         invoice_date=date.today(), lines=[{'item_id': item.id, 'invoice_rate': 30, 'incoming_qc_required': False,
         'lots': [{'source_reel_no': f'RET-{uuid.uuid4().hex[:6]}-{n}', 'net_weight_kg': 100, 'width_mm': 800,

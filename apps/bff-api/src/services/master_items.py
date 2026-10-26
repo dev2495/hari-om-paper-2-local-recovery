@@ -84,7 +84,8 @@ def master_lines(papers: list[dict], adhesives: list[dict], colors: list[dict], 
     for row in sheets:
         code = str(row.get("sku") or "").strip()
         if _active(row) and code:
-            lines.append({"item_code": code, "name": _text("Plastic sheet", code, row.get("size_label")), "type": "PACKAGING", "uom": "PCS"})
+            # Plastic is issued and counted in kg (client 2026-10-26); boxes and fadda in pieces.
+            lines.append({"item_code": code, "name": _text("Plastic sheet", code, row.get("size_label")), "type": "PACKAGING", "uom": "KG"})
     for row in faddas:
         code = str(row.get("sku") or "").strip()
         if _active(row) and code:

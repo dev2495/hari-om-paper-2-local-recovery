@@ -189,7 +189,9 @@ export function usePendingSalesOrders(params?: any) {
 export function useHoldSalesOrder() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ orderId, reason, plantId }: { orderId: string; reason: string; plantId?: string }) => salesApi.holdOrder(orderId, reason, plantId),
+    // Customer hold & close asks for an order close reason code, like cancel / short close (2026-10-26).
+    mutationFn: ({ orderId, reasonCode, note, plantId }: { orderId: string; reasonCode: string; note?: string; plantId?: string }) =>
+      salesApi.holdOrder(orderId, { reason_code: reasonCode, note: note?.trim() || undefined }, plantId),
     onSuccess: (_response, variables) => invalidateSalesQueries(queryClient, variables.orderId),
   })
 }

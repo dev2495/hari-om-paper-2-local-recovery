@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from .procurement import (
     router, GovernedReceiptCreate, GovernedReceiptLineInput, _validate_receipt,
     _enum, _plant_uuid, _receipt_payload, _refresh_receipt_line_stock,
+    _challan_key, _challan_warnings, _next_grn_no,
 )
 from .purchase import _actor, _next_doc_no
 from ..database import get_db
@@ -86,6 +87,7 @@ def _manual_checks(payload, db, plant_id):
 def preview_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(require_role(["Store", "PlantManager", "GRN"]))):
     rows = _manual_checks(payload, db, plant_id)
     return {"receipt_kind": "MANUAL", "commercial_status": "INVOICE_PENDING" if payload.invoice_pending else "MANUAL_REVIEW",
+            "warnings": _challan_warnings(db, plant_id, payload.supplier_id, payload.supplier_challan_no),
             "lines": [{"item_code": item.item_code, "uom": _enum(item.uom), "quantity_kg": float(qty), "physical_unit_count": len(requested.lots), "invoice_rate": requested.invoice_rate} for requested, item, qty, _ in rows],
             "totals": {"quantity_kg": float(sum(row[2] for row in rows)), "physical_unit_count": sum(len(row[0].lots) for row in rows)}}
 
@@ -118,10 +120,14 @@ def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_
             db.add(invoice)
             db.flush()
     state = "INVOICE_PENDING" if payload.invoice_pending else "MANUAL_REVIEW"
+    warnings = _challan_warnings(db, plant_id, payload.supplier_id, payload.supplier_challan_no)
+    # Same inward series as PO receipts (P / A / IN per calendar year, client 2026-10-26).
+    grn_no = _next_grn_no(db, plant_id, [item.type for _, item, _, _ in rows], payload.received_date)
     receipt = PurchaseReceipt(plant_id=plant_id, receipt_kind="MANUAL", supplier_id=payload.supplier_id,
         supplier_name_snapshot=payload.supplier_name.strip(), manual_reason=payload.reason.strip(), request_id=payload.request_id,
         request_fingerprint=fingerprint, supplier_invoice_id=invoice.id if invoice else None, invoice_pending=payload.invoice_pending,
-        commercial_status=state, grn_no=_next_doc_no(db, PurchaseReceipt, plant_id, "grn_no", "MGRN"), received_date=payload.received_date,
+        commercial_status=state, grn_no=grn_no, supplier_challan_no=payload.supplier_challan_no,
+        supplier_challan_key=_challan_key(payload.supplier_challan_no), received_date=payload.received_date,
         status="QC_PENDING", created_by=_actor(current_user),
         approval_history=[{"action": "MANUAL_RECEIPT_CREATED", "actor": _actor(current_user), "at": datetime.utcnow().isoformat(), "reason": payload.reason}])
     db.add(receipt)
@@ -134,12 +140,15 @@ def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_
             qc_status=qc_status)
         db.add(line)
         db.flush()
-        metadata = {**metadata, "receipt_id": str(receipt.id), "grn_no": receipt.grn_no, "receipt_kind": "MANUAL", "manual_reason": payload.reason, "invoice_no": payload.invoice_no, "invoice_rate": requested.invoice_rate}
+        metadata = {**metadata, "receipt_id": str(receipt.id), "grn_no": receipt.grn_no, "challan_no": payload.supplier_challan_no,
+            "receipt_kind": "MANUAL", "manual_reason": payload.reason, "invoice_no": payload.invoice_no, "invoice_rate": requested.invoice_rate}
         if is_reel:
             for lot in requested.lots:
                 at_no = _next_doc_no(db, PaperReel, _plant_uuid(plant_id), "reel_code", "AT")
+                nominals = item.qc_nominals or {}
                 reel = PaperReel(plant_id=_plant_uuid(plant_id), reel_code=at_no, purchase_receipt_line_id=line.id,
-                    paper_id=item.id, supplier_id=payload.supplier_id, supplier_name=payload.supplier_name,
+                    paper_id=item.id, gsm=nominals.get("gsm"), bf=nominals.get("bf"),
+                    supplier_id=payload.supplier_id, supplier_name=payload.supplier_name,
                     supplier_name_snapshot=payload.supplier_name, source_reel_no=lot.source_reel_no.strip().upper(),
                     vendor_batch_no=lot.vendor_batch_no, inward_weight_kg=lot.net_weight_kg, net_weight_kg=lot.net_weight_kg,
                     current_weight_kg=lot.net_weight_kg, gross_weight_kg=lot.gross_weight_kg, tare_weight_kg=lot.tare_weight_kg,
@@ -189,7 +198,7 @@ def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_
         db.rollback()
         raise HTTPException(409, "Receipt, invoice, vendor lot or batch reference already exists") from exc
     result = _receipt_payload(receipt, db)
-    return {**result, "created_lots": result["lots"]}
+    return {**result, "created_lots": result["lots"], "warnings": warnings}
 
 
 from .procurement import VersionAction

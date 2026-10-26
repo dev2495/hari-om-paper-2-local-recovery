@@ -10,7 +10,7 @@ import { Plus, Save, Trash2 } from "lucide-react"
 
 import { ProcurementShell, Field, MessageBar, WorkPanel, areaClass, fieldClass, primaryButton, secondaryButton } from "@/components/procurement/procurement-shell"
 import { useInventoryItems } from "@/hooks/use-inventory"
-import { usePapers, useVendors } from "@/hooks/use-master-data"
+import { useVendors } from "@/hooks/use-master-data"
 import { api, purchaseApi } from "@/lib/api"
 
 const today = () => businessDate()
@@ -35,20 +35,9 @@ export default function PurchaseOrderEditor({ orderId }: { orderId?: string }) {
   const existingQuery = useQuery({ queryKey: ["purchase-v2", "edit", orderId, activePlant], refetchOnWindowFocus: false, queryFn: () => purchaseApi.getOrder(orderId!), enabled: Boolean(activePlant && activePlant !== "ALL") && Boolean(orderId) })
   const existing = existingQuery.data?.data
   const vendorsQuery = useVendors()
-  const papersQuery = usePapers({ include_inactive: true })
-  const papers = useMemo(() => (Array.isArray(papersQuery.data) ? papersQuery.data : []), [papersQuery.data])
-  const norm = (value: unknown) => String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "")
-  /** Paper master row for an inventory item (same id, or same code), so the PO line carries the master spec. */
-  const paperFor = (item: any) => item && String(item.type || "").toUpperCase() === "RAW_PAPER"
-    ? papers.find((row: any) => String(row.id) === String(item.id)) || papers.find((row: any) => norm(row.code) && norm(row.code) === norm(item.item_code)) || null
-    : null
-  const specFromPaper = (paper: any) => paper ? {
-    gsm: paper.gsm != null ? String(paper.gsm) : "",
-    plybond: paper.ply_bond != null ? String(paper.ply_bond) : "",
-    bulk: paper.bulk_factor != null ? String(paper.bulk_factor) : "",
-    cobb: paper.cobb != null && paper.cobb !== "" ? String(paper.cobb) : "",
-    width_mm: paper.width_mm != null ? String(paper.width_mm) : "",
-  } : {}
+  // The PO carries only the ordered quantity and rate (client 2026-10-26): no expected reel count,
+  // tare or quality specification is typed here. Incoming QC checks each delivery against the
+  // material standard; a revised older PO keeps whatever it had saved, unseen.
   const itemsQuery = useInventoryItems()
   const vendors = Array.isArray(vendorsQuery.data) ? vendorsQuery.data : []
   const items = useMemo(() => (Array.isArray(itemsQuery.data) ? itemsQuery.data.filter((item: any) => String(item.type) !== "FINISHED_GOOD") : []), [itemsQuery.data])
@@ -109,7 +98,7 @@ export default function PurchaseOrderEditor({ orderId }: { orderId?: string }) {
   if (orderId && !existing) return <MessageBar tone="error">Purchase order could not load. Refresh before editing.</MessageBar>
   return (
     <ProcurementShell eyebrow={orderId ? `${existing.po_no} / new revision` : "Purchasing / create"} title={orderId ? "Revise purchase order" : "Create purchase order"}
-      description="The server assigns the next RP-PM or OT number. Paper quantities stay in kg; an expected reel or coil count is optional planning information and never creates stock.">
+      description="The server assigns the next RP-PM or OT number. Enter the ordered quantity and rate for each material; paper is ordered in kg. Quality is checked at inward against the material standard.">
       {error ? <MessageBar tone="error">{error}</MessageBar> : null}
       <form onSubmit={submit} className="space-y-5">
         {!orderId ? <WorkPanel title="Approved requisition" description="Required for tools, spares and other purchases. Select the approved request to fill its material and quantity."><Field label="PR reference"><select className={fieldClass} value={requisitionId} onChange={(event) => setRequisitionId(event.target.value)}><option value="">No requisition · RM / PM purchase</option>{requisitions.map((pr: any) => <option key={pr.id} value={pr.id}>{pr.pr_no} · {pr.item_name} · {pr.quantity} {pr.uom}</option>)}</select></Field>{requisitionsQuery.isError ? <MessageBar tone="error">Approved requisitions could not load. Retry before creating an OT purchase.</MessageBar> : null}</WorkPanel> : null}
@@ -127,29 +116,20 @@ export default function PurchaseOrderEditor({ orderId }: { orderId?: string }) {
           </div>
         </WorkPanel>
 
-        <WorkPanel title="Material lines" description="Use one line for each commercial rate/specification. Received quantities will be linked back to this stable line identity."
+        <WorkPanel title="Material lines" description="One line for each material and rate. Goods inward receives against the ordered quantity of each line."
           action={<button type="button" className={secondaryButton} onClick={() => setLines((current) => [...current, emptyLine()])}><Plus className="h-4 w-4" /> Add line</button>}>
           {itemsQuery.isError ? <MessageBar tone="error">Materials could not be loaded: {String((itemsQuery.error as any)?.response?.data?.detail || (itemsQuery.error as any)?.message || "server error")}. Retry by reloading the page.</MessageBar> : null}
           <div className="space-y-4">{lines.map((line, index) => (
             <article key={line.key} className="rounded-xl border border-border bg-muted/60 p-4">
               <div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-semibold text-foreground">Line {index + 1}</h3><button type="button" aria-label={`Remove line ${index + 1}`} disabled={lines.length === 1 || Boolean(existing?.lines.find((row: any) => row.logical_line_id === line.logical_line_id)?.qty_received)} onClick={() => setLines((current) => current.filter((row) => row.key !== line.key))} className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground hover:bg-signal-rose-soft hover:text-signal-rose-ink disabled:opacity-30"><Trash2 className="h-4 w-4" /></button></div>
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-                <Field label="Material"><select className={fieldClass} required value={line.item_id} onChange={(e) => { const item = items.find((row: any) => String(row.id) === e.target.value); const paper = paperFor(item); setLine(line.key, { item_id: e.target.value, description: item?.name || line.description, uom: item?.uom || "KG", ...(paper ? Object.fromEntries(Object.entries(specFromPaper(paper)).filter(([, value]) => value !== "")) : {}) }) }}><option value="">{itemsQuery.isLoading ? "Loading materials…" : items.length ? "Select material" : "No materials yet — add them in Masters"}</option>{items.map((item: any) => <option key={item.id} value={item.id}>{item.item_code} · {item.name}</option>)}</select></Field>
+                <Field label="Material"><select className={fieldClass} required value={line.item_id} onChange={(e) => { const item = items.find((row: any) => String(row.id) === e.target.value); setLine(line.key, { item_id: e.target.value, description: item?.name || line.description, uom: item?.uom || "KG" }) }}><option value="">{itemsQuery.isLoading ? "Loading materials…" : items.length ? "Select material" : "No materials yet — add them in Masters"}</option>{items.map((item: any) => <option key={item.id} value={item.id}>{item.item_code} · {item.name}</option>)}</select></Field>
                 <Field label="Description"><input className={fieldClass} value={line.description} onChange={(e) => setLine(line.key, { description: e.target.value })} /></Field>
-                <Field label={`Quantity · ${line.uom}`}><input className={fieldClass} required min="0.001" step="0.001" type="number" value={line.qty_ordered} onChange={(e) => setLine(line.key, { qty_ordered: e.target.value })} /></Field>
+                <Field label={`Ordered quantity · ${line.uom}`}><input aria-label={`Line ${index + 1} ordered quantity`} className={fieldClass} required min={line.uom === "PCS" ? "1" : "0.001"} step={line.uom === "PCS" ? "1" : "0.001"} type="number" value={line.qty_ordered} onChange={(e) => setLine(line.key, { qty_ordered: e.target.value })} /></Field>
                 <Field label={`Rate / ${line.uom}`}><input className={fieldClass} required min="0" step="0.0001" type="number" value={line.unit_cost} onChange={(e) => setLine(line.key, { unit_cost: e.target.value })} /></Field>
-                <Field label="Expected units" hint="optional"><input className={fieldClass} min="1" step="1" type="number" value={line.expected_unit_count} onChange={(e) => setLine(line.key, { expected_unit_count: e.target.value })} /></Field>
-                <Field label="Count basis"><select className={fieldClass} disabled={!line.expected_unit_count} value={line.count_basis} onChange={(e) => setLine(line.key, { count_basis: e.target.value as LineDraft["count_basis"] })}><option value="ESTIMATED">Estimated</option><option value="CONTRACTUAL">Contractual</option></select></Field>
-              </div>
-              <details className="mt-3" open={Boolean(paperFor(items.find((row: any) => String(row.id) === line.item_id)))}><summary className="cursor-pointer text-sm font-medium text-signal-cyan-ink">Paper specification & incoming QC</summary>{(() => { const paper = paperFor(items.find((row: any) => String(row.id) === line.item_id)); return paper ? <p className="mt-2 text-[12.5px] text-muted-foreground">Filled from paper master <strong className="text-foreground">{paper.code || paper.variety || ""}</strong> · GSM {paper.gsm ?? "—"} · BF {paper.bf ?? "—"} · ply bond {paper.ply_bond ?? "—"}. <button type="button" className="font-semibold text-primary hover:underline" onClick={() => setLine(line.key, specFromPaper(paper))}>Reset to master values</button>. Incoming QC checks this delivery against the same master.</p> : null })()}<div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
-                <Field label="Width mm"><input className={fieldClass} min="0" step="0.01" type="number" value={line.width_mm} onChange={(e) => setLine(line.key, { width_mm: e.target.value })} /></Field>
-                <Field label="Width tolerance ± mm"><input className={fieldClass} min="0" step="0.01" type="number" value={line.width_tolerance_mm} onChange={(e) => setLine(line.key, { width_tolerance_mm: e.target.value })} /></Field>
-                <Field label="GSM"><input className={fieldClass} min="0" step="0.01" type="number" value={line.gsm} onChange={(e) => setLine(line.key, { gsm: e.target.value })} /></Field>
-                <Field label="Ply bond"><input className={fieldClass} min="0" step="0.01" type="number" value={line.plybond} onChange={(e) => setLine(line.key, { plybond: e.target.value })} /></Field>
-                <Field label="Bulk"><input className={fieldClass} min="0" step="0.001" type="number" value={line.bulk} onChange={(e) => setLine(line.key, { bulk: e.target.value })} /></Field>
-                <Field label="COBB"><input className={fieldClass} value={line.cobb} onChange={(e) => setLine(line.key, { cobb: e.target.value })} /></Field>
                 <div className="rounded-lg bg-card px-3 py-2"><p className="text-[11.5px] font-semibold text-muted-foreground">Line amount</p><p className="mt-2 font-semibold tabular-nums text-foreground">₹{(Number(line.qty_ordered || 0) * Number(line.unit_cost || 0)).toLocaleString("en-IN", { maximumFractionDigits: 2 })}</p></div>
-              </div><label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={line.incoming_qc_required} onChange={(event) => setLine(line.key, { incoming_qc_required: event.target.checked })} /> Incoming QC required</label></details>
+                <label className="flex items-center gap-2 self-end pb-2 text-sm"><input type="checkbox" checked={line.incoming_qc_required} onChange={(event) => setLine(line.key, { incoming_qc_required: event.target.checked })} /> Incoming QC required</label>
+              </div>
             </article>
           ))}</div>
         </WorkPanel>

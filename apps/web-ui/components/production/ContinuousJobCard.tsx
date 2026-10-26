@@ -24,6 +24,7 @@ const verdictLabels: Record<string, string> = { NOT_MEASURED: "QC readings due",
 const verdictLabel = (value: string) => verdictLabels[value] || "QC readings due"
 const count = (value: string) => (value === "" ? 0 : Math.max(0, Math.floor(Number(value) || 0)))
 const fmt = (value: any) => Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 1 })
+const dayLabel = (value: any) => (value ? new Date(`${String(value).slice(0, 10)}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "—")
 const selectClass = "h-11 w-full rounded-lg border border-border bg-background px-3 text-[15px]"
 const numberClass = "h-12 w-full rounded-lg border border-border bg-background px-3 text-lg font-semibold tabular-nums"
 const REJECT_CODES: [string, string][] = [
@@ -176,7 +177,12 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
     return m ? m.name || m.code : ""
   }
   const openSegments = (state?.segments || []).filter((s: any) => !["COMPLETED", "CANCELLED"].includes(s.status))
-  const slotReady = !(state?.segments || []).length || openSegments.some((s: any) => s.planner_gate_ready)
+  // "Not on the planner" only when the stage has no slot at all (client 2026-10-26); otherwise the plan is
+  // shown and the run is matched to it by date and shift.
+  const plannedParts = openSegments
+    .filter((s: any) => s.machine_id && s.plan_date && s.shift_code)
+    .sort((a: any, b: any) => String(a.plan_date).localeCompare(String(b.plan_date)) || String(a.shift_code).localeCompare(String(b.shift_code)))
+  const slotReady = !(state?.segments || []).length || plannedParts.length > 0 || openSegments.some((s: any) => s.planner_gate_ready)
   // Input taken from the previous stage equals what this stage made, except Process (bamboo in → pieces out).
   const inputFollowsOutput = stage !== "PROCESS" && Boolean(prevStage) && prevStage !== "SLITTING"
   const parameters = (card.spec_snapshot?.qc_profile?.stages?.[stage]?.parameters?.filter((r: any) => r.applicable) || []).map((r: any) => displayStageRule(stage, r))
@@ -228,7 +234,8 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
   const startRun = () => {
     setEditing(null)
     setQcOnly(false)
-    setSegment(openSegments[0]?.id || "")
+    // No slot choice on the floor (client 2026-10-26): the server puts the run in the slot of its date and shift.
+    setSegment("")
     clearNumbers()
   }
   const openEntry = (entry: any, observationOnly = false) => {
@@ -703,6 +710,11 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
                 <p className="rounded-lg border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-sm text-signal-amber-ink" data-testid="season-entry-unscheduled">
                   Not on the planner yet — you can still log it. It is flagged for the owner under Reports › Exceptions.
                 </p>
+              ) : plannedParts.length ? (
+                <p className="text-sm text-muted-foreground" data-testid="season-entry-plan">
+                  Plan: {plannedParts.slice(0, 3).map((s: any) => `${dayLabel(s.plan_date)} · ${String(s.shift_code).replace("SHIFT_", "Shift ")} · ${machineName(s.machine_id) || "machine"}`).join("  |  ")}
+                  {plannedParts.length > 3 ? ` (+${plannedParts.length - 3} more)` : ""}. Log what really ran; it is matched to the plan by date and shift.
+                </p>
               ) : null}
 
               <fieldset className="space-y-3" data-testid="season-entry-card-row">
@@ -871,22 +883,10 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
                     ) : null}
                   </div>
                 ) : null}
-                {stage === "PROCESS" || openSegments.length > 1 ? (
+                {stage === "PROCESS" ? (
                   <details className="rounded-lg border border-border p-3 text-sm" open={Boolean((!pcsPerBamboo && lossQty) || carryInQty || carryOutQty)}>
-                    <summary className="cursor-pointer font-medium">More: {stage === "PROCESS" ? (pcsPerBamboo ? "held pieces (carry to the next run)" : "cutting loss, held carryover") : ""}{stage === "PROCESS" && openSegments.length > 1 ? ", " : ""}{openSegments.length > 1 ? "planned slot" : ""}</summary>
+                    <summary className="cursor-pointer font-medium">More: {pcsPerBamboo ? "held pieces (carry to the next run)" : "cutting loss, held carryover"}</summary>
                     <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                      {openSegments.length > 1 ? (
-                        <label className="text-sm sm:col-span-2">
-                          Planned slot
-                          <select className={selectClass} value={segment} onChange={(e) => setSegment(e.target.value)}>
-                            {openSegments.map((s: any) => (
-                              <option key={s.id} value={s.id}>
-                                {s.plan_date || "Unscheduled"} · {s.shift_code?.replace("SHIFT_", "Shift ") || "No shift"} · {machineName(s.machine_id) || "no machine"}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      ) : null}
                       {stage === "PROCESS"
                         ? (
                             [

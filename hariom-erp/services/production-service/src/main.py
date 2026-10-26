@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from sqlalchemy import text
 from .database import Base, engine
 from . import entry_models
-from .routers import dispatch, dispatch_surplus, jobs, lifecycle, operations, plan_actual, planning, quality, reconciliation, reel_issue, reports, entries
+from .routers import dispatch, dispatch_surplus, jobs, lifecycle, operations, plan_actual, planning, planning_overview, quality, reconciliation, reel_issue, reports, entries
 
 Base.metadata.create_all(bind=engine)
 
@@ -187,6 +187,7 @@ app.include_router(planning.router)
 app.include_router(reel_issue.router)
 app.include_router(reports.router)
 app.include_router(plan_actual.router)
+app.include_router(planning_overview.router)
 app.include_router(reconciliation.router)
 app.include_router(dispatch.router)
 app.include_router(dispatch_surplus.router)
@@ -251,9 +252,13 @@ def start_completion_postings():
             ON CONFLICT (effect_key) DO NOTHING"""))
     from .completion_worker import start
     start()
+    from .missed_slot_worker import start as start_missed_slot_sweep
+    start_missed_slot_sweep()
 
 
 @app.on_event("shutdown")
 def stop_completion_postings():
     from .completion_worker import stop
     stop()
+    from .missed_slot_worker import stop as stop_missed_slot_sweep
+    stop_missed_slot_sweep()

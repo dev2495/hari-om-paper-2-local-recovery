@@ -38,6 +38,49 @@ MANUAL_REASON_CODES = {
     "CONTROLLED_FALLBACK",
 }
 VALID_SHIFTS = {"A", "B", "C", "GENERAL", "DAY", "NIGHT"}
+ISSUABLE_BATCH_STATUSES = ("UNRESTRICTED", "WIP")
+
+
+def _qty_text(value: float, uom: str) -> str:
+    unit = {"KG": "kg", "PCS": "pcs", "L": "L"}.get(str(uom or "").upper(), str(uom or "").lower())
+    return f"{round(float(value or 0.0), 3):g} {unit}"
+
+
+def check_issue_quantity(qty: float, uom: str, on_hand: float, item_name: str) -> None:
+    """Issue units follow the item master (client 2026-10-26): pieces are whole numbers, and
+    nothing beyond the cleared (on-hand) stock can go to the floor."""
+    if str(uom or "").upper() == "PCS" and abs(float(qty) - round(float(qty))) > 1e-9:
+        raise HTTPException(status_code=422, detail=f"{item_name} is counted in pieces. Enter a whole number.")
+    if float(qty) > float(on_hand) + 1e-9:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only {_qty_text(on_hand, uom)} of {item_name} is in stock and cleared for issue. You asked for {_qty_text(qty, uom)}.",
+        )
+
+
+def _issuable_batches(db: Session, item_id, plant_id: str) -> list[tuple[StockBatch, float]]:
+    """Cleared lots of the item, oldest first, with their balances (lots with nothing left are skipped)."""
+    batches = (
+        db.query(StockBatch)
+        .filter(
+            StockBatch.item_id == item_id,
+            StockBatch.plant_id == plant_id,
+            StockBatch.stock_status.in_(ISSUABLE_BATCH_STATUSES),
+        )
+        .order_by(StockBatch.created_at.asc())
+        .with_for_update()
+        .populate_existing()
+        .all()
+    )
+    if not batches:
+        return []
+    balances = dict(
+        db.query(StockTransaction.batch_id, func.sum(StockTransaction.qty_change))
+        .filter(StockTransaction.batch_id.in_([batch.id for batch in batches]))
+        .group_by(StockTransaction.batch_id)
+        .all()
+    )
+    return [(batch, float(balances.get(batch.id) or 0.0)) for batch in batches if float(balances.get(batch.id) or 0.0) > 1e-9]
 
 
 class IssueCreate(BaseModel):
@@ -103,14 +146,15 @@ def create_issue(
             detail="Use reel/coil issue so physical identities and mandatory slitting are preserved.",
         )
 
-    if not validate_sufficient_stock(str(issue.item_id), issue.qty, db):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Insufficient stock for {item.name}. Available: {get_item_balance(str(issue.item_id), db)} {item.uom.value}",
-        )
+    uom = item.uom.value
+    # A chosen lot is checked on its own balance below (it may be released by concession).
+    cleared = [] if issue.batch_id else _issuable_batches(db, issue.item_id, plant_id)
+    check_issue_quantity(issue.qty, uom, float("inf") if issue.batch_id else sum(balance for _, balance in cleared), item.name)
 
     selected_batch_id = issue.batch_id
     batch = None
+    # (batch, qty) pieces: one lot when chosen, else the oldest cleared lots first.
+    allocations: list[tuple[StockBatch, float]] = []
 
     if selected_batch_id:
         batch = db.query(StockBatch).filter(
@@ -129,58 +173,57 @@ def create_issue(
             allowed_statuses={"UNRESTRICTED", "WIP"},
             blocked_detail=f"Batch is not issuable ({batch.stock_status})",
         )
-        if not validate_batch_sufficient_stock(str(selected_batch_id), issue.qty, db):
+        batch_left = get_batch_balance(str(selected_batch_id), db)
+        if float(issue.qty) > batch_left + 1e-9:
             raise HTTPException(
                 status_code=400,
-                detail=f"Insufficient stock in batch {batch.batch_no if batch else selected_batch_id}",
+                detail=f"Only {_qty_text(batch_left, uom)} is left in lot {batch.batch_no}. Choose another lot or issue less.",
             )
+        allocations = [(batch, float(issue.qty))]
     else:
-        batches = (
-            db.query(StockBatch)
-            .filter(
-                StockBatch.item_id == issue.item_id,
-                StockBatch.plant_id == plant_id,
-                StockBatch.stock_status.in_(["UNRESTRICTED", "WIP"])
-            )
-            .order_by(StockBatch.created_at.asc())
-            .with_for_update()
-            .populate_existing()
-            .all()
-        )
-        for batch in batches:
-            if validate_batch_sufficient_stock(str(batch.id), issue.qty, db):
-                selected_batch_id = batch.id
+        left = float(issue.qty)
+        for candidate, balance in cleared:
+            if left <= 1e-9:
                 break
-
-        if not selected_batch_id:
-            raise HTTPException(status_code=400, detail="No batch with sufficient stock found")
+            take = round(min(left, balance), 6)
+            allocations.append((candidate, take))
+            left = round(left - take, 6)
+        if not allocations or left > 1e-6:
+            raise HTTPException(status_code=400, detail=f"Not enough cleared stock of {item.name} to issue {_qty_text(issue.qty, uom)}.")
+        batch, selected_batch_id = allocations[0][0], allocations[0][0].id
 
     effective_date_value = issue.effective_date or date.today()
+    reference_id = issue.production_job_id or uuid.uuid4()
 
-    transaction = StockTransaction(
-        item_id=issue.item_id,
-        batch_id=selected_batch_id,
-        transaction_type=TransactionType.ISSUE_PRODUCTION,
-        qty_change=-issue.qty,
-        reference_type=ReferenceType.PRODUCTION_JOB if issue.production_job_id else ReferenceType.INTERNAL,
-        reference_id=issue.production_job_id or uuid.uuid4(),
-        plant_id=plant_id,
-        location_id=batch.location_id if batch else None,
-        stock_status=batch.stock_status if batch else "WIP",
-        movement_metadata={
-            "production_job_id": str(issue.production_job_id) if issue.production_job_id else None,
-            "destination": "FLOOR" if reason_code == "FLOOR_ISSUE" else "JOB_CARD",
-            "shift": shift,
-            "reason_code": reason_code,
-            "notes": issue.notes,
-            "allow_raw_paper_exception": bool(issue.allow_raw_paper_exception),
-            "manual_exception": reason_code != "FLOOR_ISSUE",
-        },
-        external_ref=issue.external_ref,
-        effective_date=effective_date_value,
-    )
-    db.add(transaction)
+    transactions: list[StockTransaction] = []
+    for index, (lot, take) in enumerate(allocations, start=1):
+        transactions.append(StockTransaction(
+            item_id=issue.item_id,
+            batch_id=lot.id,
+            transaction_type=TransactionType.ISSUE_PRODUCTION,
+            qty_change=-take,
+            reference_type=ReferenceType.PRODUCTION_JOB if issue.production_job_id else ReferenceType.INTERNAL,
+            reference_id=reference_id,
+            plant_id=plant_id,
+            location_id=lot.location_id,
+            stock_status=lot.stock_status,
+            movement_metadata={
+                "production_job_id": str(issue.production_job_id) if issue.production_job_id else None,
+                "destination": "FLOOR" if reason_code == "FLOOR_ISSUE" else "JOB_CARD",
+                "shift": shift,
+                "reason_code": reason_code,
+                "notes": issue.notes,
+                "allow_raw_paper_exception": bool(issue.allow_raw_paper_exception),
+                "manual_exception": reason_code != "FLOOR_ISSUE",
+                **({"split_part": index, "split_parts": len(allocations)} if len(allocations) > 1 else {}),
+            },
+            # One request may draw on several lots (oldest first); each part keeps a unique ref.
+            external_ref=(issue.external_ref if index == 1 or not issue.external_ref else f"{issue.external_ref[:114]}#{index}"),
+            effective_date=effective_date_value,
+        ))
+    db.add_all(transactions)
     db.commit()
+    transaction = transactions[0]
 
     try:
         emit_audit_event(

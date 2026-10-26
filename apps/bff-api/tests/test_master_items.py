@@ -18,4 +18,7 @@ def test_master_lines_cover_every_master_with_its_qc_values():
     assert by_code["351"]["type"] == "RAW_PAPER" and by_code["351"]["uom"] == "KG" and by_code["351"]["group"] == "Kraft"
     assert by_code["351"]["nominals"] == {"gsm": 350.0, "bf": 20.0, "caliper_mm": 0.525, "ply_bond": 400.0, "bulk": 1.5}
     assert by_code["R-150"]["type"] == "PACKAGING" and by_code["R-150"]["uom"] == "PCS"
+    # Issue units (client 2026-10-26): plastic in kg, boxes and fadda in pieces.
+    assert by_code["PS-1"]["type"] == "PACKAGING" and by_code["PS-1"]["uom"] == "KG"
+    assert by_code["FD-3"]["uom"] == "PCS"
     assert parchment_item_code("Red") == "PARCHMENT-RED"

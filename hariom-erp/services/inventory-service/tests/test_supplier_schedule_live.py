@@ -22,7 +22,7 @@ def test_partial_receipt_spans_commitments_and_cancel_replace_conserves_the_po()
         result = commit_supplier_schedules(po['id'],SupplierScheduleCommit(rows=[
             {'purchase_order_line_id':line_id,'scheduled_qty':40,'promised_date':date(2026,9,21),'confirmation_status':'CONFIRMED'},
             {'purchase_order_line_id':line_id,'scheduled_qty':60,'promised_date':date(2026,9,25),'confirmation_status':'CONFIRMED'}]),db,PLANT,MAKER)
-        payload = GovernedReceiptCreate(request_id=uuid.uuid4(),purchase_order_id=po['id'],received_date=date(2026,9,21),invoice_no=uuid.uuid4().hex,invoice_date=date(2026,9,21),lines=[{
+        payload = GovernedReceiptCreate(supplier_challan_no=f"CH-{uuid.uuid4().hex[:8]}", request_id=uuid.uuid4(),purchase_order_id=po['id'],received_date=date(2026,9,21),invoice_no=uuid.uuid4().hex,invoice_date=date(2026,9,21),lines=[{
             'po_line_id':line_id,'invoice_quantity':50,'invoice_rate':30,
             'lots':[{'source_reel_no':uuid.uuid4().hex,'net_weight_kg':50,'width_mm':120}]}])
         receipt = post_governed_receipt(payload,db,PLANT,MAKER)

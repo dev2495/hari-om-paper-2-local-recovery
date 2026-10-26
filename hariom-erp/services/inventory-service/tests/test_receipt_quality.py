@@ -22,7 +22,7 @@ def receipt(db):
         tracking_mode='REEL', uom='KG', plant_id=PLANT, quality_profile={'status':'approved','revision':1,
         'parameters':[{'code':'gsm','min':200,'max':260}]})
     db.add(item); db.commit()
-    payload = ManualReceiptCreate(request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name='Isolated mill',
+    payload = ManualReceiptCreate(supplier_challan_no=f"CH-{uuid.uuid4().hex[:8]}", request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name='Isolated mill',
         reason='Isolated acceptance receipt', received_date=date.today(), invoice_no=uuid.uuid4().hex,
         invoice_date=date.today(), lines=[{'item_id':item.id, 'invoice_rate':30, 'incoming_qc_required':False,
         'lots':[{'source_reel_no':f'LOT-{n}','net_weight_kg':100,'width_mm':800,'physical_form':'REEL'} for n in range(2)]}])
@@ -172,7 +172,7 @@ def test_po_reel_receipt_queues_one_qc_task_per_held_reel():
             content_hash=revision.content_hash, reason='Ready'), db, PLANT, MAKER)
         approve_purchase_order(created['id'], RevisionActionPayload(expected_version=submitted['version'],
             content_hash=revision.content_hash, reason='Approved'), db, PLANT, CHECKER)
-        posted = post_governed_receipt(GovernedReceiptCreate(request_id=uuid.uuid4(), purchase_order_id=created['id'],
+        posted = post_governed_receipt(GovernedReceiptCreate(supplier_challan_no=f"CH-{uuid.uuid4().hex[:8]}", request_id=uuid.uuid4(), purchase_order_id=created['id'],
             received_date=date.today(), invoice_no=uuid.uuid4().hex, invoice_date=date.today(),
             lines=[{'po_line_id': uuid.UUID(created['lines'][0]['id']), 'invoice_rate': 30, 'lots': [
                 {'source_reel_no': f'PO-LOT-{uuid.uuid4().hex[:6]}-{n}', 'net_weight_kg': 100, 'width_mm': 800}

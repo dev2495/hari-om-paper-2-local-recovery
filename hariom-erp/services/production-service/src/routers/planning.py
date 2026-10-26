@@ -4579,8 +4579,6 @@ def _build_execution_snapshot(
         scoped_segments = open_segment_map.get((job_card.id, stage), [])
         active_segment = scoped_segments[0] if scoped_segments else None
         blocked_reason = None
-        if len(scoped_segments) > 1:
-            blocked_reason = f"{len(scoped_segments)} open segments still need stage completion"
         due_date = _job_due_date(job_card, sales_order)
         due_bucket = classify_due_risk(due_date, today)
         if due_bucket == DUE_RISK_OVERDUE:
@@ -4746,6 +4744,135 @@ def _is_stale_slot(segment: JobCardStageSegment, today: Optional[date] = None) -
     return segment.plan_date is not None and segment.plan_date < (today or _plant_today())
 
 
+# Planning rule (client 2026-10-26): a card's next floor stage opens for planning only once the stage
+# before it has a planner slot (machine, date and shift) or has already started on the floor.
+PLAN_GATED_STAGES: dict[str, tuple[str, ...]] = {"OVEN": ("WINDER",), "PROCESS": ("OVEN", "WINDER")}
+PLAN_STAGE_LABEL = {"SLITTING": "Slitting", "WINDER": "Winding", "OVEN": "Oven", "PROCESS": "Process"}
+
+
+def _planning_locks(db: Session, job_card_ids: list[uuid.UUID], stage: str) -> dict[uuid.UUID, str]:
+    """{job_card_id: previous stage} for cards whose previous floor stage is not planned or started yet."""
+    gates = PLAN_GATED_STAGES.get(stage)
+    ids = list({value for value in job_card_ids if value is not None})
+    if not gates or not ids:
+        return {}
+    stage_rows = db.query(JobCardStage.job_card_id, JobCardStage.stage_type, JobCardStage.status).filter(
+        JobCardStage.job_card_id.in_(ids), JobCardStage.stage_type.in_(list(gates))
+    ).all()
+    planned = {
+        (row[0], row[1])
+        for row in db.query(JobCardStageSegment.job_card_id, JobCardStageSegment.stage_type).filter(
+            JobCardStageSegment.job_card_id.in_(ids),
+            JobCardStageSegment.stage_type.in_(list(gates)),
+            JobCardStageSegment.status.in_(["ASSIGNED", "RUNNING", "COMPLETED"]),
+            JobCardStageSegment.machine_id.isnot(None),
+            JobCardStageSegment.plan_date.isnot(None),
+            JobCardStageSegment.shift_code.isnot(None),
+        ).all()
+    }
+    present: dict[uuid.UUID, dict[str, str]] = defaultdict(dict)
+    for job_card_id, stage_type, status in stage_rows:
+        present[job_card_id][stage_type] = str(status or "")
+    locks: dict[uuid.UUID, str] = {}
+    for job_card_id in ids:
+        previous = next((name for name in gates if name in present.get(job_card_id, {})), None)
+        if previous is None:
+            continue
+        started = present[job_card_id][previous] in {"RUNNING", "COMPLETED"}
+        if not started and (job_card_id, previous) not in planned:
+            locks[job_card_id] = previous
+    return locks
+
+
+def _planning_lock_message(job_card: JobCard, stage: str, previous: str) -> str:
+    return (
+        f"Plan {PLAN_STAGE_LABEL.get(previous, previous.title())} for {job_card.job_card_no or 'this card'} first: "
+        f"{PLAN_STAGE_LABEL.get(stage, stage.title())} planning opens once {PLAN_STAGE_LABEL.get(previous, previous.title())} has a slot."
+    )
+
+
+def _require_planning_open(db: Session, job_card: JobCard, stage: str) -> None:
+    previous = _planning_locks(db, [job_card.id], stage).get(job_card.id)
+    if previous:
+        raise HTTPException(status_code=409, detail=_planning_lock_message(job_card, stage, previous))
+
+
+def _apply_queue_locks(db: Session, stage: str, items: list[QueueJobCardItem]) -> None:
+    locks = _planning_locks(db, [item.job_card_id for item in items if not item.machine_id], stage)
+    for item in items:
+        previous = locks.get(item.job_card_id)
+        if previous and not item.machine_id:
+            item.planning_locked = True
+            item.waiting_for_stage = previous
+            item.planning_locked_reason = f"Waiting for the {PLAN_STAGE_LABEL.get(previous, previous.title()).lower()} plan"
+
+
+def _plan_status(db: Session, job_card: JobCard, open_segments: list[JobCardStageSegment]) -> dict[str, Any]:
+    """Where the plan stands for the card's current stage, in plain words. Information only: never a block."""
+    stage = str(job_card.current_stage or "")
+    if str(job_card.status or "").upper() in {"COMPLETED", "CANCELLED"} or stage == "DONE":
+        return {"plan_status": "DONE", "plan_status_label": "Finished", "plan_slots": 0, "next_slot": None}
+    planned = sorted(
+        (row for row in open_segments if row.machine_id and row.plan_date and row.shift_code),
+        key=lambda row: (row.plan_date, row.shift_code or "", row.sequence_no or 0),
+    )
+    when = lambda row: f"{row.plan_date:%d %b} · {_shift_label(row.shift_code)}"
+    nxt = {"plan_date": planned[0].plan_date.isoformat(), "shift_code": planned[0].shift_code, "machine_id": str(planned[0].machine_id)} if planned else None
+    label = PLAN_STAGE_LABEL.get(stage, stage.title())
+    if getattr(job_card, "missed_slot_open", False) and not planned:
+        return {"plan_status": "MISSED", "plan_status_label": f"{label}: slot passed with nothing logged, back in the queue", "plan_slots": 0, "next_slot": None}
+    if not planned:
+        waiting = _planning_locks(db, [job_card.id], stage).get(job_card.id) if stage in PLAN_GATED_STAGES else None
+        if waiting:
+            return {"plan_status": "WAITING", "plan_status_label": f"{label}: waiting for the {PLAN_STAGE_LABEL.get(waiting, waiting.title()).lower()} plan", "plan_slots": 0, "next_slot": None}
+        if stage in {"PACKING", "QC", "DISPATCH"}:
+            return {"plan_status": "NO_PLAN_NEEDED", "plan_status_label": f"{label}: follows Process", "plan_slots": 0, "next_slot": None}
+        return {"plan_status": "NOT_PLANNED", "plan_status_label": f"{label}: not planned yet", "plan_slots": 0, "next_slot": None}
+    today = _plant_today()
+    if any(row.status == "RUNNING" for row in planned):
+        return {"plan_status": "RUNNING", "plan_status_label": f"{label}: running · planned {when(planned[0])}", "plan_slots": len(planned), "next_slot": nxt}
+    if len(planned) > 1:
+        return {"plan_status": "SPLIT", "plan_status_label": f"{label}: plan in {len(planned)} parts · next {when(planned[0])}", "plan_slots": len(planned), "next_slot": nxt}
+    if planned[0].plan_date < today:
+        return {"plan_status": "PAST", "plan_status_label": f"{label}: slot {when(planned[0])} passed", "plan_slots": 1, "next_slot": nxt}
+    return {"plan_status": "PLANNED", "plan_status_label": f"{label}: planned {when(planned[0])}", "plan_slots": 1, "next_slot": nxt}
+
+
+_CUSTOMER_CODE_CACHE: dict[str, tuple[float, dict[str, str]]] = {}
+
+
+def _customer_codes(token: str, plant_id: Optional[str]) -> dict[str, str]:
+    """customer_id → customer code from Masters (cached 5 min per plant), for planner search and chips."""
+    import time as _clock
+
+    key = str(plant_id or "")
+    cached = _CUSTOMER_CODE_CACHE.get(key)
+    if cached and _clock.monotonic() - cached[0] < 300:
+        return cached[1]
+    codes: dict[str, str] = {}
+    try:
+        headers = {"Authorization": f"Bearer {token}"}
+        if plant_id:
+            headers["X-Plant-ID"] = str(plant_id)
+        with httpx.Client(timeout=5.0) as client:
+            response = client.get(f"{settings.MASTERDATA_SERVICE_URL}/master/customers/", params={"include_inactive": True}, headers=headers)
+        if response.status_code == 200:
+            for row in response.json() or []:
+                if isinstance(row, dict) and row.get("id") and row.get("customer_code"):
+                    codes[str(row["id"])] = str(row["customer_code"])
+    except Exception:  # pragma: no cover - codes are a convenience; the planner works without them
+        logger.warning("customer codes for the planner could not be loaded", exc_info=True)
+    _CUSTOMER_CODE_CACHE[key] = (_clock.monotonic(), codes)
+    return codes
+
+
+def _apply_customer_codes(items: list[QueueJobCardItem], token: str, plant_id: Optional[str]) -> None:
+    codes = _customer_codes(token, plant_id) if items else {}
+    for item in items:
+        if item.customer_id and not item.customer_code:
+            item.customer_code = codes.get(str(item.customer_id))
+
+
 def _query_stage_queue_rows(
     *,
     db: Session,
@@ -4867,6 +4994,8 @@ def _queue_item_from_stage_row(
     )
     return QueueJobCardItem(
         job_card_no=getattr(job_card, "job_card_no", None),
+        sales_order_no=spec_snapshot.get("sales_order_order_no"),
+        po_number=spec_snapshot.get("sales_order_po_number"),
         is_emergency=bool(getattr(job_card, "is_emergency", False)),
         missed_slot_open=bool(getattr(job_card, "missed_slot_open", False)),
         missed_slot_count=int(getattr(job_card, "missed_slot_count", 0) or 0),
@@ -5068,6 +5197,9 @@ def _build_stage_board_view(
         else:
             lane_key = f"{stage}:UNSCHEDULED"
         bucket_map.setdefault(lane_key, []).append(item)
+    board_items = [item for jobs in bucket_map.values() for item in jobs]
+    _apply_queue_locks(db, stage, bucket_map.get(f"{stage}:UNSCHEDULED", []))
+    _apply_customer_codes(board_items, token, plant_id)
 
     lanes: list[PlanningBoardLane] = []
     summary_unit = STAGE_DEFAULT_CAPACITY_UNITS.get(stage, "TUBES_PER_DAY")
@@ -5550,6 +5682,9 @@ def get_stage_queue(
             )
         )
 
+    queue_items = [item for jobs in bucket_map.values() for item in jobs]
+    _apply_queue_locks(db, selected_stage, bucket_map.get("UNASSIGNED", []))
+    _apply_customer_codes(queue_items, current_user.get("token", ""), plant_scope.get("selected_plant_id"))
     buckets: list[QueueMachineBucket] = []
     for key in sorted(bucket_map.keys(), key=lambda value: (value != "UNASSIGNED", value)):
         buckets.append(
@@ -5972,16 +6107,16 @@ def list_planning_job_cards(
             open_segments = _open_stage_segments(db, job_card.id, job_card.current_stage)
             open_segment_count = len(open_segments)
             active_segment = open_segments[0] if open_segments else None
-            if open_segment_count > 1:
-                blocked_reason = f"{open_segment_count} open segments still need stage completion"
+        else:
+            open_segments = []
         planner_gate = _planner_gate_context(
             current_stage=job_card.current_stage,
             active_stage=active_stage,
             active_segment=active_segment,
             missed_slot=job_card.last_missed_slot if getattr(job_card, "missed_slot_open", False) else None,
         )
-        if blocked_reason is None and not planner_gate["planner_gate_ready"]:
-            blocked_reason = planner_gate["planner_gate_reason"]
+        # Planning never blocks the floor (client 2026-10-26): its state is the plan status below.
+        plan_state = _plan_status(db, job_card, open_segments)
         math_context = _planner_job_math(
             job_card=job_card,
             planned_qty=float(job_card.planned_qty or job_card.released_qty or 0.0),
@@ -6017,6 +6152,7 @@ def list_planning_job_cards(
                 active_segment_plan_date=planner_gate["active_segment_plan_date"],
                 open_segment_count=open_segment_count,
                 blocked_reason=blocked_reason,
+                **plan_state,
                 planner_gate_ready=planner_gate["planner_gate_ready"],
                 planner_gate_reason=planner_gate["planner_gate_reason"],
                 current_machine_id=str(active_segment.machine_id) if active_segment and active_segment.machine_id else (str(active_stage.machine_id) if active_stage and active_stage.machine_id else None),
@@ -6366,11 +6502,8 @@ def get_planning_job_card(
         active_segment=active_segment,
         missed_slot=job_card.last_missed_slot if getattr(job_card, "missed_slot_open", False) else None,
     )
-    blocked_reason = (
-        f"{len(open_active_segments)} open segments remain in {job_card.current_stage}"
-        if len(open_active_segments) > 1
-        else planner_gate["planner_gate_reason"]
-    )
+    blocked_reason = None
+    plan_state = _plan_status(db, job_card, open_active_segments)
 
     return JobCardPlanningDetail(
         job_card_no=getattr(job_card, "job_card_no", None),
@@ -6421,6 +6554,7 @@ def get_planning_job_card(
         active_segment_plan_date=planner_gate["active_segment_plan_date"],
         open_segment_count=len(open_active_segments),
         blocked_reason=blocked_reason,
+        **plan_state,
         planner_gate_ready=planner_gate["planner_gate_ready"],
         planner_gate_reason=planner_gate["planner_gate_reason"],
         carry_forward_suggestion=_build_carry_forward_suggestion(job_card, sorted_stages),
@@ -7006,6 +7140,19 @@ def reorder_stage_queue(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner"])),
 ):
+    response = _reorder_stage_queue_core(payload=payload, db=db, plant_id=plant_id, current_user=current_user)
+    db.commit()
+    return response
+
+
+def _reorder_stage_queue_core(
+    *,
+    payload: ReorderQueuePayload,
+    db: Session,
+    plant_id: str,
+    current_user: dict,
+) -> StageActionResponse:
+    """One queue/board placement without committing (the single move and the multi-card move share it)."""
     plant_uuid = _to_uuid(plant_id)
     selected_stage = _normalize_stage(payload.stage)
 
@@ -7106,6 +7253,8 @@ def reorder_stage_queue(
                 warnings.append(capability_warning)
             machine_capacity = machine.get("capacity_value")
 
+    if machine_uuid is not None and selected_stage in PLAN_GATED_STAGES:
+        _require_planning_open(db, job_card, selected_stage)
     stage.machine_id = machine_uuid
     stage.plan_date = payload.plan_date or stage.plan_date or _default_plan_date_from_snapshot(job_card.spec_snapshot or {})
     stage.shift_code = payload.shift_code or stage.shift_code or (
@@ -7153,8 +7302,7 @@ def reorder_stage_queue(
     message = "Queue order updated"
     if warnings:
         message = f"{message}. {' '.join(warnings)}"
-    db.commit()
-    db.refresh(job_card)
+    db.flush()
     return StageActionResponse(
         message=message,
         job_card_id=job_card.id,
@@ -7365,6 +7513,8 @@ def assign_machine_to_current_stage(
                 warnings.append(capability_warning)
             machine_capacity = machine.get("capacity_value")
 
+    if machine_uuid is not None and selected_stage in PLAN_GATED_STAGES:
+        _require_planning_open(db, job_card, selected_stage)
     stage.machine_id = machine_uuid
     stage.plan_date = payload.plan_date or stage.plan_date or _default_plan_date_from_snapshot(job_card.spec_snapshot or {})
     stage.shift_code = payload.shift_code or stage.shift_code or (
@@ -7756,13 +7906,25 @@ def capture_stage_output(
         raise HTTPException(status_code=400, detail="Duplicate output entry is not allowed for this stage")
     from .missed_slots import restore_missed_slot_for_late_entry
 
-    restore_missed_slot_for_late_entry(db, job_card, selected_stage, current_user.get("sub"), actor_role)
-    segment = _resolve_active_segment(
-        db,
-        job_card=job_card,
-        stage=selected_stage,
-        segment_id=payload.segment_id,
-    )
+    # A late entry for a slot that went back to the queue returns the card to the slot it ran in; that run
+    # counts as planned (late entry), not as run before planning.
+    restored_late_slot = restore_missed_slot_for_late_entry(db, job_card, selected_stage, current_user.get("sub"), actor_role)
+    # The plan never makes the floor pick a slot (client 2026-10-26): with several open slots the entry
+    # goes to the one on its own date and shift, else the earliest; a completed stage closes them all.
+    open_capture_segments = _open_stage_segments(db, job_card.id, selected_stage)
+    if payload.segment_id is None and len(open_capture_segments) > 1:
+        moment = payload.end_time or payload.start_time
+        entry_day = (moment.astimezone(PLANT_TIMEZONE).date() if moment.tzinfo else moment.date()) if moment else _plant_today()
+        entry_shift = payload.shift_code
+        same = [row for row in open_capture_segments if row.plan_date == entry_day and (row.shift_code or None) == entry_shift]
+        segment = same[0] if same else min(open_capture_segments, key=lambda row: (row.plan_date or date.max, row.shift_code or "~", row.sequence_no or 0))
+    else:
+        segment = _resolve_active_segment(
+            db,
+            job_card=job_card,
+            stage=selected_stage,
+            segment_id=payload.segment_id,
+        )
     if actor_role == "Operator" and payload.machine_id is not None:
         raise HTTPException(status_code=403, detail="Operator cannot change machine assignment during stage entry")
     if actor_role == "Operator" and (payload.override_reason or "").strip():
@@ -7791,9 +7953,13 @@ def capture_stage_output(
     planned_slot = None
     if selected_stage in {"SLITTING", "WINDER", "OVEN", "PROCESS"}:
         gate = _planner_gate_context(current_stage=selected_stage, active_stage=stage, active_segment=segment)
-        if gate["planner_gate_ready"] and segment.plan_date:
+        # "Before planning" only when the stage has no slot at all; an entry on another day keeps the plan
+        # and is matched to it as earlier / later (client 2026-10-26).
+        if segment.machine_id and segment.plan_date and segment.shift_code:
+            gate = {**gate, "planner_gate_ready": True}
+        if (gate["planner_gate_ready"] or restored_late_slot) and segment.plan_date:
             planned_slot = {"plan_date": segment.plan_date.isoformat(), "shift_code": segment.shift_code, "machine_id": str(segment.machine_id) if segment.machine_id else None}
-        if not gate["planner_gate_ready"]:
+        if not gate["planner_gate_ready"] and not restored_late_slot:
             today_local = plant_today()
             entry_shift = payload.shift_code or segment.shift_code or stage.shift_code
             unscheduled_entry = {
@@ -8136,15 +8302,19 @@ def capture_stage_output(
             warnings=time_warnings,
         )
 
+    # Completing the stage closes every open part of its plan, so the output is checked against them all.
+    stage_open_parts = [row for row in _open_stage_segments(db, job_card.id, selected_stage) if row.id != segment.id] if save_mode == "complete" else []
     segment_planned = planned_in_stage_units(
-        selected_stage, float(segment.planned_qty or 0.0), _pcs_per_bamboo_from_snapshot(job_card.spec_snapshot or {})
+        selected_stage,
+        float(segment.planned_qty or 0.0) + sum(float(row.planned_qty or 0.0) for row in stage_open_parts),
+        _pcs_per_bamboo_from_snapshot(job_card.spec_snapshot or {}),
     )
     if segment_planned > 0 and not within_output_tolerance(segment_planned, float(payload.output_qty or 0.0)) and not override_reason:
         raise HTTPException(
             status_code=409,
             detail=(
                 f"{selected_stage} output {float(payload.output_qty or 0.0):,.0f} is more than +{int(OUTPUT_TOLERANCE * 100)}% "
-                f"over the planned {segment_planned:,.0f} for this shift. Add an override reason if this is real."
+                f"over the planned {segment_planned:,.0f}{' for this stage' if stage_open_parts else ' for this shift'}. Add an override reason if this is real."
             ),
         )
     segment.started_at = actual_start_value
@@ -8153,6 +8323,10 @@ def capture_stage_output(
     segment.output_qty = float(payload.output_qty or 0.0)
     segment.scrap_qty = float(payload.scrap_qty or 0.0)
     segment.status = "COMPLETED"
+    for other in _open_stage_segments(db, job_card.id, selected_stage):
+        if other.id != segment.id:
+            other.status = "COMPLETED"
+            other.completed_at = segment.completed_at
     # The session does not autoflush; without this the open-segment queries
     # below still see this segment as open, so the next-stage handover
     # (input qty, default plan date/shift, segment creation) is skipped.

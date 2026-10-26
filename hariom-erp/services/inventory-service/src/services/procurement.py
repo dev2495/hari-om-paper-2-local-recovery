@@ -61,6 +61,45 @@ def normalize_invoice_number(value: str) -> str:
     return cleaned
 
 
+def normalize_challan_number(value: Any) -> str:
+    """Letters and digits only, upper case: "ch-12 / A" and "CH12A" are the same challan."""
+    cleaned = re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
+    if not cleaned:
+        raise ProcurementRuleError("supplier challan number is required")
+    return cleaned
+
+
+# Inward (GRN) numbers (client 2026-10-26): own counter per plant and calendar year, 001, 002…
+# Paper inwards P/26/001, adhesive inwards A/26/001, everything else (parchment, plastic, box,
+# mixed) IN/26/001.
+GRN_SERIES_PREFIX = {"PAPER": "P", "ADHESIVE": "A", "GENERAL": "IN"}
+
+
+def grn_series_for(item_types: Iterable[Any]) -> str:
+    """PAPER when every line is paper, ADHESIVE when every line is adhesive, else GENERAL."""
+    kinds = {str(getattr(value, "value", value) or "").strip().upper() for value in item_types}
+    if kinds == {"RAW_PAPER"}:
+        return "PAPER"
+    if kinds == {"ADHESIVE"}:
+        return "ADHESIVE"
+    return "GENERAL"
+
+
+def grn_number(series: str, year: int, sequence: int) -> str:
+    if sequence <= 0:
+        raise ProcurementRuleError("document sequence must be positive")
+    prefix = GRN_SERIES_PREFIX.get(str(series or "").upper())
+    if not prefix:
+        raise ProcurementRuleError("unsupported inward series")
+    return f"{prefix}/{int(year) % 100:02d}/{sequence:03d}"
+
+
+def over_receipt(received: Any, open_qty: Any) -> Decimal:
+    """How much a receipt goes past the PO line's open quantity (0 when within it)."""
+    extra = decimal_value(received, "received") - max(decimal_value(open_qty, "open_qty"), Decimal("0"))
+    return extra if extra > 0 else Decimal("0")
+
+
 def po_number(prefix: str, sequence: int) -> str:
     if sequence <= 0:
         raise ProcurementRuleError("document sequence must be positive")

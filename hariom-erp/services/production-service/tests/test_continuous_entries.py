@@ -518,3 +518,44 @@ def test_card_already_packing_closes_without_choosing_an_fg_item(card,monkeypatc
     assert states['DISPATCH']['available_from_upstream']==100
     kinds={(e.kind,e.payload['stage']) for e in db.query(CompletionEffect).filter_by(job_card_id=job.id)}
     assert ('fg_inward','PACKING') in kinds and ('theory','PACKING') in kinds
+
+def _winding_slots(db,job,*slots):
+    from src.models import JobCardStageSegment
+    machine=next(s.machine_id for s in job.stages if s.stage_type=='WINDER')
+    rows=[JobCardStageSegment(plant_id=job.plant_id,job_card_id=job.id,stage_type='WINDER',segment_no=index,machine_id=machine,plan_date=day,shift_code=shift,planned_qty=50,required_capacity=0,status='ASSIGNED',split_source='MANUAL' if len(slots)>1 else 'NONE',sequence_no=index) for index,(day,shift) in enumerate(slots,start=1)]
+    db.add_all(rows);db.commit()
+    return rows
+
+def test_run_goes_to_the_part_of_a_split_plan_on_its_own_shift(card):
+    # Client 2026-10-26: the floor never picks a slot; the run lands in the part planned for its date and shift.
+    a,db,job=card
+    first,second=_winding_slots(db,job,(date.today(),'SHIFT_A'),(date.today(),'SHIFT_B'))
+    night=create(a,db,job,shift_code='SHIFT_B',samples=winding_samples())['entry']
+    day=create(a,db,job,shift_code='SHIFT_A',samples=winding_samples())['entry']
+    assert night['segment_id']==str(second.id) and day['segment_id']==str(first.id)
+    assert not (night['details'] or {}).get('unscheduled_entry')
+
+def test_late_run_after_the_36h_rule_returns_the_card_to_its_slot(card):
+    from datetime import timedelta
+    from src.routers import missed_slots
+    a,db,job=card
+    ran_on=date.today()-timedelta(days=3)
+    [slot]=_winding_slots(db,job,(ran_on,'SHIFT_A'))
+    assert [row['job_card_id'] for row in missed_slots.sweep_missed_slots(db,job.plant_id)]==[str(job.id)]
+    db.refresh(job);db.refresh(slot)
+    assert job.missed_slot_open and slot.status=='QUEUED' and slot.machine_id is None
+    entry=create(a,db,job,business_date=ran_on,samples=winding_samples())['entry']
+    db.refresh(job);db.refresh(slot)
+    assert not job.missed_slot_open and slot.plan_date==ran_on and slot.machine_id is not None
+    assert not (entry['details'] or {}).get('unscheduled_entry') and entry['details']['planned_slot']['plan_date']==ran_on.isoformat()
+
+def test_run_before_its_planned_day_keeps_the_plan_and_is_not_unplanned(card):
+    # The floor never moves the plan: a run 3 days early stays on its slot and the reports call it early.
+    from datetime import timedelta
+    a,db,job=card
+    later=date.today()+timedelta(days=3)
+    [slot]=_winding_slots(db,job,(later,'SHIFT_A'))
+    entry=create(a,db,job,samples=winding_samples())['entry']
+    db.refresh(slot)
+    assert slot.plan_date==later and slot.shift_code=='SHIFT_A'
+    assert not (entry['details'] or {}).get('unscheduled_entry') and entry['segment_id']==str(slot.id)

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, joinedload
 from ..concession_use import guard_concession_stock
 from ..database import get_db
 from ..models import (
+    ItemMaster,
     PaperReel,
     ReelIssue,
     ReelIssueStatus,
@@ -133,6 +134,52 @@ class ReelIssueCreate(BaseModel):
         return self
 
 
+# Parchment goes to the floor by colour and kg, never by coil number (client 2026-10-26).
+WEIGHT_ISSUE_TYPES = {"PARCHMENT"}
+
+
+def _item_type(item) -> str:
+    raw = getattr(item, "type", None)
+    return str(getattr(raw, "value", raw) or "").upper()
+
+
+class WeightIssueCreate(BaseModel):
+    """Issue a weight of one parchment colour; the oldest cleared coils are used first."""
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    item_id: uuid.UUID
+    qty_kg: float = Field(gt=0)
+    shift: str
+    issue_date: date
+    notes: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("shift")
+    @classmethod
+    def validate_shift(cls, value: str) -> str:
+        return _normalize_shift(value)
+
+
+def plan_weight_issue(coils: list[tuple[str, float]], qty_kg: float) -> list[tuple[str, float]]:
+    """(coil key, kg taken) oldest first until ``qty_kg`` is covered. Raises if the coils hold less."""
+    wanted = round(float(qty_kg), 3)
+    available = round(sum(max(0.0, float(weight or 0.0)) for _, weight in coils), 3)
+    if wanted <= 0:
+        raise ValueError("Enter the kg going to the floor.")
+    if wanted > available + 0.0005:
+        raise ValueError(f"Only {available:g} kg is cleared for issue. You asked for {wanted:g} kg.")
+    plan: list[tuple[str, float]] = []
+    left = wanted
+    for key, weight in coils:
+        if left <= 0.0005:
+            break
+        take = round(min(left, max(0.0, float(weight or 0.0))), 3)
+        if take <= 0:
+            continue
+        plan.append((key, take))
+        left = round(left - take, 3)
+    return plan
+
+
 class ReelIssueClosePayload(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
@@ -213,6 +260,11 @@ def create_reel_issue(
         raise HTTPException(status_code=404, detail="Reel not found in this plant")
     if reel.status in {ReelStatus.CONSUMED, ReelStatus.SCRAP} or float(reel.current_weight_kg or 0.0) <= 0:
         raise HTTPException(status_code=400, detail="Reel is not issuable")
+    if _item_type(reel.paper) in WEIGHT_ISSUE_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="Parchment is issued by colour and kg, not by coil number. Use the Adhesive / parchment / packing issue tab.",
+        )
     # Floor issue (client rule 2026-10-18): a reel goes to the slitter, a coil straight to the
     # winders; no machine is chosen, only the shift, and the whole reel is consumed.
     section = payload.issue_section or SECTION_FOR_FORM.get(_reel_form(reel), "WINDER_SECTION")
@@ -305,6 +357,93 @@ def create_reel_issue(
     except Exception as exc:
         _audit_logger.warning("audit emit failed for reel_issue_created %s: %s", issue.id, exc)
     return _serialize_issue(issue)
+
+
+@router.post("/by-weight")
+def issue_parchment_by_weight(
+    payload: WeightIssueCreate,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Store", "PlantManager", "RMIssue"])),
+):
+    """Parchment to the floor by colour and kg (client 2026-10-26): no coil number is chosen.
+
+    The oldest QC-cleared coils of that colour are used first; a coil that is only partly used
+    stays in stock with what is left. Each coil touched gets one closed floor issue row, so the
+    monthly material summary and the issue registers count the kg as before.
+    """
+    item = db.query(ItemMaster).filter(ItemMaster.id == payload.item_id, ItemMaster.plant_id == str(plant_id)).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Material not found in this plant")
+    if _item_type(item) not in WEIGHT_ISSUE_TYPES:
+        raise HTTPException(status_code=400, detail=f"{item.name} is not issued by weight. Reels and coils of paper are issued by their AT label.")
+    coils = (
+        db.query(PaperReel)
+        .filter(
+            PaperReel.plant_id == _to_uuid(plant_id),
+            PaperReel.paper_id == item.id,
+            PaperReel.status == ReelStatus.IN_STOCK,
+            PaperReel.stock_status.in_(sorted(ISSUABLE_STOCK_STATUSES)),
+            PaperReel.current_weight_kg > 0,
+        )
+        .order_by(PaperReel.inward_date.asc(), PaperReel.created_at.asc(), PaperReel.reel_code.asc())
+        .with_for_update()
+        .populate_existing()
+        .all()
+    )
+    busy = {
+        row[0] for row in db.query(ReelIssue.reel_id).filter(
+            ReelIssue.reel_id.in_([coil.id for coil in coils]), ReelIssue.status == ReelIssueStatus.OPEN,
+        ).all()
+    } if coils else set()
+    coils = [coil for coil in coils if coil.id not in busy]
+    try:
+        plan = plan_weight_issue([(str(coil.id), float(coil.current_weight_kg or 0.0)) for coil in coils], payload.qty_kg)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"{item.name}: {exc}") from exc
+    by_id = {str(coil.id): coil for coil in coils}
+    now = datetime.utcnow()
+    touched = []
+    for key, take in plan:
+        coil = by_id[key]
+        issue = ReelIssue(
+            plant_id=_to_uuid(plant_id), reel_id=coil.id, issue_section="WINDER_SECTION",
+            shift=payload.shift, issue_date=payload.issue_date, issued_weight_kg=take,
+            consumed_weight_kg=take, remaining_weight_kg=0.0, status=ReelIssueStatus.CLOSED,
+            closed_at=now, issue_mode="FLOOR",
+        )
+        left = round(float(coil.current_weight_kg or 0.0) - take, 3)
+        coil.current_weight_kg = 0.0 if left <= 0.0005 else left
+        if coil.current_weight_kg == 0.0:
+            coil.status = ReelStatus.CONSUMED
+        db.add(issue)
+        db.flush()
+        db.add(ReelScanEvent(
+            plant_id=_to_uuid(plant_id), reel_id=coil.id, event_type=ReelScanEventType.ISSUE_SCAN,
+            source=ReelScanSource.INVENTORY,
+            event_metadata={"issue_id": str(issue.id), "issue_mode": "BY_WEIGHT", "shift": payload.shift,
+                            "issued_weight_kg": take, "left_kg": coil.current_weight_kg, "notes": payload.notes},
+        ))
+        touched.append({"issue_id": str(issue.id), "reel_code": coil.reel_code, "issued_kg": take, "left_kg": coil.current_weight_kg})
+    db.commit()
+    issued = round(sum(row["issued_kg"] for row in touched), 3)
+    available_after = round(sum(float(coil.current_weight_kg or 0.0) for coil in coils), 3)
+    try:
+        emit_audit_event(
+            token=current_user.get("token", ""), event_type="parchment_issued_by_weight", entity_type="item",
+            entity_id=str(item.id), plant_id=str(plant_id), actor_role=str((current_user.get("roles") or ["?"])[0]),
+            actor_email=current_user.get("sub"),
+            summary=f"{issued:g} kg of {item.name} issued to the floor for shift {payload.shift}",
+            payload={"item_id": str(item.id), "qty_kg": issued, "shift": payload.shift, "issue_date": payload.issue_date.isoformat(), "coils": touched},
+        )
+    except Exception as exc:
+        _audit_logger.warning("audit emit failed for parchment_issued_by_weight %s: %s", item.id, exc)
+    return {
+        "item_id": str(item.id), "item_code": item.item_code, "item_name": item.name, "uom": "KG",
+        "issued_kg": issued, "available_after_kg": available_after, "shift": payload.shift,
+        "issue_date": payload.issue_date.isoformat(), "coils": touched,
+        "message": f"{issued:g} kg of {item.name} issued to the floor for shift {payload.shift}. {available_after:g} kg left in stock.",
+    }
 
 
 @router.get("", response_model=List[ReelIssueResponse])

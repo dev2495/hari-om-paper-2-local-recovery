@@ -1,204 +1,163 @@
 "use client"
 
-import dayjs from "dayjs"
-import { Printer } from "lucide-react"
-import { useMemo } from "react"
+import Link from "next/link"
 import { useSearchParams } from "next/navigation"
+import { Suspense, useEffect, useMemo, useState } from "react"
+import { useQuery } from "@tanstack/react-query"
+import { ArrowLeft, Printer } from "lucide-react"
 
 import { EmptyState } from "@/components/erp/shell"
+import { ErrorState, LoadingState } from "@/components/workspace/query-state"
+import { PrintSelectionForm } from "@/components/planning/overview/print-selection-form"
+import { PlanningPrintSheet, buildPrintStages } from "@/components/planning/overview/print-sheet"
+import { Checkbox } from "@/components/planning/overview/ui"
+import { SECTION_STAGE, STAGE_ORDER, addDays, fmtNum, isStage, isoDate, type PrintSelection } from "@/components/planning/overview/lib"
+import type { PlanningOverview, ShiftCode } from "@/components/planning/overview/types"
 import { useAuth } from "@/context/AuthContext"
-import { usePlanningBoard } from "@/hooks/use-production"
-import { jobCardRef } from "@/lib/job-card-display"
+import { productionApi } from "@/lib/api"
 import { displayPlantScope } from "@/lib/plant-scope"
 
-const SECTION_STAGE_MAP: Record<string, string> = {
-  winder: "WINDER",
-  oven: "OVEN",
-  process: "PROCESS",
-  slitting: "SLITTING",
-}
-
-function formatDate(value?: string | null, template = "DD MMM YYYY") {
-  if (!value) return "-"
-  const parsed = dayjs(value)
-  return parsed.isValid() ? parsed.format(template) : String(value)
-}
-
-function formatWhole(value?: number | string | null) {
-  const numeric = Number(value || 0)
-  return Number.isFinite(numeric) ? numeric.toFixed(0) : "0"
-}
-
-function formatOne(value?: number | string | null) {
-  const numeric = Number(value || 0)
-  return Number.isFinite(numeric) ? numeric.toFixed(1) : "0.0"
-}
-
-function plannerSize(job: any) {
-  return job?.product_size_label && job.product_size_label !== "-"
-    ? job.product_size_label
-    : job?.spec_reference || job?.product_code || "Spec pending"
-}
-
-function winderMeterLoad(job: any) {
-  const requiredCapacity = Number(job?.required_capacity ?? 0)
-  if (Number.isFinite(requiredCapacity) && requiredCapacity > 0) return requiredCapacity
-  const bambooCount = Number(job?.target_bamboo_count ?? 0)
-  const bambooLengthMm = Number(job?.selected_bamboo_length_mm ?? 0)
-  if (bambooCount > 0 && bambooLengthMm > 0) return (bambooCount * bambooLengthMm) / 1000
-  return 0
+/**
+ * Shop-floor planning sheets, one A4 page per stage (client 2026-10-26: "print all stages planning
+ * from a single click", "print with selection").
+ *
+ * Query params: `stages=WINDER,OVEN` · `date_from` / `date_to` · `machines=id,id` · `shifts=SHIFT_A`
+ * · `slots=id,id` (only those slots). The planner's old link `?section=winder&plan_date=…` still
+ * works: one stage, that day and the two after it.
+ */
+function parsePrintParams(params: URLSearchParams | null, today: string): PrintSelection {
+  const get = (key: string) => String(params?.get(key) || "")
+  const list = (key: string) => get(key).split(",").map((value) => value.trim()).filter(Boolean)
+  const stagesParam = list("stages").map((value) => value.toUpperCase()).filter(isStage)
+  const section = SECTION_STAGE[get("section").toLowerCase()]
+  const stages = stagesParam.length ? stagesParam : section ? [section] : []
+  const legacyDate = get("plan_date")
+  const from = get("date_from") || legacyDate || today
+  const to = get("date_to") || (legacyDate ? addDays(legacyDate, 2) : get("date_from") ? from : addDays(today, 2))
+  const shifts = list("shifts").map((value) => value.toUpperCase()).filter((value): value is ShiftCode => value === "SHIFT_A" || value === "SHIFT_B")
+  return { stages: stages.length === STAGE_ORDER.length ? [] : stages, from, to: to < from ? from : to, machines: list("machines"), shifts: shifts.length === 2 ? [] : shifts, slots: list("slots") }
 }
 
 export default function PlanningPrintPage() {
+  return (
+    <Suspense fallback={<p className="p-6 text-sm text-muted-foreground">Loading planning sheets…</p>}>
+      <PlanningPrint />
+    </Suspense>
+  )
+}
+
+function PlanningPrint() {
   const searchParams = useSearchParams()
   const { activePlant, user, isLoading: authLoading } = useAuth()
-  const section = String(searchParams?.get("section") || "winder").toLowerCase()
-  const stage = SECTION_STAGE_MAP[section] || "WINDER"
-  const startDate = searchParams?.get("plan_date") || dayjs().format("YYYY-MM-DD")
-  const scopedPlantId = activePlant === "ALL" ? undefined : activePlant || undefined
+  const today = isoDate(new Date())
+  const initial = useMemo(() => parsePrintParams(searchParams, today), [searchParams, today])
+  const [selection, setSelection] = useState<PrintSelection>(initial)
+  const [onlySelected, setOnlySelected] = useState(true)
+  useEffect(() => {
+    setSelection(initial)
+    setOnlySelected(true)
+  }, [initial])
+
   const canQuery = !authLoading && Boolean(user) && activePlant !== "ALL"
-
-  const days = [0, 1, 2].map((offset) => dayjs(startDate).add(offset, "day").format("YYYY-MM-DD"))
-  const board0 = usePlanningBoard(stage, days[0], true, scopedPlantId, canQuery)
-  const board1 = usePlanningBoard(stage, days[1], true, scopedPlantId, canQuery)
-  const board2 = usePlanningBoard(stage, days[2], true, scopedPlantId, canQuery)
-
-  const stageViews = useMemo(
-    () =>
-      [board0.data, board1.data, board2.data].map((response: any, index) => ({
-        date: days[index],
-        view: Array.isArray(response?.stages)
-          ? response.stages.find((row: any) => String(row.stage || "").toUpperCase() === stage)
-          : null,
-      })),
-    [board0.data, board1.data, board2.data, days, stage],
-  )
-
-  const scheduledRows = useMemo(
-    () =>
-      stageViews.flatMap((entry) =>
-        (entry.view?.lanes || [])
-          .filter((lane: any) => lane.machine_id || lane.shift_code)
-          .flatMap((lane: any) =>
-            (lane.jobs || []).map((job: any) => ({
-              ...job,
-              plan_date: entry.date,
-              machine: lane.machine_code || lane.machine_name || "-",
-              shift: lane.shift_label || lane.shift_code || "-",
-              load: lane.current_load,
-              capacity: lane.capacity_value,
-              unit: lane.capacity_unit || "",
-            })),
-          ),
-      ),
-    [stageViews],
-  )
+  const query = useQuery({
+    queryKey: ["planning-overview", selection.from, selection.to, activePlant || "default"],
+    queryFn: async () => (await productionApi.getPlanningOverview({ date_from: selection.from, date_to: selection.to })).data as PlanningOverview,
+    enabled: canQuery,
+    staleTime: 30_000,
+  })
+  const data = query.data
+  const effective = useMemo<PrintSelection>(() => ({ ...selection, slots: onlySelected ? selection.slots : [] }), [selection, onlySelected])
+  const stages = useMemo(() => buildPrintStages(data, effective), [data, effective])
+  const sheets = stages.filter((stage) => stage.slots > 0)
 
   if (activePlant === "ALL") {
-    return <EmptyState label="Select one plant before printing the planner sheet." />
+    return <EmptyState label="Select one plant before printing the planning sheets." />
   }
 
   return (
-    <div className="tube-paper mx-auto max-w-[1180px] bg-white p-6 text-slate-950 print:max-w-none print:p-0">
-      <div className="no-print mb-4 flex justify-end">
-        <button
-          type="button"
-          onClick={() => window.print()}
-          className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white"
-        >
-          <Printer className="h-4 w-4" />
-          Print planner sheet
-        </button>
+    <div className="space-y-4" data-testid="planning-print">
+      <div className="no-print rounded-xl border border-border bg-card p-4 shadow-premium" data-print-hide>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-[18px] font-semibold tracking-tight">Print planning sheets</h1>
+            <p className="text-[12.5px] text-muted-foreground">One A4 sheet per stage. Change the selection here, then print; the sheet below is what comes out.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link href="/planning/overview" className="erp-btn-secondary">
+              <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+              Planning overview
+            </Link>
+            <button type="button" onClick={() => window.print()} className="erp-btn-primary" disabled={!sheets.length} data-testid="print-now">
+              <Printer className="h-4 w-4" aria-hidden="true" />
+              Print {sheets.length ? `${sheets.length} sheet${sheets.length === 1 ? "" : "s"}` : ""}
+            </button>
+          </div>
+        </div>
+        <div className="mt-4">
+          <PrintSelectionForm dense value={selection} onChange={setSelection} machines={data?.machines || []} today={today} />
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12.5px] text-muted-foreground">
+          {initial.slots.length ? <Checkbox checked={onlySelected} onChange={setOnlySelected} label={<>Only the <strong>{initial.slots.length}</strong> slot{initial.slots.length === 1 ? "" : "s"} chosen on the overview</>} /> : null}
+          <span>
+            {sheets.length
+              ? `Prints ${sheets.map((stage) => `${stage.label} (${fmtNum(stage.slots)} slot${stage.slots === 1 ? "" : "s"})`).join(", ")}.`
+              : data
+                ? "No planned slots match this selection."
+                : ""}
+          </span>
+        </div>
       </div>
 
-      <section className="border-2 border-slate-950 p-4">
-        <div className="flex items-start justify-between gap-4 border-b-2 border-slate-950 pb-3">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em]">Shop Floor Planning Sheet</p>
-            <h1 className="mt-1 text-2xl font-black">{stage} plan</h1>
-            <p className="mt-1 text-sm">
-              Window {formatDate(days[0])} to {formatDate(days[2])} · Plant {displayPlantScope(activePlant, "-")}
-            </p>
-          </div>
-          <div className="text-right text-xs">
-            <p>Printed {dayjs().format("DD MMM YYYY HH:mm")}</p>
-            <p>Use this sheet with supervisor output entry.</p>
-          </div>
-        </div>
-
-        <div className="mt-4 grid grid-cols-4 gap-2 text-xs">
-          <div className="border border-slate-400 p-2">
-            <p className="font-bold uppercase">Scheduled Slots</p>
-            <p className="mt-1 text-xl font-black">{scheduledRows.length}</p>
-          </div>
-          <div className="border border-slate-400 p-2">
-            <p className="font-bold uppercase">Scheduled Tubes</p>
-            <p className="mt-1 text-xl font-black">
-              {formatWhole(scheduledRows.reduce((sum: number, job: any) => sum + Number(job.segment_planned_qty || 0), 0))}
-            </p>
-          </div>
-          <div className="border border-slate-400 p-2">
-            <p className="font-bold uppercase">{stage === "WINDER" ? "Scheduled Meters" : "Scheduled Bamboo"}</p>
-            <p className="mt-1 text-xl font-black">
-              {stage === "WINDER"
-                ? formatOne(scheduledRows.reduce((sum: number, job: any) => sum + winderMeterLoad(job), 0))
-                : formatWhole(scheduledRows.reduce((sum: number, job: any) => sum + Number(job.target_bamboo_count || 0), 0))}
-            </p>
-          </div>
-          <div className="border border-slate-400 p-2">
-            <p className="font-bold uppercase">Scheduled Weight</p>
-            <p className="mt-1 text-xl font-black">
-              {formatOne(scheduledRows.reduce((sum: number, job: any) => sum + Number(job.planned_weight_kg || 0), 0))} kg
-            </p>
-          </div>
-        </div>
-
-        <h2 className="mt-5 text-sm font-black uppercase tracking-[0.14em]">Scheduled Machine Slots</h2>
-        <table className="mt-2 w-full border-collapse text-xs">
-          <thead>
-            <tr className="bg-slate-100">
-              {["Date", "Machine", "Shift", "Job", "Customer", "Size", "Tubes", stage === "WINDER" ? "Meters" : "Bamboo", "Weight", "Remarks"].map((header) => (
-                <th key={header} className="border border-slate-500 px-2 py-1.5 text-left font-black">{header}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {scheduledRows.length === 0 ? (
-              <tr>
-                <td className="border border-slate-500 px-2 py-3 text-center" colSpan={10}>No scheduled jobs in this window.</td>
-              </tr>
-            ) : (
-              scheduledRows.map((job: any) => (
-                <tr key={`${job.segment_id}-${job.plan_date}-${job.machine}-${job.shift}`}>
-                  <td className="border border-slate-500 px-2 py-1.5">{formatDate(job.plan_date, "DD MMM")}</td>
-                  <td className="border border-slate-500 px-2 py-1.5">{job.machine}</td>
-                  <td className="border border-slate-500 px-2 py-1.5">{job.shift}</td>
-                  <td className="border border-slate-500 px-2 py-1.5 font-bold">{jobCardRef(job)}</td>
-                  <td className="border border-slate-500 px-2 py-1.5">{job.customer_name || "-"}</td>
-                  <td className="border border-slate-500 px-2 py-1.5">{plannerSize(job)}</td>
-                  <td className="border border-slate-500 px-2 py-1.5 text-right">{formatWhole(job.segment_planned_qty)}</td>
-                  <td className="border border-slate-500 px-2 py-1.5 text-right">{stage === "WINDER" ? formatOne(winderMeterLoad(job)) : formatWhole(job.target_bamboo_count)}</td>
-                  <td className="border border-slate-500 px-2 py-1.5 text-right">{formatOne(job.planned_weight_kg)} kg</td>
-                  <td className="border border-slate-500 px-2 py-1.5">Output pending until supervisor entry closes this step.</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-        <p className="mt-4 border border-slate-400 bg-slate-50 px-3 py-2 text-xs font-semibold">
-          Queue cards are intentionally excluded from shop-floor print. Only scheduled machine/shift slots are printable for floor execution.
-        </p>
-      </section>
+      {!canQuery && !authLoading ? null : query.isLoading ? (
+        <LoadingState label="Loading the planned slots…" />
+      ) : query.isError ? (
+        <ErrorState title="The planning sheets could not load" message="Refresh to retry." onRetry={() => void query.refetch()} />
+      ) : (
+        <PlanningPrintSheet data={data} selection={effective} plantLabel={displayPlantScope(activePlant, "-")} />
+      )}
 
       <style jsx global>{`
         @media print {
           .no-print,
           aside,
-          header {
+          nav,
+          header:not(.pp-keep) {
             display: none !important;
           }
+          html,
           body {
-            background: white !important;
+            background: #fff !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          .bg-dashboard-mesh {
+            background: #fff !important;
+          }
+          .bg-dashboard-mesh > div,
+          .bg-dashboard-mesh main {
+            padding: 0 !important;
+            margin: 0 !important;
+            max-width: none !important;
+          }
+          .pp-sheet {
+            max-width: none !important;
+          }
+          .pp-stage {
+            break-after: page;
+            page-break-after: always;
+            margin-top: 0 !important;
+          }
+          .pp-stage:last-child {
+            break-after: auto;
+            page-break-after: auto;
+          }
+          .pp-table thead {
+            display: table-header-group;
+          }
+          .pp-row,
+          .pp-group {
+            break-inside: avoid;
+            page-break-inside: avoid;
           }
         }
       `}</style>

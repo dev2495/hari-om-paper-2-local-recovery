@@ -55,6 +55,41 @@ async def plan_vs_actual(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/reports/plan-vs-actual", request, token)
 
 
+@router.get("/planning/overview")
+async def planning_overview(request: Request, token: str = Depends(get_token)):
+    """Planned slots of a period against the floor log, machine load and queues (production planning_overview)."""
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/planning/overview", request, token)
+
+
+@router.get("/reports/planning")
+async def planning_report(request: Request, token: str = Depends(get_token)):
+    """How well the plan held for a period (production planning_overview)."""
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/reports/planning", request, token)
+
+
+@router.get("/job-cards/{card_id}/plan")
+async def job_card_plan(card_id: str, request: Request, token: str = Depends(get_token)):
+    """A card's planner slots and what the floor logged in each."""
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{card_id}/plan", request, token)
+
+
+@router.post("/planning/board/move-bulk")
+async def move_many_planning_cards(request: Request, token: str = Depends(get_token)):
+    """Several queue cards onto the board at once, all or nothing."""
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/planning/board/move-bulk", request, token)
+
+
+@router.api_route("/planning/views", methods=["GET", "POST"])
+async def planner_views(request: Request, token: str = Depends(get_token)):
+    """Saved planner queue views (yours and the plant's)."""
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/planning/views", request, token)
+
+
+@router.api_route("/planning/views/{view_id}", methods=["PATCH", "DELETE"])
+async def planner_view(view_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/planning/views/{view_id}", request, token)
+
+
 @router.post("/job-cards/{card_id}/batch-entry")
 async def switch_to_batch_entry(card_id: str, request: Request, token: str = Depends(get_token)):
     """Old-form card (released before batch entry) moves to batch entry; see production planning."""

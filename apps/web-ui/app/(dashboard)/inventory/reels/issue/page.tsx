@@ -8,7 +8,7 @@ import { QrScanner } from "@/components/common/qr-scanner"
 import { Field, MessageBar, ProcurementShell, WorkPanel, fieldClass, primaryButton, secondaryButton } from "@/components/procurement/procurement-shell"
 import { IssueDeskTabs } from "@/components/procurement/issue-desk-tabs"
 import { RoleGate } from "@/components/workspace/role-gate"
-import { useCloseReelIssue, useCreateReelIssue, useRecordSlittingCard, useReelIssues, useReels } from "@/hooks/use-inventory"
+import { useCloseReelIssue, useCreateReelIssue, useInventoryItems, useRecordSlittingCard, useReelIssues, useReels } from "@/hooks/use-inventory"
 import { businessDate } from "@/lib/business-date"
 import { cn } from "@/lib/utils"
 
@@ -53,23 +53,42 @@ export default function ReelAndCoilIssuePage() {
 
   const reelsQuery = useReels({ status: "IN_STOCK", stock_status: ISSUABLE, limit: 500 })
   const stockQuery = useReels({ status: "IN_STOCK", limit: 500 })
+  const itemsQuery = useInventoryItems()
+  // Parchment is issued by colour and kg on the material tab, never by coil number (client 2026-10-26).
+  const itemById = useMemo(() => new Map((Array.isArray(itemsQuery.data) ? itemsQuery.data : []).map((item: any) => [String(item.id), item])), [itemsQuery.data])
+  const isParchmentReel = (row: any) => String(itemById.get(String(row?.paper_id))?.type || "").toUpperCase() === "PARCHMENT"
   const openQuery = useReelIssues({ status: "OPEN", limit: 300 })
   const todayQuery = useReelIssues({ date_from: businessDate(), date_to: businessDate(), limit: 300 })
   const createIssue = useCreateReelIssue()
   const recordCard = useRecordSlittingCard()
   const closeLegacy = useCloseReelIssue()
 
-  const reels: any[] = useMemo(() => (Array.isArray(reelsQuery.data) ? reelsQuery.data : []).filter((row: any) => Number(row.current_weight_kg || 0) > 0), [reelsQuery.data])
+  const reels: any[] = useMemo(() => (Array.isArray(reelsQuery.data) ? reelsQuery.data : []).filter((row: any) => Number(row.current_weight_kg || 0) > 0 && !isParchmentReel(row)), [reelsQuery.data, itemById]) // eslint-disable-line react-hooks/exhaustive-deps
   const waiting: any[] = useMemo(() => {
     const issuable = new Set(reels.map((row) => String(row.id)))
-    return (Array.isArray(stockQuery.data) ? stockQuery.data : []).filter((row: any) => Number(row.current_weight_kg || 0) > 0 && !issuable.has(String(row.id)) && !ISSUABLE.split(",").includes(String(row.stock_status || "").toUpperCase()))
-  }, [stockQuery.data, reels])
+    return (Array.isArray(stockQuery.data) ? stockQuery.data : []).filter((row: any) => Number(row.current_weight_kg || 0) > 0 && !isParchmentReel(row) && !issuable.has(String(row.id)) && !ISSUABLE.split(",").includes(String(row.stock_status || "").toUpperCase()))
+  }, [stockQuery.data, reels, itemById]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Stock on hand per paper (client 2026-10-26): what is cleared for issue now, and what still waits.
+  const onHand = useMemo(() => {
+    const rows = new Map<string, { id: string; code: string; name: string; reels: number; kg: number; waitingKg: number }>()
+    const add = (row: any, cleared: boolean) => {
+      const item: any = itemById.get(String(row.paper_id))
+      const key = String(row.paper_id)
+      const entry = rows.get(key) || { id: key, code: item?.item_code || "Paper", name: item?.name || "", reels: 0, kg: 0, waitingKg: 0 }
+      if (cleared) { entry.reels += 1; entry.kg += Number(row.current_weight_kg || 0) } else entry.waitingKg += Number(row.current_weight_kg || 0)
+      rows.set(key, entry)
+    }
+    reels.forEach((row) => add(row, true))
+    waiting.forEach((row) => add(row, false))
+    return Array.from(rows.values()).sort((a, b) => a.code.localeCompare(b.code))
+  }, [reels, waiting, itemById])
   const waitingQc = waiting.filter((row) => ["BLOCKED", "PENDING"].includes(String(row.stock_status || "").toUpperCase())).length
   const waitingHold = waiting.length - waitingQc
   const openIssues: any[] = Array.isArray(openQuery.data) ? openQuery.data : []
   const cardsDue = openIssues.filter((row) => row.issue_mode === "FLOOR" && row.issue_section === "SLITTING_SECTION")
   const legacyOpen = openIssues.filter((row) => row.issue_mode !== "FLOOR")
-  const today: any[] = Array.isArray(todayQuery.data) ? todayQuery.data : []
+  const parchmentCodes = new Set(Array.from(itemById.values()).filter((item: any) => String(item?.type || "").toUpperCase() === "PARCHMENT").map((item: any) => String(item.item_code)))
+  const today: any[] = (Array.isArray(todayQuery.data) ? todayQuery.data : []).filter((row: any) => !parchmentCodes.has(String(row.paper_code || "")))
   const selected = reels.find((row) => String(row.id) === reelId)
   const busy = createIssue.isPending || recordCard.isPending || closeLegacy.isPending
 
@@ -78,6 +97,8 @@ export default function ReelAndCoilIssuePage() {
     if (parsed.entityType && parsed.entityType !== "REEL") return setNotice({ tone: "error", text: "Scan a reel or coil QR label." })
     const id = parsed.entityId.trim().toUpperCase()
     const code = parsed.code.trim().toUpperCase()
+    const parchmentCoil = (Array.isArray(stockQuery.data) ? stockQuery.data : []).find((row: any) => isParchmentReel(row) && (String(row.id).toUpperCase() === id || String(row.reel_code || "").toUpperCase() === code))
+    if (parchmentCoil) return setNotice({ tone: "info", text: `${parchmentCoil.reel_code} is parchment. Parchment is issued by colour and kg on the Adhesive / parchment / packing tab.` })
     const matched = reels.find((row) => String(row.id).toUpperCase() === id || String(row.reel_code || "").toUpperCase() === code)
     if (!matched) {
       const held = waiting.find((row) => String(row.id).toUpperCase() === id || String(row.reel_code || "").toUpperCase() === code)
@@ -126,7 +147,7 @@ export default function ReelAndCoilIssuePage() {
 
   return (
     <RoleGate allow={["Store", "PlantManager", "RMIssue"]}>
-      <ProcurementShell eyebrow="Stores" title="Reel & coil issue to floor" description="Issue is done every day to the floor, by shift — never to a machine. A reel always goes to the slitter and gets a slitting card (coils made + wastage); a coil goes straight to the winders. What goes to the floor is consumed in full; nothing comes back." actions={<IssueDeskTabs />}>
+      <ProcurementShell eyebrow="Stores" title="Reel & coil issue to floor" description="Issue is done every day to the floor, by shift — never to a machine. A reel always goes to the slitter and gets a slitting card (coils made + wastage); a coil goes straight to the winders. What goes to the floor is consumed in full; nothing comes back. Parchment is issued by colour and kg on the next tab." actions={<IssueDeskTabs />}>
         {notice ? <MessageBar tone={notice.tone}>{notice.text}</MessageBar> : null}
         {reelsQuery.isError || openQuery.isError ? <MessageBar tone="error">Stock could not load. Refresh before issuing.</MessageBar> : null}
 
@@ -141,7 +162,7 @@ export default function ReelAndCoilIssuePage() {
               <Field label="Reel / coil">
                 <select className={fieldClass} value={reelId} onChange={(e) => setReelId(e.target.value)}>
                   <option value="">{reels.length ? "Select from stock" : "Nothing cleared for issue yet"}</option>
-                  {reels.map((row) => <option key={row.id} value={row.id}>{row.reel_code} · {isCoil(row) ? "Coil" : "Reel"}{row.width_mm ? ` ${row.width_mm} mm` : ""}{row.gsm ? ` · ${row.gsm} GSM` : ""} · {kg(row.current_weight_kg)}</option>)}
+                  {reels.map((row) => <option key={row.id} value={row.id}>{row.reel_code} · {(itemById.get(String(row.paper_id)) as any)?.item_code || (isCoil(row) ? "Coil" : "Reel")}{row.width_mm ? ` ${row.width_mm} mm` : ""}{row.gsm ? ` · ${row.gsm} GSM` : ""} · {kg(row.current_weight_kg)} on hand</option>)}
                   {waiting.length ? (
                     <optgroup label="Not cleared yet — cannot be issued">
                       {waiting.map((row) => <option key={row.id} value="" disabled>{row.reel_code} · {isCoil(row) ? "Coil" : "Reel"} · {kg(row.current_weight_kg)} — {waitingReason(row).text}</option>)}
@@ -209,6 +230,26 @@ export default function ReelAndCoilIssuePage() {
             <Link href="/reports/slitting" className="mt-3 inline-flex items-center gap-1 text-[13px] font-semibold text-primary hover:underline">Slitting report<ArrowUpRight className="h-3.5 w-3.5" /></Link>
           </WorkPanel>
         </div>
+
+        <WorkPanel title="Stock on hand" description="Paper reels and coils in stock now, by paper. Cleared stock can be issued; the rest waits for QC. Updates after every issue.">
+          {onHand.length ? (
+            <div className="overflow-x-auto" data-testid="reel-stock-on-hand">
+              <table className="tube-grid w-full min-w-[520px]">
+                <thead><tr><th>Paper</th><th className="text-right">Cleared reels / coils</th><th className="text-right">Cleared kg</th><th className="text-right">Waiting for QC kg</th></tr></thead>
+                <tbody>
+                  {onHand.map((row) => (
+                    <tr key={row.id}>
+                      <td className="font-medium">{row.code}<span className="block text-[12px] font-normal text-muted-foreground">{row.name}</span></td>
+                      <td className="text-right tabular-nums">{row.reels}</td>
+                      <td className="text-right font-semibold tabular-nums">{kg(row.kg)}</td>
+                      <td className="text-right tabular-nums text-muted-foreground">{row.waitingKg ? kg(row.waitingKg) : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : <p className="text-sm text-muted-foreground">No paper reels or coils in stock.</p>}
+        </WorkPanel>
 
         <WorkPanel title={`Issued today · ${today.length}`} description="Reels and coils that went to the floor on today's business date.">
           {today.length ? (

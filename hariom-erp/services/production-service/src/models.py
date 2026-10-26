@@ -256,6 +256,28 @@ class JobCardStageSegment(Base):
     )
 
 
+class PlannerView(Base):
+    """A saved planner queue view: name + filters, for one user or the whole plant (client 2026-10-26)."""
+
+    __tablename__ = "planner_views"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    owner_id = Column(String(200), nullable=False, index=True)
+    owner_name = Column(String(200), nullable=True)
+    name = Column(String(80), nullable=False)
+    scope = Column(String(20), nullable=False, default="PERSONAL")
+    stage = Column(String(20), nullable=True)
+    filters = Column(JSONB, nullable=False, default=dict)
+    position = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        CheckConstraint("scope IN ('PERSONAL','PLANT')", name="ck_planner_views_scope"),
+    )
+
+
 class StageQueueOrder(Base):
     __tablename__ = "stage_queue_order"
 

@@ -426,6 +426,12 @@ class PendingQualityItem(BaseModel):
     invoice_no: Optional[str] = None
     received_date: Optional[date] = None
     nominal: dict[str, Any] = Field(default_factory=dict)
+    # Reel-wise QC (client 2026-10-26): the GRN line a lot came on and the supplier's own reel /
+    # coil number, so the desk can show every reel of one delivery together.
+    receipt_line_id: Optional[uuid.UUID] = None
+    challan_no: Optional[str] = None
+    unit_ref: Optional[str] = None
+    unit_label: Optional[str] = None
 
 
 class CustomerRejectionCreate(BaseModel):
@@ -706,7 +712,7 @@ def list_pending_quality(
                 PendingQualityItem(
                     entity_type="REEL",
                     entity_id=reel.id,
-                    label=f"{reel.reel_code} · paper reel",
+                    label=f"{reel.reel_code} · {paper.name if paper else 'paper reel'}",
                     material_type=_material_type_for_item(paper) if paper else "RAW_PAPER",
                     stock_status=reel.stock_status,
                     qty=float(reel.current_weight_kg or 0.0),
@@ -839,6 +845,8 @@ def _annotate_pending_rows(db: Session, rows: list[PendingQualityItem]) -> None:
         line = lines.get(line_by_entity.get(row.entity_id))
         if line is not None:
             receipt = line.receipt
+            row.receipt_line_id = line.id
+            row.challan_no = getattr(receipt, "supplier_challan_no", None) if receipt else None
             row.grn_no = receipt.grn_no if receipt else None
             row.received_date = receipt.received_date if receipt else None
             order = getattr(receipt, "order", None) if receipt else None
@@ -850,6 +858,8 @@ def _annotate_pending_rows(db: Session, rows: list[PendingQualityItem]) -> None:
         reel = reels.get(row.entity_id)
         if reel is not None:
             row.nominal = {key: value for key, value in (("gsm", reel.gsm), ("bf", reel.bf), ("width_mm", reel.width_mm)) if value is not None}
+            row.unit_ref = reel.source_reel_no
+            row.unit_label = reel.reel_code
 
 
 class SupplierReturnCreate(BaseModel):

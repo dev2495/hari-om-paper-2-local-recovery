@@ -143,7 +143,7 @@ def test_po_to_nine_physical_lots_invoice_variance_claim_and_retry():
         assert get_purchase_order(po["id"], db, PLANT, MAKER)["po_no"] == "RP-PM/01"
         assert asyncio.run(_response_bytes(purchase_order_pdf(po["id"], 1, db, PLANT, MAKER))).startswith(b"%PDF-")
         line_id = uuid.UUID(po["lines"][0]["id"])
-        first_request = GovernedReceiptCreate(
+        first_request = GovernedReceiptCreate(supplier_challan_no=f"CH-{uuid.uuid4().hex[:8]}", 
             request_id=uuid.uuid4(), purchase_order_id=po["id"], received_date=date(2026, 9, 19),
             invoice_no="#34 UPPM", invoice_date=date(2026, 9, 19),
             lines=[{
@@ -233,7 +233,7 @@ def test_po_to_nine_physical_lots_invoice_variance_claim_and_retry():
         assert released["status"] == "CLAIMED"
         assert all(row.stock_status == "QC_HOLD" for row in db.query(PaperReel).filter(PaperReel.id.in_(reel_ids)).all())
 
-        second_request = GovernedReceiptCreate(
+        second_request = GovernedReceiptCreate(supplier_challan_no=f"CH-{uuid.uuid4().hex[:8]}", 
             request_id=uuid.uuid4(), purchase_order_id=po["id"], received_date=date(2026, 9, 26),
             invoice_no=" #34 UPPM ", invoice_date=date(2026, 9, 19),
             lines=[{"po_line_id": line_id, "invoice_quantity": 5000, "invoice_rate": 30, "lots": [
@@ -409,7 +409,7 @@ def test_manual_multi_material_receipt_labels_and_independent_approval():
     with SessionLocal() as db:
         item = _paper(db)
         supplier = uuid.uuid4()
-        payload = ManualReceiptCreate(request_id=uuid.uuid4(), supplier_id=supplier, supplier_name="Manual mill",
+        payload = ManualReceiptCreate(supplier_challan_no=f"CH-{uuid.uuid4().hex[:8]}", request_id=uuid.uuid4(), supplier_id=supplier, supplier_name="Manual mill",
             reason="Urgent material received without PO", received_date=date(2026, 9, 15), invoice_no=f"MAN-{uuid.uuid4().hex[:8]}", invoice_date=date(2026, 9, 15),
             lines=[{"item_id": item.id, "invoice_rate": 31, "incoming_qc_required": False,
                     "lots": [{"source_reel_no": "M001", "net_weight_kg": 650, "width_mm": 850, "physical_form": "REEL"},
@@ -440,7 +440,7 @@ def test_manual_invoice_pending_attach_and_qc_remains_independent():
     from src.routers.manual_receipts import ManualReceiptCreate, post_manual_receipt, approve_manual_receipt
     from src.routers.procurement import AttachInvoiceRequest, attach_invoice_to_receipt
     with SessionLocal() as db:
-        payload = ManualReceiptCreate(request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name="Challan mill",
+        payload = ManualReceiptCreate(supplier_challan_no=f"CH-{uuid.uuid4().hex[:8]}", request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name="Challan mill",
             reason="Invoice arriving later", received_date=date(2026, 9, 15), invoice_pending=True,
             lines=[{"item_id": _paper(db).id, "lots": [{"source_reel_no": "WAIT-01", "net_weight_kg": 100, "width_mm": 800, "physical_form": "REEL"}]}])
         result = post_manual_receipt(payload, db, PLANT, MAKER)
@@ -465,7 +465,7 @@ def test_manual_receipt_http_auth_roles_retry_and_cross_plant():
     with SessionLocal() as db:
         item_id = str(_paper(db).id)
     body = {"request_id": str(uuid.uuid4()), "supplier_id": str(uuid.uuid4()), "supplier_name": "HTTP verified vendor", "reason": "Urgent manual purchase",
-        "received_date": "2026-09-15", "invoice_no": f"HTTP-{uuid.uuid4().hex[:8]}", "invoice_date": "2026-09-15",
+        "received_date": "2026-09-15", "supplier_challan_no": f"CH-{uuid.uuid4().hex[:8]}", "invoice_no": f"HTTP-{uuid.uuid4().hex[:8]}", "invoice_date": "2026-09-15",
         "lines": [{"item_id": item_id, "invoice_rate": 31, "incoming_qc_required": False, "lots": [{"source_reel_no": "HTTP-R1", "net_weight_kg": 725, "width_mm": 500, "physical_form": "REEL"}]}]}
     assert client.post("/inventory/procurement/manual-receipts", json=body).status_code == 401
     assert client.post("/inventory/procurement/manual-receipts", json=body, headers=headers("Sales", "sales")).status_code == 403
@@ -499,7 +499,7 @@ def test_manual_quantity_discrepancy_cannot_bypass_purchase_approval():
     from src.routers.manual_receipts import ManualReceiptCreate, post_manual_receipt, approve_manual_receipt
     from src.models import ReceiptInvoiceAllocation, PurchaseReceiptLine
     with SessionLocal() as db:
-        result = post_manual_receipt(ManualReceiptCreate(request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name="Quantity review mill",
+        result = post_manual_receipt(ManualReceiptCreate(supplier_challan_no=f"CH-{uuid.uuid4().hex[:8]}", request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name="Quantity review mill",
             reason="Urgent non-PO receipt", received_date=date(2026, 9, 15), invoice_no=f"QTY-{uuid.uuid4().hex[:8]}", invoice_date=date(2026, 9, 15),
             lines=[{"item_id": _paper(db).id, "incoming_qc_required": False, "invoice_rate": 30, "invoice_quantity": 105,
                     "lots": [{"source_reel_no": "MAN-QTY-01", "net_weight_kg": 100, "width_mm": 800, "physical_form": "REEL"}]}]), db, PLANT, MAKER)
@@ -522,7 +522,7 @@ def test_delayed_invoice_retry_must_match_rates_and_quantities():
     from src.routers.manual_receipts import ManualReceiptCreate, post_manual_receipt
     from src.routers.procurement import AttachInvoiceRequest, attach_invoice_to_receipt
     with SessionLocal() as db:
-        result = post_manual_receipt(ManualReceiptCreate(request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name="Retry mill", reason="Invoice pending delivery",
+        result = post_manual_receipt(ManualReceiptCreate(supplier_challan_no=f"CH-{uuid.uuid4().hex[:8]}", request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name="Retry mill", reason="Invoice pending delivery",
             received_date=date(2026, 9, 15), invoice_pending=True, lines=[{"item_id": _paper(db).id, "lots": [{"source_reel_no": "RETRY-01", "net_weight_kg": 120, "width_mm": 850, "physical_form": "REEL"}]}]), db, PLANT, MAKER)
         body = dict(expected_version=1, invoice_no=f"EXACT-{uuid.uuid4().hex[:8]}", invoice_date=date(2026, 9, 15), lines=[{"receipt_line_id": result["lines"][0]["id"], "invoice_rate": 32}])
         payload = AttachInvoiceRequest(**body)

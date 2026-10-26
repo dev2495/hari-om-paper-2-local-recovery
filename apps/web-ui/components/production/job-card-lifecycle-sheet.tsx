@@ -220,7 +220,7 @@ function LifecycleBody({
   const machineName = useMemo(() => new Map(machines.map((row: any) => [String(row.id), String(row.code || row.name || "").trim()])), [machines])
   const actionButtons: Array<{ key: LifecycleAction; label: string; icon: any; allowed: boolean; why: string; danger?: boolean }> = [
     { key: "edit", label: "Edit qty / color", icon: Pencil, allowed: data.actions.edit, why: "Only while in queue (not on the calendar)" },
-    { key: "split", label: "Split", icon: Scissors, allowed: data.actions.split, why: "Nothing unstarted left to split" },
+    { key: "split", label: "Split into a new card", icon: Scissors, allowed: data.actions.split, why: "Nothing unstarted left to split" },
     { key: "emergency", label: "Emergency", icon: Flame, allowed: data.actions.emergency, why: "Only queued or scheduled cards" },
     { key: "force_close", label: "Force close", icon: Undo2, allowed: data.actions.force_close, why: "Card is already closed", danger: true },
   ]
@@ -418,9 +418,13 @@ function SplitForm({ data, onDone, onOpenCard }: { data: JobCardLifecycle; onDon
   const max = Math.max(1, Math.floor(Math.min(data.open_first_stage_qty, data.planned_qty - 1)))
   const [qty, setQty] = useState(String(Math.floor(max / 2) || 1))
   const [reason, setReason] = useState("")
-  const value = Math.min(max, Math.max(1, Number(qty) || 0))
+  // An empty or out-of-range box is not 1 pc (client 2026-10-26): the split waits for a real quantity.
+  const typed = Number(qty)
+  const valid = qty.trim() !== "" && Number.isInteger(typed) && typed >= 1 && typed <= max
+  const value = valid ? typed : Math.min(max, Math.max(1, Math.round(typed) || 1))
   const requestId = useRef<string | null>(null)
   const submit = async () => {
+    if (!valid) return
     requestId.current ||= newRequestId()
     try {
       const response = await split.mutateAsync({ jobCardId: data.id, qty: value, reason: reason || undefined, requestId: requestId.current })
@@ -436,19 +440,23 @@ function SplitForm({ data, onDone, onOpenCard }: { data: JobCardLifecycle; onDon
   }
   return (
     <div className="space-y-3">
-      <p className="text-[12.5px] text-muted-foreground">Move part of the not-yet-started qty to a new card in the same family (same color, own lot). Use it to run the rest on another winder or day.</p>
+      <p className="text-[12.5px] text-muted-foreground">
+        Makes a <b className="text-foreground">separate job card</b> from the not-yet-started qty: its own number (e.g. {data.job_card_no}-A), lot, print, QC and dispatch, same colour.
+        To run this card over more shifts, days or machines, use <b className="text-foreground">Split plan</b> on the planner instead; that keeps one card.
+      </p>
       <input type="range" min={1} max={max} value={value} onChange={(event) => setQty(event.target.value)} className="w-full accent-[hsl(var(--primary))]" aria-label="Split quantity" />
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="New card gets (pcs)"><input className={inputClass} type="number" min={1} max={max} value={qty} onChange={(event) => setQty(event.target.value)} /></Field>
+        <Field label={`New card gets (pcs, 1–${fmt(max)})`}><input className={inputClass} type="number" min={1} max={max} step={1} value={qty} onChange={(event) => setQty(event.target.value)} aria-invalid={!valid} data-testid="split-card-qty" /></Field>
         <Field label="Reason (optional)"><input className={inputClass} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="e.g. second winder free" /></Field>
       </div>
       <div className="grid grid-cols-2 gap-2 text-center text-[12.5px]">
         <div className="rounded-lg bg-muted px-2 py-2"><span className="block text-muted-foreground">{data.job_card_no} keeps</span><strong className="text-[15px] tabular-nums">{fmt(data.planned_qty - value)}</strong></div>
         <div className="rounded-lg bg-primary/10 px-2 py-2"><span className="block text-muted-foreground">New card gets</span><strong className="text-[15px] tabular-nums text-primary">{fmt(value)}</strong></div>
       </div>
+      {!valid ? <p role="alert" className="text-[12.5px] text-signal-rose-ink">Type how many pcs the new card gets: a whole number from 1 to {fmt(max)}.</p> : null}
       <div className="flex justify-end gap-2">
         <button type="button" className="erp-btn-secondary !h-9" onClick={onDone}>Cancel</button>
-        <button type="button" className="erp-btn-primary !h-9" disabled={split.isPending} onClick={() => void submit()}>{split.isPending ? "Splitting…" : "Split card"}</button>
+        <button type="button" className="erp-btn-primary !h-9" disabled={split.isPending || !valid} onClick={() => void submit()} data-testid="split-card-confirm">{split.isPending ? "Creating…" : `Create new card with ${fmt(value)} pcs`}</button>
       </div>
     </div>
   )

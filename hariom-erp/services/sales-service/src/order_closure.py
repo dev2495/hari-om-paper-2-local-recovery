@@ -125,6 +125,13 @@ def validate_reason(reason_code: Optional[str], note: Optional[str]) -> tuple[st
     return code, text
 
 
+def hold_reason_text(label: Optional[str], code: str, note: Optional[str]) -> str:
+    """What a customer hold records as its reason: the reason's name, then the note if any."""
+    text = (label or "").strip() or code
+    extra = (note or "").strip()
+    return f"{text} — {extra}" if extra else text
+
+
 def trim_schedules(line: Any, keep_qty: float) -> list[Any]:
     """Shrink a line's customer call-offs so they total no more than ``keep_qty``.
 

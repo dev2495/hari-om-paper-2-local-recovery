@@ -31,6 +31,8 @@ type StageQcFieldsProps = {
   checkpoint?: string
   printLayout?: boolean
   dueTiming?: "PRE" | "POST" | null
+  /** Incoming QC records only the material standard's checks (client 2026-10-26): no sample ID box. */
+  showSampleId?: boolean
 }
 
 function ExceptionMark({ verdict }: { verdict: "FAIL" | "PASS" | "INVALID" }) {
@@ -64,6 +66,7 @@ export function StageQcFields({
   checkpoint,
   printLayout = false,
   dueTiming = null,
+  showSampleId = true,
 }: StageQcFieldsProps) {
   const issues = qcExceptionIssues(rules, readings)
   return (
@@ -103,7 +106,7 @@ export function StageQcFields({
             </div>
           )}
         </label>
-      ) : editable && !printLayout ? (
+      ) : editable && !printLayout && showSampleId ? (
         <label className="block space-y-1">
           <span className="text-[12px] font-semibold text-muted-foreground">Sample ID</span>
           <input

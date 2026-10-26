@@ -200,14 +200,12 @@ def test_winder_output_allows_ten_percent_over_plan_and_no_more(db):
     assert _stage(db, job, 'WINDER').status == 'COMPLETED'
 
 
-def test_winder_completion_needs_reel_issues_or_a_reason(db):
+def test_winder_completion_needs_no_reel_issue(db):
+    # Client rule 2026-10-25: paper goes to the floor by shift, never to a card, so closing winding asks
+    # for no reel issue (the month-end stock count settles paper).
     job = _card(db)
     _schedule(db, job)
-    with pytest.raises(HTTPException) as error:
-        _enter(db, job, 'WINDER', 250, reel_issue_ids=[])
-    assert 'reel' in str(error.value.detail).lower()
-    db.rollback()
-    _enter(db, job, 'WINDER', 250, reel_issue_ids=[], override_reason='Reels issued on paper slip, linking later')
+    _enter(db, job, 'WINDER', 250, reel_issue_ids=[])
     assert _stage(db, job, 'WINDER').status == 'COMPLETED'
 
 

@@ -123,8 +123,9 @@ export function ActionCenter() {
     meta: String(row.severity || "").toLowerCase(),
   }))
   const jobRows: Row[] = ((Array.isArray(jobs.data) ? jobs.data : []) as any[])
-    .filter((job) => job.planner_gate_ready === false || job.blocked_reason || job.due_risk_bucket === "OVERDUE")
-    .map((job) => ({ id: String(job.id), title: jobCardRef(job), detail: job.blocked_reason || job.planner_gate_reason || "Overdue", href: `/production/job-cards/${job.id}`, meta: job.due_date ? dayjs(job.due_date).format("D MMM") : undefined }))
+    // Planning is information, not a block (client 2026-10-26): flag missed/passed slots and overdue cards.
+    .filter((job) => ["MISSED", "PAST"].includes(String(job.plan_status || "")) || job.blocked_reason || job.due_risk_bucket === "OVERDUE")
+    .map((job) => ({ id: String(job.id), title: jobCardRef(job), detail: job.blocked_reason || (["MISSED", "PAST"].includes(String(job.plan_status || "")) ? job.plan_status_label : null) || "Overdue", href: `/production/job-cards/${job.id}`, meta: job.due_date ? dayjs(job.due_date).format("D MMM") : undefined }))
 
   const plantNote = <>Purchase queues are per plant. <span className="font-medium text-foreground">Pick a plant</span> in the top bar to see them.</>
   const draftCount = Number(salesAgg.data?.draft_count ?? salesRows.length)

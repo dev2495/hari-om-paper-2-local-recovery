@@ -147,7 +147,7 @@ def _receipt(db, po_id, po_line_id, qty, location_id, *, received_date=date(2026
     """Governed receipt request with an invoice at the approved rate (commercially CLEAR)."""
     request_id = request_id or uuid.uuid4()
     rate = float(db.query(PurchaseOrderLine).filter(PurchaseOrderLine.id == po_line_id).one().unit_cost)
-    return GovernedReceiptCreate(
+    return GovernedReceiptCreate(supplier_challan_no=f"CH-{uuid.uuid4().hex[:8]}", 
         request_id=request_id,
         purchase_order_id=uuid.UUID(str(po_id)),
         received_date=received_date,

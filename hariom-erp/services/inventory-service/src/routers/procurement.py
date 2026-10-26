@@ -15,13 +15,14 @@ from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import func, select, or_
+from sqlalchemy import func, select, or_, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import (
     CostSource,
+    DocumentSeries,
     ItemMaster,
     InventoryLocation,
     LabelPrintJob,
@@ -70,9 +71,14 @@ from ..services.procurement import (
     calculate_landed_cost,
     canonical_hash,
     compare_rates,
+    grn_number,
+    grn_series_for,
+    GRN_SERIES_PREFIX,
     month_start,
     mrp_suggestion,
+    normalize_challan_number,
     normalize_invoice_number,
+    over_receipt,
     physical_form,
 )
 from ..services.procurement_documents import render_debit_note_pdf
@@ -129,18 +135,30 @@ class GovernedReceiptCreate(BaseModel):
     request_id: uuid.UUID
     purchase_order_id: uuid.UUID
     received_date: date
+    # The supplier's delivery challan number is required on every inward (client 2026-10-26).
+    supplier_challan_no: str = Field(min_length=1, max_length=120)
     invoice_pending: bool = False
     invoice_no: Optional[str] = Field(default=None, max_length=120)
     invoice_date: Optional[date] = None
     invoice_document_ref: Optional[str] = Field(default=None, max_length=500)
     currency: str = Field(default="INR", pattern="^[A-Z]{3}$")
+    # Receiving more than the PO line still has open needs a reason (client 2026-10-26).
+    over_receipt_reason: Optional[str] = Field(default=None, max_length=500)
     lines: list[GovernedReceiptLineInput] = Field(min_length=1)
 
-    @field_validator("invoice_no")
+    @field_validator("invoice_no", "over_receipt_reason")
     @classmethod
     def clean_invoice_no(cls, value: Optional[str]) -> Optional[str]:
         cleaned = str(value or "").strip()
         return cleaned or None
+
+    @field_validator("supplier_challan_no")
+    @classmethod
+    def clean_challan_no(cls, value: str) -> str:
+        cleaned = " ".join(str(value or "").split())
+        if not cleaned or not any(char.isalnum() for char in cleaned):
+            raise ValueError("Enter the supplier challan number")
+        return cleaned
 
 
 def _receipt_payload(receipt: PurchaseReceipt, db: Session) -> dict[str, Any]:
@@ -174,7 +192,8 @@ def _receipt_payload(receipt: PurchaseReceipt, db: Session) -> dict[str, Any]:
         "receipt_kind": receipt.receipt_kind, "supplier_id": str(receipt.supplier_id or receipt.order.supplier_id) if receipt.supplier_id or receipt.order else None,
         "supplier_name": receipt.supplier_name_snapshot or (receipt.order.supplier_name_snapshot if receipt.order else None),
         "manual_reason": receipt.manual_reason, "approval_history": receipt.approval_history or [], "po_no": receipt.order.po_no if receipt.order else None,
-        "grn_no": receipt.grn_no, "received_date": receipt.received_date.isoformat(), "status": receipt.status,
+        "grn_no": receipt.grn_no, "supplier_challan_no": receipt.supplier_challan_no,
+        "received_date": receipt.received_date.isoformat(), "status": receipt.status,
         "invoice_pending": receipt.invoice_pending, "commercial_status": receipt.commercial_status,
         "supplier_invoice_id": str(receipt.supplier_invoice_id) if receipt.supplier_invoice_id else None,
         "invoice_no": invoice.invoice_no if invoice else None,
@@ -240,6 +259,62 @@ def _validate_receipt(payload: GovernedReceiptCreate, db: Session = None, plant_
         raise HTTPException(status_code=422, detail="Do not enter an invoice number while invoice pending is selected")
 
 
+def _next_grn_no(db: Session, plant_id: str, item_types: list[Any], on_date: date) -> str:
+    """Next inward number of the series the lines decide (P / A / IN), restarting each calendar year.
+
+    Year and series are part of the counter key, so 2027 starts again at 001. Older GRN numbers are
+    left as they are; a number already taken in the plant is skipped.
+    """
+    series = grn_series_for(item_types)
+    year = on_date.year % 100
+    category = f"{series}-{year:02d}"
+    db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": f"grn-series:{plant_id}:{category}"})
+    counter = db.query(DocumentSeries).filter(
+        DocumentSeries.plant_id == plant_id, DocumentSeries.document_type == "GRN",
+        DocumentSeries.category == category,
+    ).with_for_update().first()
+    if not counter:
+        counter = DocumentSeries(plant_id=plant_id, document_type="GRN", category=category,
+                                 prefix=GRN_SERIES_PREFIX[series], next_value=1)
+        db.add(counter)
+        db.flush()
+    sequence = int(counter.next_value or 1)
+    candidate = grn_number(series, on_date.year, sequence)
+    while db.query(PurchaseReceipt.id).filter(PurchaseReceipt.plant_id == plant_id, PurchaseReceipt.grn_no == candidate).first():
+        sequence += 1
+        candidate = grn_number(series, on_date.year, sequence)
+    counter.next_value = sequence + 1
+    counter.version = int(counter.version or 1) + 1
+    return candidate
+
+
+def _challan_key(challan_no: str) -> str:
+    try:
+        return normalize_challan_number(challan_no)
+    except ProcurementRuleError as exc:
+        raise HTTPException(422, "Enter the supplier challan number") from exc
+
+
+def _challan_warnings(db: Session, plant_id: str, supplier_id: Any, challan_no: str) -> list[str]:
+    """Warn (never block) when this supplier's challan number was already used on another inward."""
+    if not supplier_id:
+        return []
+    earlier = db.query(PurchaseReceipt).filter(
+        PurchaseReceipt.plant_id == plant_id, PurchaseReceipt.supplier_id == supplier_id,
+        PurchaseReceipt.supplier_challan_key == _challan_key(challan_no),
+    ).order_by(PurchaseReceipt.created_at.asc()).limit(5).all()
+    if not earlier:
+        return []
+    used = ", ".join(f"{row.grn_no} ({row.received_date.strftime('%d %b %Y')})" for row in earlier)
+    return [f"Challan {challan_no} was already used by this supplier on {used}. Check this is not the same delivery entered twice."]
+
+
+def _over_receipt_text(index: int, item_code: str, received: Decimal, open_qty: Decimal, uom: str) -> str:
+    unit = str(uom or "KG").lower()
+    return (f"Line {index} ({item_code}): {float(received):g} {unit} is more than the {float(max(open_qty, Decimal('0'))):g} {unit} "
+            f"still open on the PO. Enter a reason to receive more than the PO.")
+
+
 def _width_variance(lots: list[Any], specification: dict[str, Any]) -> Optional[dict[str, Any]]:
     expected_raw = specification.get("width_mm")
     if expected_raw in {None, ""}:
@@ -272,6 +347,7 @@ def preview_receipt(
     if not order or order.status not in {"APPROVED", "PARTIALLY_RECEIVED"}:
         raise HTTPException(status_code=409, detail="Select an approved purchase order in this plant")
     lines = {line.id: line for line in order.lines or []}
+    warnings = _challan_warnings(db, plant_id, order.supplier_id, payload.supplier_challan_no)
     result = []
     for index, requested in enumerate(payload.lines, start=1):
         po_line = lines.get(requested.po_line_id)
@@ -282,14 +358,16 @@ def preview_receipt(
         if received <= 0 or (is_reel and not requested.lots):
             raise HTTPException(status_code=422, detail=f"Receipt line {index} needs physical lots or a positive quantity")
         open_qty = Decimal(str(po_line.qty_ordered)) - Decimal(str(po_line.qty_received)) - Decimal(str(po_line.qty_short_closed or 0))
-        if received > open_qty:
-            raise HTTPException(status_code=422, detail=f"Receipt line {index} exceeds the open PO balance")
+        extra = over_receipt(received, open_qty)
+        if extra > 0 and not payload.over_receipt_reason:
+            raise HTTPException(status_code=422, detail=_over_receipt_text(index, po_line.item.item_code, received, open_qty, po_line.uom))
         invoice_qty = received if requested.invoice_quantity is None else Decimal(str(requested.invoice_quantity))
         comparison = None if payload.invoice_pending else compare_rates(received, po_line.unit_cost, requested.invoice_rate)
         quantity_review = not payload.invoice_pending and invoice_qty != received
         result.append({
             "po_line_id": str(po_line.id), "item_code": po_line.item.item_code, "tracking_mode": _enum(po_line.item.tracking_mode),
             "uom": _enum(po_line.item.uom), "quantity_kg": float(received), "physical_unit_count": len(requested.lots), "po_rate": float(po_line.unit_cost),
+            "open_qty": float(max(open_qty, Decimal("0"))), "over_po_qty": float(extra),
             "invoice_rate": requested.invoice_rate, "rate_delta": float(comparison.delta_per_kg) if comparison else None,
             "invoice_quantity_kg": float(invoice_qty) if not payload.invoice_pending else None,
             "quantity_delta_kg": float(invoice_qty - received) if not payload.invoice_pending else None,
@@ -298,7 +376,8 @@ def preview_receipt(
             "commercial_status": "INVOICE_PENDING" if payload.invoice_pending else ("RATE_REVIEW" if comparison.requires_review or quantity_review else "CLEAR"),
         })
     return {"purchase_order_id": str(order.id), "po_no": order.po_no, "revision_no": order.current_revision_no,
-            "invoice_pending": payload.invoice_pending, "lines": result,
+            "invoice_pending": payload.invoice_pending, "lines": result, "warnings": warnings,
+            "grn_series": grn_series_for([lines[row.po_line_id].item.type for row in payload.lines]),
             "totals": {"quantity_kg": round(sum(row["quantity_kg"] for row in result), 3),
                        "physical_unit_count": sum(row["physical_unit_count"] for row in result),
                        "claimable_amount": round(sum(row["claimable_amount"] for row in result), 2)}}
@@ -347,21 +426,24 @@ def post_governed_receipt(
             )
             db.add(invoice)
             db.flush()
-    grn_no = _next_doc_no(db, PurchaseReceipt, plant_id, "grn_no", "GRN")
+    order_lines = {line.id: line for line in order.lines or []}
+    warnings = _challan_warnings(db, plant_id, order.supplier_id, payload.supplier_challan_no)
+    grn_no = _next_grn_no(db, plant_id, [order_lines[row.po_line_id].item.type for row in payload.lines if row.po_line_id in order_lines], payload.received_date)
     receipt = PurchaseReceipt(
         plant_id=plant_id, purchase_order_id=order.id, supplier_id=order.supplier_id,
         supplier_name_snapshot=order.supplier_name_snapshot, request_id=payload.request_id,
         request_fingerprint=fingerprint, supplier_invoice_id=invoice.id if invoice else None,
         invoice_pending=payload.invoice_pending, commercial_status="INVOICE_PENDING" if payload.invoice_pending else "CLEAR",
-        grn_no=grn_no, received_date=payload.received_date, status="POSTED", created_by=_actor(current_user),
+        grn_no=grn_no, supplier_challan_no=payload.supplier_challan_no, supplier_challan_key=_challan_key(payload.supplier_challan_no),
+        received_date=payload.received_date, status="POSTED", created_by=_actor(current_user),
     )
     db.add(receipt)
     db.flush()
-    order_lines = {line.id: line for line in order.lines or []}
     revision_lines = {line.source_order_line_id: line for line in revision.lines or []}
     result_lots: list[dict[str, Any]] = []
     receipt_statuses: list[str] = []
     commercial_states: list[str] = []
+    over_lines: list[dict[str, Any]] = []
     for index, requested in enumerate(payload.lines, start=1):
         po_line = order_lines.get(requested.po_line_id)
         revision_line = revision_lines.get(requested.po_line_id)
@@ -374,8 +456,12 @@ def post_governed_receipt(
         if _enum(po_line.item.type) == "RAW_PAPER" and po_line.uom != "KG":
             raise HTTPException(status_code=409, detail=f"Approved paper line {index} is not in KG")
         remaining = Decimal(str(po_line.qty_ordered)) - Decimal(str(po_line.qty_received)) - Decimal(str(po_line.qty_short_closed or 0))
-        if qty > remaining:
-            raise HTTPException(status_code=422, detail=f"Receipt line {index} exceeds the open PO quantity")
+        extra = over_receipt(qty, remaining)
+        if extra > 0:
+            if not payload.over_receipt_reason:
+                raise HTTPException(status_code=422, detail=_over_receipt_text(index, po_line.item.item_code, qty, remaining, po_line.uom))
+            over_lines.append({"po_line_id": str(po_line.id), "item_code": po_line.item.item_code, "uom": po_line.uom,
+                "open_qty": float(max(remaining, Decimal("0"))), "received_qty": float(qty), "over_qty": float(extra)})
         invoice_qty = qty if requested.invoice_quantity is None else Decimal(str(requested.invoice_quantity))
         comparison = None if payload.invoice_pending else compare_rates(qty, revision_line.unit_rate, requested.invoice_rate)
         width_evidence = _width_variance(requested.lots, revision_line.specification_json or {}) if is_reel else None
@@ -413,10 +499,14 @@ def post_governed_receipt(
                 if _enum(po_line.item.type) == "PARCHMENT" and form != "COIL":
                     raise HTTPException(422, "Parchment is received as production-ready coils")
                 at_no = _next_doc_no(db, PaperReel, _plant_uuid(plant_id), "reel_code", "AT")
+                # Quality specification is no longer typed on the PO (client 2026-10-26): the
+                # material master's nominal values describe the reel when the PO line has none.
+                spec = po_line.metadata_json or {}
+                nominals = po_line.item.qc_nominals or {}
                 reel = PaperReel(
                     plant_id=_plant_uuid(plant_id), reel_code=at_no, purchase_receipt_line_id=receipt_line.id,
-                    paper_id=po_line.item_id, gsm=(po_line.metadata_json or {}).get("gsm"),
-                    bf=(po_line.metadata_json or {}).get("plybond"), supplier_id=order.supplier_id,
+                    paper_id=po_line.item_id, gsm=spec.get("gsm") or nominals.get("gsm"),
+                    bf=spec.get("plybond") or nominals.get("bf"), supplier_id=order.supplier_id,
                     supplier_name=order.supplier_name_snapshot, supplier_name_snapshot=order.supplier_name_snapshot,
                     inward_weight_kg=lot.net_weight_kg, net_weight_kg=lot.net_weight_kg,
                     gross_weight_kg=lot.gross_weight_kg, tare_weight_kg=lot.tare_weight_kg,
@@ -427,7 +517,7 @@ def post_governed_receipt(
                     commercial_status=commercial, location_id=lot.location_id, inward_date=payload.received_date,
                     inward_metadata={**quality_metadata, "po_id": str(order.id), "po_no": order.po_no, "po_revision": revision.revision_no,
                         "po_line_id": str(po_line.id), "receipt_id": str(receipt.id), "grn_no": receipt.grn_no,
-                        "invoice_no": payload.invoice_no, "invoice_date": payload.invoice_date.isoformat() if payload.invoice_date else None,
+                        "challan_no": payload.supplier_challan_no, "invoice_no": payload.invoice_no, "invoice_date": payload.invoice_date.isoformat() if payload.invoice_date else None,
                         "po_rate": str(revision_line.unit_rate), "invoice_rate": requested.invoice_rate,
                         "source_reel_no": source_no, "physical_form": form},
                 )
@@ -453,7 +543,8 @@ def post_governed_receipt(
                 location_id=requested.location_id, stock_status=stock_status,
                 unit_cost=float(revision_line.unit_rate),
                 cost_source="SUPPLIER", supplier_id=order.supplier_id, supplier_name_snapshot=order.supplier_name_snapshot,
-                plant_id=plant_id, inward_metadata={**quality_metadata, "po_id": str(order.id), "receipt_id": str(receipt.id), "invoice_no": payload.invoice_no})
+                plant_id=plant_id, inward_metadata={**quality_metadata, "po_id": str(order.id), "receipt_id": str(receipt.id),
+                    "grn_no": receipt.grn_no, "challan_no": payload.supplier_challan_no, "invoice_no": payload.invoice_no})
             db.add(batch)
             db.flush()
             receipt_line.batch_id = batch.id
@@ -516,6 +607,9 @@ def post_governed_receipt(
         receipt_statuses.append(qc_status)
         commercial_states.append(commercial)
     order.status = "RECEIVED" if all(line.line_status == "CLOSED" for line in order.lines or []) else "PARTIALLY_RECEIVED"
+    if over_lines:
+        receipt.approval_history = [*(receipt.approval_history or []), {"action": "OVER_RECEIPT", "actor": _actor(current_user),
+            "at": datetime.utcnow().isoformat(), "reason": payload.over_receipt_reason, "lines": over_lines}]
     receipt.status = "QC_PENDING" if "PENDING" in receipt_statuses else "POSTED"
     receipt.commercial_status = (
         "INVOICE_PENDING" if "INVOICE_PENDING" in commercial_states
@@ -530,6 +624,7 @@ def post_governed_receipt(
     db.refresh(receipt)
     response = _receipt_payload(receipt, db)
     response["created_lots"] = result_lots
+    response["warnings"] = warnings
     return response
 
 
@@ -549,7 +644,8 @@ def list_governed_receipts(
         query = query.filter(PurchaseReceipt.invoice_pending == invoice_pending)
     if q and q.strip():
         term = "%" + q.strip() + "%"
-        query = query.filter(or_(PurchaseReceipt.grn_no.ilike(term), PurchaseReceipt.supplier_name_snapshot.ilike(term), PurchaseOrder.po_no.ilike(term), SupplierInvoice.invoice_no.ilike(term)))
+        query = query.filter(or_(PurchaseReceipt.grn_no.ilike(term), PurchaseReceipt.supplier_name_snapshot.ilike(term), PurchaseOrder.po_no.ilike(term),
+                                 SupplierInvoice.invoice_no.ilike(term), PurchaseReceipt.supplier_challan_no.ilike(term)))
     total = query.count()
     rows = query.order_by(PurchaseReceipt.created_at.desc(), PurchaseReceipt.id).offset(offset).limit(limit).all()
     return {"items": [_receipt_payload(row, db) for row in rows], "total": total, "offset": offset, "limit": limit}
@@ -2013,7 +2109,7 @@ def _register_rows(register_name: str, db: Session, plant_id: str, current_user:
         for receipt in db.query(PurchaseReceipt).filter(PurchaseReceipt.plant_id == plant_id).order_by(PurchaseReceipt.created_at.desc()).all():
             payload = _receipt_payload(receipt, db)
             for line in payload["lines"]:
-                rows.append({**{key: payload[key] for key in ("grn_no", "received_date", "receipt_kind", "po_no", "supplier_name", "invoice_no", "invoice_date", "commercial_status", "manual_reason")}, **line})
+                rows.append({**{key: payload[key] for key in ("grn_no", "received_date", "receipt_kind", "po_no", "supplier_name", "supplier_challan_no", "invoice_no", "invoice_date", "commercial_status", "manual_reason")}, **line})
     elif register_name == "inward-lots":
         reels = db.query(PaperReel).filter(PaperReel.plant_id == _plant_uuid(plant_id)).order_by(PaperReel.created_at.desc()).all()
         for reel in reels:
@@ -2022,7 +2118,7 @@ def _register_rows(register_name: str, db: Session, plant_id: str, current_user:
                 "source_reel_no": reel.source_reel_no, "physical_form": reel.physical_form,
                 "paper_id": reel.paper_id, "supplier": reel.supplier_name_snapshot, "po_no": metadata.get("po_no"),
                 "po_revision": metadata.get("po_revision"), "grn_no": metadata.get("grn_no"),
-                "invoice_no": metadata.get("invoice_no"), "width_mm": reel.width_mm,
+                "challan_no": metadata.get("challan_no"), "invoice_no": metadata.get("invoice_no"), "width_mm": reel.width_mm,
                 "original_kg": reel.inward_weight_kg, "current_kg": reel.current_weight_kg,
                 "po_rate": metadata.get("po_rate"), "invoice_rate": metadata.get("invoice_rate"),
                 "stock_status": reel.stock_status, "commercial_status": reel.commercial_status})

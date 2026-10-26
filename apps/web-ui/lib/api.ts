@@ -338,7 +338,7 @@ export const salesApi = {
   getPendingOrders: (params?: any) => api.get("/api/sales/orders/pending", { params }),
   exportPendingOrders: (params?: any) => api.get("/api/sales/orders/pending/export", { params, responseType: "blob" }),
   getOrderDeliverySchedules: (id: string) => api.get(`/api/sales/orders/${id}/delivery-schedules`),
-  holdOrder: (id: string, reason: string, plantId?: string) => api.post(`/api/sales/orders/${id}/hold`, { reason }, withPlantHeader(plantId)),
+  holdOrder: (id: string, data: { reason_code: string; note?: string }, plantId?: string) => api.post(`/api/sales/orders/${id}/hold`, data, withPlantHeader(plantId)),
   resumeOrder: (id: string, plantId?: string) => api.post(`/api/sales/orders/${id}/resume`, {}, withPlantHeader(plantId)),
   /** Cancel the whole order (nothing released or dispatched yet) with an "Order cancel / short close" reason code. */
   cancelOrder: (id: string, data: { reason_code: string; note?: string }, plantId?: string) =>
@@ -439,6 +439,18 @@ export const productionApi = {
   switchToBatchEntry: (jobCardId: string, plantId?: string) => api.post(`/api/production/job-cards/${jobCardId}/batch-entry`, {}, withPlantHeader(plantId)),
   /** Each floor run against the slot the planner gave it (Reports › Plan vs actual). */
   getPlanVsActual: (params: { date_from?: string; date_to?: string; stage?: string }) => api.get("/api/production/reports/plan-vs-actual", { params }),
+  /** Planned slots of a period against the floor log, machine load, queues and what needs action (Planning overview). */
+  getPlanningOverview: (params: { date_from?: string; date_to?: string; stages?: string }) => api.get("/api/production/planning/overview", { params }),
+  /** How well the plan held for a period (Reports › Planning performance). */
+  getPlanningReport: (params: { date_from?: string; date_to?: string; stages?: string }) => api.get("/api/production/reports/planning", { params }),
+  /** One card's planner slots and what the floor logged in each (read-only). */
+  getJobCardPlan: (jobCardId: string, plantId?: string) => api.get(`/api/production/job-cards/${jobCardId}/plan`, withPlantHeader(plantId)),
+  /** Several queue cards onto the board at once; all or nothing, in the order given. */
+  movePlanningBulk: (moves: any[]) => api.post("/api/production/planning/board/move-bulk", { moves }),
+  listPlannerViews: (stage?: string) => api.get("/api/production/planning/views", { params: stage ? { stage } : undefined }),
+  createPlannerView: (data: { name: string; scope: "PERSONAL" | "PLANT"; stage?: string | null; filters: Record<string, any>; position?: number }) => api.post("/api/production/planning/views", data),
+  updatePlannerView: (viewId: string, data: { name: string; scope: "PERSONAL" | "PLANT"; stage?: string | null; filters: Record<string, any>; position?: number }) => api.patch(`/api/production/planning/views/${viewId}`, data),
+  deletePlannerView: (viewId: string) => api.delete(`/api/production/planning/views/${viewId}`),
   postStageOutputsBatch: (jobCardId: string, data: { entries: any[]; request_id: string }) => api.post(`/api/production/job-cards/${jobCardId}/stage-outputs/batch`, data),
   retryFgInward: (jobCardId: string) => api.post(`/api/production/job-cards/${jobCardId}/fg-inward/retry`, {}),
   getQualityInspections: (params?: any) => api.get("/api/production/quality/inspections", { params }),
@@ -600,6 +612,9 @@ export const inventoryApi = {
   getBatchLabel: (id: string) => api.get(`/api/inventory/labels/batches/${id}`),
   getReelLabel: (id: string) => api.get(`/api/inventory/labels/reels/${id}`),
   createReelIssue: (data: any) => api.post("/api/inventory/reel-issues", data),
+  /** Parchment to the floor by colour and kg; the oldest cleared coils are used (client 2026-10-26). */
+  issueParchmentByWeight: (data: { item_id: string; qty_kg: number; shift: string; issue_date: string; notes?: string }) =>
+    api.post("/api/inventory/reel-issues/by-weight", data),
   getReelIssues: (params?: any) => api.get("/api/inventory/reel-issues", { params }),
   closeReelIssue: (id: string, data: any) => api.post(`/api/inventory/reel-issues/${id}/close`, data),
   recordSlittingCard: (id: string, data: { coils_made: number; wastage_kg: number; coil_width_mm?: number; slit_date?: string; shift?: string; operator_name?: string; notes?: string; correction_reason?: string }) =>

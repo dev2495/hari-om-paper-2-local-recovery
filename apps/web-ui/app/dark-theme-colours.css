@@ -67,7 +67,6 @@
 :where(:root[data-theme="dark"]) .text-slate-700:not(:where(.tube-paper, .tube-paper *)) { color: hsl(215.3 25% 79.3%); }
 :where(:root[data-theme="dark"]) .text-slate-800:not(:where(.tube-paper, .tube-paper *)) { color: hsl(217.2 32.6% 84.4%); }
 :where(:root[data-theme="dark"]) .text-slate-900:not(:where(.tube-paper, .tube-paper *)) { color: hsl(222.2 47.4% 87.9%); }
-:where(:root[data-theme="dark"]) .text-slate-950:not(:where(.tube-paper, .tube-paper *)) { color: hsl(228.6 70% 91.3%); }
 :where(:root[data-theme="dark"]) .to-cyan-50:not(:where(.tube-paper, .tube-paper *)) { --tw-gradient-to: hsl(183.2 45% 11%) var(--tw-gradient-to-position); }
 :where(:root[data-theme="dark"]) .to-emerald-50:not(:where(.tube-paper, .tube-paper *)) { --tw-gradient-to: hsl(151.8 45% 11.1%) var(--tw-gradient-to-position); }
 :where(:root[data-theme="dark"]) .to-orange-50:not(:where(.tube-paper, .tube-paper *)) { --tw-gradient-to: hsl(33.3 45% 10.9%) var(--tw-gradient-to-position); }

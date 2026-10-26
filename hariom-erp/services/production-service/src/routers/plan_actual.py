@@ -18,9 +18,11 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..entry_models import StageEntry
-from ..lifecycle_rules import SHIFT_HOURS, SHIFT_START, canonical_shift, stage_unit
+from ..lifecycle_rules import SHIFT_HOURS, SHIFT_START, canonical_shift, planned_in_stage_units, stage_unit
 from ..models import AuditEvent, JobCard, JobCardStage, JobCardStageSegment
+from ..plan_match import Run, Slot, match_runs
 from ..utils.auth import get_current_plant_scope, require_role
+from .planning import _pcs_per_bamboo_from_snapshot
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 FLOOR_STAGES = ("SLITTING", "WINDER", "OVEN", "PROCESS")
@@ -114,12 +116,6 @@ def classify(actual: dict[str, Any], planned: Optional[dict[str, Any]], unschedu
     return result
 
 
-def _slot(row: Any) -> Optional[dict[str, Any]]:
-    if row is None or not getattr(row, "plan_date", None):
-        return None
-    return {"plan_date": row.plan_date.isoformat(), "shift_code": row.shift_code, "machine_id": str(row.machine_id) if row.machine_id else None}
-
-
 def _scope(query, column, plant_scope: dict):
     from .planning import _apply_plant_scope_filter
 
@@ -146,7 +142,8 @@ def plan_vs_actual(
     stages = [stage.upper()] if stage and stage.upper() in FLOOR_STAGES else list(FLOOR_STAGES)
     rows: list[dict[str, Any]] = []
 
-    # Batch entries: one row per submitted run.
+    # Every run written on the floor: a batch entry, or a stage saved on the old form.
+    raw: list[dict[str, Any]] = []
     entry_query = (
         db.query(StageEntry, JobCard)
         .join(JobCard, JobCard.id == StageEntry.job_card_id)
@@ -154,31 +151,21 @@ def plan_vs_actual(
                 StageEntry.business_date >= start, StageEntry.business_date <= end)
     )
     entry_query = _scope(entry_query, JobCard.plant_id, plant_scope)
-    entries = entry_query.order_by(StageEntry.business_date.desc(), StageEntry.created_at.desc()).limit(5000).all()
-    segment_ids = {e.segment_id for e, _ in entries if e.segment_id}
-    segments = {s.id: s for s in db.query(JobCardStageSegment).filter(JobCardStageSegment.id.in_(segment_ids)).all()} if segment_ids else {}
-    for entry, job in entries:
+    planned_machine: dict[str, str] = {}
+    for entry, job in entry_query.order_by(StageEntry.business_date.desc(), StageEntry.created_at.desc()).limit(5000).all():
         details = entry.details or {}
-        unscheduled = details.get("unscheduled_entry")
-        planned = details.get("planned_slot")
-        if planned is None and not unscheduled:
-            planned = _slot(segments.get(entry.segment_id))
-            if planned and (details.get("machine_changed") or {}).get("from"):
-                planned["machine_id"] = details["machine_changed"]["from"]
-        actual = {"date": entry.business_date, "shift_code": entry.shift_code, "machine_id": str(entry.machine_id) if entry.machine_id else None,
-                  "start": details.get("start_time"), "end": details.get("end_time")}
-        verdict = classify(actual, planned, unscheduled)
-        rows.append({
-            "source": "BATCH", "job_card_id": str(job.id), "job_card_no": job.job_card_no, "customer": _customer(job), "stage": entry.stage,
-            "run": f"Run #{entry.entry_no}", "actual_date": entry.business_date.isoformat() if entry.business_date else None,
-            "actual_shift": _shift(entry.shift_code), "machine_id": actual["machine_id"], "produced": entry.produced, "accepted": entry.accepted,
-            "unit": stage_unit(entry.stage), "card_start": details.get("start_time"), "card_end": details.get("end_time"),
-            "planned_date": (planned or {}).get("plan_date"), "planned_shift": _shift((planned or {}).get("shift_code")),
-            "planned_machine_id": (planned or {}).get("machine_id"), "operator": entry.operator_name, "entered_by": entry.created_by,
-            "entered_at": entry.created_at.isoformat() if entry.created_at else None, **verdict,
+        changed = (details.get("machine_changed") or {}).get("from")
+        if changed and entry.segment_id:
+            planned_machine.setdefault(str(entry.segment_id), str(changed))
+        raw.append({
+            "key": f"e:{entry.id}", "job": job, "stage": entry.stage, "unscheduled": details.get("unscheduled_entry"),
+            "actual": {"date": entry.business_date, "shift_code": entry.shift_code, "machine_id": str(entry.machine_id) if entry.machine_id else None,
+                       "start": details.get("start_time"), "end": details.get("end_time")},
+            "row": {"source": "BATCH", "run": f"Run #{entry.entry_no}", "produced": entry.produced, "accepted": entry.accepted,
+                    "card_start": details.get("start_time"), "card_end": details.get("end_time"), "operator": entry.operator_name,
+                    "entered_by": entry.created_by, "entered_at": entry.created_at.isoformat() if entry.created_at else None},
         })
 
-    # Old-form cards: one row per stage saved on the card.
     stage_query = (
         db.query(JobCardStage, JobCard)
         .join(JobCard, JobCard.id == JobCardStage.job_card_id)
@@ -192,20 +179,52 @@ def plan_vs_actual(
         actual_day = (moment + timedelta(hours=5, minutes=30)).date() if moment else None
         if not actual_day or actual_day < start or actual_day > end:
             continue
-        actuals, entry = row.actuals_snapshot or {}, row.entry_snapshot or {}
-        unscheduled = actuals.get("unscheduled_entry")
-        planned = actuals.get("planned_slot") or (None if unscheduled else _slot(row))
-        actual = {"date": actual_day, "shift_code": entry.get("shift_code") or row.shift_code, "machine_id": str(row.machine_id) if row.machine_id else None,
-                  "start": entry.get("start_time"), "end": entry.get("end_time")}
-        verdict = classify(actual, planned, unscheduled)
-        rows.append({
-            "source": "CARD_FORM", "job_card_id": str(job.id), "job_card_no": job.job_card_no, "customer": _customer(job), "stage": row.stage_type,
-            "run": "Card form", "actual_date": actual_day.isoformat(), "actual_shift": _shift(actual["shift_code"]), "machine_id": actual["machine_id"],
-            "produced": (row.output_qty or 0) + (row.scrap_qty or 0), "accepted": row.output_qty or 0, "unit": stage_unit(row.stage_type),
-            "card_start": entry.get("start_time"), "card_end": entry.get("end_time"), "planned_date": (planned or {}).get("plan_date"),
-            "planned_shift": _shift((planned or {}).get("shift_code")), "planned_machine_id": (planned or {}).get("machine_id"),
-            "operator": entry.get("operator_name"), "entered_by": None, "entered_at": None, **verdict,
+        actuals, snapshot = row.actuals_snapshot or {}, row.entry_snapshot or {}
+        raw.append({
+            "key": f"c:{row.id}", "job": job, "stage": row.stage_type, "unscheduled": actuals.get("unscheduled_entry"),
+            "actual": {"date": actual_day, "shift_code": snapshot.get("shift_code") or row.shift_code, "machine_id": str(row.machine_id) if row.machine_id else None,
+                       "start": snapshot.get("start_time"), "end": snapshot.get("end_time")},
+            "row": {"source": "CARD_FORM", "run": "Card form", "produced": (row.output_qty or 0) + (row.scrap_qty or 0), "accepted": row.output_qty or 0,
+                    "card_start": snapshot.get("start_time"), "card_end": snapshot.get("end_time"), "operator": snapshot.get("operator_name"),
+                    "entered_by": None, "entered_at": None},
         })
+
+    # Plan of record: each card's planner slots. A run is matched to the slot on its own date and shift
+    # (same machine first), else the nearest one (client 2026-10-26: planning is separate, matched here).
+    card_ids = list({item["job"].id for item in raw})
+    pcs_per_bamboo = {item["job"].id: _pcs_per_bamboo_from_snapshot(item["job"].spec_snapshot or {}) for item in raw}
+    slots: list[Slot] = []
+    if card_ids:
+        for segment in db.query(JobCardStageSegment).filter(
+            JobCardStageSegment.job_card_id.in_(card_ids), JobCardStageSegment.stage_type.in_(stages),
+            JobCardStageSegment.status.in_(["ASSIGNED", "RUNNING", "COMPLETED"]),
+            JobCardStageSegment.plan_date.isnot(None), JobCardStageSegment.shift_code.isnot(None),
+        ).all():
+            slots.append(Slot(key=str(segment.id), card=str(segment.job_card_id), stage=segment.stage_type, day=segment.plan_date,
+                              shift=_shift(segment.shift_code), machine=planned_machine.get(str(segment.id), str(segment.machine_id) if segment.machine_id else None),
+                              planned=planned_in_stage_units(segment.stage_type, float(segment.planned_qty or 0), pcs_per_bamboo.get(segment.job_card_id))))
+    matched = {m.run.key: m for m in match_runs(slots, [
+        Run(key=item["key"], card=str(item["job"].id), stage=item["stage"], day=item["actual"]["date"], shift=_shift(item["actual"]["shift_code"]),
+            machine=item["actual"]["machine_id"], made=float(item["row"]["produced"] or 0), good=float(item["row"]["accepted"] or 0),
+            unscheduled=bool(item["unscheduled"]))
+        for item in raw
+    ])}
+    for item in raw:
+        job, match = item["job"], matched.get(item["key"])
+        slot = match.slot if match else None
+        planned = {"plan_date": slot.day.isoformat(), "shift_code": slot.shift, "machine_id": slot.machine} if slot else None
+        verdict = classify(item["actual"], planned, item["unscheduled"])
+        actual = item["actual"]
+        rows.append({
+            "source": item["row"]["source"], "job_card_id": str(job.id), "job_card_no": job.job_card_no, "customer": _customer(job), "stage": item["stage"],
+            "run": item["row"]["run"], "actual_date": actual["date"].isoformat() if actual["date"] else None,
+            "actual_shift": _shift(actual["shift_code"]), "machine_id": actual["machine_id"], "produced": item["row"]["produced"], "accepted": item["row"]["accepted"],
+            "unit": stage_unit(item["stage"]), "card_start": item["row"]["card_start"], "card_end": item["row"]["card_end"],
+            "planned_date": (planned or {}).get("plan_date"), "planned_shift": _shift((planned or {}).get("shift_code")),
+            "planned_machine_id": (planned or {}).get("machine_id"), "operator": item["row"]["operator"], "entered_by": item["row"]["entered_by"],
+            "entered_at": item["row"]["entered_at"], **verdict,
+        })
+    rows.sort(key=lambda row: (row["actual_date"] or "", row["entered_at"] or ""), reverse=True)
 
     # Planned slots that passed with no floor entry (requeued by the 36-hour rule).
     missed_query = db.query(AuditEvent, JobCard).join(JobCard, JobCard.id == AuditEvent.job_card_id).filter(AuditEvent.action == "missed_slot_requeued")

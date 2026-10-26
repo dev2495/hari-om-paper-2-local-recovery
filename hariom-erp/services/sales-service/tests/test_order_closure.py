@@ -115,3 +115,21 @@ def test_colour_splits_shrink_to_what_was_released_in_each_colour():
     kept = shrink_colour_splits(line(500), splits, {splits[0].key: 500.0})
     assert [(split.color, split.qty) for split in kept] == [("Blue", 500.0)]
     assert shrink_colour_splits(line(1000), [ColorSplit(color="Blue", qty=600)], {}) is None
+
+
+def test_customer_hold_and_close_needs_an_order_close_reason_code():
+    """Customer hold & close shuts the PO, so it asks for the same reason code (client 2026-10-26)."""
+    import uuid
+    from fastapi import HTTPException
+    from src.order_closure import hold_reason_text
+    from src.routers.sales_orders import SalesOrderHoldPayload, hold_sales_order
+
+    # The code is checked before the order is even read.
+    with pytest.raises(HTTPException) as missing:
+        hold_sales_order(uuid.uuid4(), SalesOrderHoldPayload(reason="Customer not lifting since July"), db=None, plant_id="P", current_user={})
+    assert missing.value.status_code == 422 and missing.value.detail == "Choose a reason code."
+    with pytest.raises(HTTPException) as other:
+        hold_sales_order(uuid.uuid4(), SalesOrderHoldPayload(reason_code="OTHER", note="no"), db=None, plant_id="P", current_user={})
+    assert other.value.status_code == 422 and "Other" in other.value.detail
+    assert hold_reason_text("Customer not lifting", "CUST_HOLD", "since July") == "Customer not lifting — since July"
+    assert hold_reason_text(None, "CUST_HOLD", "") == "CUST_HOLD"

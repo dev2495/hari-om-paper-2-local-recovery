@@ -34,7 +34,7 @@ import {
 } from "@/components/erp/shell"
 import { PageHeader } from "@/components/workspace/page-header"
 import { ReleaseToQueueDialog } from "@/components/sales/release-to-queue-dialog"
-import { OrderClosureDialog, orderClosureAction } from "@/components/sales/order-closure-dialog"
+import { OrderClosureDialog, OrderCloseReasonFields, closeReasonComplete, orderClosureAction, useOrderCloseReasons } from "@/components/sales/order-closure-dialog"
 import { RowMenu } from "@/components/common/row-menu"
 import { QuerySwitch } from "@/components/workspace/query-state"
 import {
@@ -101,7 +101,9 @@ export default function SalesOrdersPage() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [holdOrder, setHoldOrder] = useState<any | null>(null)
   const [closureOrder, setClosureOrder] = useState<any | null>(null)
-  const [holdReason, setHoldReason] = useState("")
+  const [holdReasonCode, setHoldReasonCode] = useState("")
+  const [holdNote, setHoldNote] = useState("")
+  const holdReasons = useOrderCloseReasons(holdOrder ? orderPlantId(holdOrder) : undefined, Boolean(holdOrder))
   const holdSalesOrder = useHoldSalesOrder()
   const resumeSalesOrder = useResumeSalesOrder()
   const [pageSize, setPageSize] = useState(25)
@@ -270,9 +272,9 @@ export default function SalesOrdersPage() {
   }
 
   const handleHold = async () => {
-    if (!holdOrder || holdReason.trim().length < 3) return
+    if (!holdOrder || !closeReasonComplete(holdReasonCode, holdNote)) return
     try {
-      await holdSalesOrder.mutateAsync({ orderId: String(holdOrder.id), reason: holdReason.trim(), plantId: orderPlantId(holdOrder) })
+      await holdSalesOrder.mutateAsync({ orderId: String(holdOrder.id), reasonCode: holdReasonCode, note: holdNote, plantId: orderPlantId(holdOrder) })
       showToast(`${holdOrder.order_no || "Order"} is on customer hold. The pending balance is held and the PO closed.`, "success")
       setHoldOrder(null)
     } catch (error: any) {
@@ -615,7 +617,7 @@ export default function SalesOrdersPage() {
                                 ...(isHeld
                                   ? [{ label: "Lift customer hold", icon: PlayCircle, onSelect: () => void handleResume(order) }]
                                   : pending > 0 && !isCancelled && order.status !== "closed"
-                                    ? [{ label: "Customer hold & close…", icon: PauseCircle, tone: "warn" as const, onSelect: () => { setHoldOrder(order); setHoldReason("") } }]
+                                    ? [{ label: "Customer hold & close…", icon: PauseCircle, tone: "warn" as const, onSelect: () => { setHoldOrder(order); setHoldReasonCode(""); setHoldNote("") } }]
                                     : []),
                                 ...(closure.kind === "cancel"
                                   ? [{ label: "Cancel order…", icon: Ban, tone: "danger" as const, testId: "sales-orders:cancel", onSelect: () => setClosureOrder(order) }]
@@ -760,20 +762,18 @@ export default function SalesOrdersPage() {
               ))}
             </div>
           ) : null}
-          <label className="grid gap-1.5 text-[13px] font-medium">
-            Reason
-            <textarea
-              value={holdReason}
-              onChange={(event) => setHoldReason(event.target.value)}
-              rows={3}
-              maxLength={500}
-              placeholder="e.g. Customer has not lifted material since July; confirmed on call."
-              className="rounded-lg border border-input bg-card px-3 py-2 text-[13px] font-normal"
-            />
-          </label>
+          <OrderCloseReasonFields
+            reasons={holdReasons}
+            reasonCode={holdReasonCode}
+            note={holdNote}
+            onReasonCodeChange={setHoldReasonCode}
+            onNoteChange={setHoldNote}
+            testIdPrefix="sales-orders:hold"
+            notePlaceholder="e.g. Customer has not lifted material since July; confirmed on call."
+          />
           <DialogFooter>
             <button type="button" className="erp-btn-secondary" onClick={() => setHoldOrder(null)}>Cancel</button>
-            <button type="button" className="erp-btn-primary !bg-signal-amber-ink !text-background" disabled={holdReason.trim().length < 3 || holdSalesOrder.isPending} onClick={() => void handleHold()}>
+            <button type="button" data-testid="sales-orders:hold-confirm" className="erp-btn-primary !bg-signal-amber-ink !text-background" disabled={!closeReasonComplete(holdReasonCode, holdNote) || holdSalesOrder.isPending} onClick={() => void handleHold()}>
               {holdSalesOrder.isPending ? "Holding…" : "Hold & close PO"}
             </button>
           </DialogFooter>

@@ -53,7 +53,7 @@ def _approved_po(db, item, qty=3000):
 
 
 def _receive(db, po, lots):
-    return post_governed_receipt(GovernedReceiptCreate(
+    return post_governed_receipt(GovernedReceiptCreate(supplier_challan_no=f"CH-{uuid.uuid4().hex[:8]}", 
         request_id=uuid.uuid4(), purchase_order_id=po["id"], received_date=date(2026, 9, 25),
         invoice_no=f"INV-{uuid.uuid4().hex[:6]}", invoice_date=date(2026, 9, 25),
         lines=[{"po_line_id": uuid.UUID(po["lines"][0]["id"]), "invoice_rate": 30, "lots": lots}],

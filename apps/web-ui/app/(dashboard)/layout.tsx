@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { LockKeyhole, AlertTriangle, BarChart3, Boxes, CheckCircle2, Inbox, TrendingUp, Users, Wrench, ChevronRight, ClipboardList, Factory, FileText, Gauge, Info, Layers, LineChart, LogOut, Menu, Package, PanelLeftClose, PanelLeftOpen, BookOpen, ScrollText, Search, ShieldCheck, Sparkles, Truck, X, CircleDot, CornerDownLeft, Undo2, CalendarCheck2 } from "lucide-react"
+import { CalendarRange, LockKeyhole, AlertTriangle, BarChart3, Boxes, CheckCircle2, Inbox, TrendingUp, Users, Wrench, ChevronRight, ClipboardList, Factory, FileText, Gauge, Info, Layers, LineChart, LogOut, Menu, Package, PanelLeftClose, PanelLeftOpen, BookOpen, ScrollText, Search, ShieldCheck, Sparkles, Truck, X, CircleDot, CornerDownLeft, Undo2, CalendarCheck2 } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { PlantSwitcher } from "@/components/PlantSwitcher"
 import { BooksLockedChip } from "@/components/workspace/books-locked-chip"
@@ -244,6 +244,7 @@ const navigationUnits: NavGroup[] = [
       { name: "Owner daily pack", href: "/reports/owner", icon: Gauge, description: "Board pack: order book, dispatch, OTIF, production, stock.", roles: ["Owner", "Admin"] },
       { name: "Operations command", href: "/reports/operations", icon: Factory, description: "Stage throughput, adherence and blockers.", roles: ["PlantManager", "Planner"] },
       { name: "Throughput", href: "/reports/production", icon: BarChart3, description: "Per-stage and per-machine output.", roles: ["PlantManager", "Planner"] },
+      { name: "Planning performance", href: "/reports/planning", icon: CalendarRange, description: "How well the plan held: slots done in their shift, machine load, missed slots and stages finished on time.", roles: ["PlantManager", "Planner"] },
       { name: "Plan vs actual", href: "/reports/plan-vs-actual", icon: CalendarCheck2, description: "Did each floor run happen on the planned day, shift and machine? Runs before planning and missed slots.", roles: ["PlantManager", "Planner"] },
       { name: "Sales pulse", href: "/reports/sales", icon: TrendingUp, description: "Order flow, OTIF, lead time and customers.", roles: ["Sales", "PlantManager"] },
       { name: "Customer 360", href: "/reports/customer-360", icon: Users, description: "Per-customer demand, delivery and risk.", roles: ["Sales"] },

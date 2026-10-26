@@ -1011,6 +1011,10 @@ class PurchaseReceipt(Base):
     commercial_status = Column(String(30), nullable=False, default="CLEAR")
     posting_version = Column(Integer, nullable=False, default=1)
     grn_no = Column(String(80), nullable=False)
+    # Supplier's delivery challan (client 2026-10-26): required on new inwards; the key is the
+    # number with spaces and punctuation removed, used to warn when a supplier repeats one.
+    supplier_challan_no = Column(String(120), nullable=True)
+    supplier_challan_key = Column(String(120), nullable=True)
     received_date = Column(Date, nullable=False)
     status = Column(String(20), nullable=False, default="POSTED")
     created_by = Column(String(200), nullable=False)

@@ -45,6 +45,7 @@ from ..commercial import (
     resolve_parchment_variant,
 )
 from ..order_closure import (
+    hold_reason_text,
     CANCELLED as CLOSURE_CANCELLED,
     CLOSURE_ROLES,
     SHORT_CLOSED as CLOSURE_SHORT_CLOSED,
@@ -320,6 +321,7 @@ class SalesOrderResponse(BaseModel):
     expiry_date: Optional[date] = None
     is_held: bool = False
     hold_reason: Optional[str] = None
+    hold_reason_code: Optional[str] = None
     held_at: Optional[datetime] = None
     held_by: Optional[str] = None
     closure_kind: Optional[str] = None
@@ -467,6 +469,7 @@ def _serialize_order(order: SalesOrder) -> dict:
         "expiry_date": getattr(order, "expiry_date", None),
         "is_held": getattr(order, "held_at", None) is not None,
         "hold_reason": getattr(order, "hold_reason", None),
+        "hold_reason_code": getattr(order, "hold_reason_code", None),
         "held_at": getattr(order, "held_at", None),
         "held_by": getattr(order, "held_by", None),
         "closure_kind": getattr(order, "closure_kind", None),
@@ -2066,7 +2069,14 @@ def update_sales_order(
 
 
 class SalesOrderHoldPayload(BaseModel):
-    reason: str = Field(..., min_length=3, max_length=500)
+    """Customer hold closes the PO, so it asks for the same reason code as cancel / short close
+    (client 2026-10-26): a code from Masters › Reason codes; a code meaning OTHER also needs a note."""
+    reason_code: Optional[str] = Field(None, max_length=40)
+    # The reason's name as shown in Masters › Reason codes (the BFF fills it from the master).
+    reason_label: Optional[str] = Field(None, max_length=200)
+    note: Optional[str] = Field(None, max_length=1000)
+    # Older free-text reason; kept as the note when no note is given.
+    reason: Optional[str] = Field(None, max_length=500)
 
 
 def _load_scoped_order(db: Session, order_id: uuid.UUID, plant_id: str) -> SalesOrder:
@@ -2097,6 +2107,10 @@ def hold_sales_order(
     Used when a customer stops lifting material (typically 2–3 months). Delivered
     quantities and release lots are untouched; resume restores the prior status.
     """
+    try:
+        code, note = validate_reason(payload.reason_code, payload.note or payload.reason)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     order = _load_scoped_order(db, order_id, plant_id)
     if order.held_at is not None:
         raise HTTPException(status_code=409, detail="This order is already on customer hold")
@@ -2110,7 +2124,8 @@ def hold_sales_order(
     if held_total <= 0:
         raise HTTPException(status_code=400, detail="Nothing is pending on this order, so there is nothing to hold")
     order.hold_prev_status = order.status.value
-    order.hold_reason = payload.reason.strip()
+    order.hold_reason = hold_reason_text(payload.reason_label, code, note)[:500]
+    order.hold_reason_code = code
     order.held_at = datetime.utcnow()
     order.held_by = current_user.get("sub", "unknown")
     order.status = SalesOrderStatus.CLOSED
@@ -2126,7 +2141,7 @@ def hold_sales_order(
             actor_role="Sales",
             actor_email=current_user.get("sub"),
             summary=f"Sales order {order.order_no} put on customer hold and closed ({held_total:,.0f} pcs held)",
-            payload={"order_no": order.order_no, "hold_qty": held_total, "reason": order.hold_reason},
+            payload={"order_no": order.order_no, "hold_qty": held_total, "reason": order.hold_reason, "reason_code": order.hold_reason_code},
         )
     except Exception:
         pass
@@ -2151,6 +2166,7 @@ def resume_sales_order(
     except ValueError:
         order.status = SalesOrderStatus.APPROVED
     order.hold_reason = None
+    order.hold_reason_code = None
     order.held_at = None
     order.held_by = None
     order.hold_prev_status = None
@@ -2221,6 +2237,7 @@ def _end_hold(order: SalesOrder) -> None:
     except ValueError:
         order.status = SalesOrderStatus.APPROVED
     order.hold_reason = None
+    order.hold_reason_code = None
     order.held_at = None
     order.held_by = None
     order.hold_prev_status = None

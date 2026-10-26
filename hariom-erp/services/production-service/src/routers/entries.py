@@ -485,26 +485,46 @@ def place_unscheduled_stage(db,job,stage,segment,e):
     planning._sync_stage_row_from_segments(stage,planning._all_stage_segments(db,job.id,e.stage))
 
 
+def matching_segment(active,e):
+    if not active:return None
+    rank={"SHIFT_A":0,"SHIFT_B":1}
+    same=[s for s in active if s.plan_date==e.business_date and (s.shift_code or None)==(e.shift_code or None)]
+    if same:return next((s for s in same if e.machine_id and s.machine_id==e.machine_id),same[0])
+    return min(active,key=lambda s:(s.plan_date or date.max,rank.get(s.shift_code or "",2),s.sequence_no or 0,s.segment_no or 0))
+
+
 def validate_setup(db,job,e):
     if e.kind=="QC_ONLY":return
     if e.stage=="DISPATCH":raise HTTPException(409,"Dispatch quantity is recorded through Logistics Dispatch")
     stage=stage_row(db,job,e.stage)
     if e.stage=="SLITTING":raise HTTPException(409,"Slitting keeps its material preparation form")
     if job.status in ("CANCELLED","COMPLETED"):raise HTTPException(409,"This job card is not open for production")
+    # A run for a slot the 36 h rule sent back to the queue puts the card back on that slot (late entry,
+    # still planned) and clears the missed-slot flag, as on the old form.
+    restored=False
+    if e.kind=="PRODUCTION" and getattr(job,"missed_slot_open",False) and str((job.last_missed_slot or {}).get("stage") or "").upper()==e.stage:
+        from .missed_slots import restore_missed_slot_for_late_entry
+        restored=restore_missed_slot_for_late_entry(db,job,e.stage,e.created_by,None)
     segments=db.query(JobCardStageSegment).filter_by(job_card_id=job.id,stage_type=e.stage).all()
     segment=next((s for s in segments if s.id==e.segment_id),None) if e.segment_id else None
     if not e.segment_id:
-        active=[s for s in segments if s.status not in ("COMPLETED","CANCELLED")]
-        if len(active)>1:raise HTTPException(409,"Choose the scheduled stage segment for this entry")
-        if active:segment=active[0];e.segment_id=segment.id
+        # The plan never asks the floor which slot (client 2026-10-26): a run goes to the open slot on its own
+        # date and shift (same machine first), else to the earliest open slot.
+        segment=matching_segment([s for s in segments if s.status not in ("COMPLETED","CANCELLED")],e)
+        if segment:e.segment_id=segment.id
     if e.segment_id and not segment:raise HTTPException(422,"Segment does not belong to this card/stage")
     reference=segment or stage
     if not e.machine_id:e.machine_id=reference.machine_id
     gate=planning._planner_gate_context(current_stage=e.stage,active_stage=stage,active_segment=segment)
-    if gate["planner_gate_ready"] and getattr(reference,"plan_date",None) and e.kind=="PRODUCTION" and not (e.details or {}).get("planned_slot"):
+    # Planning is only the plan (client 2026-10-26): a run is "before planning" only when the stage has no
+    # slot at all. A run on another day or shift than its slot keeps the slot as planned and is matched
+    # to it as earlier / later in the reports; the floor never moves the plan.
+    planned_slot_exists=bool(segment is not None and segment.machine_id and segment.plan_date and segment.shift_code)
+    if planned_slot_exists:gate={**gate,"planner_gate_ready":True}
+    if (gate["planner_gate_ready"] or restored) and getattr(reference,"plan_date",None) and e.kind=="PRODUCTION" and not (e.details or {}).get("planned_slot"):
         # The slot in force when the run was entered, for Reports › Plan vs actual.
         e.details={**(e.details or {}),"planned_slot":{"plan_date":reference.plan_date.isoformat(),"shift_code":reference.shift_code,"machine_id":str(reference.machine_id) if reference.machine_id else None}}
-    if not gate["planner_gate_ready"]:
+    if not gate["planner_gate_ready"] and not restored:
         # Released cards may be run before the planner places them (client rule 2026-10-16):
         # the entry is accepted, the stage takes this entry's date/shift/machine as its slot,
         # and the entry carries a flag the owner sees in reports.
@@ -521,7 +541,7 @@ def validate_setup(db,job,e):
     if e.machine_id and e.machine_id not in ([stage.machine_id]+[s.machine_id for s in db.query(JobCardStageSegment).filter_by(job_card_id=job.id,stage_type=e.stage).all()]):raise HTTPException(422,"Machine must be assigned to this stage")
     if e.machine_id:
         machine=db.info.get("entry_machines",{}).get(str(e.machine_id))
-        if not machine and (e.details or {}).get("unscheduled_entry"):machine=planning._fetch_machine(e.machine_id,db.info.get("entry_user_token",""),str(job.plant_id));db.info.setdefault("entry_machines",{})[str(e.machine_id)]=machine
+        if not machine and ((e.details or {}).get("unscheduled_entry") or restored):machine=planning._fetch_machine(e.machine_id,db.info.get("entry_user_token",""),str(job.plant_id));db.info.setdefault("entry_machines",{})[str(e.machine_id)]=machine
         if not machine:raise HTTPException(409,"The machine assignment changed; refresh the scheduled segment")
         warnings=[]
         advice=planning._validate_machine_compatibility(machine,e.stage,job.spec_snapshot or {},str(job.plant_id))

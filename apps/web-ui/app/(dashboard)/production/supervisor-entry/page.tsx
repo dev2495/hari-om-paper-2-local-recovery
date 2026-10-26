@@ -75,8 +75,10 @@ function SupervisorEntryPageContent() {
     showToast(`Loaded ${match?.ref || "job card"} from scan.`, "success")
   }
   const selectedJob = normalizedJobOptions.find((job: any) => String(job.id) === jobCardId)
-  const readyJobs = normalizedJobOptions.filter((job: any) => job.planner_gate_ready !== false && !job.blocked_reason)
-  const blockedJobs = normalizedJobOptions.filter((job: any) => job.planner_gate_ready === false || job.blocked_reason)
+  // Planning never blocks floor entry (client 2026-10-26): an unplanned card is shown as such, not blocked.
+  const isPlanned = (job: any) => ["PLANNED", "RUNNING", "SPLIT"].includes(String(job.plan_status || "")) || (job.plan_status == null && job.planner_gate_ready !== false)
+  const readyJobs = normalizedJobOptions.filter(isPlanned)
+  const unplannedJobs = normalizedJobOptions.filter((job: any) => !isPlanned(job))
 
   return (
     <div className="space-y-5">
@@ -123,7 +125,7 @@ function SupervisorEntryPageContent() {
         <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
           <div className="min-w-0">
             <div className="mb-2 flex items-center justify-between gap-2">
-              <p className="text-[12.5px] font-semibold">Planned for the floor <span className="font-normal text-muted-foreground">· {readyJobs.length} ready{blockedJobs.length ? ` · ${blockedJobs.length} blocked` : ""}</span></p>
+              <p className="text-[12.5px] font-semibold">Planned for the floor <span className="font-normal text-muted-foreground">· {readyJobs.length} planned{unplannedJobs.length ? ` · ${unplannedJobs.length} not planned (can still be logged)` : ""}</span></p>
               <input
                 data-testid="supervisor-entry:search"
                 value={jobSearch}
@@ -135,21 +137,22 @@ function SupervisorEntryPageContent() {
             </div>
             <div className="grid max-h-60 gap-1.5 overflow-y-auto sm:grid-cols-2 xl:grid-cols-3">
               {normalizedJobOptions.map((job: any) => {
-                const blocked = job.planner_gate_ready === false || Boolean(job.blocked_reason)
+                const planned = isPlanned(job)
+                const planText = String(job.plan_status_label || "").split(": ").slice(1).join(": ") || job.planner_gate_reason
                 return (
                   <button
                     key={job.id}
                     data-testid={`supervisor-entry:select:${job.id}`}
                     onClick={() => { setJobCardId(job.id); setJobCardInput(job.ref) }}
-                    title={blocked ? job.blocked_reason || job.planner_gate_reason : undefined}
+                    title={planned ? undefined : planText}
                     className={`flex items-start gap-2.5 rounded-lg border px-3 py-2 text-left transition ${jobCardId === job.id ? "border-primary/50 bg-primary/[.06] shadow-[0_0_0_3px_hsl(var(--primary)/.08)]" : "border-border bg-card hover:border-input hover:bg-muted/60"}`}
                     disabled={!effectiveWritePlant}
                   >
-                    <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${blocked ? "bg-signal-rose-ink" : "bg-signal-emerald-ink"}`} aria-hidden="true" />
+                    <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${planned ? "bg-signal-emerald-ink" : "bg-signal-amber-ink"}`} aria-hidden="true" />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[13px] font-semibold">{job.ref}</span>
                       <span className="block truncate text-[11.5px] text-muted-foreground">{String(job.current_stage || "").toLowerCase()} · {job.customer_name || "—"}</span>
-                      {blocked ? <span className="block truncate text-[11px] text-signal-rose-ink">{job.blocked_reason || job.planner_gate_reason}</span> : null}
+                      {!planned && planText ? <span className="block truncate text-[11px] text-signal-amber-ink">{planText}</span> : null}
                     </span>
                   </button>
                 )

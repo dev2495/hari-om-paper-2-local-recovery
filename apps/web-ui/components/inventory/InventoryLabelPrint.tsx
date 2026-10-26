@@ -24,6 +24,7 @@ type InventoryLabel = {
   bf?: number | string | null
   ply_bond?: number | string | null
   po_no?: string | null
+  grn_no?: string | null
   bill_no?: string | null
   bill_date?: string | null
   rate?: number | string | null
@@ -108,6 +109,12 @@ export function InventoryLabelPrint({ label, title = "Inventory Label Preview" }
               <div className="flex justify-between gap-3">
                 <dt className="font-medium">PO / Bill</dt>
                 <dd className="text-right">{label.po_no || "-"} / {label.bill_no || "-"}</dd>
+              </div>
+            ) : null}
+            {label.grn_no ? (
+              <div className="flex justify-between gap-3">
+                <dt className="font-medium">Inward no.</dt>
+                <dd>{label.grn_no}</dd>
               </div>
             ) : null}
             {label.location_code ? (

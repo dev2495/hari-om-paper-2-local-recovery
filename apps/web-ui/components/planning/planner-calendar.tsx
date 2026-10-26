@@ -2,40 +2,44 @@
 
 import Link from "next/link"
 import dayjs from "dayjs"
-import { useMemo, useState } from "react"
-import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Flame, GripVertical, Scissors, Search, Pencil, Settings2, Truck, ZoomIn } from "lucide-react"
+import { useMemo, useState, type DragEvent, type ReactNode } from "react"
+import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Flame, GripVertical, Lock, Scissors, Pencil, Settings2, Truck, ZoomIn } from "lucide-react"
 
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { ColorChip, JobCardNo, swatchFor } from "@/components/production/lifecycle-chips"
 import { useApp } from "@/context/AppContext"
 import { apiErrorText } from "@/hooks/use-lifecycle"
 import { usePlanningBoardMove } from "@/hooks/use-production"
+import { usePlanningBulkMove } from "@/hooks/use-planner-views"
 import { useDeliveryCalendar } from "@/hooks/use-sales"
 import { useCustomers } from "@/hooks/use-master-data"
-import { FloatingWorkload } from "@/components/planning/floating-workload"
-import { workloadMachine, type WorkloadGrouping } from "@/lib/planner-workload"
+import { isLocked, lockReason, queueKey } from "@/lib/planner-queue-filters"
 import { cn } from "@/lib/utils"
 
 type Machine = { id: string; code: string; name?: string; capacity_value?: number | null; capacity_unit?: string | null; status?: string }
+type QueueGroup = { key: string; title: string; subtitle?: string; jobs: any[]; locked?: boolean }
 
 const fmt = (value: number) => Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })
 const OPEN_STATUSES = (job: any) => !["COMPLETED", "CANCELLED"].includes(String(job?.status || "").toUpperCase())
 
-function queueFilterMatch(job: any, filter: string) {
-  const days = job.due_date ? dayjs(job.due_date).startOf("day").diff(dayjs().startOf("day"), "day") : null
-  if (filter === "priority") return days !== null && days >= 0 && days <= 3
-  if (filter === "overdue") return days !== null && days < 0
-  if (filter === "missed") return Boolean(job.missed_slot_open)
-  if (filter === "emergency") return Boolean(job.is_emergency)
-  return true
+function multiDragImage(event: DragEvent, count: number, pcs: number) {
+  if (typeof document === "undefined") return
+  const ghost = document.createElement("div")
+  ghost.textContent = `${count} cards · ${fmt(pcs)} pcs`
+  ghost.setAttribute("style", "position:fixed;top:-200px;left:-200px;padding:6px 10px;border-radius:8px;background:hsl(var(--primary));color:hsl(var(--primary-foreground));font:600 12px/1.2 system-ui,sans-serif;box-shadow:0 6px 18px rgba(15,23,42,.25);white-space:nowrap")
+  document.body.appendChild(ghost)
+  event.dataTransfer.setDragImage(ghost, 14, 14)
+  setTimeout(() => ghost.remove(), 0)
 }
 
 export function PlannerCalendar({
   stage,
-  scope,
   jobs,
-  queueEntries,
-  workloadLabel,
+  queueGroups,
+  queueHeader,
+  queueEmpty,
+  selectedIds,
+  onToggleSelect,
   machines,
   monthDate,
   maxPlannerDate,
@@ -47,10 +51,14 @@ export function PlannerCalendar({
   windowDays = 2,
 }: {
   stage: string
-  scope: string
   jobs: any[]
-  queueEntries: any[]
-  workloadLabel: (id: string) => string
+  /** The open queue after the workspace's filters and sort, grouped like the board. */
+  queueGroups: QueueGroup[]
+  /** Search, badges, chips and the selection bar (shared with the board). */
+  queueHeader: ReactNode
+  queueEmpty: string
+  selectedIds: Set<string>
+  onToggleSelect: (job: any, shiftKey: boolean) => void
   machines: Machine[]
   monthDate: string
   maxPlannerDate: string
@@ -66,11 +74,7 @@ export function PlannerCalendar({
 }) {
   const { showToast } = useApp()
   const moveCard = usePlanningBoardMove()
-  const [search, setSearch] = useState("")
-  const [filter, setFilter] = useState("all")
-  const [sort, setSort] = useState<"due" | "qty" | "age">("due")
-  const [winderFilter, setWinderFilter] = useState<string | null>(null)
-  const [grouping, setGrouping] = useState<WorkloadGrouping>("release")
+  const moveMany = usePlanningBulkMove()
   const [dragged, setDragged] = useState<any | null>(null)
   const [hoverDay, setHoverDay] = useState<string | null>(null)
   const [windowStart, setWindowStart] = useState<string | null>(null)
@@ -84,39 +88,20 @@ export function PlannerCalendar({
     setWindowStart(key)
     onPrefetchWindow?.(key)
   }
-  const [placing, setPlacing] = useState<{ job: any; date: string } | null>(null)
+  const [placing, setPlacing] = useState<{ jobs: any[]; date: string } | null>(null)
   const [placeMachine, setPlaceMachine] = useState("")
   const [placeShift, setPlaceShift] = useState("SHIFT_A")
 
   const stageJobs = useMemo(() => jobs.filter((job) => OPEN_STATUSES(job) && String(job.current_stage || "").toUpperCase() === stage), [jobs, stage])
-  const allQueued = useMemo(() => queueEntries.map(job => ({ ...job, id: job.job_card_id || job.id, active_segment_id: job.segment_id || job.active_segment_id, planned_qty: job.segment_planned_qty ?? job.planned_qty })), [queueEntries])
-  const queue = useMemo(() => {
-    const needle = search.trim().toLowerCase()
-    const rows = allQueued
-      .filter((job) => queueFilterMatch(job, filter))
-      .filter((job) => !winderFilter || workloadMachine(job, stage, grouping) === winderFilter)
-      .filter((job) =>
-        !needle ||
-        [job.job_card_no, job.job_card_ref, job.customer_name, job.product_code, job.product_size_label, job.parchment_color, job.sales_order_ref]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase()
-          .includes(needle),
-      )
-    return rows.sort((a, b) => {
-      if (sort === "qty") return Number(b.planned_qty || 0) - Number(a.planned_qty || 0)
-      if (sort === "age") return String(a.created_at || "").localeCompare(String(b.created_at || ""))
-      if (a.is_emergency !== b.is_emergency) return a.is_emergency ? -1 : 1
-      return String(a.due_date || "9999").localeCompare(String(b.due_date || "9999"))
-    })
-  }, [filter, search, sort, allQueued, winderFilter, stage, grouping])
-  const queueCounts = {
-    all: allQueued.length,
-    priority: allQueued.filter((job) => queueFilterMatch(job, "priority")).length,
-    overdue: allQueued.filter((job) => queueFilterMatch(job, "overdue")).length,
-    missed: allQueued.filter((job) => queueFilterMatch(job, "missed")).length,
-    emergency: allQueued.filter((job) => queueFilterMatch(job, "emergency")).length,
-  }
+  // Queue entries carry the part on the board; the calendar keys them by job card for the lifecycle sheet.
+  const groups = useMemo(
+    () => queueGroups.map((group) => ({ ...group, jobs: group.jobs.map((job) => ({ ...job, id: job.job_card_id || job.id, active_segment_id: job.segment_id || job.active_segment_id, planned_qty: job.segment_planned_qty ?? job.planned_qty })) })),
+    [queueGroups],
+  )
+  const queue = useMemo(() => groups.flatMap((group) => group.jobs), [groups])
+  const selectedJobs = useMemo(() => queue.filter((job) => selectedIds.has(queueKey(job)) && !isLocked(job)), [queue, selectedIds])
+  const selectionPcs = useMemo(() => selectedJobs.reduce((sum, job) => sum + Number(job.planned_qty || 0), 0), [selectedJobs])
+  const dragSet = useMemo(() => (dragged ? (selectedIds.has(queueKey(dragged)) && selectedJobs.length > 1 ? selectedJobs : [dragged]) : []), [dragged, selectedIds, selectedJobs])
 
   const monthStart = dayjs(monthDate).startOf("month")
   const gridStart = monthStart.subtract((monthStart.day() + 6) % 7, "day") // weeks start Monday
@@ -181,122 +166,158 @@ export function PlannerCalendar({
   const monthPcs = monthDays.reduce((sum, day) => sum + day.pcs, 0)
   const monthDue = monthDays.reduce((sum, day) => sum + day.due, 0)
   const monthDeliveryPcs = monthDays.reduce((sum, day) => sum + day.deliveries.reduce((total: number, row: any) => total + Number(row.qty || 0), 0), 0)
-  const queuePcs = allQueued.reduce((sum, job) => sum + Number(job.planned_qty || 0), 0)
+  const queuePcs = queue.reduce((sum, job) => sum + Number(job.planned_qty || 0), 0)
 
-  const openPlacer = (job: any, date: string) => {
-    setPlacing({ job, date })
-    setPlaceMachine(String(machines.some(machine => machine.id === job.machine_id) ? job.machine_id : stage === "WINDER" && machines.some(machine => machine.id === job.assigned_winder_machine_id) ? job.assigned_winder_machine_id : machines[0]?.id || ""))
+  const openPlacer = (dropped: any[], date: string) => {
+    const first = dropped[0]
+    setPlacing({ jobs: dropped, date })
+    setPlaceMachine(String(machines.some(machine => machine.id === first.machine_id) ? first.machine_id : stage === "WINDER" && machines.some(machine => machine.id === first.assigned_winder_machine_id) ? first.assigned_winder_machine_id : machines[0]?.id || ""))
     setPlaceShift("SHIFT_A")
   }
 
   const place = async () => {
     if (!placing) return
+    const when = `${dayjs(placing.date).format("DD MMM")} · ${placeShift.replace("SHIFT_", "Shift ")}`
     try {
-      const response = await moveCard.mutateAsync({
-        segment_id: placing.job.active_segment_id,
-        job_card_id: placing.job.id,
-        stage,
-        machine_id: placeMachine,
-        plan_date: placing.date,
-        shift_code: placeShift,
-        sequence_no: 999,
-      })
-      const warnings = Array.isArray(response?.data?.warnings) ? response.data.warnings.filter(Boolean) : []
-      showToast(warnings.length ? warnings.join(" ") : `${placing.job.job_card_no || "Card"} placed on ${dayjs(placing.date).format("DD MMM")} · ${placeShift.replace("SHIFT_", "Shift ")}.`, warnings.length ? "info" : "success")
+      if (placing.jobs.length > 1) {
+        const response = await moveMany.mutateAsync(
+          placing.jobs.map((job, index) => ({
+            segment_id: job.active_segment_id,
+            job_card_id: job.id,
+            stage,
+            machine_id: placeMachine,
+            plan_date: placing.date,
+            shift_code: placeShift,
+            sequence_no: 999 + index,
+          })),
+        )
+        const warnings = Array.isArray(response?.data?.warnings) ? response.data.warnings.filter(Boolean) : []
+        const moved = Number(response?.data?.moved || placing.jobs.length)
+        showToast(`${moved} cards placed on ${machineCode.get(placeMachine) || "machine"} · ${when}.${warnings.length ? ` ${warnings.join(" ")}` : ""}`, warnings.length ? "info" : "success")
+      } else {
+        const job = placing.jobs[0]
+        const response = await moveCard.mutateAsync({
+          segment_id: job.active_segment_id,
+          job_card_id: job.id,
+          stage,
+          machine_id: placeMachine,
+          plan_date: placing.date,
+          shift_code: placeShift,
+          sequence_no: 999,
+        })
+        const warnings = Array.isArray(response?.data?.warnings) ? response.data.warnings.filter(Boolean) : []
+        showToast(warnings.length ? warnings.join(" ") : `${job.job_card_no || "Card"} placed on ${when}.`, warnings.length ? "info" : "success")
+      }
       setPlacing(null)
     } catch (error) {
       showToast(apiErrorText(error), "error")
     }
   }
+  const placingPcs = placing ? placing.jobs.reduce((sum, job) => sum + Number(job.planned_qty || 0), 0) : 0
+  const placingBusy = moveCard.isPending || moveMany.isPending
 
   return (
     <div className="grid min-w-0 gap-3 xl:grid-cols-[340px_minmax(0,1fr)]" data-testid="planner-calendar">
       <div className="flex min-h-0 flex-col gap-3 xl:h-[calc(100dvh-13rem)] xl:min-h-[640px]">
-      <FloatingWorkload jobs={allQueued} stage={stage} scope={scope} machineLabel={workloadLabel} selected={winderFilter} grouping={grouping} onGrouping={setGrouping} onSelect={setWinderFilter} />
       <aside className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-card shadow-sm">
-        <div className="border-b border-border p-3">
-          <div className="flex items-baseline justify-between gap-2">
-            <h2 className="text-[15px] font-semibold">Open queue</h2>
-            <span className="text-[12px] tabular-nums text-muted-foreground">{fmt(queue.length)}/{fmt(allQueued.length)} parts · {fmt(queue.reduce((sum, job) => sum + Number(job.planned_qty || 0), 0))} pcs</span>
-          </div>
-          {winderFilter ? <button type="button" onClick={() => setWinderFilter(null)} className="mt-2 flex w-full items-center justify-between rounded-lg bg-primary/10 px-2 py-1.5 text-xs font-semibold text-primary" aria-label="Show all queue machines"><span>Machine: {winderFilter === "unassigned" ? "Unassigned" : workloadLabel(winderFilter)}</span><span>Clear ×</span></button> : null}
-          <div className="mt-2 flex h-9 items-center gap-2 rounded-lg border border-input bg-card px-2.5 focus-within:ring-2 focus-within:ring-ring/30">
-            <Search className="h-4 w-4 text-muted-foreground" />
-            <input aria-label="Search queue" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Card no, customer, size, color…" className="w-full bg-transparent text-[13px] outline-none placeholder:text-muted-foreground" />
-          </div>
-          <div className="mt-2 flex flex-wrap gap-1">
-            {([["all", "All"], ["priority", "Due ≤3d"], ["overdue", "Overdue"], ["missed", "Missed slot"], ["emergency", "Emergency"]] as const).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                aria-pressed={filter === key}
-                onClick={() => setFilter(key)}
-                className={cn(
-                  "h-7 rounded-full border px-2.5 text-[11.5px] font-medium transition-colors",
-                  filter === key ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {label} <span className="tabular-nums opacity-75">{queueCounts[key]}</span>
-              </button>
-            ))}
-          </div>
-          <div className="mt-2 flex items-center justify-between text-[11.5px] text-muted-foreground">
-            <span>Drag a card onto a day to place it</span>
-            <select aria-label="Sort queue" value={sort} onChange={(event) => setSort(event.target.value as any)} className="h-7 rounded-md border border-input bg-card px-1.5 text-[11.5px]">
-              <option value="due">Due first</option>
-              <option value="qty">Largest first</option>
-              <option value="age">Oldest release</option>
-            </select>
-          </div>
+        {queueHeader}
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {queue.length === 0 ? (
+            <p className="px-4 py-10 text-center text-[13px] text-muted-foreground">{queueEmpty}</p>
+          ) : groups.filter((group) => group.jobs.length).map((group) => (
+            <div key={group.key} data-testid={`planner-queue-group:${group.key}`}>
+              <p className={cn("sticky top-0 z-[1] flex items-center justify-between bg-card/95 px-3 py-1 text-[11.5px] font-semibold text-muted-foreground backdrop-blur", group.locked && "border-t border-dashed border-border")} title={group.subtitle}>
+                <span className="flex min-w-0 items-center gap-1 truncate">{group.locked ? <Lock className="h-3 w-3 shrink-0" /> : null}{group.title}</span><span className="tabular-nums">{group.jobs.length}</span>
+              </p>
+              <ul className="divide-y divide-border border-b border-border">
+                {group.jobs.map((job) => {
+                  const dueDays = job.due_date ? dayjs(job.due_date).startOf("day").diff(dayjs().startOf("day"), "day") : null
+                  const locked = isLocked(job)
+                  const selected = selectedIds.has(queueKey(job))
+                  const label = job.job_card_no || job.job_card_ref || "card"
+                  return (
+                    <li
+                      key={job.active_segment_id || job.id}
+                      draggable={!locked}
+                      data-testid={`planner-card:${String(job.id || "")}`}
+                      data-selected={selected || undefined}
+                      data-locked={locked || undefined}
+                      title={locked ? lockReason(job) : undefined}
+                      onDragStart={(event) => {
+                        if (locked) { event.preventDefault(); return }
+                        if (selected && selectedJobs.length > 1) multiDragImage(event, selectedJobs.length, selectionPcs)
+                        setDragged(job)
+                      }}
+                      onDragEnd={() => { setDragged(null); setHoverDay(null) }}
+                      className={cn(
+                        "group flex items-start gap-2 px-3 py-2 transition-colors",
+                        locked ? "cursor-not-allowed bg-muted/30" : "cursor-grab hover:bg-muted/50 active:cursor-grabbing",
+                        selected && "bg-primary/[.06]",
+                        dragSet.some((row) => row.id === job.id) && "bg-primary/5 opacity-60",
+                      )}
+                    >
+                      {!locked ? (
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${label}`}
+                          checked={selected}
+                          onChange={() => {}}
+                          onClick={(event) => { event.stopPropagation(); onToggleSelect(job, event.shiftKey) }}
+                          onDragStart={(event) => { event.preventDefault(); event.stopPropagation() }}
+                          draggable={false}
+                          className="mt-1 h-3.5 w-3.5 shrink-0 cursor-pointer accent-primary"
+                          data-testid={`planner-card-select:${String(job.id || "")}`}
+                        />
+                      ) : (
+                        <Lock className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                      )}
+                      <span className="mt-1 h-7 w-1 shrink-0 rounded-full" style={{ background: job.parchment_color ? swatchFor(job.parchment_color) : "hsl(var(--border))" }} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <JobCardNo job={job} />
+                          <span className="ml-auto text-[12.5px] font-semibold tabular-nums">{fmt(job.planned_qty)}</span>
+                        </div>
+                        <p className="flex min-w-0 items-center gap-1 text-[12px] text-muted-foreground">
+                          {job.customer_code ? <span className="shrink-0 rounded bg-muted px-1 font-mono text-[10px] font-semibold text-foreground/80" title="Customer code">{job.customer_code}</span> : null}
+                          <span className="truncate">{job.customer_name || "—"} · {job.product_size_label || job.product_code || "—"}</span>
+                        </p>
+                        {locked ? (
+                          <p className="mt-0.5 flex items-center gap-1 text-[11.5px] font-semibold text-muted-foreground" data-testid={`planner-locked:${String(job.id || "")}`}><Lock className="h-3 w-3" />{lockReason(job)}</p>
+                        ) : (
+                          <div className="mt-0.5 flex items-center gap-2 text-[11.5px]">
+                            {job.parchment_color ? <ColorChip color={job.parchment_color} className="!text-[11.5px]" /> : <span className="text-muted-foreground">Plain</span>}
+                            {job.assigned_winder_machine_id ? <span className="text-muted-foreground">· pref {machineCode.get(String(job.assigned_winder_machine_id)) || "winder"}</span> : null}
+                            {dueDays !== null ? (
+                              <span className={cn("ml-auto tabular-nums", dueDays < 0 ? "font-semibold text-signal-rose-ink" : dueDays <= 3 ? "font-semibold text-signal-amber-ink" : "text-muted-foreground")}>
+                                {dueDays < 0 ? `${Math.abs(dueDays)}d late` : dueDays === 0 ? "due today" : `due ${dueDays}d`}
+                              </span>
+                            ) : null}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-col items-center gap-0.5">
+                        <button type="button" aria-label="Manage card" title="Manage (edit, emergency, force close)" onClick={() => onOpenCard(String(job.id))} className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground opacity-60 hover:bg-muted hover:text-foreground group-hover:opacity-100">
+                          <Settings2 className="h-3.5 w-3.5" />
+                        </button>
+                        {!locked ? (
+                          <button type="button" aria-label="Edit card" title="Edit qty / colour (queued card)" onClick={() => onOpenCard(String(job.id), "edit")} className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground opacity-60 hover:bg-muted hover:text-foreground group-hover:opacity-100">
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                        ) : null}
+                        {!locked && Number(job.planned_qty || 0) > 1 ? (
+                          <button type="button" aria-label="Split into a new card" title="Split into a new card" onClick={() => onOpenCard(String(job.id), "split")} className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground opacity-60 hover:bg-muted hover:text-foreground group-hover:opacity-100">
+                            <Scissors className="h-3.5 w-3.5" />
+                          </button>
+                        ) : null}
+                        {!locked ? <GripVertical className="h-3.5 w-3.5 text-muted-foreground/60" /> : null}
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          ))}
         </div>
-        <ul className="min-h-0 flex-1 divide-y divide-border overflow-y-auto">
-          {queue.length ? queue.map((job) => {
-            const dueDays = job.due_date ? dayjs(job.due_date).startOf("day").diff(dayjs().startOf("day"), "day") : null
-            return (
-              <li
-                key={job.active_segment_id || job.id}
-                draggable
-                onDragStart={() => setDragged(job)}
-                onDragEnd={() => { setDragged(null); setHoverDay(null) }}
-                className={cn("group flex cursor-grab items-start gap-2 px-3 py-2 transition-colors hover:bg-muted/50 active:cursor-grabbing", dragged?.id === job.id && "bg-primary/5 opacity-60")}
-              >
-                <span className="mt-1 h-7 w-1 shrink-0 rounded-full" style={{ background: job.parchment_color ? swatchFor(job.parchment_color) : "hsl(var(--border))" }} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <JobCardNo job={job} />
-                    <span className="ml-auto text-[12.5px] font-semibold tabular-nums">{fmt(job.planned_qty)}</span>
-                  </div>
-                  <p className="truncate text-[12px] text-muted-foreground">{job.customer_name || "—"} · {job.product_size_label || job.product_code || "—"}</p>
-                  <div className="mt-0.5 flex items-center gap-2 text-[11.5px]">
-                    {job.parchment_color ? <ColorChip color={job.parchment_color} className="!text-[11.5px]" /> : <span className="text-muted-foreground">Plain</span>}
-                    {job.assigned_winder_machine_id ? <span className="text-muted-foreground">· pref {machineCode.get(String(job.assigned_winder_machine_id)) || "winder"}</span> : null}
-                    {dueDays !== null ? (
-                      <span className={cn("ml-auto tabular-nums", dueDays < 0 ? "font-semibold text-signal-rose-ink" : dueDays <= 3 ? "font-semibold text-signal-amber-ink" : "text-muted-foreground")}>
-                        {dueDays < 0 ? `${Math.abs(dueDays)}d late` : dueDays === 0 ? "due today" : `due ${dueDays}d`}
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-                <div className="flex flex-col items-center gap-0.5">
-                  <button type="button" aria-label="Manage card" title="Manage (edit, emergency, force close)" onClick={() => onOpenCard(String(job.id))} className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground opacity-60 hover:bg-muted hover:text-foreground group-hover:opacity-100">
-                    <Settings2 className="h-3.5 w-3.5" />
-                  </button>
-                  <button type="button" aria-label="Edit card" title="Edit qty / colour (queued card)" onClick={() => onOpenCard(String(job.id), "edit")} className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground opacity-60 hover:bg-muted hover:text-foreground group-hover:opacity-100">
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                  {Number(job.planned_qty || 0) > 1 ? (
-                    <button type="button" aria-label="Split card" title="Split into two cards" onClick={() => onOpenCard(String(job.id), "split")} className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground opacity-60 hover:bg-muted hover:text-foreground group-hover:opacity-100">
-                      <Scissors className="h-3.5 w-3.5" />
-                    </button>
-                  ) : null}
-                  <GripVertical className="h-3.5 w-3.5 text-muted-foreground/60" />
-                </div>
-              </li>
-            )
-          }) : (
-            <li className="px-4 py-10 text-center text-[13px] text-muted-foreground">{allQueued.length ? "No card matches this filter." : "Queue is empty — everything released is on the calendar."}</li>
-          )}
-        </ul>
       </aside>
       </div>
 
@@ -328,6 +349,7 @@ export function PlannerCalendar({
               return (
                 <div
                   key={day.key}
+                  data-testid={`planner-day:${day.key}`}
                   onMouseEnter={() => { if (!day.beyond) hoverWindow(day.key) }}
                   onClick={(event) => {
                     if (dragged || day.beyond || !onZoom) return
@@ -336,7 +358,7 @@ export function PlannerCalendar({
                   }}
                   onDragOver={(event) => { if (!day.isPast && !day.beyond) { event.preventDefault(); if (hoverDay !== day.key) setHoverDay(day.key) } }}
                   onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setHoverDay((current) => (current === day.key ? null : current)) }}
-                  onDrop={() => { setHoverDay(null); if (dragged && !day.isPast && !day.beyond) openPlacer(dragged, day.key); setDragged(null) }}
+                  onDrop={() => { setHoverDay(null); if (dragSet.length && !day.isPast && !day.beyond) openPlacer(dragSet, day.key); setDragged(null) }}
                   className={cn(
                     "group relative flex min-h-[132px] flex-col rounded-lg border p-2 transition-all duration-200",
                     onZoom && !day.beyond && !dragged && "cursor-zoom-in",
@@ -389,7 +411,7 @@ export function PlannerCalendar({
                     <Link href={hrefFor({ date: day.key, view: "schedule" })} className="mt-auto pt-1 text-[11px] font-semibold text-primary hover:underline">+{day.scheduled.length - 4} more</Link>
                   ) : null}
                   {hoverDay === day.key && droppable ? (
-                    <span className="pointer-events-none absolute inset-x-2 bottom-2 rounded-md bg-primary px-2 py-1 text-center text-[11px] font-semibold text-primary-foreground shadow animate-scale-in">Drop to place</span>
+                    <span className="pointer-events-none absolute inset-x-2 bottom-2 rounded-md bg-primary px-2 py-1 text-center text-[11px] font-semibold text-primary-foreground shadow animate-scale-in">{dragSet.length > 1 ? `Drop ${dragSet.length} cards here` : "Drop to place"}</span>
                   ) : null}
                   {hasDetail && !dragged && windowStart === day.key ? (
                     <DayDetail
@@ -415,17 +437,21 @@ export function PlannerCalendar({
       </section>
 
       <Dialog open={Boolean(placing)} onOpenChange={(next) => { if (!next) setPlacing(null) }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogTitle>Place {placing?.job?.job_card_no || "card"} on {placing ? dayjs(placing.date).format("ddd DD MMM") : ""}</DialogTitle>
+        <DialogContent className="sm:max-w-md" data-testid="planner-place-dialog">
+          <DialogTitle>
+            {placing && placing.jobs.length > 1 ? `Place ${placing.jobs.length} cards` : `Place ${placing?.jobs[0]?.job_card_no || "card"}`} on {placing ? dayjs(placing.date).format("ddd DD MMM") : ""}
+          </DialogTitle>
           <DialogDescription>
-            {fmt(placing?.job?.planned_qty || 0)} pcs{placing?.job?.parchment_color ? ` · ${placing.job.parchment_color}` : ""}. Pick the machine and shift; capacity is checked and warned on save.
+            {placing && placing.jobs.length > 1
+              ? `${placing.jobs.map((job) => job.job_card_no || job.job_card_ref).join(", ")} · ${fmt(placingPcs)} pcs in all. They go onto the same machine and shift, in queue order; capacity is checked on save and nothing moves if one card cannot be placed.`
+              : `${fmt(placingPcs)} pcs${placing?.jobs[0]?.parchment_color ? ` · ${placing.jobs[0].parchment_color}` : ""}. Pick the machine and shift; capacity is checked and warned on save.`}
           </DialogDescription>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="space-y-1">
               <span className="text-[12px] font-medium text-muted-foreground">Machine</span>
-              <select value={placeMachine} onChange={(event) => setPlaceMachine(event.target.value)} className="h-10 w-full rounded-lg border border-input bg-card px-2.5 text-[13px]">
+              <select value={placeMachine} onChange={(event) => setPlaceMachine(event.target.value)} className="h-10 w-full rounded-lg border border-input bg-card px-2.5 text-[13px]" data-testid="planner-place-machine">
                 {machines.map((machine) => (
-                  <option key={machine.id} value={machine.id}>{machine.code}{String(placing?.job?.assigned_winder_machine_id || "") === machine.id ? " (release pick)" : ""}</option>
+                  <option key={machine.id} value={machine.id}>{machine.code}{String(placing?.jobs[0]?.assigned_winder_machine_id || "") === machine.id ? " (release pick)" : ""}</option>
                 ))}
               </select>
             </label>
@@ -440,7 +466,9 @@ export function PlannerCalendar({
           </div>
           <div className="flex justify-end gap-2">
             <button type="button" className="erp-btn-secondary" onClick={() => setPlacing(null)}>Cancel</button>
-            <button type="button" className="erp-btn-primary" disabled={!placeMachine || moveCard.isPending} onClick={() => void place()}>{moveCard.isPending ? "Placing…" : "Place card"}</button>
+            <button type="button" className="erp-btn-primary" disabled={!placeMachine || placingBusy} onClick={() => void place()} data-testid="planner-place-submit">
+              {placingBusy ? "Placing…" : placing && placing.jobs.length > 1 ? `Place ${placing.jobs.length} cards` : "Place card"}
+            </button>
           </div>
         </DialogContent>
       </Dialog>

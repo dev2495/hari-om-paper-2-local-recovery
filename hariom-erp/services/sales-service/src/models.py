@@ -51,6 +51,8 @@ class SalesOrder(Base):
     expiry_date = Column(Date, nullable=True, index=True)
     # Customer hold: the customer stopped lifting material, so the open balance is held and the PO closed.
     hold_reason = Column(Text, nullable=True)
+    # Reason code from Masters › Reason codes ("Order cancel / short close"), like cancel / short close.
+    hold_reason_code = Column(String(40), nullable=True)
     held_at = Column(DateTime, nullable=True)
     held_by = Column(String(200), nullable=True)
     hold_prev_status = Column(String(40), nullable=True)
