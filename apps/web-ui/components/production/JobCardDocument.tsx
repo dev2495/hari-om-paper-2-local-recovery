@@ -1366,8 +1366,9 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
     }
   }
 
-  // Packing and the end QC close with Process, so they are never entered as stages of their own.
-  const BULK_ENTRY_STAGES: StageName[] = ["SLITTING", "WINDER", "OVEN", "PROCESS"]
+  // This document is the old card form only: there Packing and QC are still stages of their own
+  // (batch-entry cards close them with Process and never open this form).
+  const BULK_ENTRY_STAGES: StageName[] = ["SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING", "QC"]
 
   // A stage counts as written on the card when it has any output, rejects or QC hold quantity.
   function stageHasActuals(stage: StageName) {
