@@ -112,9 +112,9 @@ type Props = {
 function buildProductionEntryUrl(jobCardId?: string) {
   if (typeof window !== "undefined" && window.location?.origin) {
     const id = jobCardId || ""
-    return `${window.location.origin}/production/supervisor-entry?job_card_id=${encodeURIComponent(id)}`
+    return `${window.location.origin}/production/entry/${encodeURIComponent(id)}`
   }
-  return `/production/supervisor-entry?job_card_id=${encodeURIComponent(jobCardId || "")}`
+  return `/production/entry/${encodeURIComponent(jobCardId || "")}`
 }
 
 function formatNumber(value: any, digits = 2) {
@@ -1618,10 +1618,10 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
                 Print
               </Link>
               <Link
-                href={`/production/supervisor-entry?job_card_id=${jobCardId}`}
+                href={`/production/entry/${jobCardId}`}
                 className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
               >
-                Open Supervisor Entry
+                Open floor entry
               </Link>
               <a
                 href={qrValue}
@@ -4358,10 +4358,10 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
                 Print
               </Link>
               <Link
-                href={`/production/supervisor-entry?job_card_id=${jobCardId}`}
+                href={`/production/entry/${jobCardId}`}
                 className="inline-flex items-center gap-2 bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
               >
-                Open Supervisor Entry
+                Open floor entry
               </Link>
             </>
           )}

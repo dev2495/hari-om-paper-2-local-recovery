@@ -1,30 +1,17 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useMemo, useRef, useState } from "react"
-import { ArrowUpRight, CalendarClock, ChevronRight, Flame, History, Pencil, Printer, Scissors, Undo2 } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { ArrowUpRight, CalendarClock, ChevronRight, History, Printer, Settings2 } from "lucide-react"
 
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
+import { ActionPanel, actionAvailability, fmt, type LifecycleAction } from "@/components/production/job-card-actions"
 import { ColorChip, JobCardNo, LifecycleBadge } from "@/components/production/lifecycle-chips"
-import { useApp } from "@/context/AppContext"
-import { useParchments } from "@/hooks/use-master-data"
-import { useMachines } from "@/hooks/use-production"
-import {
-  apiErrorText,
-  newRequestId,
-  useAmendJobCard,
-  useEmergencyInsert,
-  useForceCloseJobCard,
-  useJobCardLifecycle,
-  useSplitJobCard,
-  type JobCardLifecycle,
-} from "@/hooks/use-lifecycle"
+import { useMachines, usePlanningJobCards } from "@/hooks/use-production"
+import { apiErrorText, useJobCardLifecycle, type JobCardLifecycle } from "@/hooks/use-lifecycle"
 import { cn } from "@/lib/utils"
 
-export type LifecycleAction = "edit" | "split" | "force_close" | "emergency"
-
-const fmt = (value: number | null | undefined, digits = 0) =>
-  Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: digits })
+export type { LifecycleAction }
 
 const STEPS: Array<{ key: string; label: string }> = [
   { key: "QUEUED", label: "Queue" },
@@ -76,6 +63,11 @@ export function eventText(event: { action: string; payload?: Record<string, any>
   }
 }
 
+/**
+ * Quick lifecycle side sheet (planner board, tracker, sales order page). The same action forms as
+ * the Job card manager; the manager is the full console with the family tree, bulk actions and the
+ * management history.
+ */
 export function JobCardLifecycleSheet({
   jobCardId,
   open,
@@ -172,10 +164,9 @@ function Stepper({ state }: { state: string }) {
   )
 }
 
-function QtyBar({ data }: { data: JobCardLifecycle }) {
+export function QtyBar({ data }: { data: JobCardLifecycle }) {
   const planned = Math.max(1, data.planned_qty + data.returned_qty)
   const made = Math.min(data.made_qty, data.max_output_qty)
-  const tolPct = (data.max_output_qty / planned) * 100
   return (
     <div className="rounded-xl border border-border bg-[hsl(var(--surface-2))] p-3">
       <div className="grid grid-cols-3 gap-2 text-center">
@@ -197,9 +188,7 @@ function QtyBar({ data }: { data: JobCardLifecycle }) {
         <div className="h-full origin-left animate-[bar-grow_700ms_var(--ease-workspace)_both] rounded-full bg-primary" style={{ width: `${Math.min(100, (made / planned) * 100)}%` }} />
         {data.returned_qty ? <div className="absolute inset-y-0 right-0 bg-signal-rose-line/60" style={{ width: `${(data.returned_qty / planned) * 100}%` }} /> : null}
       </div>
-      <p className="mt-1.5 text-[11.5px] text-muted-foreground">
-        Floor may run up to +{data.output_tolerance_pct}% ({fmt(data.max_output_qty)} pcs). {tolPct > 100 ? "" : ""}
-      </p>
+      <p className="mt-1.5 text-[11.5px] text-muted-foreground">Floor may run up to +{data.output_tolerance_pct}% ({fmt(data.max_output_qty)} pcs).</p>
     </div>
   )
 }
@@ -216,14 +205,12 @@ function LifecycleBody({
   onOpenCard: (id: string) => void
 }) {
   const machinesQuery = useMachines()
-  const machines: any[] = Array.isArray(machinesQuery.data) ? machinesQuery.data : []
+  const machines: any[] = useMemo(() => (Array.isArray(machinesQuery.data) ? machinesQuery.data : []), [machinesQuery.data])
   const machineName = useMemo(() => new Map(machines.map((row: any) => [String(row.id), String(row.code || row.name || "").trim()])), [machines])
-  const actionButtons: Array<{ key: LifecycleAction; label: string; icon: any; allowed: boolean; why: string; danger?: boolean }> = [
-    { key: "edit", label: "Edit qty / color", icon: Pencil, allowed: data.actions.edit, why: "Only while in queue (not on the calendar)" },
-    { key: "split", label: "Split into a new card", icon: Scissors, allowed: data.actions.split, why: "Nothing unstarted left to split" },
-    { key: "emergency", label: "Emergency", icon: Flame, allowed: data.actions.emergency, why: "Only queued or scheduled cards" },
-    { key: "force_close", label: "Force close", icon: Undo2, allowed: data.actions.force_close, why: "Card is already closed", danger: true },
-  ]
+  // The lifecycle payload carries the entry model; the list row is the fallback for older services.
+  const rowsQuery = usePlanningJobCards({ limit: 250 }, true)
+  const row = useMemo(() => (Array.isArray(rowsQuery.data) ? rowsQuery.data : []).find((job: any) => String(job.id) === data.id), [rowsQuery.data, data.id])
+  const actions = actionAvailability(data, row ? row.entry_model : undefined)
   return (
     <div className="space-y-4">
       <Stepper state={data.state} />
@@ -238,17 +225,18 @@ function LifecycleBody({
       ) : null}
       <QtyBar data={data} />
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {actionButtons.map((button) => (
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {actions.map((button) => (
           <button
             key={button.key}
             type="button"
             disabled={!button.allowed}
-            title={button.allowed ? button.label : button.why}
+            title={button.allowed ? button.hint : button.why || button.hint}
             onClick={() => setAction(action === button.key ? null : button.key)}
             aria-pressed={action === button.key}
+            data-testid={`sheet-action-${button.key}`}
             className={cn(
-              "flex h-16 flex-col items-center justify-center gap-1 rounded-xl border text-[12px] font-semibold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-40",
+              "flex h-16 flex-col items-center justify-center gap-1 rounded-xl border px-1 text-center text-[12px] font-semibold leading-tight transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-40",
               action === button.key
                 ? button.danger
                   ? "border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink shadow-sm"
@@ -261,13 +249,17 @@ function LifecycleBody({
           </button>
         ))}
       </div>
+      {!action ? (
+        <ul className="space-y-0.5 text-[11.5px] text-muted-foreground">
+          {actions.filter((button) => !button.allowed && button.why).map((button) => (
+            <li key={button.key}><span className="font-medium text-foreground/80">{button.label}:</span> {button.why}</li>
+          ))}
+        </ul>
+      ) : null}
 
       {action ? (
         <div className="animate-enter-up rounded-xl border border-border bg-card p-3.5 shadow-sm">
-          {action === "edit" ? <EditForm data={data} onDone={() => setAction(null)} /> : null}
-          {action === "split" ? <SplitForm data={data} onDone={() => setAction(null)} onOpenCard={onOpenCard} /> : null}
-          {action === "force_close" ? <ForceCloseForm data={data} onDone={() => setAction(null)} /> : null}
-          {action === "emergency" ? <EmergencyForm data={data} machines={machines} onDone={() => setAction(null)} /> : null}
+          <ActionPanel action={action} data={data} machines={machines} onDone={() => setAction(null)} onOpenCard={onOpenCard} />
         </div>
       ) : null}
 
@@ -350,214 +342,10 @@ function LifecycleBody({
       </section>
 
       <div className="flex flex-wrap gap-2 border-t border-border pt-3">
+        <Link href={`/production/job-cards/manage?card=${data.id}`} className="erp-btn-primary !h-9"><Settings2 className="h-4 w-4" />Job card manager</Link>
         <Link href={`/production/job-cards/${data.id}`} className="erp-btn-secondary !h-9"><ArrowUpRight className="h-4 w-4" />Open job card</Link>
         <Link href={`/production/job-cards/${data.id}/print`} className="erp-btn-secondary !h-9"><Printer className="h-4 w-4" />Print</Link>
         <Link href={`/sales-orders/${data.sales_order_id}`} className="erp-btn-secondary !h-9"><CalendarClock className="h-4 w-4" />Sales order</Link>
-      </div>
-    </div>
-  )
-}
-
-function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
-  return (
-    <label className="block space-y-1">
-      <span className="text-[12px] font-medium text-muted-foreground">{label}</span>
-      {children}
-      {hint ? <span className="block text-[11.5px] text-muted-foreground">{hint}</span> : null}
-    </label>
-  )
-}
-
-const inputClass = "h-10 w-full rounded-lg border border-input bg-card px-2.5 text-[13px] focus:outline-none focus:ring-2 focus:ring-ring/30"
-
-function EditForm({ data, onDone }: { data: JobCardLifecycle; onDone: () => void }) {
-  const { showToast } = useApp()
-  const amend = useAmendJobCard()
-  const { data: parchments } = useParchments()
-  const options = (Array.isArray(parchments) ? parchments : []).filter((row: any) => row?.color_name && row?.id && !String(row.id).startsWith("vendor:"))
-  const [qty, setQty] = useState(String(Math.round(data.planned_qty)))
-  const [colorId, setColorId] = useState("")
-  const [reason, setReason] = useState("")
-  const chosen = options.find((row: any) => String(row.id) === colorId)
-  const colorName = chosen ? String(chosen.display_name || [chosen.color_name, chosen.vendor_name].filter(Boolean).join(" / ")) : ""
-  const submit = async () => {
-    try {
-      await amend.mutateAsync({ jobCardId: data.id, data: { planned_qty: Number(qty), parchment_color: colorName || undefined, parchment_color_id: colorId || null, reason: reason || undefined } })
-      showToast("Job card updated — sales release lot changed with it.", "success")
-      onDone()
-    } catch (error) {
-      showToast(apiErrorText(error), "error")
-    }
-  }
-  return (
-    <div className="space-y-3">
-      <p className="text-[12.5px] text-muted-foreground">This card is still in the queue, so its qty and color can change. The sales order release updates in step and the change is audited.</p>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Quantity (pcs)"><input className={inputClass} type="number" min="1" value={qty} onChange={(event) => setQty(event.target.value)} /></Field>
-        {data.parchment_color !== null ? (
-          <Field label="Color" hint={`Now: ${data.parchment_color || "—"}`}>
-            <select className={inputClass} value={colorId} onChange={(event) => setColorId(event.target.value)}>
-              <option value="">Keep current color</option>
-              {options.map((row: any) => <option key={row.id} value={row.id}>{row.display_name || row.color_name}</option>)}
-            </select>
-          </Field>
-        ) : null}
-      </div>
-      <Field label="Reason (optional)"><input className={inputClass} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="e.g. customer changed color" /></Field>
-      <div className="flex justify-end gap-2">
-        <button type="button" className="erp-btn-secondary !h-9" onClick={onDone}>Cancel</button>
-        <button type="button" className="erp-btn-primary !h-9" disabled={amend.isPending || !Number(qty)} onClick={() => void submit()}>{amend.isPending ? "Saving…" : "Save changes"}</button>
-      </div>
-    </div>
-  )
-}
-
-function SplitForm({ data, onDone, onOpenCard }: { data: JobCardLifecycle; onDone: () => void; onOpenCard: (id: string) => void }) {
-  const { showToast } = useApp()
-  const split = useSplitJobCard()
-  const max = Math.max(1, Math.floor(Math.min(data.open_first_stage_qty, data.planned_qty - 1)))
-  const [qty, setQty] = useState(String(Math.floor(max / 2) || 1))
-  const [reason, setReason] = useState("")
-  // An empty or out-of-range box is not 1 pc (client 2026-10-26): the split waits for a real quantity.
-  const typed = Number(qty)
-  const valid = qty.trim() !== "" && Number.isInteger(typed) && typed >= 1 && typed <= max
-  const value = valid ? typed : Math.min(max, Math.max(1, Math.round(typed) || 1))
-  const requestId = useRef<string | null>(null)
-  const submit = async () => {
-    if (!valid) return
-    requestId.current ||= newRequestId()
-    try {
-      const response = await split.mutateAsync({ jobCardId: data.id, qty: value, reason: reason || undefined, requestId: requestId.current })
-      requestId.current = null
-      const childNo = response?.data?.child_job_card_no
-      showToast(`${childNo || "New card"} created with ${fmt(value)} pcs — place it on the board.`, "success")
-      onDone()
-      if (response?.data?.child_job_card_id) onOpenCard(String(response.data.child_job_card_id))
-    } catch (error: any) {
-      if (error?.response) requestId.current = null // the server answered, so a new attempt is a new split
-      showToast(apiErrorText(error), "error")
-    }
-  }
-  return (
-    <div className="space-y-3">
-      <p className="text-[12.5px] text-muted-foreground">
-        Makes a <b className="text-foreground">separate job card</b> from the not-yet-started qty: its own number (e.g. {data.job_card_no}-A), lot, print, QC and dispatch, same colour.
-        To run this card over more shifts, days or machines, use <b className="text-foreground">Split plan</b> on the planner instead; that keeps one card.
-      </p>
-      <input type="range" min={1} max={max} value={value} onChange={(event) => setQty(event.target.value)} className="w-full accent-[hsl(var(--primary))]" aria-label="Split quantity" />
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label={`New card gets (pcs, 1–${fmt(max)})`}><input className={inputClass} type="number" min={1} max={max} step={1} value={qty} onChange={(event) => setQty(event.target.value)} aria-invalid={!valid} data-testid="split-card-qty" /></Field>
-        <Field label="Reason (optional)"><input className={inputClass} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="e.g. second winder free" /></Field>
-      </div>
-      <div className="grid grid-cols-2 gap-2 text-center text-[12.5px]">
-        <div className="rounded-lg bg-muted px-2 py-2"><span className="block text-muted-foreground">{data.job_card_no} keeps</span><strong className="text-[15px] tabular-nums">{fmt(data.planned_qty - value)}</strong></div>
-        <div className="rounded-lg bg-primary/10 px-2 py-2"><span className="block text-muted-foreground">New card gets</span><strong className="text-[15px] tabular-nums text-primary">{fmt(value)}</strong></div>
-      </div>
-      {!valid ? <p role="alert" className="text-[12.5px] text-signal-rose-ink">Type how many pcs the new card gets: a whole number from 1 to {fmt(max)}.</p> : null}
-      <div className="flex justify-end gap-2">
-        <button type="button" className="erp-btn-secondary !h-9" onClick={onDone}>Cancel</button>
-        <button type="button" className="erp-btn-primary !h-9" disabled={split.isPending || !valid} onClick={() => void submit()} data-testid="split-card-confirm">{split.isPending ? "Creating…" : `Create new card with ${fmt(value)} pcs`}</button>
-      </div>
-    </div>
-  )
-}
-
-function ForceCloseForm({ data, onDone }: { data: JobCardLifecycle; onDone: () => void }) {
-  const { showToast } = useApp()
-  const close = useForceCloseJobCard()
-  const [reason, setReason] = useState("")
-  const made = Math.min(data.made_qty, data.planned_qty)
-  const back = Math.max(0, data.planned_qty - made)
-  const submit = async () => {
-    try {
-      await close.mutateAsync({ jobCardId: data.id, reason })
-      showToast(made > 0 ? `Closed at ${fmt(made)} pcs — ${fmt(back)} pcs back on the sales order.` : `Card cancelled — ${fmt(back)} pcs back on the sales order.`, "success")
-      onDone()
-    } catch (error) {
-      showToast(apiErrorText(error), "error")
-    }
-  }
-  return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-2 text-center text-[12.5px]">
-        <div className="rounded-lg bg-muted px-2 py-2"><span className="block text-muted-foreground">{made > 0 ? "Keeps going as this lot" : "Made"}</span><strong className="text-[15px] tabular-nums">{fmt(made)} pcs</strong></div>
-        <div className="rounded-lg bg-signal-rose-soft px-2 py-2"><span className="block text-signal-rose-ink">Back to the sales order</span><strong className="text-[15px] tabular-nums text-signal-rose-ink">{fmt(back)} pcs</strong></div>
-      </div>
-      <p className="text-[12.5px] text-muted-foreground">
-        {made > 0
-          ? "The winder closes at what was made; those pcs still go through oven, process and packing on this card. The balance becomes unreleased on the order — re-release it with a new color or qty as a new card."
-          : "Nothing is made yet, so the card is cancelled and its whole quantity goes back to the order."}
-      </p>
-      <Field label="Reason"><textarea className={cn(inputClass, "h-20 py-2")} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="e.g. customer changed color to red" /></Field>
-      <div className="flex justify-end gap-2">
-        <button type="button" className="erp-btn-secondary !h-9" onClick={onDone}>Cancel</button>
-        <button type="button" className="erp-btn-primary !h-9 !bg-signal-rose-ink !text-white hover:!opacity-90" disabled={close.isPending || reason.trim().length < 3} onClick={() => void submit()}>
-          {close.isPending ? "Closing…" : made > 0 ? "Force close" : "Cancel card"}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function EmergencyForm({ data, machines, onDone }: { data: JobCardLifecycle; machines: any[]; onDone: () => void }) {
-  const { showToast } = useApp()
-  const insert = useEmergencyInsert()
-  const winders = machines.filter((row: any) => String(row.department || row.stage || row.machine_type || "").toUpperCase().includes(data.first_stage === "SLITTING" ? "SLIT" : "WIND"))
-  const today = new Date().toISOString().slice(0, 10)
-  const [machineId, setMachineId] = useState(String(winders[0]?.id || ""))
-  const [planDate, setPlanDate] = useState(today)
-  const [shift, setShift] = useState("SHIFT_A")
-  const [reason, setReason] = useState("")
-  useEffect(() => {
-    if (!machineId && winders[0]?.id) setMachineId(String(winders[0].id))
-  }, [machineId, winders])
-  const [result, setResult] = useState<any[] | null>(null)
-  const submit = async () => {
-    try {
-      const response = await insert.mutateAsync({ job_card_id: data.id, machine_id: machineId, plan_date: planDate, shift_code: shift, reason })
-      const bumped = response?.data?.bumped || []
-      setResult(bumped)
-      showToast(bumped.length ? `${data.job_card_no} runs first — ${bumped.length} card(s) pushed to later shifts.` : `${data.job_card_no} runs first — the slot had room.`, "success")
-    } catch (error) {
-      showToast(apiErrorText(error), "error")
-    }
-  }
-  if (result) {
-    return (
-      <div className="space-y-2">
-        <p className="text-[13px] font-semibold">{result.length ? "Pushed later to make room" : "Nothing had to move"}</p>
-        {result.map((row: any) => (
-          <p key={row.segment_id} className="text-[12.5px] tabular-nums text-muted-foreground">
-            <span className="font-mono font-semibold text-foreground">{row.job_card_no}</span> {row.from?.date} {String(row.from?.shift).replace("SHIFT_", "")} → {row.to?.date} {String(row.to?.shift).replace("SHIFT_", "")}
-          </p>
-        ))}
-        <div className="flex justify-end"><button type="button" className="erp-btn-secondary !h-9" onClick={onDone}>Done</button></div>
-      </div>
-    )
-  }
-  return (
-    <div className="space-y-3">
-      <p className="text-[12.5px] text-muted-foreground">The card goes first in the chosen shift. If that shift is then over capacity, the lowest-priority cards move to the next shift (and onward), never the running ones. Everyone affected is notified.</p>
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Field label="Machine">
-          <select className={inputClass} value={machineId} onChange={(event) => setMachineId(event.target.value)}>
-            {winders.map((row: any) => <option key={row.id} value={row.id}>{row.code || row.name}</option>)}
-          </select>
-        </Field>
-        <Field label="Date"><input className={inputClass} type="date" min={today} value={planDate} onChange={(event) => setPlanDate(event.target.value)} /></Field>
-        <Field label="Shift">
-          <select className={inputClass} value={shift} onChange={(event) => setShift(event.target.value)}>
-            <option value="SHIFT_A">Shift A</option>
-            <option value="SHIFT_B">Shift B</option>
-          </select>
-        </Field>
-      </div>
-      <Field label="Reason"><input className={inputClass} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="e.g. customer line-down, truck at 6 pm" /></Field>
-      <div className="flex justify-end gap-2">
-        <button type="button" className="erp-btn-secondary !h-9" onClick={onDone}>Cancel</button>
-        <button type="button" className="erp-btn-primary !h-9" disabled={insert.isPending || !machineId || reason.trim().length < 3} onClick={() => void submit()}>
-          <Flame className="h-4 w-4" />{insert.isPending ? "Inserting…" : "Insert as emergency"}
-        </button>
       </div>
     </div>
   )

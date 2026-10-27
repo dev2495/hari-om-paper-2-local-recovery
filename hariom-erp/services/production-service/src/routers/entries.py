@@ -128,10 +128,28 @@ def stage_has_qc(job,stage):
     return any(p.get("applicable",True) for p in (profile.get(stage) or {}).get("parameters") or [])
 
 
+def qc_flags(job,e):
+    """Readings outside their band on this run (client rule 2026-10-27): the run is not held, it is
+    flagged, and the flag shows on the card, the lists and Quality › QC flags."""
+    fails=[r for r in ((e.evaluation or {}).get("results") or []) if r.get("verdict")=="FAIL"]
+    if not fails:return []
+    params={p.get("code"):p for p in ((((job.spec_snapshot or {}).get("qc_profile") or {}).get("stages") or {}).get(e.stage,{}).get("parameters") or [])}
+    out=[]
+    for r in fails:
+        p=params.get(r.get("parameter")) or {}
+        label=p.get("label") or str(r.get("parameter") or "").upper()
+        if e.stage=="WINDER" and r.get("parameter")=="height":label="Height of bamboo"
+        value,low,high=r.get("value"),r.get("min"),r.get("max")
+        out.append({"sample_id":r.get("sample_id"),"parameter":r.get("parameter"),"label":label,"unit":p.get("unit"),"value":value,"min":low,"max":high,
+                    "direction":"LOW" if isinstance(value,(int,float)) and isinstance(low,(int,float)) and value<low else "HIGH" if isinstance(value,(int,float)) and isinstance(high,(int,float)) and value>high else None})
+    return out
+
+
 def entry_view(db,job,e):
     """entry_dict plus the batch's real QC state (minimum readings, released holds) and card
     context, so the floor screen and notifications read one truth."""
     row=entry_dict(e)
+    flags=qc_flags(job,e);row.update(qc_flagged=bool(flags),qc_flags=flags)
     row.update(job_card_id=str(job.id),job_card_no=job.job_card_no,plant_id=str(job.plant_id),customer=(job.spec_snapshot or {}).get("customer_name_snapshot") or (job.spec_snapshot or {}).get("customer_name"),stage_label=label_stage(e.stage))
     if e.status=="SUBMITTED" and e.kind!="QC_ONLY" and e.stage in ("WINDER","OVEN","PROCESS"):
         has=stage_has_qc(job,e.stage)
@@ -157,8 +175,9 @@ def readings_short(job,e):
 
 
 def qc_accepted(job,e):
-    """The batch's own QC reads PASS with the minimum readings on every required check."""
-    return (e.evaluation or {}).get("verdict") in ("PASS","OBSERVATION_ONLY") and not readings_short(job,e)
+    """The batch's own QC is recorded with the minimum readings on every required check. A reading
+    outside its band no longer holds the batch (client rule 2026-10-27): it is accepted and flagged."""
+    return (e.evaluation or {}).get("verdict") in ("PASS","OBSERVATION_ONLY","FAIL") and not readings_short(job,e)
 
 
 def qc_cleared_ids(db,job,stage):
@@ -246,7 +265,10 @@ def flow(db,job):
             result=dict(e.evaluation or {});results=[dict(v) for v in result.get("results",[])]
             inspection=inspection_map.get(str(e.id));disposition=disposed.get(inspection.id) if inspection else None
             for item in results:
-                if disposition and item.get("verdict")=="FAIL" and not item.get("non_waivable"):item["gating"]="advisory";item["disposition_id"]=disposition
+                # Out of band is flagged, never blocking (client rule 2026-10-27); readiness then only asks for the minimum readings.
+                if item.get("verdict")=="FAIL":
+                    item["gating"]="advisory";item["flagged"]=True
+                    if disposition:item["disposition_id"]=disposition
             result["results"]=results;evaluations.append(result)
         readiness=stage_readiness(stage,profile,evaluations)
         if stage=="QC" and "PROCESS" in route(job):
@@ -283,7 +305,7 @@ def flow(db,job):
             status="COMPLETED" if packed>0 and accepted+retained>=packed or snapshot.get("all_qc_rejected") else "RUNNING" if accepted>0 else row.status
             cap=max(0,packed-accepted-retained);blockers=[] if status=="COMPLETED" else ["Complete shipment through Logistics Dispatch"]
         stage_segments=[s for s in segments if s.stage_type==stage]
-        states.append({"stage":stage,"status":status,"unit":stage_unit(stage),"target":target,"unscheduled_entries":sum(1 for e in actual if (e.details or {}).get("unscheduled_entry")),"produced_total":produced,"accepted_total":accepted,"rejected_total":produced-accepted,"input_total":accepted if stage=="DISPATCH" else sum(e.input_quantity for e in actual),"cutting_loss_total":sum(e.cutting_loss_pcs for e in actual),"carryover_pcs":sum(e.carry_out_pcs-e.carry_in_pcs for e in actual),"available_from_upstream":cap,"awaiting_qc_from_upstream":waiting,"upstream_has_qc":bool(upstream and stage_has_qc(job,upstream)),"input_unit":stage_unit(upstream) if upstream else None,"pcs_per_bamboo":planning._pcs_per_bamboo_from_snapshot(job.spec_snapshot or {}) if stage=="PROCESS" else None,"qc":readiness,"draft_count":drafts,"can_close":status!="COMPLETED" and stage not in ("SLITTING","DISPATCH") and not blockers,"system_step":stage in SYSTEM_STAGES and not drafts and not any(e.stage==stage for e in all_entries),"completes_card":stage=="PROCESS" and any(s in route(job) for s in SYSTEM_STAGES),"blockers":blockers,"row_version":int(snapshot.get("row_version",1)),"supervisor_name":snapshot.get("supervisor_name"),"closed_at":snapshot.get("closed_at"),"residual_quantity":snapshot.get("residual_quantity"),"residual_disposition":snapshot.get("residual_disposition"),"segments":[{"id":str(s.id),"machine_id":str(s.machine_id) if s.machine_id else None,"plan_date":s.plan_date,"shift_code":s.shift_code,"status":s.status,**planning._planner_gate_context(current_stage=stage,active_stage=row,active_segment=s)} for s in stage_segments]})
+        states.append({"stage":stage,"status":status,"unit":stage_unit(stage),"target":target,"unscheduled_entries":sum(1 for e in actual if (e.details or {}).get("unscheduled_entry")),"produced_total":produced,"accepted_total":accepted,"rejected_total":produced-accepted,"input_total":accepted if stage=="DISPATCH" else sum(e.input_quantity for e in actual),"cutting_loss_total":sum(e.cutting_loss_pcs for e in actual),"qc_flagged_runs":sum(1 for e in actual if (e.evaluation or {}).get("verdict")=="FAIL"),"carryover_pcs":sum(e.carry_out_pcs-e.carry_in_pcs for e in actual),"available_from_upstream":cap,"awaiting_qc_from_upstream":waiting,"upstream_has_qc":bool(upstream and stage_has_qc(job,upstream)),"input_unit":stage_unit(upstream) if upstream else None,"pcs_per_bamboo":planning._pcs_per_bamboo_from_snapshot(job.spec_snapshot or {}) if stage=="PROCESS" else None,"qc":readiness,"draft_count":drafts,"can_close":status!="COMPLETED" and stage not in ("SLITTING","DISPATCH") and not blockers,"system_step":stage in SYSTEM_STAGES and not drafts and not any(e.stage==stage for e in all_entries),"completes_card":stage=="PROCESS" and any(s in route(job) for s in SYSTEM_STAGES),"blockers":blockers,"row_version":int(snapshot.get("row_version",1)),"supervisor_name":snapshot.get("supervisor_name"),"closed_at":snapshot.get("closed_at"),"residual_quantity":snapshot.get("residual_quantity"),"residual_disposition":snapshot.get("residual_disposition"),"segments":[{"id":str(s.id),"machine_id":str(s.machine_id) if s.machine_id else None,"plan_date":s.plan_date,"shift_code":s.shift_code,"status":s.status,**planning._planner_gate_context(current_stage=stage,active_stage=row,active_segment=s)} for s in stage_segments]})
         if stage=="PROCESS" and states[-1]["completes_card"]:
             snap=job.spec_snapshot or {}
             states[-1]["completion_preview"]={"fg_qty":accepted,"fg_code":snap.get("product_code") or snap.get("sales_order_line_product_code"),"packing":planning._packing_consumption_snapshot(packed_qty=float(accepted),spec_snapshot=dict(snap))}
@@ -676,12 +698,13 @@ def inspect(db,job,e,user):
     failures=[r for r in e.evaluation["results"] if r["verdict"] in ("FAIL","INVALID","INCOMPLETE")]
     inspection=QualityInspection(plant_id=job.plant_id,job_card_id=job.id,stage_type=e.stage,status=e.evaluation["verdict"],readings={"samples":e.samples},evaluation={**e.evaluation,"entry_id":str(e.id),"entry_revision":e.row_version,"gating":"blocking" if any(r.get("gating")=="blocking" for r in failures) else "advisory"},failures=failures,reasons={},sample_id=str(e.id),entry_mode="CONTINUOUS",created_by=user["sub"])
     db.add(inspection);db.flush()
-    if any(r["verdict"]=="FAIL" and r.get("gating")=="blocking" for r in failures):
-        db.add(QualityHold(plant_id=job.plant_id,job_card_id=job.id,stage_type=e.stage,reason=f"Entry {e.entry_no} QC failure",source_inspection_id=inspection.id,status="HOLD",created_by=user["sub"]))
-        db.add(CompletionEffect(job_card_id=job.id,effect_key=f"{job.id}:hold:{inspection.id}",kind="hold_stock",payload={"stage":e.stage,"plant_id":str(job.plant_id)}))
-        for packing in db.query(PackingRecord).filter_by(job_card_id=job.id).all():packing.stock_status="QC_HOLD"
-        for downstream in db.query(JobCardStage).filter_by(job_card_id=job.id).all():
-            snapshot=dict(downstream.actuals_snapshot or {});snapshot["stock_status"]="QC_HOLD";downstream.actuals_snapshot=snapshot
+    # Out of band = flagged, not held (client rule 2026-10-27). The inspection keeps the FAIL result for
+    # analytics; the run carries the flag; nothing is held and the next stage may take the batch.
+    flagged=[r for r in failures if r["verdict"]=="FAIL"]
+    if flagged:
+        e.details={**(e.details or {}),"qc_flag":{"count":len(flagged),"parameters":sorted({str(r.get("parameter")) for r in flagged}),"flagged_at":datetime.utcnow().isoformat(),"by":e.details.get("qc_name"),"inspection_id":str(inspection.id)}}
+    elif (e.details or {}).get("qc_flag"):
+        e.details={k:v for k,v in (e.details or {}).items() if k!="qc_flag"}
 
 
 @router.get("/job-cards/{card_id}/flow")
@@ -697,6 +720,7 @@ def get_entries(card_id:uuid.UUID,stage:str|None=None,offset:int=Query(0,ge=0),l
     def listed(e):
         row=entry_dict(e)
         if cleared is not None and e.status=="SUBMITTED" and e.kind!="QC_ONLY":row.update(qc_cleared=e.id in cleared,qc_readings_short=readings_short(job,e) if stage_has_qc(job,e.stage) else [])
+        flags=qc_flags(job,e);row.update(qc_flagged=bool(flags),qc_flags=flags)
         return row
     return {"entries":[listed(e) for e in query.order_by(StageEntry.created_at.desc(),StageEntry.id).offset(offset).limit(limit).all()],"total":query.count()}
 
@@ -770,7 +794,8 @@ def retry_effect(card_id:uuid.UUID,effect_id:uuid.UUID,payload:Mutation,db:Sessi
 def create_entry(card_id:uuid.UUID,payload:EntryInput,db:Session=Depends(get_db),plant:str=Depends(get_current_plant),user:dict=Depends(require_role(["Owner","Admin","PlantManager","Operator","QC","InProcessQC"]))):
     roles=set(user.get("roles",[]))
     if roles & {"QC","InProcessQC"} and not roles & {"Owner","Admin","PlantManager"} and payload.kind!="QC_ONLY":raise HTTPException(403,"QC may add observations only")
-    if "Operator" in roles and payload.submit and not roles & {"Owner","Admin","PlantManager"}:raise HTTPException(403,"Operator submission is not enabled; save a draft for supervisor review")
+    # Operators log QC themselves (client 2026-10-27): QC without a run is posted directly; runs stay drafts for the supervisor.
+    if "Operator" in roles and payload.submit and payload.kind!="QC_ONLY" and not roles & {"Owner","Admin","PlantManager"}:raise HTTPException(403,"Operator submission is not enabled; save a draft for supervisor review")
     if str((payload.details or {}).get(QC_GATE_OVERRIDE_KEY) or "").strip() and not roles & {"Owner","Admin","PlantManager"}:raise HTTPException(403,"Only a plant supervisor, Admin or Owner may take batches that are still awaiting QC")
     preliminary=card(db,card_id,plant);cached=replay(db,preliminary,payload,"entry_create")
     if cached:return cached
@@ -881,7 +906,8 @@ def submit_entry(card_id:uuid.UUID,entry_id:uuid.UUID,payload:Mutation,db:Sessio
 
 
 @router.post("/job-cards/{card_id}/entries/{entry_id}/observations")
-def save_observations(card_id:uuid.UUID,entry_id:uuid.UUID,payload:Observations,db:Session=Depends(get_db),plant:str=Depends(get_current_plant),user:dict=Depends(require_role(["QC","InProcessQC","Owner","Admin","PlantManager"]))):
+def save_observations(card_id:uuid.UUID,entry_id:uuid.UUID,payload:Observations,db:Session=Depends(get_db),plant:str=Depends(get_current_plant),user:dict=Depends(require_role(["QC","InProcessQC","Owner","Admin","PlantManager","Operator"]))):
+    # Operators log QC as well as output (client 2026-10-27); a separate QC inspector is not required.
     job=card(db,card_id,plant,True);prior=replay(db,job,payload,f"observations:{entry_id}")
     if prior:return prior
     e=db.query(StageEntry).filter_by(id=entry_id,job_card_id=job.id).first()

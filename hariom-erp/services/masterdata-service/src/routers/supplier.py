@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from .. import models
 from ..database import get_db
+from ..utils import party_formats as formats
 from ..utils.auth import (
     accepted_persisted_plant_ids,
     apply_plant_scope,
@@ -30,6 +31,23 @@ class SupplierCreate(BaseModel):
     gst_no: Optional[str] = None
     pan_no: Optional[str] = None
     address: Optional[str] = None
+    legal_name: Optional[str] = None
+    trade_name: Optional[str] = None
+    alt_phone: Optional[str] = None
+    address_line2: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    state_code: Optional[str] = None
+    pin_code: Optional[str] = None
+    country: Optional[str] = None
+    payment_terms_days: Optional[int] = None
+    credit_days: Optional[int] = None
+    credit_limit: Optional[float] = None
+    bank_name: Optional[str] = None
+    bank_account_no: Optional[str] = None
+    bank_ifsc: Optional[str] = None
+    msme_no: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class SupplierUpdate(BaseModel):
@@ -43,6 +61,23 @@ class SupplierUpdate(BaseModel):
     gst_no: Optional[str] = None
     pan_no: Optional[str] = None
     address: Optional[str] = None
+    legal_name: Optional[str] = None
+    trade_name: Optional[str] = None
+    alt_phone: Optional[str] = None
+    address_line2: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    state_code: Optional[str] = None
+    pin_code: Optional[str] = None
+    country: Optional[str] = None
+    payment_terms_days: Optional[int] = None
+    credit_days: Optional[int] = None
+    credit_limit: Optional[float] = None
+    bank_name: Optional[str] = None
+    bank_account_no: Optional[str] = None
+    bank_ifsc: Optional[str] = None
+    msme_no: Optional[str] = None
+    notes: Optional[str] = None
     active: Optional[bool] = None
     # UI cockpit alias — backend stores `active`.
     is_active: Optional[bool] = None
@@ -60,6 +95,25 @@ class SupplierResponse(BaseModel):
     gst_no: Optional[str]
     pan_no: Optional[str]
     address: Optional[str]
+    legal_name: Optional[str] = None
+    trade_name: Optional[str] = None
+    alt_phone: Optional[str] = None
+    address_line2: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    state_code: Optional[str] = None
+    pin_code: Optional[str] = None
+    country: Optional[str] = None
+    payment_terms_days: Optional[int] = None
+    credit_days: Optional[int] = None
+    credit_limit: Optional[float] = None
+    bank_name: Optional[str] = None
+    bank_account_no: Optional[str] = None
+    bank_ifsc: Optional[str] = None
+    msme_no: Optional[str] = None
+    notes: Optional[str] = None
+    # Address line 1 + line 2 + city, state - PIN, for documents (PO supplier block).
+    full_address: Optional[str] = None
     plant_id: str
     active: bool
     # Mirrored for the cockpit UI.
@@ -110,6 +164,71 @@ def _clean_code(value: str) -> str:
     return str(value or "").strip().upper().replace(" ", "-")
 
 
+# Field -> (label for messages, normaliser). Every field is optional; blank clears it.
+_DETAIL_FORMATS = {
+    "gst_no": ("GSTIN", formats.normalize_gstin),
+    "pan_no": ("PAN", formats.normalize_pan),
+    "bank_ifsc": ("IFSC", formats.normalize_ifsc),
+    "pin_code": ("PIN code", formats.normalize_pin),
+    "state_code": ("State code", formats.normalize_state_code),
+    "contact_phone": ("Phone", formats.normalize_phone),
+    "alt_phone": ("Alternate phone", formats.normalize_phone),
+    "contact_email": ("Email", formats.normalize_email),
+    "bank_account_no": ("Bank account number", formats.normalize_account_no),
+    "msme_no": ("MSME / Udyam number", lambda value: (formats.blank_to_none(value) or "").upper() or None),
+}
+_TEXT_FIELDS = (
+    "category_label", "contact_name", "address", "legal_name", "trade_name", "address_line2", "city",
+    "state", "country", "bank_name", "notes",
+)
+_DAY_FIELDS = {"payment_terms_days": "Payment terms", "credit_days": "Credit days"}
+
+
+def _clean_details(values: dict) -> dict:
+    """Trim, upper-case and format-check the optional vendor details present in ``values``.
+
+    Raises a 422 with a plain message naming the field, e.g. "GSTIN must be 15 characters".
+    """
+    cleaned = dict(values)
+    for key, (label, normalise) in _DETAIL_FORMATS.items():
+        if key in cleaned:
+            try:
+                cleaned[key] = normalise(cleaned[key])
+            except ValueError as exc:
+                message = str(exc)
+                raise HTTPException(status_code=422, detail=message if message.startswith(label) else f"{label}: {message}")
+    for key in _TEXT_FIELDS:
+        if key in cleaned:
+            cleaned[key] = formats.blank_to_none(cleaned[key])
+    for key, label in _DAY_FIELDS.items():
+        if cleaned.get(key) is not None and not 0 <= int(cleaned[key]) <= 365:
+            raise HTTPException(status_code=422, detail=f"{label} must be 0 to 365 days")
+    if cleaned.get("credit_limit") is not None and float(cleaned["credit_limit"]) < 0:
+        raise HTTPException(status_code=422, detail="Credit limit cannot be negative")
+    return cleaned
+
+
+def _fill_from_gstin(model: models.Supplier) -> None:
+    """A GSTIN carries the PAN and the state code; fill those (and the state name) when empty."""
+    gstin = model.gst_no or ""
+    if len(gstin) == 15:
+        if not model.pan_no:
+            model.pan_no = gstin[2:12]
+        if not model.state_code:
+            model.state_code = gstin[:2]
+    if model.state_code and not model.state:
+        model.state = formats.state_for_code(model.state_code)
+    if model.state and not model.state_code:
+        wanted = model.state.strip().lower()
+        model.state_code = next((code for code, name in formats.GST_STATE_CODES.items() if name.lower() == wanted), None)
+
+
+def _for_response(model: models.Supplier) -> models.Supplier:
+    setattr(model, "is_active", bool(model.active))
+    setattr(model, "full_address", formats.full_address(model))
+    return model
+
+
 @router.get("/", response_model=List[SupplierResponse])
 def get_suppliers(
     include_inactive: bool = Query(False, description="Include disabled suppliers for master maintenance"),
@@ -123,7 +242,7 @@ def get_suppliers(
     query = apply_plant_scope(query, models.Supplier.plant_id, plant_scope)
     rows = query.order_by(models.Supplier.name.asc()).all()
     for r in rows:
-        setattr(r, "is_active", bool(r.active))
+        _for_response(r)
     return rows
 
 
@@ -139,6 +258,7 @@ def create_supplier(
     name = supplier.name.strip()
     if not code or not name:
         raise HTTPException(status_code=400, detail="supplier_code and name are required")
+    details = _clean_details(supplier.model_dump())
 
     existing = db.query(models.Supplier).filter(
         models.Supplier.plant_id.in_(plant_values),
@@ -159,23 +279,25 @@ def create_supplier(
     }
     raw_category = supplier.category.strip()
     canon_category = category_canon_map.get(raw_category, raw_category.upper()) or "RAW_MATERIAL"
+    detail_keys = (
+        "contact_name", "contact_phone", "contact_email", "gst_no", "pan_no", "address", "legal_name", "trade_name",
+        "alt_phone", "address_line2", "city", "state", "state_code", "pin_code", "payment_terms_days", "credit_days",
+        "credit_limit", "bank_name", "bank_account_no", "bank_ifsc", "msme_no", "notes",
+    )
     model = models.Supplier(
         supplier_code=code,
         name=name,
         category=canon_category,
         category_label=label,
-        contact_name=supplier.contact_name,
-        contact_phone=supplier.contact_phone,
-        contact_email=supplier.contact_email,
-        gst_no=supplier.gst_no,
-        pan_no=supplier.pan_no,
-        address=supplier.address,
+        country=details.get("country") or "India",
         plant_id=plant_id,
+        **{key: details.get(key) for key in detail_keys},
     )
+    _fill_from_gstin(model)
     db.add(model)
     db.commit()
     db.refresh(model)
-    setattr(model, "is_active", bool(model.active))
+    _for_response(model)
     try:
         from ..utils.audit_client import emit_audit_event
         emit_audit_event(
@@ -210,7 +332,7 @@ def update_supplier(
     if not model:
         raise HTTPException(status_code=404, detail="Supplier not found")
 
-    updates = payload.model_dump(exclude_unset=True)
+    updates = _clean_details(payload.model_dump(exclude_unset=True))
     if updates.get("supplier_code") is None and "supplier_code" in updates:
         raise HTTPException(status_code=400, detail="supplier_code cannot be empty")
     if updates.get("name") is None and "name" in updates:
@@ -252,11 +374,14 @@ def update_supplier(
             model.category_label = str(value).strip() or None
         elif key == "is_active" and value is not None:
             model.active = bool(value)
+        elif key == "active" and value is None:
+            continue
         else:
             setattr(model, key, value)
+    _fill_from_gstin(model)
     db.commit()
     db.refresh(model)
-    setattr(model, "is_active", bool(model.active))
+    _for_response(model)
     try:
         from ..utils.audit_client import emit_audit_event
         emit_audit_event(

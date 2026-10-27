@@ -150,13 +150,16 @@ function isoDate(value?: string | null) {
   return String(value).slice(0, 10)
 }
 
-export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
+/** `copyFromOrderId` starts a new order from an existing one (customer, lines, colours, rates) with a blank PO. */
+export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: string; copyFromOrderId?: string }) {
   const router = useRouter()
   const { showToast } = useApp()
   const { data: customers } = useCustomers()
   const { data: specs } = useSpecs()
   const { data: parchments } = useParchments()
-  const existingOrder = useSalesOrder(orderId)
+  const sourceOrderId = orderId || copyFromOrderId
+  const copying = !orderId && Boolean(copyFromOrderId)
+  const existingOrder = useSalesOrder(sourceOrderId)
   const createOrder = useCreateSalesOrder()
   const updateOrder = useUpdateSalesOrder()
   const [form, setForm] = useState<SalesOrderForm>(INITIAL_FORM)
@@ -206,23 +209,25 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
   const defaultExpiry = addCalendarDays(orderBaseDate || new Date().toISOString().slice(0, 10), DEFAULT_EXPIRY_DAYS)
 
   useEffect(() => {
-    if (!orderId || !existingOrder.data || hydratedOrderId === orderId) return
+    if (!sourceOrderId || !existingOrder.data || hydratedOrderId === sourceOrderId) return
     const order = existingOrder.data
     const origin = String(order.origin || ORDER_ORIGIN_CUSTOMER_PO).toUpperCase() === ORDER_ORIGIN_INTERNAL
       ? ORDER_ORIGIN_INTERNAL
       : ORDER_ORIGIN_CUSTOMER_PO
+    const today = new Date().toISOString().slice(0, 10)
     setForm({
       origin,
       customer_id: String(order.customer_id || ""),
-      po_number: origin === ORDER_ORIGIN_CUSTOMER_PO ? String(order.po_number || "") : "",
-      po_date: origin === ORDER_ORIGIN_CUSTOMER_PO ? isoDate(order.po_date) : "",
-      internal_order_date: origin === ORDER_ORIGIN_INTERNAL ? isoDate(order.internal_order_date || order.created_at) : "",
-      expiry_date: isoDate(order.expiry_date),
-      notes: String(order.notes || ""),
+      // A copy is a new PO: the number, dates and validity are entered afresh.
+      po_number: origin === ORDER_ORIGIN_CUSTOMER_PO && !copying ? String(order.po_number || "") : "",
+      po_date: origin === ORDER_ORIGIN_CUSTOMER_PO ? (copying ? today : isoDate(order.po_date)) : "",
+      internal_order_date: origin === ORDER_ORIGIN_INTERNAL ? (copying ? today : isoDate(order.internal_order_date || order.created_at)) : "",
+      expiry_date: copying ? "" : isoDate(order.expiry_date),
+      notes: copying ? "" : String(order.notes || ""),
       lines: (order.lines || []).length
         ? order.lines.map((line: any, index: number) => ({
-            localId: String(line.id || `line-${index + 1}`),
-            persistedId: line.id ? String(line.id) : undefined,
+            localId: copying ? `copy-${index + 1}` : String(line.id || `line-${index + 1}`),
+            persistedId: line.id && !copying ? String(line.id) : undefined,
             approved_spec_id: String(line.approved_spec_id || ""),
             product_code: String(line.product_code || ""),
             size_label: String(line.size_label || ""),
@@ -242,12 +247,13 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
               : [],
             rate_per_pc: line.rate_per_pc == null ? "" : String(line.rate_per_pc),
             qty: line.qty == null ? "" : String(line.qty),
-            due_date: isoDate(line.due_date),
+            due_date: copying ? "" : isoDate(line.due_date),
           }))
         : [createLine()],
     })
-    setHydratedOrderId(orderId)
-  }, [existingOrder.data, hydratedOrderId, orderId])
+    setHydratedOrderId(sourceOrderId)
+    if (copying) showToast(`Copied ${order.order_no || "the order"}: enter the new PO number and dates, then save.`, "info")
+  }, [existingOrder.data, hydratedOrderId, sourceOrderId, copying, showToast])
 
   function updateHeader<K extends keyof SalesOrderForm>(key: K, value: SalesOrderForm[K]) {
     setForm((current) => ({ ...current, [key]: value }))

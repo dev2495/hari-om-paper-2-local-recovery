@@ -19,6 +19,7 @@ from src.database import Base, SessionLocal, engine
 from src.job_card_numbering import allocate_job_card_no
 from src.models import AuditEvent, JobCard, JobCardStage, JobCardStageSegment, MachineStageCapacityProfile, SalesOrder, PLANT_A_UUID
 from src.routers import lifecycle, missed_slots, planning
+import src.entry_models  # noqa: F401  (batch-entry tables exist for the cancel tests)
 from src.schemas.planning import ReorderQueuePayload, StageOutputBatchPayload, StageOutputPayload
 
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -292,6 +293,55 @@ def test_force_close_before_any_output_cancels_the_card(db):
     lifecycle.force_close_job_card(job.id, lifecycle.ForceClosePayload(reason='Released twice by mistake'), db, PLANT, PLANNER)
     db.refresh(job)
     assert job.status == 'CANCELLED' and round(float(job.returned_qty)) == 2000
+
+
+def _batch_card(db):
+    job = _card(db)
+    job.spec_snapshot = {**SPEC, 'entry_model': 'V2'}
+    db.flush()
+    return job
+
+
+def test_batch_entry_card_with_nothing_logged_can_be_cancelled(db):
+    from src.routers.card_history import card_events
+    job = _batch_card(db)
+    _schedule(db, job)
+    state = lifecycle.get_job_card_lifecycle(job.id, db, PLANT, PLANNER)
+    assert state['entry_model'] == 'V2' and state['floor_entries'] == 0
+    lifecycle.force_close_job_card(job.id, lifecycle.ForceClosePayload(reason='Released twice by mistake'), db, PLANT, PLANNER)
+    db.refresh(job)
+    assert job.status == 'CANCELLED' and round(float(job.returned_qty)) == 2000
+    assert any(path.endswith('/return-balance') for path, _ in db.sales_calls)
+    event = next(row for row in card_events(db, [job]) if row['kind'] == 'FORCE_CLOSE')
+    assert event['title'] == 'Cancelled: nothing was made' and '2,000 pcs back to the order' in event['detail']
+    assert event['before']['planned_qty'] == 2000 and event['after']['status'] == 'CANCELLED'
+    assert event['at'].endswith('+00:00')
+
+
+def test_batch_entry_card_with_a_run_closes_short_through_close_stage(db):
+    from src.entry_models import StageEntry
+    job = _batch_card(db)
+    _schedule(db, job)
+    db.add(StageEntry(plant_id=PLANT_A_UUID, job_card_id=job.id, stage='WINDER', entry_no=1, status='DRAFT', produced=5, accepted=5, created_by='operator-1'))
+    db.flush()
+    assert lifecycle.get_job_card_lifecycle(job.id, db, PLANT, PLANNER)['floor_entries'] == 1
+    with pytest.raises(HTTPException) as refused:
+        lifecycle.force_close_job_card(job.id, lifecycle.ForceClosePayload(reason='Customer cut the order'), db, PLANT, PLANNER)
+    assert refused.value.status_code == 409 and 'Close stage' in refused.value.detail
+    db.refresh(job)
+    assert job.status != 'CANCELLED' and not db.sales_calls
+
+
+def test_split_and_edit_history_show_before_and_after(db):
+    from src.routers.card_history import card_events
+    job = _card(db)
+    lifecycle.amend_job_card(job.id, lifecycle.AmendPayload(planned_qty=1600, reason='Customer reduced the PO'), db, PLANT, PLANNER)
+    lifecycle.split_job_card(job.id, lifecycle.SplitPayload(qty=400, reason='Second winder free'), db, PLANT, PLANNER)
+    events = card_events(db, [job])
+    edit = next(row for row in events if row['kind'] == 'EDIT')
+    assert edit['before']['planned_qty'] == 2000 and edit['after']['planned_qty'] == 1600 and 'reason' not in edit['after']
+    split = next(row for row in events if row['kind'] == 'SPLIT')
+    assert split['before']['planned_qty'] == 1600 and split['after']['planned_qty'] == 1200
 
 
 # ---- missed slot + late entry -----------------------------------------------------------

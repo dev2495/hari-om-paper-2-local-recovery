@@ -108,6 +108,45 @@ def _header(styles: dict[str, ParagraphStyle], *, company: str, title: str, refe
     return [table, Spacer(1, 4 * mm)]
 
 
+def supplier_block_lines(snapshot: dict[str, Any], metadata: dict[str, Any], order: Any) -> dict[str, str]:
+    """Supplier block text from what the revision saved (vendor master details snapshotted with the
+    GSTIN, client 2026-10-27). Missing parts are left out; nothing is looked up live."""
+    name = _text(snapshot.get("supplier_name") or getattr(order, "supplier_name_snapshot", None))
+    legal = (metadata.get("supplier_legal_name") or "").strip()
+    state = (metadata.get("supplier_state") or "").strip()
+    code = (metadata.get("supplier_state_code") or "").strip()
+    state_text = f"{state} ({code})" if state and code else state or (f"State code {code}" if code else "")
+    tax = " | ".join(filter(None, [
+        f"GSTIN {metadata['supplier_gst_no']}" if metadata.get("supplier_gst_no") else "GSTIN -",
+        f"PAN {metadata['supplier_pan_no']}" if metadata.get("supplier_pan_no") else None,
+        f"MSME {metadata['supplier_msme_no']}" if metadata.get("supplier_msme_no") else None,
+    ]))
+    address = ", ".join(filter(None, [(metadata.get("supplier_address") or "").strip(), state_text if state and state not in (metadata.get("supplier_address") or "") else ""]))
+    if not address and state_text:
+        address = state_text
+    contact = " | ".join(filter(None, [metadata.get("supplier_contact"), metadata.get("supplier_phone") if metadata.get("supplier_phone") and str(metadata.get("supplier_phone")).split(" / ")[0] not in str(metadata.get("supplier_contact") or "") else None, metadata.get("supplier_email")]))
+    return {
+        "name": f"{name}<br/>{escape(legal)}" if legal and escape(legal) != name else name,
+        "tax": escape(tax),
+        "address": escape(address or "-"),
+        "contact": escape(contact or "-"),
+    }
+
+
+def supplier_block_rows(snapshot: dict[str, Any], metadata: dict[str, Any], order: Any, styles: dict[str, ParagraphStyle], po_date: Any, revision_no: Any = None) -> list[list[Any]]:
+    lines = supplier_block_lines(snapshot, metadata, order)
+    return [
+        [Paragraph("<b>Supplier</b>", styles["small"]), Paragraph(lines["name"], styles["body"]),
+         Paragraph("<b>PO date</b>", styles["small"]), Paragraph(_text(po_date), styles["body"])],
+        [Paragraph("<b>GSTIN / PAN</b>", styles["small"]), Paragraph(lines["tax"], styles["body"]),
+         Paragraph("<b>Expected</b>", styles["small"]), Paragraph(_text(snapshot.get("expected_date")), styles["body"])],
+        [Paragraph("<b>Address</b>", styles["small"]), Paragraph(lines["address"], styles["body"]),
+         Paragraph("<b>Category</b>", styles["small"]), Paragraph(_text(snapshot.get("category", order.category)).replace("_", "/"), styles["body"])],
+        [Paragraph("<b>Contact</b>", styles["small"]), Paragraph(lines["contact"], styles["body"]),
+         Paragraph("<b>Revision</b>", styles["small"]), Paragraph(_text(revision_no or getattr(order, "current_revision_no", None)), styles["body"])],
+    ]
+
+
 def render_purchase_order_pdf(order: Any, revision: Any, delivery_schedules: Iterable[dict[str, Any]] = ()) -> bytes:
     """Render one immutable PO revision as an A4, multi-page PDF."""
     snapshot = dict(revision.snapshot_json or {})
@@ -123,14 +162,7 @@ def render_purchase_order_pdf(order: Any, revision: Any, delivery_schedules: Ite
         subtitle="Saved approved commercial revision" if revision.approval_state == "APPROVED" else f"{revision.approval_state.title()} revision",
     )
     po_date = metadata.get("po_date") or getattr(order, "created_at", "")
-    details = Table([
-        [Paragraph("<b>Supplier</b>", styles["small"]), Paragraph(_text(snapshot.get("supplier_name") or order.supplier_name_snapshot), styles["body"]),
-         Paragraph("<b>PO date</b>", styles["small"]), Paragraph(_text(po_date), styles["body"])],
-        [Paragraph("<b>Supplier GST</b>", styles["small"]), Paragraph(_text(metadata.get("supplier_gst_no")), styles["body"]),
-         Paragraph("<b>Expected</b>", styles["small"]), Paragraph(_text(snapshot.get("expected_date")), styles["body"])],
-        [Paragraph("<b>Contact / address</b>", styles["small"]), Paragraph(_text(" | ".join(filter(None, [metadata.get("supplier_contact"), metadata.get("supplier_address")]))), styles["body"]),
-         Paragraph("<b>Category</b>", styles["small"]), Paragraph(_text(snapshot.get("category", order.category)).replace("_", "/"), styles["body"])],
-    ], colWidths=[25 * mm, 78 * mm, 22 * mm, 53 * mm])
+    details = Table(supplier_block_rows(snapshot, metadata, order, styles, po_date, revision.revision_no), colWidths=[25 * mm, 78 * mm, 22 * mm, 53 * mm])
     details.setStyle(TableStyle([
         ("GRID", (0, 0), (-1, -1), 0.35, LINE), ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("BACKGROUND", (0, 0), (0, -1), PALE), ("BACKGROUND", (2, 0), (2, -1), PALE),

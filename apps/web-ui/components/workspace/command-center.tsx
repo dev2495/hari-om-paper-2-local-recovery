@@ -205,7 +205,7 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
     leadTime: { label: "Release → dispatch", value: pack.sales?.summary?.release_to_dispatch_days ? `${num(pack.sales?.summary.release_to_dispatch_days, 1)} days` : "—", detail: "Average order lead time on closed orders", icon: CalendarClock, tone: "blue", ready: packReady },
     activeCards: { label: "Open job cards", value: num(jobs.open_cards), detail: `${num(jobs.due_priority)} due soon · ${num(jobs.completed_cards)} completed`, icon: Factory, tone: "blue", href: "/production/job-cards", ready: has(jobs.open_cards) },
     overdue: { label: "Overdue job cards", value: num(jobs.due_overdue), detail: jobs.overdue_label || "Past their promised date", icon: TimerOff, tone: Number(jobs.due_overdue) ? "rose" : "slate", href: "/production/job-cards?due=overdue", ready: has(jobs.due_overdue) },
-    blocked: { label: "Blocked cards", value: num(jobs.blocked), detail: "Waiting on material, machine or a decision", icon: ShieldAlert, tone: Number(jobs.blocked) ? "rose" : "slate", href: "/planning/tracker", ready: has(jobs.blocked) },
+    blocked: { label: "Blocked cards", value: num(jobs.blocked), detail: "Waiting on material, machine or a decision", icon: ShieldAlert, tone: Number(jobs.blocked) ? "rose" : "slate", href: "/production/job-cards", ready: has(jobs.blocked) },
     adherence: { label: "Schedule adherence", value: pct(Number(pack.production?.summary?.schedule_adherence_percent)), detail: "Stages finished on their planned day", icon: ClipboardCheck, tone: "amber", progress: Number(pack.production?.summary?.schedule_adherence_percent), href: "/reports/operations", ready: packReady },
     utilization: Number(pack.production?.summary?.avg_machine_utilization_percent) > 400
       ? { label: "Machine load", value: "Not comparable", detail: "Machine capacity and assigned load are in different units — fix capacity in machine setup", icon: Workflow, tone: "amber", href: "/system/machines", ready: packReady }
@@ -280,7 +280,7 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
       </Card>
     ),
     pipeline: (
-      <Card key="pipeline" title="Where open work is" subtitle="Open job cards by current stage" action={<CardLink href="/planning/tracker">Tracker</CardLink>}>
+      <Card key="pipeline" title="Where open work is" subtitle="Open job cards by current stage" action={<CardLink href="/production/job-cards">Job cards</CardLink>}>
         {pipelineRows.length ? (
           <div className="space-y-2">
             {pipelineRows.map((row: any, index: number) => {
@@ -544,7 +544,7 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
       </div>
 
       <div className="grid gap-4 xl:grid-cols-3">
-        <Card title="Needs attention" subtitle="Late orders, blocked cards, holds and short materials" className="xl:col-span-2" action={<CardLink href="/planning/tracker">All exceptions</CardLink>}>
+        <Card title="Needs attention" subtitle="Late orders, blocked cards, holds and short materials" className="xl:col-span-2" action={<CardLink href="/planning/overview">All exceptions</CardLink>}>
           {attention.length ? (
             <div className="divide-y divide-border overflow-hidden rounded-lg border border-border">
               {attention.slice(0, 8).map((row) => (

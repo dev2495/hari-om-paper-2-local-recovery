@@ -5,6 +5,7 @@ import { resolve } from "node:path"
 import {
   QC_STAGE_PARAMETERS,
   collectStageQualityChecks,
+  displayStageRule,
   formatAllowedRange,
   frozenStageRules,
   inspectionFrozenRules,
@@ -100,9 +101,10 @@ test("whitespace is missing and kg batch values are not copied into g specimen f
 
 test("job card, spec dialog, and quality desks keep stage-specific fields", () => {
   const jobCard = readFileSync(resolve(process.cwd(), "components/production/JobCardDocument.tsx"), "utf8")
-  const qualityStage = readFileSync(resolve(process.cwd(), "app/(dashboard)/quality/stage/page.tsx"), "utf8")
+  const qualityStage = readFileSync(resolve(process.cwd(), "components/qc/LegacyStageInspection.tsx"), "utf8")
   const reports = readFileSync(resolve(process.cwd(), "app/(dashboard)/reports/quality/page.tsx"), "utf8")
   const eod = readFileSync(resolve(process.cwd(), "app/(dashboard)/production/eod-entry/page.tsx"), "utf8")
+  const supervisorEntry = readFileSync(resolve(process.cwd(), "app/(dashboard)/production/supervisor-entry/page.tsx"), "utf8")
   const incoming = readFileSync(resolve(process.cwd(), "app/(dashboard)/quality/incoming/page.tsx"), "utf8")
   const nextConfig = readFileSync(resolve(process.cwd(), "next.config.js"), "utf8")
   assert.match(jobCard, /renderStageQc\("WINDER"\)/)
@@ -113,12 +115,52 @@ test("job card, spec dialog, and quality desks keep stage-specific fields", () =
   assert.match(qualityStage, /WINDER/)
   assert.match(qualityStage, /pre_weight|OVEN/)
   assert.match(reports, /allow=\{\["QC"/)
-  assert.match(eod, /redirect\("\/production\/supervisor-entry"\)/)
+  // End-of-day and supervisor stage entry now land on the floor picker / scanned card (client 2026-10-27),
+  // keeping ?job_card_id, so every old link opens the same Log output / Log QC forms.
+  for (const legacy of [eod, supervisorEntry]) {
+    assert.match(legacy, /router\.replace\([\s\S]*\/production\/entry/)
+    assert.match(legacy, /job_card_id/)
+  }
   assert.match(nextConfig, /source: "\/production\/eod-entry"/)
   assert.match(nextConfig, /destination: "\/production\/supervisor-entry"/)
   assert.doesNotMatch(incoming, /Pass and release/)
   assert.match(incoming, /Save QC inspection/)
   assert.doesNotMatch(incoming, /status: "PASS"/)
+})
+
+test("floor QC forms keep the stage measurement rules (min 2 readings, moisture optional, flagged not held)", () => {
+  const model = readFileSync(resolve(process.cwd(), "components/production/card/model.ts"), "utf8")
+  const qcForm = readFileSync(resolve(process.cwd(), "components/production/card/LogQcForm.tsx"), "utf8")
+  const outputForm = readFileSync(resolve(process.cwd(), "components/production/card/LogOutputForm.tsx"), "utf8")
+  const matrix = readFileSync(resolve(process.cwd(), "components/production/SeasonQcMatrix.tsx"), "utf8")
+  const close = readFileSync(resolve(process.cwd(), "components/production/card/CloseStageDialog.tsx"), "utf8")
+  // Winding height is the bamboo height on every floor screen; other stages keep their own label.
+  assert.equal(displayStageRule("WINDER", { code: "height", label: "Height" }).label, "Height of bamboo")
+  assert.equal(displayStageRule("PROCESS", { code: "height", label: "Height" }).label, "Height")
+  assert.match(model, /stageParameters[\s\S]*displayStageRule\(stage, r\)/)
+  // At least 2 readings per required check (more when the check asks), moisture optional.
+  assert.match(model, /requiredReadings = \(rule: any\) => Math\.max\(2, Number\(rule\?\.min_readings \|\| 0\)\)/)
+  assert.match(model, /shortChecks[\s\S]*OPTIONAL_QC_CODES\.has\(rule\.code\)[\s\S]*requiredReadings\(rule\)/)
+  assert.match(matrix, /OPTIONAL_QC_CODES = new Set\(\["pre_moisture", "post_moisture", "moisture"\]\)/)
+  assert.match(matrix, /Math\.max\(2, Number\(rule\.min_readings \|\| 0\)\)/)
+  // QC is its own form: readings against the card's frozen limits, run or "QC without a run" (QC_ONLY).
+  assert.match(qcForm, /<SeasonQcMatrix rules=\{parameters\}/)
+  assert.match(qcForm, /shortChecks\(parameters, filled\)/)
+  assert.match(qcForm, /kind: "QC_ONLY"/)
+  assert.match(qcForm, /entryApi\.observations\(/)
+  // Changing readings already recorded needs a reason; instruments are asked where the check requires one.
+  assert.match(qcForm, /the reason for changing readings/)
+  assert.match(qcForm, /requires_instrument/)
+  // Out of band is flagged in amber with a flag, never held and never red.
+  assert.match(qcForm, /readingVerdict\(rule, value/)
+  assert.match(qcForm, /flagged<\/b>, not held/)
+  assert.match(matrix, /verdict === "fail"\s*\? "border-signal-amber-line bg-signal-amber-soft/)
+  assert.doesNotMatch(matrix, /border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink/)
+  // Log output asks no QC readings; a stage closes only when its QC is ready, a short close too.
+  assert.doesNotMatch(outputForm, /SeasonQcMatrix/)
+  assert.match(close, /if \(!state\.qc\?\.ready\)/)
+  assert.match(close, /Boolean\(state\.qc\?\.ready\)/)
+  assert.match(close, /a short close too/)
 })
 
 test("spec dialog and remaining shells keep product context and shared headers", () => {
@@ -211,7 +253,7 @@ test("blank print keeps writable spaces and does not treat empty as PASS", () =>
 })
 
 test("complete job card submit keeps hidden-stage form state in source", () => {
-  const page = readFileSync(resolve(process.cwd(), "app/(dashboard)/quality/stage/page.tsx"), "utf8")
+  const page = readFileSync(resolve(process.cwd(), "components/qc/LegacyStageInspection.tsx"), "utf8")
   assert.match(page, /quality-card-submit/)
   assert.match(page, /quality-stage-tabs/)
   assert.match(page, /quality-card-issues/)
@@ -221,7 +263,7 @@ test("complete job card submit keeps hidden-stage form state in source", () => {
 
 test("oven PRE checkpoint marks post fields not yet due", () => {
   const fields = readFileSync(resolve(process.cwd(), "components/qc/StageQcFields.tsx"), "utf8")
-  const page = readFileSync(resolve(process.cwd(), "app/(dashboard)/quality/stage/page.tsx"), "utf8")
+  const page = readFileSync(resolve(process.cwd(), "components/qc/LegacyStageInspection.tsx"), "utf8")
   assert.match(fields, /Not yet due/)
   assert.match(fields, /dueTiming/)
   assert.match(page, /quality-stage-checkpoint/)

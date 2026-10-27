@@ -32,6 +32,10 @@ export type JobCardLifecycle = {
   closed_at: string | null
   closed_by: string | null
   actions: { edit: boolean; split: boolean; force_close: boolean; emergency: boolean; running_entry: boolean }
+  /** "V2" = batch entry. */
+  entry_model?: string
+  /** Runs and QC-only entries logged on a batch-entry card; it can be cancelled only while this is 0. */
+  floor_entries?: number
   stages: Array<{
     stage: string
     unit: "bamboo" | "pcs"
@@ -51,7 +55,7 @@ export type JobCardLifecycle = {
 }
 
 export function invalidateJobCardViews(queryClient: QueryClient) {
-  for (const key of ["job-card-lifecycle", "planning-board", "planning-queue", "planning-job-cards", "planning-job-card", "job-card-aggregates", "winder-load", "sales-orders", "sales-order", "analytics-production-live-wip"]) {
+  for (const key of ["job-card-lifecycle", "job-card-history", "planning-board", "planning-queue", "planning-job-cards", "planning-job-card", "job-card-aggregates", "winder-load", "sales-orders", "sales-order", "analytics-production-live-wip"]) {
     queryClient.invalidateQueries({ queryKey: [key] })
   }
 }

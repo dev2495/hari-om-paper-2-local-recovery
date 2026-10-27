@@ -378,7 +378,7 @@ export function DetailDrawer({
       <div className="px-5 py-4 text-white" style={{ backgroundImage: headerGradient }}>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-[12px] font-semibold text-white/70">Selected</p>
+            <p className="text-[12px] font-semibold text-white/90">Selected</p>
             <h2 className="mt-1 truncate text-lg font-semibold tracking-tight">{title}</h2>
             {subtitle ? <p className="mt-0.5 text-xs text-white/80">{subtitle}</p> : null}
           </div>

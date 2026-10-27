@@ -55,6 +55,23 @@ async def plan_vs_actual(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/reports/plan-vs-actual", request, token)
 
 
+@router.get("/job-cards/{card_id}/history")
+async def job_card_history(card_id: str, request: Request, token: str = Depends(get_token)):
+    """One card's history: release, plan, runs, QC (with flags), holds, closes, splits, edits, dispatch."""
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{card_id}/history", request, token)
+
+
+@router.get("/sales-orders/{order_id}/card-history")
+async def sales_order_card_history(order_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/sales-orders/{order_id}/card-history", request, token)
+
+
+@router.get("/quality/flags")
+async def qc_flag_register(request: Request, token: str = Depends(get_token)):
+    """QC readings outside their band, stage by stage (flagged, never held)."""
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/quality/flags", request, token)
+
+
 @router.get("/planning/overview")
 async def planning_overview(request: Request, token: str = Depends(get_token)):
     """Planned slots of a period against the floor log, machine load and queues (production planning_overview)."""

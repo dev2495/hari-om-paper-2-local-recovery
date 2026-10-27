@@ -74,6 +74,48 @@ async def get_order_timeline(order_id: str, request: Request, token: str = Depen
     return await proxy_to_service(SALES_SERVICE_URL, f"/sales-orders/{order_id}/timeline", request, token)
 
 
+@router.get("/orders/{order_id}/history")
+async def get_order_history(order_id: str, request: Request, token: str = Depends(get_token)):
+    """One history for the order page (client 2026-10-27): the order's own events (sales) and every
+    event of every job card released from it (production), newest first, in one shape."""
+    import asyncio
+
+    headers = {"Authorization": f"Bearer {token}"}
+    if request.headers.get("X-Plant-ID"):
+        headers["X-Plant-ID"] = request.headers["X-Plant-ID"]
+    production_url = os.getenv("PRODUCTION_SERVICE_URL", "http://127.0.0.1:18004")
+    sales_call = http_client.get(f"{SALES_SERVICE_URL}/sales-orders/{order_id}/timeline", headers=headers, params={"depth": "full"})
+    cards_call = http_client.get(f"{production_url}/sales-orders/{order_id}/card-history", headers=headers)
+    sales_response, cards_response = await asyncio.gather(sales_call, cards_call, return_exceptions=True)
+    if isinstance(sales_response, Exception):
+        raise HTTPException(status_code=502, detail="Sales service unavailable for the order history")
+    if sales_response.status_code != 200:
+        raise HTTPException(status_code=sales_response.status_code, detail=(sales_response.json() or {}).get("detail") if sales_response.headers.get("content-type", "").startswith("application/json") else "Order history could not be loaded")
+    timeline = sales_response.json() or {}
+    kind_of = {
+        "SALES_ORDER_CREATED": "ORDER", "SALES_ORDER_LINE_CREATED": "ORDER", "SALES_ORDER_APPROVED": "ORDER", "SALES_ORDER_RELEASED": "RELEASE",
+        "SALES_ORDER_CANCELLED": "CLOSE", "SALES_ORDER_SHORT_CLOSED": "CLOSE",
+    }
+    events = [{
+        "id": f"s:{row.get('id')}", "at": row.get("created_at"), "actor": row.get("actor"), "role": None,
+        "kind": kind_of.get(str(row.get("event_type") or ""), "ORDER" if str(row.get("event_type") or "").startswith("SALES_ORDER") else "OTHER"),
+        "source": "SALES", "title": row.get("title"), "detail": row.get("message"), "stage": None, "stage_label": None,
+        "job_card_id": None, "job_card_no": None, "line_id": row.get("line_id"), "flag": False, "before": None, "after": row.get("metadata") or None,
+    } for row in (timeline.get("events") or [])]
+    warnings = list(timeline.get("warnings") or [])
+    job_cards: list = []
+    if isinstance(cards_response, Exception) or cards_response.status_code != 200:
+        warnings.append("Job card events could not be loaded; only the order's own events are shown.")
+    else:
+        body = cards_response.json() or {}
+        job_cards = body.get("job_cards") or []
+        events += [{**row, "source": "PRODUCTION"} for row in body.get("events") or []]
+    events.sort(key=lambda row: (str(row.get("at") or ""), str(row.get("id"))), reverse=True)
+    return {"order_id": order_id, "order_no": timeline.get("order_no"), "status": timeline.get("status"), "events": events,
+            "job_cards": job_cards, "warnings": warnings,
+            "summary": {"events": len(events), "flags": sum(1 for row in events if row.get("flag"))}}
+
+
 @router.get("/orders/{order_id}/delivery-schedules")
 async def get_order_delivery_schedules(order_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(SALES_SERVICE_URL, f"/sales-orders/{order_id}/delivery-schedules", request, token)

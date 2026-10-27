@@ -919,7 +919,8 @@ def list_sales_orders(
     customer_id: Optional[uuid.UUID] = Query(None),
     search: Optional[str] = Query(None, min_length=1, max_length=120),
     origin: Optional[str] = Query(None, description="CUSTOMER_PO | INTERNAL"),
-    due: Optional[str] = Query(None, description="overdue | week (due within 7 days) — open lines only"),
+    due: Optional[str] = Query(None, description="overdue | priority (next 3 plant days) | week (due within 7 days) — open lines only"),
+    search_customer_ids: Optional[str] = Query(None, description="Comma-separated customer ids whose name/code matched the search text (OR-ed into the search)"),
     unreleased: bool = Query(False, description="Only orders with quantity not yet released"),
     held: bool = Query(False),
     expired: bool = Query(False),
@@ -943,6 +944,15 @@ def list_sales_orders(
     )
     if status and status.strip().lower() == "cancelled":
         query = query.filter(SalesOrder.closure_kind == CLOSURE_CANCELLED)
+    elif status and "," in status:
+        # One status tab can cover several statuses (e.g. In production = released + partially released).
+        try:
+            wanted = [SalesOrderStatus(part.strip()) for part in status.split(",") if part.strip()]
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid status")
+        query = query.filter(SalesOrder.status.in_(wanted))
+        if SalesOrderStatus.CLOSED in wanted:
+            query = query.filter(or_(SalesOrder.closure_kind.is_(None), SalesOrder.closure_kind != CLOSURE_CANCELLED))
     elif status:
         try:
             status_enum = SalesOrderStatus(status)
@@ -975,6 +985,15 @@ def list_sales_orders(
             clauses.append(SalesOrder.customer_id == uuid.UUID(search.strip()))
         except ValueError:
             pass
+        # Customer name / code live in master data, so the screen sends the ids that matched the text.
+        matched_customers = []
+        for raw in str(search_customer_ids or "").split(","):
+            try:
+                matched_customers.append(uuid.UUID(raw.strip()))
+            except ValueError:
+                continue
+        if matched_customers:
+            clauses.append(SalesOrder.customer_id.in_(matched_customers))
         query = query.filter(or_(*clauses))
 
     today = plant_today()
@@ -985,6 +1004,9 @@ def list_sales_orders(
         query = query.filter(SalesOrder.status != SalesOrderStatus.CLOSED, SalesOrder.lines.any(and_(open_line, SalesOrderLine.due_date < today)))
     elif due == "week":
         query = query.filter(SalesOrder.status != SalesOrderStatus.CLOSED, SalesOrder.lines.any(and_(open_line, SalesOrderLine.due_date >= today, SalesOrderLine.due_date <= today + timedelta(days=7))))
+    elif due == "priority":
+        # Same window as the pending workspace's "priority": today and the next two plant days.
+        query = query.filter(SalesOrder.status != SalesOrderStatus.CLOSED, SalesOrder.lines.any(and_(open_line, SalesOrderLine.due_date >= today, SalesOrderLine.due_date <= today + timedelta(days=2))))
     if unreleased:
         released_subq = (
             select(func.coalesce(func.sum(SalesOrderReleaseLot.released_qty), 0.0))
@@ -1043,6 +1065,9 @@ class SalesOrderAggregatesResponse(BaseModel):
     expiring_7d_count: int = 0
     held_order_count: int = 0
     hold_qty: float = 0.0
+    # One count per status tab of the Orders list (client 2026-10-27): draft, submitted, approved,
+    # released, partially_released, partially_dispatched, closed (not cancelled), cancelled, held, all.
+    status_counts: dict = Field(default_factory=dict)
 
 
 class DeliveryScheduleRowInput(BaseModel):
@@ -1242,8 +1267,17 @@ def get_sales_order_aggregates(
         plant_scope,
     )
     hold_qty = float(hold_qty_query.scalar() or 0.0)
+    status_counts = {
+        row[0].value if hasattr(row[0], "value") else str(row[0]): int(row[1] or 0)
+        for row in base.with_entities(SalesOrder.status, func.count(SalesOrder.id)).filter(SalesOrder.status != SalesOrderStatus.CLOSED).group_by(SalesOrder.status).all()
+    }
+    status_counts["closed"] = int(base.filter(SalesOrder.status == SalesOrderStatus.CLOSED, not_cancelled).count() or 0)
+    status_counts["cancelled"] = cancelled_order_count
+    status_counts["held"] = held_order_count
+    status_counts["all"] = total_order_count
 
     return {
+        "status_counts": status_counts,
         "cancelled_order_count": cancelled_order_count,
         "expired_open_count": expired_open_count,
         "expiring_7d_count": expiring_7d_count,

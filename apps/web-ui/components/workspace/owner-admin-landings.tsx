@@ -185,7 +185,7 @@ export function AdminLandingPage() {
               { href: "/operations/control", label: "Operations control", icon: Wrench },
               { href: "/reports", label: "Report hub", icon: ClipboardCheck },
               { href: "/analytics", label: "Analytics", icon: BarChart3 },
-              { href: "/planning/tracker", label: "Tracker", icon: Wrench },
+              { href: "/production/job-cards/manage", label: "Job card manager", icon: Wrench },
             ].map((item) => (
               <Link key={item.href} href={item.href} className="flex items-center justify-between rounded-[1.2rem] border border-border px-4 py-3 text-sm font-semibold text-muted-foreground hover:bg-muted">
                 <span className="inline-flex items-center gap-2">

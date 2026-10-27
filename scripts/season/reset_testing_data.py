@@ -23,8 +23,8 @@ KEEP={
  "masterdb":set("adhesive_master customer customer_contact employee machine machine_supported_mandrel mandrel packaging_box packaging_fadda packaging_plastic_sheet paper_master parchment_color parchment_vendor plant_holiday reason_code shift_definition supplier supplier_contact tool_attribute_option tool_master tube_size".split()),
  "specdb":set("global_spec_defaults spec_dynamic_fields production_season_state season_qc_rule_versions production_season_events".split()),
  "salesdb":set("sales_order_number_counters".split()),
- "productiondb":set("job_card_number_counters machine_stage_capacity_profile plant_tolerance_setting qc_instruments".split()),
- "inventorydb":set("document_series inventory_locations inventory_quality_templates item_master stock_alert_policies".split()),
+ "productiondb":set("job_card_number_counters machine_stage_capacity_profile plant_tolerance_setting planner_views qc_instruments".split()),
+ "inventorydb":set("document_series inventory_locations inventory_quality_standard_events inventory_quality_templates inventory_quality_tolerances item_master stock_alert_policies".split()),
  "analyticsdb":set(),
 }
 CLEAR={

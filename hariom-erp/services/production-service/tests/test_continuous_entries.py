@@ -37,6 +37,16 @@ def create(a,db,job,stage='WINDER',**kw):
 def winding_samples():return [{'sample_id':str(uuid.uuid4()),'readings':{'id':76.3,'od':82,'height':1560,'weight':130,'cs':165}} for _ in range(2)]
 def oven_samples():return [{'sample_id':str(uuid.uuid4()),'readings':{'pre_weight':1000,'post_weight':910,'pre_moisture':10,'post_moisture':8,'cs':420}} for _ in range(2)]
 
+def test_operator_posts_qc_without_a_run_but_runs_stay_drafts(card):
+    a,db,job=card
+    operator={'sub':'entry-test-operator','roles':['Operator'],'allowed_plants':[PLANT]}
+    qc=a.create_entry(job.id,a.EntryInput(request_id=str(uuid.uuid4()),stage='WINDER',kind='QC_ONLY',business_date=date.today(),samples=winding_samples(),submit=True),db,PLANT,operator)
+    assert qc['entry']['kind']=='QC_ONLY' and qc['entry']['status']=='SUBMITTED'
+    with pytest.raises(HTTPException) as refused:
+        a.create_entry(job.id,a.EntryInput(request_id=str(uuid.uuid4()),stage='WINDER',business_date=date.today(),shift_code='SHIFT_A',operator_id=uuid.uuid4(),produced=5,accepted=5,submit=True),db,PLANT,operator)
+    assert refused.value.status_code==403
+    db.rollback()
+
 def test_rejected_excess_production_still_requires_variance_reason(card):
     a,db,job=card
     with pytest.raises(HTTPException) as error:
@@ -315,29 +325,27 @@ def test_next_stage_takes_only_qc_cleared_batches_unless_supervisor_overrides(ca
     assert denied.value.status_code==403;db.rollback()
 
 
-def test_a_failed_batch_holds_only_itself_not_the_passing_batches(card):
+def test_an_out_of_band_batch_is_flagged_not_held(card):
+    # Client rule 2026-10-27: a reading outside its band is allowed and flagged everywhere; nothing is
+    # held, the batch counts as QC done (with its 2 readings) and the next stage may take it.
+    from src.models import QualityHold
     a,db,job=card
-    # Batch 1 fails winding QC (I.D. far out): it is held and cannot feed the oven.
     bad=[{'sample_id':str(uuid.uuid4()),'readings':{'id':70.0,'od':82,'height':1560,'weight':130,'cs':165}} for _ in range(2)]
     failed=create(a,db,job,produced=3,accepted=3,samples=bad)['entry']
-    assert failed['evaluation']['verdict']=='FAIL' and not failed['qc_cleared']
-    assert a.available(db,job,'OVEN')==0 and a.awaiting_qc(db,job,'OVEN')==3
-    # Batch 2 passes: the oven may take it although batch 1 is on hold.
+    assert failed['evaluation']['verdict']=='FAIL' and failed['qc_cleared'] and failed['qc_flagged']
+    assert {f['parameter'] for f in failed['qc_flags']}=={'id'} and failed['qc_flags'][0]['direction']=='LOW' and failed['qc_flags'][0]['label']
+    assert db.query(QualityHold).filter_by(job_card_id=job.id).count()==0
+    assert a.available(db,job,'OVEN')==3 and a.awaiting_qc(db,job,'OVEN')==0
     create(a,db,job,produced=4,accepted=4,samples=winding_samples())
-    assert a.available(db,job,'OVEN')==4
-    oven=next(s for s in a.flow(db,job)['stages'] if s['stage']=='OVEN')
-    assert oven['available_from_upstream']==4 and oven['awaiting_qc_from_upstream']==3
-    create(a,db,job,'OVEN',produced=4,accepted=4,input_quantity=4)
-    # The failed batch still stops the winding stage from closing until QC decides.
     winding=next(s for s in a.flow(db,job)['stages'] if s['stage']=='WINDER')
-    assert any('Resolve blocking QC holds' in b for b in winding['blockers'])
-    # A hold on the card itself (not from one batch) still stops all movement.
-    from src.models import QualityHold
-    db.add(QualityHold(plant_id=job.plant_id,job_card_id=job.id,stage_type='WINDER',reason='Customer complaint hold',status='HOLD',created_by='qc'));db.flush()
-    create(a,db,job,produced=2,accepted=2,samples=winding_samples())
-    assert a.available(db,job,'OVEN')==0
-    db.rollback()
-
+    assert winding['qc_flagged_runs']==1 and winding['qc']['ready']
+    assert not any('QC holds' in b or 'QC samples' in b for b in winding['blockers'])
+    create(a,db,job,'OVEN',produced=7,accepted=7,input_quantity=7)
+    from src.routers import card_history
+    register=card_history.qc_flag_register(None,None,None,job.id,db,{'scope_all':False,'selected_plant_id':PLANT,'allowed_plants':[PLANT]},USER)
+    assert register['summary']=={'readings':2,'runs':1,'cards':1} and {r['label'] for r in register['rows']}=={failed['qc_flags'][0]['label']}
+    history=card_history.job_card_history(job.id,db,{'scope_all':False,'selected_plant_id':PLANT,'allowed_plants':[PLANT]},USER)
+    assert history['summary']['flags']==1 and any(e['kind']=='QC_FLAG' for e in history['events'])
 
 def test_released_card_takes_entries_before_the_planner_places_it_and_flags_them(card):
     a,db,job=card
@@ -392,12 +400,13 @@ def test_whole_card_totals_entry_readings_cover_earlier_batches_without_readings
     covered={e['entry_no']:e for e in listing}
     assert covered[first['entry_no']]['qc_cleared'] and covered[second['entry_no']]['qc_cleared'] and covered[first['entry_no']]['details']['qc_covered_entry_no']==total['entry_no']
     assert a.available(db,job,'OVEN')==10 and a.awaiting_qc(db,job,'OVEN')==0
-    # A batch that failed its own readings is not covered.
+    # A batch with a reading out of band counts as QC done on its own readings, flagged.
     bad=[{'sample_id':str(uuid.uuid4()),'readings':{'id':70.0,'od':82,'height':1560,'weight':130,'cs':165}} for _ in range(2)]
     failed=create(a,db,job,produced=1,accepted=1,samples=bad)['entry'];assert failed['evaluation']['verdict']=='FAIL'
     row=a.stage_row(db,job,'WINDER');version=int((row.actuals_snapshot or {}).get('row_version',1))
     create(a,db,job,produced=12,accepted=12,quantity_mode='TOTAL',expected_version=version,samples=winding_samples(),details={'overproduction_reason':'test'})
-    assert not next(e for e in a.get_entries(job.id,'WINDER',0,50,db,PLANT,USER)['entries'] if e['entry_no']==failed['entry_no'])['qc_cleared']
+    flagged=next(e for e in a.get_entries(job.id,'WINDER',0,50,db,PLANT,USER)['entries'] if e['entry_no']==failed['entry_no'])
+    assert flagged['qc_cleared'] and flagged['qc_flagged']
     db.rollback()
 
 def close_input(**kw):

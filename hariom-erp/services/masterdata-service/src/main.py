@@ -306,6 +306,27 @@ def _ensure_schema_compatibility() -> None:
             )
         )
         connection.execute(text("ALTER TABLE supplier ADD COLUMN IF NOT EXISTS pan_no VARCHAR(50)"))
+        # Vendor basic details (client 2026-10-27): all optional, existing vendors read them as NULL.
+        for column_sql in (
+            "legal_name VARCHAR(200)",
+            "trade_name VARCHAR(200)",
+            "alt_phone VARCHAR(50)",
+            "address_line2 VARCHAR(300)",
+            "city VARCHAR(120)",
+            "state VARCHAR(120)",
+            "state_code VARCHAR(2)",
+            "pin_code VARCHAR(10)",
+            "country VARCHAR(80)",
+            "payment_terms_days INTEGER",
+            "credit_days INTEGER",
+            "credit_limit DOUBLE PRECISION",
+            "bank_name VARCHAR(200)",
+            "bank_account_no VARCHAR(40)",
+            "bank_ifsc VARCHAR(20)",
+            "msme_no VARCHAR(40)",
+            "notes TEXT",
+        ):
+            connection.execute(text(f"ALTER TABLE supplier ADD COLUMN IF NOT EXISTS {column_sql}"))
         connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_supplier_plant_code ON supplier (plant_id, supplier_code)"))
         connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_supplier_plant_name ON supplier (plant_id, name)"))
         connection.execute(

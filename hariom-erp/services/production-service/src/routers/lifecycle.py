@@ -153,6 +153,10 @@ def _sales_call(path: str, body: dict[str, Any], token: str, plant_id: Any) -> d
 
 
 def _audit(db: Session, job: JobCard, action: str, current_user: dict, payload: dict[str, Any], before: Optional[dict] = None) -> None:
+    after = {"planned_qty": float(job.planned_qty or 0.0), "status": job.status, "parchment_color": job.parchment_color}
+    if before is not None:
+        # The card history shows before → after; the audit row only keeps their hashes.
+        payload = {**payload, "before": payload.get("before", before), "after": payload.get("after", after)}
     _record_audit_event(
         db=db,
         plant_id=job.plant_id,
@@ -164,8 +168,19 @@ def _audit(db: Session, job: JobCard, action: str, current_user: dict, payload: 
         job_card_id=job.id,
         payload=payload,
         before_payload=before,
-        after_payload={"planned_qty": float(job.planned_qty or 0.0), "status": job.status, "parchment_color": job.parchment_color},
+        after_payload=after,
     )
+
+
+def _floor_entry_count(db: Session, job: JobCard) -> int:
+    """Runs and QC-only entries on a batch-entry card (voided ones do not count)."""
+    if (job.spec_snapshot or {}).get("entry_model") != "V2":
+        return 0
+    from ..entry_models import StageEntry
+    return int(db.query(StageEntry.id).filter(StageEntry.job_card_id == job.id, StageEntry.status != "VOID").count() or 0)
+
+
+BATCH_CLOSE_WHY = "Runs or QC are already logged on this card: close it short with Close stage on the job card page, with a reason"
 
 
 def _rebuild_snapshots(job: JobCard, *, qty: float, color: Optional[str], token: str, plant_id: str) -> None:
@@ -295,6 +310,9 @@ def get_job_card_lifecycle(
         "closed_at": job.closed_at,
         "closed_by": job.closed_by,
         "actions": allowed_actions(state, has_release_lot=bool(job.release_lot_id), open_first_stage_qty=open_first),
+        "entry_model": (job.spec_snapshot or {}).get("entry_model") or "V1",
+        # Batch-entry cards can be cancelled only while nothing at all is logged on them.
+        "floor_entries": _floor_entry_count(db, job),
         "stages": stages_out,
         "family": [
             {"id": str(row.id), "job_card_no": row.job_card_no, "split_kind": row.split_kind, "planned_qty": float(row.planned_qty or 0.0), "status": row.status, "close_mode": row.close_mode, "is_self": row.id == job.id}
@@ -510,8 +528,10 @@ def force_close_job_card(
     same card/lot. Nothing made → the card is cancelled and its whole qty returns.
     """
     job = _load_job(db, job_card_id, plant_id)
-    if (job.spec_snapshot or {}).get("entry_model")=="V2":
-        raise HTTPException(409, "Use continuous entries and governed stage close for this job card")
+    batch_entry = (job.spec_snapshot or {}).get("entry_model") == "V2"
+    if batch_entry and _floor_entry_count(db, job):
+        # Batch-entry cards close short through the governed stage close (QC rule included).
+        raise HTTPException(409, BATCH_CLOSE_WHY)
     state, views = _state(db, job)
     if state not in {"QUEUED", "SCHEDULED", "RUNNING"}:
         raise HTTPException(status_code=409, detail=f"Job card is already {state.lower().replace('_', ' ')}")
@@ -523,6 +543,8 @@ def force_close_job_card(
     planned = float(job.planned_qty or 0.0)
     made = round(min(planned, stage_units_to_pcs(first, made_units, _ppb(job))), 4)
     returned = round(max(0.0, planned - made), 4)
+    if batch_entry and made > 1e-6:
+        raise HTTPException(409, BATCH_CLOSE_WHY)
     if returned <= 1e-6:
         raise HTTPException(status_code=400, detail="Everything planned is already made — complete the card normally instead")
     before = {"planned_qty": planned, "made_qty": made, "status": job.status}

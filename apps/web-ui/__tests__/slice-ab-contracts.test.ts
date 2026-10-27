@@ -36,29 +36,35 @@ test("quality pass-rate never defaults to 100 from an empty set", () => {
   assert.doesNotMatch(page, /inspections\.length \? \(passedInspections\.length \/ inspections\.length\) \* 100 : 100/)
 })
 
-test("sales order KPIs come from a server aggregate not the current page", () => {
+test("sales order KPIs and status-tab counts come from server aggregates not the current page", () => {
   const page = readFileSync(resolve(process.cwd(), "app/(dashboard)/sales-orders/page.tsx"), "utf8")
   assert.match(page, /useSalesOrderAggregates/)
-  assert.match(page, /aggregates\.ready_count/)
+  assert.match(page, /aggregates\.status_counts/)
+  assert.match(page, /aggregates\.open_qty/)
+  assert.match(page, /usePendingSalesOrders\(\{ limit: 1 \}\)/)
   assert.doesNotMatch(page, /Pieces still open in this loaded window/)
 })
 
-test("pending workspace folds into the sales register with server-side filters", () => {
+test("pending workspace and the order tracker fold into the Orders list with server-side filters", () => {
   const pending = readFileSync(resolve(process.cwd(), "app/(dashboard)/sales-orders/pending/page.tsx"), "utf8")
   assert.match(pending, /router\.replace\(`\/sales-orders/)
+  const tracker = readFileSync(resolve(process.cwd(), "app/(dashboard)/planning/tracker/page.tsx"), "utf8")
+  assert.match(tracker, /router\.replace\(`\/sales-orders/)
   const register = readFileSync(resolve(process.cwd(), "app/(dashboard)/sales-orders/page.tsx"), "utf8")
-  for (const filter of ["origin:", "due:", "unreleased:", "held:", "expired:", "date_from:", "sort:"]) {
+  const tracker_lib = readFileSync(resolve(process.cwd(), "lib/sales-order-tracker.ts"), "utf8")
+  for (const filter of ["origin:", "due:", "expired:", "date_from:", "sort:"]) {
     assert.ok(register.includes(filter), `register sends ${filter}`)
+  }
+  for (const filter of ["unreleased: true", "held: true", 'status_group: "open"', 'due: "priority"']) {
+    assert.ok(tracker_lib.includes(filter), `tab / tile params send ${filter}`)
   }
   assert.match(register, /exportRegister/)
 })
 
-test("tracker no longer joins a capped job-card page in the browser", () => {
-  const page = readFileSync(resolve(process.cwd(), "app/(dashboard)/planning/tracker/page.tsx"), "utf8")
-  assert.match(page, /usePendingSalesOrders/)
+test("the Orders list reads job cards per order from the server grouping, never a capped page join alone", () => {
+  const page = readFileSync(resolve(process.cwd(), "app/(dashboard)/sales-orders/page.tsx"), "utf8")
   assert.match(page, /usePendingJobCardsByOrder/)
   assert.doesNotMatch(page, /usePlanningJobCards\(\{ limit: 750 \}\)/)
-  assert.doesNotMatch(page, /jobs\.filter/)
 })
 
 test("owner landing rupee totals come from the sales aggregate endpoint", () => {
@@ -74,7 +80,9 @@ test("order detail edits customer call-offs per line (reviewed by the server, th
   assert.match(page, /LineDeliveryEditor/)
   assert.match(page, /data-testid="delivery-plan"/)
   assert.match(page, /delivery-shift-preview/)
-  assert.match(page, /useOrderProductionTrail/)
+  // One history for the order: sales + production events from the server (client 2026-10-27).
+  assert.match(page, /useOrderHistory/)
+  assert.match(page, /OrderHistoryTimeline/)
   const editor = readFileSync(resolve(process.cwd(), "components/sales/line-delivery-editor.tsx"), "utf8")
   assert.match(editor, /preview\.mutateAsync/)
   assert.match(editor, /commit\.mutateAsync/)
@@ -108,9 +116,11 @@ test("planning board uses the same 3-day due-risk predicate", () => {
   assert.doesNotMatch(page, /isBefore\(dayjs\(\)\.add\(1, "day"\)/)
 })
 
-test("order detail exposes Approve + Release", () => {
+test("order page action bar exposes Approve (maker-checker aware) and Release lines", () => {
   const page = readFileSync(resolve(process.cwd(), "app/(dashboard)/sales-orders/[orderId]/page.tsx"), "utf8")
-  assert.match(page, /Approve \+ Release/)
+  assert.match(page, /data-testid="sales-order:approve"/)
+  assert.match(page, /data-testid="sales-order:submit"/)
+  assert.match(page, /Waiting for another user to approve/)
   assert.match(page, /ReleaseToQueueDialog/)
-  assert.match(page, /sales-order-detail:approve-release/)
+  assert.match(page, /data-testid="sales-order:release"/)
 })

@@ -33,6 +33,8 @@ PLAN_ROLES = ["Owner", "Admin", "PlantManager", "Planner"]
 REPORT_ROLES = ["Owner", "Admin", "PlantManager", "Planner", "Production", "QC"]
 STAGE_LABEL = planning.PLAN_STAGE_LABEL
 MAX_RANGE_DAYS = 62
+PAGE_VIEW_KEYS = {"JOB_CARDS", "ORDERS"}
+VIEW_ROLES = ["Owner", "Admin", "PlantManager", "Planner", "Sales", "Production", "QC", "InProcessQC", "Dispatch"]
 
 
 def _now_local() -> datetime:
@@ -625,7 +627,8 @@ class PlannerViewPayload(BaseModel):
         if value in (None, "", "ALL"):
             return None
         value = value.upper()
-        if value not in planning.STAGE_SEQUENCE:
+        # Besides planner stages, the job card list and the orders list keep their own saved views.
+        if value not in planning.STAGE_SEQUENCE and value not in PAGE_VIEW_KEYS:
             raise ValueError("Unknown stage")
         return value
 
@@ -651,17 +654,21 @@ def _can_edit(view: PlannerView, user: dict) -> bool:
 
 
 @router.get("/planning/views")
-def list_planner_views(stage: Optional[str] = Query(None), db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), user: dict = Depends(require_role(PLAN_ROLES))):
+def list_planner_views(stage: Optional[str] = Query(None), db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), user: dict = Depends(require_role(VIEW_ROLES))):
     query = db.query(PlannerView).filter(PlannerView.plant_id == planning._to_uuid(plant_id))
     rows = [v for v in query.all() if v.scope == "PLANT" or v.owner_id == str(user.get("sub"))]
-    if stage:
+    if stage and stage.upper() in PAGE_VIEW_KEYS:
+        rows = [v for v in rows if v.stage == stage.upper()]
+    elif stage:
         rows = [v for v in rows if v.stage in (None, stage.upper())]
+    else:
+        rows = [v for v in rows if v.stage not in PAGE_VIEW_KEYS]
     rows.sort(key=lambda v: (v.position, v.name.lower()))
     return [_view_dict(v, user) for v in rows]
 
 
 @router.post("/planning/views")
-def create_planner_view(payload: PlannerViewPayload, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), user: dict = Depends(require_role(PLAN_ROLES))):
+def create_planner_view(payload: PlannerViewPayload, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), user: dict = Depends(require_role(VIEW_ROLES))):
     plant_uuid = planning._to_uuid(plant_id)
     mine = [v for v in db.query(PlannerView).filter(PlannerView.plant_id == plant_uuid).all() if v.scope == "PLANT" or v.owner_id == str(user.get("sub"))]
     if any(v.name.lower() == payload.name.lower() and v.stage == payload.stage for v in mine):
@@ -676,7 +683,7 @@ def create_planner_view(payload: PlannerViewPayload, db: Session = Depends(get_d
 
 
 @router.patch("/planning/views/{view_id}")
-def update_planner_view(view_id: uuid.UUID, payload: PlannerViewPayload, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), user: dict = Depends(require_role(PLAN_ROLES))):
+def update_planner_view(view_id: uuid.UUID, payload: PlannerViewPayload, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), user: dict = Depends(require_role(VIEW_ROLES))):
     view = db.query(PlannerView).filter(PlannerView.id == view_id, PlannerView.plant_id == planning._to_uuid(plant_id)).first()
     if view is None or (view.scope != "PLANT" and view.owner_id != str(user.get("sub"))):
         raise HTTPException(status_code=404, detail="View not found")
@@ -690,7 +697,7 @@ def update_planner_view(view_id: uuid.UUID, payload: PlannerViewPayload, db: Ses
 
 
 @router.delete("/planning/views/{view_id}")
-def delete_planner_view(view_id: uuid.UUID, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), user: dict = Depends(require_role(PLAN_ROLES))):
+def delete_planner_view(view_id: uuid.UUID, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), user: dict = Depends(require_role(VIEW_ROLES))):
     view = db.query(PlannerView).filter(PlannerView.id == view_id, PlannerView.plant_id == planning._to_uuid(plant_id)).first()
     if view is None or (view.scope != "PLANT" and view.owner_id != str(user.get("sub"))):
         raise HTTPException(status_code=404, detail="View not found")

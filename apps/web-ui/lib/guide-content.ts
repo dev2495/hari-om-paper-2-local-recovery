@@ -390,7 +390,7 @@ const guides: GuideContent[] = [
       "Do not ignore QC or stock holds while planning. Packing measurements do not replace final QC. Dispatch requires a current passing final inspection.",
     ],
     outputs: ["Shift schedule", "Machine queue", "Job card handoff", "Shop-floor planning sheets"],
-    relatedRoutes: ["/planning/overview", "/planning/print", "/sales-orders", "/production/job-cards", "/production/supervisor-entry", "/reports/planning", "/reports/production"],
+    relatedRoutes: ["/planning/overview", "/planning/print", "/sales-orders", "/production/job-cards", "/production/entry", "/reports/planning", "/reports/production"],
   },
   {
     id: "job-cards",
@@ -424,19 +424,19 @@ const guides: GuideContent[] = [
       "Do not dispatch FG that still has QC hold.",
     ],
     outputs: ["Execution packet", "Stage actuals", "FG or WIP movement"],
-    relatedRoutes: ["/inventory/production-issue", "/production/supervisor-entry", "/quality", "/inventory/genealogy"],
+    relatedRoutes: ["/inventory/production-issue", "/production/entry", "/quality", "/inventory/genealogy"],
   },
   {
     id: "quality",
     route: "/quality",
     title: "Quality Control Guide",
     eyebrow: "Incoming, in-process and returns",
-    summary: "The QC desk shows what needs QC now: incoming lots to inspect, batches the next stage is waiting on, holds that need a decision, and customer returns.",
+    summary: "The QC desk shows what needs QC now: incoming lots to inspect, floor runs waiting for QC readings, readings flagged outside their band, inward holds that need a decision, and customer returns.",
     flowTitle: "QC flow",
     steps: [
       { label: "Incoming", detail: "Inspect each GRN lot on the checks listed for its material standard only (no certificate or sample fields). Reels of one inward line can be entered reel-wise in one table, each with its own pass / hold decision. Inside every band → released; any reading outside → flagged and held, and a held reel cannot be issued." },
-      { label: "In-process", detail: "Each winding / oven / process batch needs QC with at least 2 readings per check (more may be added). The next stage opens for a batch only once its QC is accepted." },
-      { label: "Holds", detail: "Holds & inspections lists held inward lots and job-card batches with the decision each needs." },
+      { label: "In-process", detail: "Operators log QC on the job card / floor entry page: each winding / oven / process run needs at least 2 readings per check (more may be added); the next stage takes a run once its QC is done. A reading outside its band is saved and flagged, never held. Quality › In-process QC lists every flagged reading stage by stage (Excel export) and the runs still waiting for readings." },
+      { label: "Holds", detail: "Holds & inspections lists held inward lots (and any job-card hold made before floor readings were flagged instead of held) with the decision each needs." },
       { label: "Returns", detail: "Customer returns are held on arrival, decided by QC (rework, sort, accept, scrap) and followed to closure with root cause and corrective action." },
     ],
     fieldRules: [
@@ -603,6 +603,7 @@ const guides: GuideContent[] = [
       "No price column should exist in master tables.",
       "Parchment companies are separate from actual vendor master.",
       "Customer and vendor contact rows require contact name, number, and email when available.",
+      "Vendor details beyond code and name are optional. GSTIN (15 characters: state code + PAN + 3), PAN, IFSC and PIN are checked for format only when filled; a GSTIN fills PAN and state. GSTIN, PAN, state and contact print on the PO.",
     ],
     primaryActions: [
       "Create customer or vendor before transaction entry.",
@@ -812,7 +813,7 @@ const guides: GuideContent[] = [
     relatedRoutes: [
       "/sales-orders",
       "/planning/board",
-      "/planning/tracker",
+      "/production/job-cards",
       "/logistics/dispatch"
     ]
   },

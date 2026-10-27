@@ -1,7 +1,8 @@
 "use client"
 
-import { Ban, CalendarCheck2, CalendarX2, CheckCircle2, Clock3, Flame, Loader, Scissors, Undo2 } from "lucide-react"
+import { Ban, CalendarCheck2, CalendarX2, CheckCircle2, Clock3, Flag, Flame, Hourglass, Loader, PauseOctagon, Scissors, Truck, Undo2 } from "lucide-react"
 
+import { lifecycleStateOf, trackMeta, type TrackStatus } from "@/lib/job-card-tracking"
 import { cn } from "@/lib/utils"
 
 const STATE_STYLE: Record<string, { label: string; className: string; icon: any; hint: string }> = {
@@ -15,13 +16,7 @@ const STATE_STYLE: Record<string, { label: string; className: string; icon: any;
 
 /** Lifecycle from a planner summary row (no extra request). */
 export function lifecycleFromSummary(job: any): string {
-  const status = String(job?.status || "").toUpperCase()
-  if (job?.close_mode === "FORCE") return status === "COMPLETED" ? "COMPLETED" : "FORCE_CLOSED"
-  if (status === "CANCELLED" || job?.close_mode === "CANCELLED") return "CANCELLED"
-  if (status === "COMPLETED") return "COMPLETED"
-  if (status === "IN_PROGRESS" || String(job?.active_segment_status || "").toUpperCase() === "RUNNING") return "RUNNING"
-  if (job?.current_shift_code || String(job?.active_segment_status || "").toUpperCase() === "ASSIGNED") return "SCHEDULED"
-  return "QUEUED"
+  return lifecycleStateOf(job)
 }
 
 export function LifecycleBadge({ state, className, compact }: { state: string; className?: string; compact?: boolean }) {
@@ -37,6 +32,30 @@ export function LifecycleBadge({ state, className, compact }: { state: string; c
 
 export function lifecycleLabel(state: string) {
   return (STATE_STYLE[state] || STATE_STYLE.QUEUED).label
+}
+
+const TRACK_STYLE: Record<TrackStatus, { className: string; icon: any }> = {
+  QUEUE: { className: "bg-muted text-muted-foreground ring-border", icon: Clock3 },
+  SCHEDULED: { className: "bg-signal-blue-soft text-signal-blue-ink ring-signal-blue-line", icon: CalendarCheck2 },
+  RUNNING: { className: "bg-signal-violet-soft text-signal-violet-ink ring-signal-violet-line", icon: Loader },
+  WAITING_QC: { className: "bg-signal-amber-soft text-signal-amber-ink ring-signal-amber-line", icon: Hourglass },
+  ON_HOLD: { className: "bg-signal-rose-soft text-signal-rose-ink ring-signal-rose-line", icon: PauseOctagon },
+  READY_DISPATCH: { className: "bg-signal-emerald-soft text-signal-emerald-ink ring-signal-emerald-line", icon: Truck },
+  CLOSED_EARLY: { className: "bg-signal-rose-soft text-signal-rose-ink ring-signal-rose-line", icon: Flag },
+  DONE: { className: "bg-signal-emerald-soft text-signal-emerald-ink ring-signal-emerald-line", icon: CheckCircle2 },
+}
+
+/** The tracking status of the job cards list (Queue, Scheduled, Running, Waiting QC, On hold, Ready to dispatch, Closed early, Done). */
+export function TrackBadge({ status, className, compact }: { status: TrackStatus; className?: string; compact?: boolean }) {
+  const meta = trackMeta(status)
+  const style = TRACK_STYLE[status] || TRACK_STYLE.QUEUE
+  const Icon = style.icon
+  return (
+    <span title={meta.hint} data-track={status} className={cn("inline-flex h-[22px] shrink-0 items-center gap-1 rounded-full px-2 text-[11.5px] font-semibold ring-1 ring-inset", style.className, className)}>
+      <Icon className={cn("h-3 w-3", status === "RUNNING" && "animate-spin [animation-duration:2.4s]")} aria-hidden="true" />
+      {compact ? null : meta.label}
+    </span>
+  )
 }
 
 const NAMED_COLORS: Array<[RegExp, string]> = [
@@ -78,7 +97,7 @@ export function JobCardNo({ job, className }: { job: any; className?: string }) 
   const child = /-[A-Z]+$/.test(String(job?.job_card_no || ""))
   return (
     <span className={cn("inline-flex items-center gap-1", className)}>
-      <span className="font-mono text-[12.5px] font-semibold tracking-tight text-foreground">{number}</span>
+      <span className="whitespace-nowrap font-mono text-[12.5px] font-semibold tracking-tight text-foreground">{number}</span>
       {job?.is_emergency ? (
         <span title="Emergency — runs first" className="inline-flex h-[18px] items-center gap-0.5 rounded bg-signal-rose-soft px-1 text-[10.5px] font-bold text-signal-rose-ink ring-1 ring-inset ring-signal-rose-line">
           <Flame className="h-3 w-3" />Emergency

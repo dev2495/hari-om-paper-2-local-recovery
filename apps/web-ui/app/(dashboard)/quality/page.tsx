@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { useMemo, type ReactNode } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { ArrowRight, BarChart3, ClipboardCheck, Factory, FlaskConical, LockKeyhole, RefreshCw, Ruler, ShieldCheck, Undo2 } from "lucide-react"
+import { ArrowRight, BarChart3, ClipboardCheck, Factory, Flag, FlaskConical, LockKeyhole, RefreshCw, Ruler, ShieldCheck, Undo2 } from "lucide-react"
 
 import { QualityDeskNav } from "@/components/qc/QualityDeskNav"
 import { PageHeader } from "@/components/workspace/page-header"
@@ -12,6 +12,8 @@ import { ErrorState, LoadingState } from "@/components/workspace/query-state"
 import { useAuth } from "@/context/AuthContext"
 import { useCustomerRejections, useInventoryQualityInspections, usePendingInventoryQuality } from "@/hooks/use-inventory"
 import { useInProcessQcDue, usePlanningJobCards, useQualityHolds, useQualityInspections, useQualitySummary } from "@/hooks/use-production"
+import { productionApi } from "@/lib/api"
+import { flagLine, indianDay, logQcHref, missingText, waitingState, type QcFlagRow } from "@/lib/qc-flags"
 import { seasonApi, seasonLabel } from "@/lib/season-api"
 import { cn } from "@/lib/utils"
 
@@ -28,8 +30,10 @@ const asArray = (value: any) => (Array.isArray(value) ? value : [])
 const STAGE: Record<string, string> = { WINDER: "Winding", OVEN: "Oven", PROCESS: "Process", QC: "Final QC", PACKING: "Packing" }
 const isToday = (value?: string) => toDate(value)?.toDateString() === new Date().toDateString()
 
-function Verdict({ status }: { status?: string }) {
+function Verdict({ status, floor }: { status?: string; floor?: boolean }) {
   const value = String(status || "").toUpperCase()
+  // A floor (in-process) reading outside its band is flagged, not failed or held (client rule 2026-10-27).
+  if (floor && value === "FAIL") return <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-signal-amber-soft px-2 py-0.5 text-[11.5px] font-semibold text-signal-amber-ink ring-1 ring-inset ring-signal-amber-line"><Flag className="h-3 w-3" aria-hidden="true" />Flagged</span>
   const pass = ["PASS", "OBSERVATION_ONLY", "OBSERVATION", "ACCEPT"].includes(value)
   const fail = ["FAIL", "INVALID", "REJECT", "BLOCK"].includes(value)
   return <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[11.5px] font-semibold ring-1 ring-inset", pass ? "bg-signal-emerald-soft text-signal-emerald-ink ring-signal-emerald-line" : fail ? "bg-signal-rose-soft text-signal-rose-ink ring-signal-rose-line" : "bg-muted text-muted-foreground ring-border")}>{pass ? "Pass" : fail ? "Fail" : value ? value.charAt(0) + value.slice(1).toLowerCase().replace(/_/g, " ") : "—"}</span>
@@ -74,6 +78,9 @@ export default function QualityDeskPage() {
   const production = useQualityInspections({ limit: 100 }, seesFloor)
   const roy = useQuery({ queryKey: ["season-rules", "ROY"], queryFn: async () => (await seasonApi.rules("ROY")).data, enabled: seesFloor })
   const monsoon = useQuery({ queryKey: ["season-rules", "MONSOON"], queryFn: async () => (await seasonApi.rules("MONSOON")).data, enabled: seesFloor })
+  // In-process QC is flagged, never held (client 2026-10-27): the floor tile counts flagged readings of the last 7 days.
+  const flagFrom = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - 7); return d.toLocaleDateString("en-CA") }, [])
+  const flags = useQuery({ queryKey: ["qc-flags", "desk", flagFrom], queryFn: async () => (await productionApi.getQcFlags({ date_from: flagFrom })).data, enabled: seesFloor, refetchInterval: 60000 })
 
   const lots = asArray(pending.data)
   const awaiting = lots.filter((row: any) => !row.queue_state || row.queue_state === "AWAITING_INSPECTION")
@@ -81,6 +88,8 @@ export default function QualityDeskPage() {
   const heldLots = lots.filter((row: any) => ["FAILED", "REJECTED"].includes(String(row.queue_state || "")))
   const jobHolds = asArray(holds.data).filter((row: any) => String(row.status || "").toUpperCase() === "HOLD")
   const dueRows = asArray(due.data)
+  const flagRows: QcFlagRow[] = asArray(flags.data?.rows)
+  const flagSummary = flags.data?.summary || { readings: flagRows.length, runs: 0, cards: 0 }
   const openReturns = asArray(returns.data).filter((row: any) => !row.closed_at && String(row.closure_status || "").toUpperCase() !== "CLOSED")
   const returnsToDecide = openReturns.filter((row: any) => !row.disposition || ["HOLD", "BLOCK"].includes(String(row.disposition).toUpperCase()))
   const jobMap = useMemo(() => new Map(asArray(jobCards.data).map((job: any) => [String(job.id), job])), [jobCards.data])
@@ -95,7 +104,7 @@ export default function QualityDeskPage() {
     ...(seesFloor || canDecide ? jobHolds.map((row: any) => {
       const job: any = jobMap.get(String(row.job_card_id))
       return {
-        key: `hold:${row.id}`, kind: `${STAGE[String(row.stage_type || "").toUpperCase()] || "Stage"} batch`, title: `${job?.job_card_no || "Job card"}${job?.customer_name ? ` · ${job.customer_name}` : ""}`,
+        key: `hold:${row.id}`, kind: `Older ${STAGE[String(row.stage_type || "").toUpperCase()] || "stage"} hold`, title: `${job?.job_card_no || "Job card"}${job?.customer_name ? ` · ${job.customer_name}` : ""}`,
         detail: row.reason, at: row.created_at, href: `/quality/results?tab=jobs&card=${row.job_card_id}`, can: canDecide,
       }
     }) : []),
@@ -109,13 +118,15 @@ export default function QualityDeskPage() {
   const failedToday = today.filter((row) => ["FAIL", "INVALID"].includes(String(row.status || "").toUpperCase()))
   // Pass rate comes from the server aggregate over all production inspections, never from a loaded page.
   const passRate = summary.data?.pass_rate == null ? null : Number(summary.data.pass_rate)
-  const refresh = () => [pending, due, holds, returns, incoming, production, summary, jobCards].forEach((query) => void query.refetch())
+  const refresh = () => [pending, due, holds, returns, incoming, production, summary, jobCards, flags].forEach((query) => void query.refetch())
 
   const tiles = [
-    { href: "/quality/incoming", label: "Incoming lots to inspect", value: pending.isLoading ? "…" : awaiting.length, detail: overdue.length ? `${overdue.length} past the 24-hour deadline` : "Oldest first · 24-hour deadline", icon: FlaskConical, urgent: overdue.length > 0, show: seesIncoming },
-    { href: "/quality/stage", label: "Batches waiting for stage QC", value: due.isLoading ? "…" : dueRows.length, detail: "The next stage opens once QC accepts", icon: Factory, urgent: dueRows.length > 0, show: seesFloor },
-    { href: "/quality/results", label: "On hold — decision needed", value: (seesIncoming && pending.isLoading) || holds.isLoading ? "…" : decisions.length, detail: [seesIncoming && `${heldLots.length} inward lot${heldLots.length === 1 ? "" : "s"}`, (seesFloor || canDecide) && `${jobHolds.length} floor batch${jobHolds.length === 1 ? "" : "es"}`].filter(Boolean).join(" · "), icon: LockKeyhole, urgent: decisions.length > 0, show: true },
-    { href: "/quality/returns", label: "Customer complaints open", value: returns.isLoading ? "…" : openReturns.length, detail: `${returnsToDecide.length} waiting for a QC decision`, icon: Undo2, urgent: returnsToDecide.length > 0, show: seesComplaints },
+    { key: "incoming", href: "/quality/incoming", label: "Incoming lots to inspect", value: pending.isLoading ? "…" : awaiting.length, detail: overdue.length ? `${overdue.length} past the 24-hour deadline` : "Oldest first · 24-hour deadline", icon: FlaskConical, urgent: overdue.length > 0, show: seesIncoming },
+    { key: "stage", href: "/quality/stage?tab=waiting", label: "Runs waiting for QC readings", value: due.isLoading ? "…" : dueRows.length, detail: "At least 2 readings per check · the next stage takes QC-done runs", icon: Factory, urgent: dueRows.length > 0, show: seesFloor },
+    { key: "flags", href: "/quality/stage", label: "Flagged QC readings · 7 days", value: flags.isLoading ? "…" : flagSummary.readings, detail: flags.isError ? "Flags could not load" : `${flagSummary.runs} run${flagSummary.runs === 1 ? "" : "s"} on ${flagSummary.cards} card${flagSummary.cards === 1 ? "" : "s"} · allowed, not held`, icon: Flag, urgent: flagSummary.readings > 0, show: seesFloor },
+    // Holds are inward lots now; floor batches are flagged, not held. A floor hold made before 27 Oct still shows until it is decided.
+    { key: "results", href: "/quality/results", label: "On hold — decision needed", value: (seesIncoming && pending.isLoading) || holds.isLoading ? "…" : decisions.length, detail: [seesIncoming && `${heldLots.length} inward lot${heldLots.length === 1 ? "" : "s"}`, jobHolds.length && `${jobHolds.length} older floor hold${jobHolds.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ") || "Nothing held", icon: LockKeyhole, urgent: decisions.length > 0, show: seesIncoming || jobHolds.length > 0 || !seesFloor },
+    { key: "returns", href: "/quality/returns", label: "Customer complaints open", value: returns.isLoading ? "…" : openReturns.length, detail: `${returnsToDecide.length} waiting for a QC decision`, icon: Undo2, urgent: returnsToDecide.length > 0, show: seesComplaints },
   ].filter((tile) => tile.show)
 
   return (
@@ -123,14 +134,14 @@ export default function QualityDeskPage() {
       <div className="space-y-5" data-testid="quality:page">
         <PageHeader
           title="QC desk"
-          description={seesIncoming && !seesFloor ? "Incoming lots waiting for inspection and lots held at the gate." : !seesIncoming && seesFloor ? "Floor batches waiting for stage QC and batches held for a decision." : "What needs quality control right now. Anything held stays held until it is decided."}
+          description={seesIncoming && !seesFloor ? "Incoming lots waiting for inspection and lots held at the gate." : !seesIncoming && seesFloor ? "Floor runs waiting for QC readings and readings flagged outside their band (flagged, never held)." : "What needs quality control right now. Inward lots held stay held until decided; floor readings outside the band are flagged, not held."}
           actions={<button type="button" className="erp-btn-secondary" onClick={refresh}><RefreshCw className="h-4 w-4" />Refresh</button>}
         />
         <QualityDeskNav />
 
-        <section aria-label="Needs action" className={cn("grid gap-3 sm:grid-cols-2", tiles.length >= 4 ? "xl:grid-cols-4" : "xl:grid-cols-3")}>
+        <section aria-label="Needs action" className={cn("grid gap-3 sm:grid-cols-2", tiles.length >= 5 ? "xl:grid-cols-5" : tiles.length >= 4 ? "xl:grid-cols-4" : "xl:grid-cols-3")}>
           {tiles.map((tile) => (
-            <Link key={tile.href} href={tile.href} className={cn("group flex min-h-[124px] flex-col justify-between rounded-xl border bg-card p-4 transition-[border-color,box-shadow] duration-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", tile.urgent ? "border-signal-amber-line" : "border-border")} data-testid={`qc-tile-${tile.href.split("/").pop()}`}>
+            <Link key={tile.key} href={tile.href} className={cn("group flex min-h-[124px] flex-col justify-between rounded-xl border bg-card p-4 transition-[border-color,box-shadow] duration-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", tile.urgent ? "border-signal-amber-line" : "border-border")} data-testid={`qc-tile-${tile.key}`}>
               <div className="flex items-start justify-between gap-3">
                 <p className="text-[13px] font-semibold text-foreground/80">{tile.label}</p>
                 <span className={cn("grid h-9 w-9 shrink-0 place-items-center rounded-lg", tile.urgent ? "bg-signal-amber-soft text-signal-amber-ink" : "bg-signal-emerald-soft text-signal-emerald-ink")}><tile.icon className="h-4 w-4" aria-hidden="true" /></span>
@@ -146,7 +157,7 @@ export default function QualityDeskPage() {
         {decisions.length ? (
           <section className="overflow-hidden rounded-xl border border-signal-amber-line bg-card" data-testid="qc-decisions">
             <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-signal-amber-soft/50 px-4 py-3">
-              <div><h2 className="flex items-center gap-2 font-semibold"><LockKeyhole className="h-4 w-4 text-signal-amber-ink" aria-hidden="true" />Held — waiting for a decision</h2><p className="text-[12.5px] text-muted-foreground">Inward lots: QC re-inspects, the plant head concedes or Store returns. Floor batches: plant head, Owner or Admin releases, reworks or scraps.</p></div>
+              <div><h2 className="flex items-center gap-2 font-semibold"><LockKeyhole className="h-4 w-4 text-signal-amber-ink" aria-hidden="true" />Held — waiting for a decision</h2><p className="text-[12.5px] text-muted-foreground">Inward lots: QC re-inspects, the plant head concedes or Store returns.{jobHolds.length ? " Older floor holds (made before floor readings were flagged instead of held): plant head, Owner or Admin releases, reworks or scraps." : " Floor readings outside the band are flagged, not held."}</p></div>
               <Link href="/quality/results" className="text-[13px] font-semibold text-primary hover:underline">Holds &amp; inspections</Link>
             </header>
             <ul className="divide-y divide-border">
@@ -188,32 +199,52 @@ export default function QualityDeskPage() {
           ) : null}
 
           {seesFloor ? (
-            <Queue title="Stage QC due" subtitle="Batches the next stage is waiting on · at least 2 readings per check" href="/quality/stage" linkLabel="In-process QC" testId="qc-stage-queue">
+            <Queue title="Runs waiting for QC readings" subtitle="At least 2 readings per check · a reading outside the band is flagged, not held" href="/quality/stage?tab=waiting" linkLabel="In-process QC" testId="qc-stage-queue">
               {due.isLoading ? <LoadingState label="Loading stage QC queue…" /> : due.isError ? <ErrorState message="Stage QC queue unavailable." onRetry={() => due.refetch()} /> : dueRows.length ? (
                 <ul className="divide-y divide-border">
                   {dueRows.slice(0, 8).map((row: any) => (
                     <li key={row.entry_id} className="flex items-center gap-3 px-4 py-2.5">
                       <div className="min-w-0 flex-1">
-                        <p className="truncate font-medium">{row.job_card_no} · {row.stage_label} batch #{row.entry_no}</p>
+                        <p className="truncate font-medium">{row.job_card_no} · {row.stage_label} run #{row.entry_no}</p>
                         <p className="truncate text-[12px] text-muted-foreground">{[row.customer, `${fmt(row.accepted)} ${row.unit || ""}`, row.shift_code && `Shift ${String(row.shift_code).replace("SHIFT_", "")}`].filter(Boolean).join(" · ")}</p>
                       </div>
-                      <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[11.5px] font-semibold ring-1 ring-inset", row.state === "FAILED" ? "bg-signal-rose-soft text-signal-rose-ink ring-signal-rose-line" : "bg-signal-amber-soft text-signal-amber-ink ring-signal-amber-line")}>
-                        {row.state === "FAILED" ? "Failed — on hold" : row.state === "NO_READINGS" ? "No readings yet" : row.state === "MORE_READINGS" ? `More readings: ${asArray(row.readings_short).slice(0, 2).map((s: any) => s.label).join(", ")}` : "Readings incomplete"}
+                      <span className="max-w-[45%] shrink-0 truncate rounded-full bg-signal-amber-soft px-2 py-0.5 text-[11.5px] font-semibold text-signal-amber-ink ring-1 ring-inset ring-signal-amber-line" title={missingText(row)}>
+                        {row.state === "NO_READINGS" ? waitingState(row) : `${waitingState(row)}: ${missingText(row)}`}
                       </span>
-                      {canAddStageQc ? <Link className="erp-btn-primary !h-9 shrink-0" href={`/production/job-cards/${row.job_card_id}?stage=${row.stage}`}>Add QC</Link> : null}
+                      {canAddStageQc ? <Link className="erp-btn-primary !h-9 shrink-0" href={logQcHref(String(row.job_card_id), String(row.stage))}>Log QC</Link> : null}
                     </li>
                   ))}
                   {dueRows.length > 8 ? <li className="px-4 py-2.5 text-[12.5px] text-muted-foreground">+ {dueRows.length - 8} more batches</li> : null}
                 </ul>
-              ) : <Clear icon={ClipboardCheck} title="Every batch on the floor is QC-accepted" detail="New batches appear here as soon as the floor saves them." />}
+              ) : <Clear icon={ClipboardCheck} title="Every run on the floor has its QC" detail="New runs appear here as soon as the floor saves them." />}
             </Queue>
           ) : null}
         </div>
 
+        {seesFloor ? (
+          <Queue title="Latest flagged readings" subtitle="Readings outside their band in the last 7 days · saved and flagged, never held" href="/quality/stage" linkLabel="QC flags register" testId="qc-flags-queue">
+            {flags.isLoading ? <LoadingState label="Loading flagged readings…" /> : flags.isError ? <ErrorState message="Flagged readings unavailable. This is not an empty list." onRetry={() => flags.refetch()} /> : flagRows.length ? (
+              <ul className="divide-y divide-border">
+                {flagRows.slice(0, 6).map((row, index) => (
+                  <li key={`${row.entry_id}:${row.sample_id || index}:${row.label}`} className="flex items-center gap-3 px-4 py-2.5">
+                    <Flag className="h-4 w-4 shrink-0 text-signal-amber-ink" aria-hidden="true" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium"><Link href={`/production/job-cards/${row.job_card_id}`} className="hover:underline">{row.job_card_no}</Link> · {row.stage_label} {row.run}</p>
+                      <p className="truncate text-[12px] text-signal-amber-ink">{flagLine(row)} · {row.direction === "LOW" ? "low" : "high"}</p>
+                    </div>
+                    <span className="hidden shrink-0 text-[12px] text-muted-foreground sm:inline">{indianDay(row.business_date)} · {String(row.shift_code || "").replace("SHIFT_", "Shift ")}</span>
+                  </li>
+                ))}
+                {flagRows.length > 6 ? <li className="px-4 py-2.5 text-[12.5px] text-muted-foreground">+ {flagRows.length - 6} more on the QC flags register</li> : null}
+              </ul>
+            ) : <Clear icon={ShieldCheck} title="No flagged readings this week" detail="Every QC reading in the last 7 days was inside its band." />}
+          </Queue>
+        ) : null}
+
         <div className="grid items-start gap-4 xl:grid-cols-3">
           <section className="overflow-hidden rounded-xl border border-border bg-card xl:col-span-2" data-testid="qc-latest">
             <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
-              <div><h2 className="font-semibold">Latest checks</h2><p className="text-[12.5px] text-muted-foreground">Today: {today.length} check{today.length === 1 ? "" : "s"}{failedToday.length ? ` · ${failedToday.length} failed` : ""}</p></div>
+              <div><h2 className="font-semibold">Latest checks</h2><p className="text-[12.5px] text-muted-foreground">Today: {today.length} check{today.length === 1 ? "" : "s"}{failedToday.length ? ` · ${failedToday.length} outside the band` : ""}</p></div>
               <Link href="/quality/results?tab=register" className="text-[13px] font-semibold text-primary hover:underline">All inspections</Link>
             </header>
             {(seesIncoming && incoming.isLoading) || (seesFloor && production.isLoading) ? <LoadingState label="Loading latest checks…" /> : recent.length ? (
@@ -223,7 +254,7 @@ export default function QualityDeskPage() {
                     <span className="w-24 shrink-0 text-[12px] font-semibold text-muted-foreground">{row.where}</span>
                     <Link href={row.href} className="min-w-0 flex-1 truncate font-medium hover:underline">{row.title}</Link>
                     <span className="hidden shrink-0 text-[12px] text-muted-foreground sm:inline">{stamp(row.created_at)}</span>
-                    <Verdict status={row.status} />
+                    <Verdict status={row.status} floor={row.where !== "Incoming"} />
                   </li>
                 ))}
               </ul>

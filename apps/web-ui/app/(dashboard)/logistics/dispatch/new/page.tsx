@@ -187,7 +187,8 @@ function NewDispatchForm() {
                 job_card_id: jobCardId,
                 dispatch_snapshot: { ...dispatchData, qty: Number(dispatchData.items?.[0]?.total_pcs || 0), dispatch_qty: Number(dispatchData.items?.[0]?.total_pcs || 0) },
                 status,
-                dispatch_request_id: status === "SEALED" ? getDispatchRequestId() : undefined
+                // A failed / pending dispatch is finished with its own request ID (the server refuses a new one).
+                dispatch_request_id: status === "SEALED" ? (recovering && existingDispatch?.dispatch_snapshot?.dispatch_request_id) || getDispatchRequestId() : undefined
             },
             {
                 onSuccess: (response: any) => {

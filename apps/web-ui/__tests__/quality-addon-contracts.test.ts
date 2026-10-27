@@ -196,7 +196,8 @@ test("sales release resolves winders through the order plant; every page uses th
   const dialog = readFileSync(resolve(process.cwd(), "components/sales/release-to-queue-dialog.tsx"), "utf8")
   assert.match(salesPage, /<ReleaseToQueueDialog/)
   assert.match(detailPage, /<ReleaseToQueueDialog/)
-  assert.match(salesPage, /if \(releasedPlantId\) setActivePlant\(releasedPlantId\)/)
+  // After a release the plant scope follows the order's plant (same plant, any case, is left alone).
+  assert.match(salesPage, /const releasedPlantId = orderPlantId\(releaseOrder\)[\s\S]*?setActivePlant\(releasedPlantId\.toLowerCase\(\)\)/)
   assert.match(dialog, /releasePreflight\.mutateAsync\(\{[\s\S]*?plantId: orderPlantId\(order\),/)
   assert.match(dialog, /compatible_winders/)
   assert.match(dialog, /Pick the parchment color — one job card is one color/)

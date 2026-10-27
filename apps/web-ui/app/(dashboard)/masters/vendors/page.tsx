@@ -1,6 +1,7 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo, useState, type ReactNode } from "react"
+import { AlertTriangle, CheckCircle2 } from "lucide-react"
 import { useApp } from "@/context/AppContext"
 
 import {
@@ -11,8 +12,6 @@ import {
   DetailDrawer,
   FilterField,
   KpiTile,
-  LabeledInput,
-  LabeledTextarea,
   MasterHero,
   Modal,
   Pill,
@@ -29,39 +28,114 @@ import {
   useVendorContacts,
   useVendors,
 } from "@/hooks/use-master-data"
+import { GST_STATES, fromGstin, gstinError, stateName, vendorAddress, vendorFormErrors } from "@/lib/party-formats"
 
 type Vendor = {
   id: string
   supplier_code?: string
   name?: string
-  gst_no?: string
-  pan_no?: string
-  address?: string
+  gst_no?: string | null
+  pan_no?: string | null
+  address?: string | null
   category?: string
   category_label?: string
   is_active?: boolean
+  legal_name?: string | null
+  trade_name?: string | null
+  contact_name?: string | null
+  contact_phone?: string | null
+  contact_email?: string | null
+  alt_phone?: string | null
+  address_line2?: string | null
+  city?: string | null
+  state?: string | null
+  state_code?: string | null
+  pin_code?: string | null
+  country?: string | null
+  full_address?: string | null
+  payment_terms_days?: number | null
+  credit_days?: number | null
+  credit_limit?: number | null
+  bank_name?: string | null
+  bank_account_no?: string | null
+  bank_ifsc?: string | null
+  msme_no?: string | null
+  notes?: string | null
 }
 
 const VENDOR_CATEGORIES = ["Raw paper", "Parchment", "Adhesive", "Packaging", "Service", "Other"] as const
 
+// Every vendor detail is optional (client 2026-10-27); only code and name are needed to save.
+const FORM_FIELDS = [
+  "supplier_code", "name", "category", "legal_name", "trade_name", "gst_no", "pan_no", "msme_no",
+  "address", "address_line2", "city", "state", "state_code", "pin_code", "country",
+  "contact_name", "contact_phone", "alt_phone", "contact_email",
+  "payment_terms_days", "credit_days", "credit_limit", "bank_name", "bank_account_no", "bank_ifsc", "notes",
+] as const
+type VendorForm = Record<(typeof FORM_FIELDS)[number], string>
+const NUMBER_FIELDS = new Set(["payment_terms_days", "credit_days", "credit_limit"])
+const UPPER_FIELDS = new Set(["gst_no", "pan_no", "bank_ifsc", "msme_no"])
+
+function emptyForm(): VendorForm {
+  return Object.fromEntries(FORM_FIELDS.map((key) => [key, key === "country" ? "India" : ""])) as VendorForm
+}
+
+function formFromVendor(vendor: Vendor): VendorForm {
+  const form = emptyForm()
+  for (const key of FORM_FIELDS) {
+    const value = (vendor as any)[key]
+    form[key] = value == null ? (key === "country" ? "India" : "") : String(value)
+  }
+  form.category = vendorCategory(vendor) === "Other" ? "" : vendorCategory(vendor)
+  return form
+}
+
+/** Body for create/update: blanks go as null so a cleared field is cleared on the server. */
+function payloadFromForm(form: VendorForm) {
+  const body: Record<string, any> = {}
+  for (const key of FORM_FIELDS) {
+    const raw = String(form[key] ?? "").trim()
+    if (key === "category") {
+      if (raw) body.category = raw
+      continue
+    }
+    if (NUMBER_FIELDS.has(key)) body[key] = raw === "" ? null : Number(raw)
+    else body[key] = raw === "" ? null : UPPER_FIELDS.has(key) ? raw.replace(/\s+/g, "").toUpperCase() : raw
+  }
+  return body
+}
+
 function errorMessage(error: any) {
-  return error?.response?.data?.detail || error?.response?.data?.message || error?.message || "Action failed"
+  const detail = error?.response?.data?.detail
+  if (Array.isArray(detail)) return detail.map((row: any) => row?.msg || String(row)).join("; ")
+  return detail || error?.response?.data?.message || error?.message || "Action failed"
 }
 
 function compact(v: unknown) {
   return String(v || "").trim()
 }
 
+// The service keeps a canonical category (RAW_MATERIAL …) next to the label typed on this page.
+const CATEGORY_LABEL: Record<string, string> = { RAW_MATERIAL: "Raw paper", PARCHMENT: "Parchment", ADHESIVE: "Adhesive", PACKAGING: "Packaging", SERVICE: "Service", OTHER: "Other" }
+
 function vendorCategory(row: Vendor | null | undefined) {
-  return compact(row?.category_label) || compact(row?.category) || "Other"
+  const value = compact(row?.category_label) || compact(row?.category) || "Other"
+  return CATEGORY_LABEL[value] || value
+}
+
+function place(row: Vendor) {
+  return [row.city, row.state].map(compact).filter(Boolean).join(", ")
 }
 
 function matchesSearch(row: Vendor, needle: string) {
   if (!needle) return true
-  return [row.supplier_code, row.name, row.gst_no, row.pan_no, row.address, vendorCategory(row)]
+  return [row.supplier_code, row.name, row.legal_name, row.trade_name, row.gst_no, row.pan_no, row.address, row.city, row.state, row.pin_code, row.contact_name, row.contact_phone, vendorCategory(row)]
     .filter(Boolean)
     .some((value) => String(value).toLowerCase().includes(needle))
 }
+
+const inr = (value?: number | null) => (value == null ? "—" : `₹${Number(value).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`)
+const days = (value?: number | null) => (value == null ? "—" : `${value} day${value === 1 ? "" : "s"}`)
 
 export default function VendorsPage() {
   const { showToast } = useApp()
@@ -76,26 +150,15 @@ export default function VendorsPage() {
   const [search, setSearch] = useState("")
   const [categoryFilter, setCategoryFilter] = useState<string>("ALL")
   const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ACTIVE")
+  const [gstFilter, setGstFilter] = useState<"ALL" | "WITH" | "WITHOUT">("ALL")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [selection, setSelection] = useState<Set<string>>(new Set())
 
-  const [createOpen, setCreateOpen] = useState(false)
-  const [createForm, setCreateForm] = useState({
-    supplier_code: "",
-    name: "",
-    category: "",
-    gst_no: "",
-    pan_no: "",
-    address: "",
-    contact_name: "",
-    contact_phone: "",
-    contact_email: "",
-  })
-  const [createError, setCreateError] = useState<string | null>(null)
-
-  const [editOpen, setEditOpen] = useState(false)
-  const [editForm, setEditForm] = useState<Vendor>({ id: "" })
-  const [editError, setEditError] = useState<string | null>(null)
+  // One form for "+ New vendor" and "Edit vendor".
+  const [formMode, setFormMode] = useState<null | "create" | "edit">(null)
+  const [form, setForm] = useState<VendorForm>(emptyForm())
+  const [formError, setFormError] = useState<string | null>(null)
+  const [showFieldErrors, setShowFieldErrors] = useState(false)
 
   const [confirmKind, setConfirmKind] = useState<null | "deactivate" | "delete">(null)
   const [confirmBusy, setConfirmBusy] = useState(false)
@@ -113,9 +176,11 @@ export default function VendorsPage() {
       const active = v.is_active !== false
       if (statusFilter === "ACTIVE" && !active) return false
       if (statusFilter === "INACTIVE" && active) return false
+      if (gstFilter === "WITH" && !v.gst_no) return false
+      if (gstFilter === "WITHOUT" && v.gst_no) return false
       return true
     })
-  }, [vendors, search, categoryFilter, statusFilter])
+  }, [vendors, search, categoryFilter, statusFilter, gstFilter])
 
   const selectedVendor = vendors.find((v) => v.id === selectedId) || null
   const contactsQuery = useVendorContacts(selectedId)
@@ -123,99 +188,78 @@ export default function VendorsPage() {
 
   const kpis = useMemo(() => {
     const total = vendors.length
-    const active = vendors.filter((v) => v.is_active !== false).length
+    const activeRows = vendors.filter((v) => v.is_active !== false)
+    const active = activeRows.length
     const inactive = total - active
     const categoriesUsed = new Set(vendors.map(vendorCategory)).size
-    return { total, active, inactive, categoriesUsed }
+    const withGst = activeRows.filter((v) => v.gst_no).length
+    return { total, active, inactive, categoriesUsed, withGst, withoutGst: active - withGst }
   }, [vendors])
 
-  const resetCreate = () => {
-    setCreateForm({
-      supplier_code: "",
-      name: "",
-      category: "",
-      gst_no: "",
-      pan_no: "",
-      address: "",
-      contact_name: "",
-      contact_phone: "",
-      contact_email: "",
-    })
-    setCreateError(null)
-  }
+  const fieldErrors = useMemo(() => vendorFormErrors(form), [form])
+  const saving = createVendor.isPending || createContact.isPending || updateVendor.isPending
 
-  const submitCreate = async () => {
-    setCreateError(null)
-    if (!compact(createForm.supplier_code)) {
-      setCreateError("Vendor code is required.")
-      return
-    }
-    if (!compact(createForm.name)) {
-      setCreateError("Vendor name is required.")
-      return
-    }
-    try {
-      const created = await createVendor.mutateAsync({
-        supplier_code: createForm.supplier_code.trim(),
-        name: createForm.name.trim(),
-        gst_no: createForm.gst_no.trim() || undefined,
-        pan_no: createForm.pan_no.trim() || undefined,
-        address: createForm.address.trim() || undefined,
-        category: createForm.category.trim() || undefined,
-      })
-      const vendorId = (created as any)?.data?.id || (created as any)?.id
-      if (vendorId && compact(createForm.contact_name)) {
-        await createContact.mutateAsync({
-          vendorId,
-          data: {
-            contact_name: createForm.contact_name.trim(),
-            contact_phone: createForm.contact_phone.trim() || undefined,
-            contact_email: createForm.contact_email.trim() || undefined,
-          },
-        })
-      }
-      if (vendorId) setSelectedId(vendorId)
-      setCreateOpen(false)
-      resetCreate()
-      showToast("Vendor created", "success")
-    } catch (err) {
-      setCreateError(errorMessage(err))
-    }
+  const openCreate = () => {
+    setForm(emptyForm())
+    setFormError(null)
+    setShowFieldErrors(false)
+    setFormMode("create")
   }
 
   const startEdit = () => {
     if (!selectedVendor) return
-    setEditForm({ ...selectedVendor, category: vendorCategory(selectedVendor) === "Other" ? "" : vendorCategory(selectedVendor) })
-    setEditError(null)
-    setEditOpen(true)
+    setForm(formFromVendor(selectedVendor))
+    setFormError(null)
+    setShowFieldErrors(false)
+    setFormMode("edit")
   }
 
-  const submitEdit = async () => {
-    setEditError(null)
-    if (!compact(editForm.supplier_code)) {
-      setEditError("Vendor code is required.")
+  const closeForm = () => {
+    setFormMode(null)
+    setFormError(null)
+  }
+
+  const submitForm = async () => {
+    setFormError(null)
+    if (!compact(form.supplier_code)) {
+      setFormError("Vendor code is required.")
       return
     }
-    if (!compact(editForm.name)) {
-      setEditError("Vendor name is required.")
+    if (!compact(form.name)) {
+      setFormError("Vendor name is required.")
       return
     }
+    const problems = Object.values(fieldErrors)
+    if (problems.length) {
+      setShowFieldErrors(true)
+      setFormError(`Fix ${problems.length === 1 ? "this" : "these"} before saving: ${problems.join(" · ")}`)
+      return
+    }
+    const body = payloadFromForm(form)
     try {
-      await updateVendor.mutateAsync({
-        id: editForm.id,
-        data: {
-          supplier_code: editForm.supplier_code?.trim(),
-          name: editForm.name?.trim(),
-          gst_no: editForm.gst_no?.trim() || undefined,
-          pan_no: editForm.pan_no?.trim() || undefined,
-          address: editForm.address?.trim() || undefined,
-          category: editForm.category?.trim() || undefined,
-        },
-      })
-      setEditOpen(false)
-      showToast("Vendor updated", "success")
+      if (formMode === "edit" && selectedVendor) {
+        await updateVendor.mutateAsync({ id: selectedVendor.id, data: body })
+        showToast("Vendor updated", "success")
+      } else {
+        const created = await createVendor.mutateAsync(body)
+        const vendorId = (created as any)?.data?.id || (created as any)?.id
+        // The main contact also starts the vendor's contact list (more people can be added there).
+        if (vendorId && compact(form.contact_name)) {
+          await createContact.mutateAsync({
+            vendorId,
+            data: {
+              contact_name: form.contact_name.trim(),
+              contact_phone: form.contact_phone.trim() || undefined,
+              contact_email: form.contact_email.trim() || undefined,
+            },
+          })
+        }
+        if (vendorId) setSelectedId(vendorId)
+        showToast("Vendor created", "success")
+      }
+      setFormMode(null)
     } catch (err) {
-      setEditError(errorMessage(err))
+      setFormError(errorMessage(err))
     }
   }
 
@@ -278,15 +322,17 @@ export default function VendorsPage() {
       showToast("No vendors to export", "info")
       return
     }
-    const header = ["code", "name", "category", "gst", "pan", "address", "is_active"]
+    const header = [
+      "code", "name", "legal_name", "trade_name", "category", "gstin", "pan", "msme_udyam", "address_line_1", "address_line_2",
+      "city", "state", "state_code", "pin_code", "country", "contact_person", "phone", "alternate_phone", "email",
+      "payment_terms_days", "credit_days", "credit_limit", "bank_name", "bank_account_no", "ifsc", "notes", "is_active",
+    ]
     const rows = filteredVendors.map((v) => [
-      v.supplier_code || "",
-      v.name || "",
-      vendorCategory(v),
-      v.gst_no || "",
-      v.pan_no || "",
-      (v.address || "").replace(/\s+/g, " "),
-      v.is_active === false ? "no" : "yes",
+      v.supplier_code || "", v.name || "", v.legal_name || "", v.trade_name || "", vendorCategory(v), v.gst_no || "", v.pan_no || "", v.msme_no || "",
+      (v.address || "").replace(/\s+/g, " "), (v.address_line2 || "").replace(/\s+/g, " "), v.city || "", v.state || "", v.state_code || "", v.pin_code || "",
+      v.country || "India", v.contact_name || "", v.contact_phone || "", v.alt_phone || "", v.contact_email || "",
+      v.payment_terms_days ?? "", v.credit_days ?? "", v.credit_limit ?? "", v.bank_name || "", v.bank_account_no || "", v.bank_ifsc || "",
+      (v.notes || "").replace(/\s+/g, " "), v.is_active === false ? "no" : "yes",
     ])
     const csv = [header, ...rows]
       .map((cols) => cols.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","))
@@ -304,50 +350,35 @@ export default function VendorsPage() {
     {
       key: "supplier_code",
       label: "Code",
-      width: "140px",
+      width: "120px",
       sortAccessor: (r) => r.supplier_code || "",
-      render: (r) => <span className="font-mono text-xs text-muted-foreground">{r.supplier_code || "—"}</span>,
+      render: (r) => (
+        <div className="min-w-0 max-w-[120px]">
+          <div className="truncate font-mono text-xs text-muted-foreground" title={r.supplier_code || ""}>{r.supplier_code || "—"}</div>
+          <div className="truncate text-[11px] text-signal-cyan-ink">{vendorCategory(r)}</div>
+        </div>
+      ),
     },
     {
       key: "name",
       label: "Name",
       sortAccessor: (r) => r.name || "",
       render: (r) => (
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-foreground">{r.name || "—"}</div>
-          <div className="truncate text-[11px] text-muted-foreground">{r.address || "—"}</div>
+        <div className="min-w-0 max-w-[220px]">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-sm font-semibold text-foreground">{r.name || "—"}</span>
+            {r.is_active === false ? <Pill tone="neutral">Inactive</Pill> : null}
+          </div>
+          <div className="truncate text-[11px] text-muted-foreground">{[place(r) || r.address, r.contact_name && `${r.contact_name}${r.contact_phone ? ` · ${r.contact_phone}` : ""}`].filter(Boolean).join(" · ") || "No address yet"}</div>
         </div>
       ),
     },
     {
-      key: "category",
-      label: "Category",
-      width: "120px",
-      sortAccessor: vendorCategory,
-      render: (r) =>
-        vendorCategory(r) !== "Other" ? <Pill tone="info">{vendorCategory(r)}</Pill> : <span className="text-[11px] text-muted-foreground">—</span>,
-    },
-    {
       key: "gst_no",
-      label: "GST",
-      width: "150px",
+      label: "GSTIN",
+      width: "140px",
       sortAccessor: (r) => r.gst_no || "",
-      render: (r) => <span className="font-mono text-xs text-muted-foreground">{r.gst_no || "—"}</span>,
-    },
-    {
-      key: "pan_no",
-      label: "PAN",
-      width: "120px",
-      sortAccessor: (r) => r.pan_no || "",
-      render: (r) => <span className="font-mono text-xs text-muted-foreground">{r.pan_no || "—"}</span>,
-    },
-    {
-      key: "is_active",
-      label: "Status",
-      width: "100px",
-      sortAccessor: (r) => (r.is_active === false ? 0 : 1),
-      render: (r) =>
-        r.is_active === false ? <Pill tone="neutral">Inactive</Pill> : <Pill tone="ok">Active</Pill>,
+      render: (r) => r.gst_no ? <span className="font-mono text-xs text-foreground">{r.gst_no}</span> : <span className="text-[11px] text-muted-foreground">Not given</span>,
     },
   ]
 
@@ -357,7 +388,7 @@ export default function VendorsPage() {
         <MasterHero
           eyebrow={`Parties · ${kpis.active} active · ${kpis.categoriesUsed} categories`}
           title="Vendors"
-          description="Every vendor (supplier) on one page — GST, contacts, address, and the audit trail. Click any row to open the drawer with full detail and multi-contact management."
+          description="Every vendor (supplier) on one page: GSTIN, PAN, address, contacts, payment terms and bank. Only code and name are needed; the rest is optional and prints on the PO when filled."
           accent="cyan"
           chips={[
             { label: `${kpis.total} total`, tone: "neutral" },
@@ -370,30 +401,15 @@ export default function VendorsPage() {
       kpis={
         <>
           <KpiTile label="Total vendors" value={String(kpis.total)} tone="cyan" detail="All categories" />
-          <KpiTile
-            label="Active"
-            value={String(kpis.active)}
-            tone="emerald"
-            detail={`${kpis.inactive} inactive`}
-          />
-          <KpiTile
-            label="Categories"
-            value={String(kpis.categoriesUsed)}
-            tone="violet"
-            detail="Distinct categories in use"
-          />
-          <KpiTile
-            label="With contacts"
-            value={String(vendors.filter((v) => v.is_active !== false).length)}
-            tone="amber"
-            detail="Contacts populate as you add"
-          />
+          <KpiTile label="Active" value={String(kpis.active)} tone="emerald" detail={`${kpis.inactive} inactive`} />
+          <KpiTile label="With GSTIN" value={String(kpis.withGst)} tone="violet" detail={kpis.withoutGst ? `${kpis.withoutGst} active without GSTIN` : "Every active vendor has one"} />
+          <KpiTile label="Categories" value={String(kpis.categoriesUsed)} tone="amber" detail="Distinct categories in use" />
         </>
       }
       filters={
         <>
           <FilterField label="Search">
-            <SearchField value={search} onChange={setSearch} placeholder="name, code, GST, address…" />
+            <SearchField value={search} onChange={setSearch} placeholder="name, code, GSTIN, city, contact…" />
           </FilterField>
           <FilterField label="Category">
             <select
@@ -407,6 +423,17 @@ export default function VendorsPage() {
                   {c}
                 </option>
               ))}
+            </select>
+          </FilterField>
+          <FilterField label="GSTIN">
+            <select
+              value={gstFilter}
+              onChange={(e) => setGstFilter(e.target.value as any)}
+              className="rounded-md border border-border bg-card px-2 py-1 text-sm font-medium text-foreground"
+            >
+              <option value="ALL">All</option>
+              <option value="WITH">Given</option>
+              <option value="WITHOUT">Not given</option>
             </select>
           </FilterField>
           <FilterField label="Status">
@@ -430,10 +457,7 @@ export default function VendorsPage() {
           </button>
           <button
             type="button"
-            onClick={() => {
-              resetCreate()
-              setCreateOpen(true)
-            }}
+            onClick={openCreate}
             className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90"
           >
             + New vendor
@@ -500,25 +524,14 @@ export default function VendorsPage() {
           accent="cyan"
           chips={selectedVendor ? [
             selectedVendor.is_active === false ? { label: "INACTIVE", tone: "warn" as const } : { label: "ACTIVE", tone: "ok" as const },
+            selectedVendor.gst_no ? { label: "GSTIN GIVEN", tone: "ok" as const } : { label: "NO GSTIN", tone: "warn" as const },
             { label: `${contacts.length} contact${contacts.length === 1 ? "" : "s"}`, tone: "ok" as const },
           ] : []}
           tabs={selectedVendor ? [
             {
               key: "overview",
               label: "Overview",
-              content: (
-                <div className="space-y-3">
-                  <FieldRow label="Code" value={<span className="font-mono">{selectedVendor.supplier_code || "—"}</span>} />
-                  <FieldRow label="Category" value={vendorCategory(selectedVendor)} />
-                  <FieldRow label="GST" value={<span className="font-mono text-xs">{selectedVendor.gst_no || "—"}</span>} />
-                  <FieldRow label="PAN" value={<span className="font-mono text-xs">{selectedVendor.pan_no || "—"}</span>} />
-                  <FieldRow label="Address" value={selectedVendor.address || "—"} />
-                  <FieldRow
-                    label="Status"
-                    value={selectedVendor.is_active === false ? <Pill tone="neutral">Inactive</Pill> : <Pill tone="ok">Active</Pill>}
-                  />
-                </div>
-              ),
+              content: <VendorOverview vendor={selectedVendor} />,
             },
             {
               key: "contacts",
@@ -591,6 +604,7 @@ export default function VendorsPage() {
                 type="button"
                 onClick={startEdit}
                 className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90"
+                data-testid="vendor-edit"
               >
                 Edit vendor
               </button>
@@ -599,187 +613,47 @@ export default function VendorsPage() {
         />
       </div>
 
-      {/* + New vendor modal */}
       <Modal
-        open={createOpen}
-        onClose={() => {
-          setCreateOpen(false)
-          resetCreate()
-        }}
-        eyebrow="Create"
-        title="+ New vendor"
+        open={formMode !== null}
+        onClose={closeForm}
+        eyebrow={formMode === "edit" ? "Edit" : "Create"}
+        title={formMode === "edit" ? form.name || "Edit vendor" : "+ New vendor"}
         size="lg"
         footer={
           <>
+            <p className="mr-auto text-[11.5px] text-muted-foreground">Only code and name are required.</p>
             <button
               type="button"
-              onClick={() => {
-                setCreateOpen(false)
-                resetCreate()
-              }}
+              onClick={closeForm}
               className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-input"
             >
               Cancel
             </button>
             <button
               type="button"
-              onClick={submitCreate}
-              disabled={createVendor.isPending || createContact.isPending}
+              onClick={submitForm}
+              disabled={saving}
+              data-testid="vendor-save"
               className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90 disabled:opacity-50"
             >
-              {createVendor.isPending ? "Creating…" : "Create vendor"}
+              {saving ? "Saving…" : formMode === "edit" ? "Save changes" : "Create vendor"}
             </button>
           </>
         }
       >
-        <div className="grid gap-3 sm:grid-cols-2">
-          <LabeledInput
-            label="Code"
-            required
-            value={createForm.supplier_code}
-            onChange={(v) => setCreateForm({ ...createForm, supplier_code: v })}
-            placeholder="VEND-XXX"
-          />
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[11.5px] font-semibold text-muted-foreground">Category</span>
-            <select
-              value={createForm.category}
-              onChange={(e) => setCreateForm({ ...createForm, category: e.target.value })}
-              className="rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground focus:border-signal-cyan-line focus:outline-none"
-            >
-              <option value="">Choose…</option>
-              {VENDOR_CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <LabeledInput
-            label="Vendor name"
-            required
-            value={createForm.name}
-            onChange={(v) => setCreateForm({ ...createForm, name: v })}
-          />
-          <LabeledInput
-            label="GST"
-            value={createForm.gst_no}
-            onChange={(v) => setCreateForm({ ...createForm, gst_no: v })}
-          />
-          <LabeledInput
-            label="PAN"
-            value={createForm.pan_no}
-            onChange={(v) => setCreateForm({ ...createForm, pan_no: v })}
-          />
-        </div>
-        <div className="mt-3">
-          <LabeledTextarea
-            label="Address"
-            value={createForm.address}
-            onChange={(v) => setCreateForm({ ...createForm, address: v })}
-          />
-        </div>
-        <div className="mt-4 rounded-xl border border-border bg-muted/60 p-3">
-          <p className="text-[11.5px] font-semibold text-muted-foreground">Primary contact (optional — you can add more later)</p>
-          <div className="mt-2 grid gap-3 sm:grid-cols-3">
-            <LabeledInput
-              label="Name"
-              value={createForm.contact_name}
-              onChange={(v) => setCreateForm({ ...createForm, contact_name: v })}
-            />
-            <LabeledInput
-              label="Phone"
-              value={createForm.contact_phone}
-              onChange={(v) => setCreateForm({ ...createForm, contact_phone: v })}
-            />
-            <LabeledInput
-              label="Email"
-              value={createForm.contact_email}
-              onChange={(v) => setCreateForm({ ...createForm, contact_email: v })}
-            />
-          </div>
-        </div>
-        {createError ? <p className="mt-3 text-xs font-medium text-signal-rose-ink">{createError}</p> : null}
-      </Modal>
-
-      {/* Edit vendor modal */}
-      <Modal
-        open={editOpen}
-        onClose={() => setEditOpen(false)}
-        eyebrow="Edit"
-        title={editForm.name || "Edit vendor"}
-        size="lg"
-        footer={
-          <>
-            <button
-              type="button"
-              onClick={() => setEditOpen(false)}
-              className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-input"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={submitEdit}
-              disabled={updateVendor.isPending}
-              className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90 disabled:opacity-50"
-            >
-              {updateVendor.isPending ? "Saving…" : "Save changes"}
-            </button>
-          </>
-        }
-      >
-        <div className="grid gap-3 sm:grid-cols-2">
-          <LabeledInput
-            label="Code"
-            required
-            value={editForm.supplier_code || ""}
-            onChange={(v) => setEditForm({ ...editForm, supplier_code: v })}
-          />
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[11.5px] font-semibold text-muted-foreground">Category</span>
-            <select
-              value={editForm.category || ""}
-              onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}
-              className="rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground focus:border-signal-cyan-line focus:outline-none"
-            >
-              <option value="">—</option>
-              {VENDOR_CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <LabeledInput
-            label="Name"
-            required
-            value={editForm.name || ""}
-            onChange={(v) => setEditForm({ ...editForm, name: v })}
-          />
-          <LabeledInput
-            label="GST"
-            value={editForm.gst_no || ""}
-            onChange={(v) => setEditForm({ ...editForm, gst_no: v })}
-          />
-          <LabeledInput
-            label="PAN"
-            value={editForm.pan_no || ""}
-            onChange={(v) => setEditForm({ ...editForm, pan_no: v })}
-          />
-        </div>
-        <div className="mt-3">
-          <LabeledTextarea
-            label="Address"
-            value={editForm.address || ""}
-            onChange={(v) => setEditForm({ ...editForm, address: v })}
-          />
-        </div>
-        {editError ? <p className="mt-3 text-xs font-medium text-signal-rose-ink">{editError}</p> : null}
+        <VendorFormFields
+          form={form}
+          setForm={setForm}
+          errors={showFieldErrors ? fieldErrors : {}}
+          creating={formMode === "create"}
+          sameGstin={vendors.find((v) => v.gst_no && v.gst_no === form.gst_no.replace(/\s+/g, "").toUpperCase() && (formMode === "create" || v.id !== selectedVendor?.id)) || null}
+        />
+        {formError ? (
+          <p role="alert" className="mt-3 flex items-start gap-1.5 rounded-lg border border-signal-rose-line bg-signal-rose-soft px-3 py-2 text-xs font-medium text-signal-rose-ink">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            {formError}
+          </p>
+        ) : null}
       </Modal>
 
       <ConfirmDialog
@@ -814,11 +688,259 @@ export default function VendorsPage() {
   )
 }
 
+function VendorOverview({ vendor }: { vendor: Vendor }) {
+  const address = vendorAddress(vendor)
+  return (
+    <div className="space-y-4" data-testid="vendor-overview">
+      <OverviewGroup title="Tax">
+        <FieldRow label="GSTIN" value={vendor.gst_no ? <span className="font-mono text-xs">{vendor.gst_no}</span> : <span className="text-muted-foreground">Not given</span>} />
+        <FieldRow label="PAN" value={<span className="font-mono text-xs">{vendor.pan_no || "—"}</span>} />
+        <FieldRow label="MSME / Udyam" value={<span className="font-mono text-xs">{vendor.msme_no || "—"}</span>} />
+        {vendor.legal_name ? <FieldRow label="Legal name" value={vendor.legal_name} /> : null}
+        {vendor.trade_name ? <FieldRow label="Trade name" value={vendor.trade_name} /> : null}
+      </OverviewGroup>
+      <OverviewGroup title="Address">
+        <FieldRow label="Address" value={address || "—"} />
+        <FieldRow label="State" value={vendor.state ? `${vendor.state}${vendor.state_code ? ` (${vendor.state_code})` : ""}` : "—"} />
+        <FieldRow label="Country" value={vendor.country || "India"} />
+      </OverviewGroup>
+      <OverviewGroup title="Main contact">
+        <FieldRow label="Person" value={vendor.contact_name || "—"} />
+        <FieldRow label="Phone" value={[vendor.contact_phone, vendor.alt_phone].filter(Boolean).join(" · ") || "—"} />
+        <FieldRow label="Email" value={vendor.contact_email || "—"} />
+      </OverviewGroup>
+      <OverviewGroup title="Payment">
+        <FieldRow label="Payment terms" value={days(vendor.payment_terms_days)} />
+        <FieldRow label="Credit" value={vendor.credit_days == null && vendor.credit_limit == null ? "—" : `${days(vendor.credit_days)} · limit ${inr(vendor.credit_limit)}`} />
+        <FieldRow label="Bank" value={vendor.bank_name || vendor.bank_account_no || vendor.bank_ifsc ? <span>{vendor.bank_name || "—"}<span className="block font-mono text-xs text-muted-foreground">{[vendor.bank_account_no, vendor.bank_ifsc].filter(Boolean).join(" · IFSC ")}</span></span> : "—"} />
+      </OverviewGroup>
+      {vendor.notes ? (
+        <OverviewGroup title="Notes">
+          <p className="whitespace-pre-wrap text-sm text-foreground">{vendor.notes}</p>
+        </OverviewGroup>
+      ) : null}
+      <FieldRow label="Status" value={vendor.is_active === false ? <Pill tone="neutral">Inactive</Pill> : <Pill tone="ok">Active</Pill>} />
+    </div>
+  )
+}
+
+function OverviewGroup({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="space-y-2 border-b border-border pb-3 last:border-b-0">
+      <h3 className="text-[11.5px] font-semibold text-signal-cyan-ink">{title}</h3>
+      {children}
+    </section>
+  )
+}
+
 function FieldRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-3 text-sm">
       <span className="text-[11.5px] font-semibold text-muted-foreground">{label}</span>
-      <span className="text-foreground">{value}</span>
+      <span className="min-w-0 break-words text-foreground">{value}</span>
+    </div>
+  )
+}
+
+const inputClass = "w-full rounded-md border bg-card px-3 py-2 text-sm font-medium text-foreground focus:border-signal-cyan-line focus:outline-none"
+
+function FormField({
+  label,
+  value,
+  onChange,
+  error,
+  hint,
+  placeholder,
+  required,
+  mono,
+  inputMode,
+  maxLength,
+  testId,
+  className,
+}: {
+  label: string
+  value: string
+  onChange: (next: string) => void
+  error?: string
+  hint?: ReactNode
+  placeholder?: string
+  required?: boolean
+  mono?: boolean
+  inputMode?: "text" | "numeric" | "decimal" | "tel" | "email"
+  maxLength?: number
+  testId?: string
+  className?: string
+}) {
+  return (
+    <label className={`flex min-w-0 flex-col gap-1 text-sm ${className || ""}`}>
+      <span className="text-[11.5px] font-semibold text-muted-foreground">
+        {label} {required ? <span className="text-signal-rose-ink">*</span> : null}
+      </span>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        inputMode={inputMode}
+        maxLength={maxLength}
+        aria-invalid={error ? true : undefined}
+        data-testid={testId}
+        className={`${inputClass} ${mono ? "font-mono uppercase tracking-wide" : ""} ${error ? "border-signal-rose-line" : "border-border"}`}
+      />
+      {error ? (
+        <span className="flex items-start gap-1 text-[11px] font-medium text-signal-rose-ink"><AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />{error}</span>
+      ) : hint ? (
+        <span className="text-[11px] text-muted-foreground">{hint}</span>
+      ) : null}
+    </label>
+  )
+}
+
+function FormSection({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
+  return (
+    <fieldset className="mt-4 first:mt-0">
+      <legend className="text-[12px] font-semibold text-foreground">{title}{hint ? <span className="ml-2 font-normal text-muted-foreground">{hint}</span> : null}</legend>
+      <div className="mt-2 grid gap-3 sm:grid-cols-2">{children}</div>
+    </fieldset>
+  )
+}
+
+function VendorFormFields({
+  form,
+  setForm,
+  errors,
+  creating,
+  sameGstin,
+}: {
+  form: VendorForm
+  setForm: (next: VendorForm) => void
+  errors: Record<string, string>
+  creating: boolean
+  sameGstin?: Vendor | null
+}) {
+  const set = (key: keyof VendorForm) => (value: string) => setForm({ ...form, [key]: value })
+  const gst = fromGstin(form.gst_no)
+  const gstProblem = gstinError(form.gst_no)
+  const panMismatch = gst.pan && form.pan_no && form.pan_no.replace(/\s+/g, "").toUpperCase() !== gst.pan
+  const stateMismatch = gst.stateCode && form.state_code && form.state_code !== gst.stateCode
+
+  // A complete GSTIN fills PAN and state when they are still empty.
+  const onGstin = (raw: string) => {
+    const value = raw.toUpperCase()
+    const next = { ...form, gst_no: value }
+    const derived = fromGstin(value)
+    if (derived.pan) {
+      if (!form.pan_no.trim()) next.pan_no = derived.pan
+      if (!form.state_code) {
+        next.state_code = derived.stateCode
+        next.state = derived.state
+      }
+    }
+    setForm(next)
+  }
+
+  const gstHint = form.gst_no.trim()
+    ? gstProblem
+      ? null
+      : sameGstin ? (
+        <span className="flex items-center gap-1 text-signal-amber-ink"><AlertTriangle className="h-3 w-3" aria-hidden="true" />{sameGstin.name} ({sameGstin.supplier_code}) already has this GSTIN</span>
+      ) : (
+        <span className="flex items-center gap-1 text-signal-emerald-ink"><CheckCircle2 className="h-3 w-3" aria-hidden="true" />Format OK · {gst.state} ({gst.stateCode}) · PAN {gst.pan}</span>
+      )
+    : "15 characters, e.g. 24ABCDE1234F1Z5. Fills PAN and state."
+
+  return (
+    <div data-testid="vendor-form">
+      <FormSection title="Vendor">
+        <FormField label="Code" required value={form.supplier_code} onChange={set("supplier_code")} placeholder="VEND-XXX" testId="vendor-code" />
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-[11.5px] font-semibold text-muted-foreground">Category</span>
+          <select
+            value={form.category}
+            onChange={(e) => setForm({ ...form, category: e.target.value })}
+            className={`${inputClass} border-border`}
+          >
+            <option value="">{creating ? "Choose…" : "—"}</option>
+            {VENDOR_CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </label>
+        <FormField label="Vendor name" required value={form.name} onChange={set("name")} className="sm:col-span-2" testId="vendor-name" />
+        <FormField label="Legal name" value={form.legal_name} onChange={set("legal_name")} placeholder="As on the GST certificate" />
+        <FormField label="Trade name" value={form.trade_name} onChange={set("trade_name")} />
+      </FormSection>
+
+      <FormSection title="Tax" hint="optional">
+        <FormField label="GSTIN" value={form.gst_no} onChange={onGstin} mono maxLength={18} error={errors.gst_no || gstProblem} hint={gstHint} testId="vendor-gstin" />
+        <FormField
+          label="PAN"
+          value={form.pan_no}
+          onChange={(v) => setForm({ ...form, pan_no: v.toUpperCase() })}
+          mono
+          maxLength={12}
+          error={errors.pan_no}
+          hint={panMismatch ? <span className="flex items-center gap-1 text-signal-amber-ink"><AlertTriangle className="h-3 w-3" aria-hidden="true" />The GSTIN carries PAN {gst.pan}</span> : "10 characters, e.g. ABCDE1234F"}
+          testId="vendor-pan"
+        />
+        <FormField label="MSME / Udyam number" value={form.msme_no} onChange={(v) => setForm({ ...form, msme_no: v.toUpperCase() })} mono placeholder="UDYAM-GJ-01-0012345" />
+      </FormSection>
+
+      <FormSection title="Address" hint="optional">
+        <FormField label="Address line 1" value={form.address} onChange={set("address")} className="sm:col-span-2" placeholder="Plot / building, street" testId="vendor-address1" />
+        <FormField label="Address line 2" value={form.address_line2} onChange={set("address_line2")} className="sm:col-span-2" placeholder="Area, landmark" />
+        <FormField label="City" value={form.city} onChange={set("city")} testId="vendor-city" />
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-[11.5px] font-semibold text-muted-foreground">State (GST code)</span>
+          <select
+            value={form.state_code}
+            onChange={(e) => setForm({ ...form, state_code: e.target.value, state: stateName(e.target.value) })}
+            className={`${inputClass} border-border`}
+            data-testid="vendor-state"
+          >
+            <option value="">{form.state && !form.state_code ? form.state : "Choose state…"}</option>
+            {GST_STATES.map((row) => (
+              <option key={row.code} value={row.code}>
+                {row.code} · {row.name}
+              </option>
+            ))}
+          </select>
+          {stateMismatch ? <span className="flex items-center gap-1 text-[11px] text-signal-amber-ink"><AlertTriangle className="h-3 w-3" aria-hidden="true" />GSTIN is registered in {gst.state} ({gst.stateCode})</span> : null}
+        </label>
+        <FormField label="PIN code" value={form.pin_code} onChange={set("pin_code")} inputMode="numeric" maxLength={6} error={errors.pin_code} testId="vendor-pin" />
+        <FormField label="Country" value={form.country} onChange={set("country")} />
+      </FormSection>
+
+      <FormSection title="Main contact" hint={creating ? "prints on the PO; more people can be added later" : "prints on the PO"}>
+        <FormField label="Contact person" value={form.contact_name} onChange={set("contact_name")} testId="vendor-contact" />
+        <FormField label="Email" value={form.contact_email} onChange={set("contact_email")} inputMode="email" error={errors.contact_email} />
+        <FormField label="Phone" value={form.contact_phone} onChange={set("contact_phone")} inputMode="tel" error={errors.contact_phone} testId="vendor-phone" />
+        <FormField label="Alternate phone" value={form.alt_phone} onChange={set("alt_phone")} inputMode="tel" error={errors.alt_phone} />
+      </FormSection>
+
+      <FormSection title="Payment" hint="optional">
+        <FormField label="Payment terms (days)" value={form.payment_terms_days} onChange={set("payment_terms_days")} inputMode="numeric" error={errors.payment_terms_days} placeholder="e.g. 60" />
+        <FormField label="Credit days" value={form.credit_days} onChange={set("credit_days")} inputMode="numeric" error={errors.credit_days} />
+        <FormField label="Credit limit (₹)" value={form.credit_limit} onChange={set("credit_limit")} inputMode="decimal" error={errors.credit_limit} />
+      </FormSection>
+
+      <FormSection title="Bank" hint="optional">
+        <FormField label="Bank name" value={form.bank_name} onChange={set("bank_name")} />
+        <FormField label="Account number" value={form.bank_account_no} onChange={set("bank_account_no")} inputMode="numeric" mono error={errors.bank_account_no} />
+        <FormField label="IFSC" value={form.bank_ifsc} onChange={(v) => setForm({ ...form, bank_ifsc: v.toUpperCase() })} mono maxLength={11} error={errors.bank_ifsc} hint="e.g. SBIN0001234" testId="vendor-ifsc" />
+      </FormSection>
+
+      <fieldset className="mt-4">
+        <legend className="text-[12px] font-semibold text-foreground">Notes</legend>
+        <textarea
+          rows={2}
+          value={form.notes}
+          onChange={(e) => setForm({ ...form, notes: e.target.value })}
+          className={`${inputClass} mt-2 border-border`}
+          placeholder="Delivery days, rate agreements, anything the team should know"
+        />
+      </fieldset>
     </div>
   )
 }

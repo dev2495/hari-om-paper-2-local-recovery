@@ -433,6 +433,8 @@ class JobCardPlannerSummary(BaseModel):
     plan_status_label: Optional[str] = None
     plan_slots: int = 0
     next_slot: Optional[dict[str, Any]] = None
+    # Runs whose QC has a reading outside its band (flagged, not held; client 2026-10-27).
+    qc_flagged_runs: int = 0
     planner_gate_ready: bool = False
     planner_gate_reason: Optional[str] = None
     current_machine_id: Optional[str] = None
@@ -624,6 +626,8 @@ class JobCardPlanningDetail(BaseModel):
     plan_status_label: Optional[str] = None
     plan_slots: int = 0
     next_slot: Optional[dict[str, Any]] = None
+    # Runs whose QC has a reading outside its band (flagged, not held; client 2026-10-27).
+    qc_flagged_runs: int = 0
     planner_gate_ready: bool = False
     planner_gate_reason: Optional[str] = None
     carry_forward_suggestion: CarryForwardSuggestion = Field(default_factory=CarryForwardSuggestion)

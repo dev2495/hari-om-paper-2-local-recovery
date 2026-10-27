@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from sqlalchemy import text
 from .database import Base, engine
 from . import entry_models
-from .routers import dispatch, dispatch_surplus, jobs, lifecycle, operations, plan_actual, planning, planning_overview, quality, reconciliation, reel_issue, reports, entries
+from .routers import card_history, dispatch, dispatch_surplus, jobs, lifecycle, operations, plan_actual, planning, planning_overview, quality, reconciliation, reel_issue, reports, entries
 
 Base.metadata.create_all(bind=engine)
 
@@ -188,6 +188,7 @@ app.include_router(reel_issue.router)
 app.include_router(reports.router)
 app.include_router(plan_actual.router)
 app.include_router(planning_overview.router)
+app.include_router(card_history.router)
 app.include_router(reconciliation.router)
 app.include_router(dispatch.router)
 app.include_router(dispatch_surplus.router)

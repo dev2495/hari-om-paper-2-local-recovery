@@ -139,6 +139,7 @@ export const MODULE_NAV_ICONS: Record<string, LucideIcon> = {
   "/job-cards": ClipboardCheck,
   "/production/job-cards": ClipboardCheck,
   "/production/supervisor-entry": Wrench,
+  "/production/entry": Wrench,
   "/production/reconciliation": ScrollText,
   "/logistics/dispatch": Truck,
   "/dispatch": Truck,

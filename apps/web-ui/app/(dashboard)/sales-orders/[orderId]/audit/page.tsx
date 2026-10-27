@@ -1,121 +1,18 @@
 "use client"
 
-import Link from "next/link"
-import dayjs from "dayjs"
-import { ArrowLeft, ClipboardCheck, ScrollText } from "lucide-react"
-import { useMemo } from "react"
-import { useParams } from "next/navigation"
+import { useEffect } from "react"
+import { useParams, useRouter } from "next/navigation"
 
-import { EmptyState, Panel, StatusBadge } from "@/components/erp/shell"
-import { usePlanningJobCards } from "@/hooks/use-production"
-import { useSalesOrder, useSalesOrderTimeline } from "@/hooks/use-sales"
-import { jobCardRef } from "@/lib/job-card-display"
-
-function formatDateTime(value?: string | null) {
-  if (!value) return "-"
-  const parsed = dayjs(value)
-  return parsed.isValid() ? parsed.format("DD MMM YYYY, hh:mm A") : String(value)
-}
-
-export default function SalesOrderAuditPage() {
+/**
+ * The separate audit page was folded into the Order page's History tab (client 2026-10-27): one
+ * timeline with the order's own events and every event of its job cards. Old links land there.
+ */
+export default function SalesOrderAuditRedirect() {
   const params = useParams()
+  const router = useRouter()
   const orderId = String(params?.orderId || "")
-
-  const orderQuery = useSalesOrder(orderId)
-  const timelineQuery = useSalesOrderTimeline(orderId)
-  const jobCardsQuery = usePlanningJobCards({ search: orderId, limit: 100 }, Boolean(orderId))
-
-  const order = orderQuery.data
-  const events = useMemo(() => {
-    const baseEvents = Array.isArray(timelineQuery.data) ? timelineQuery.data : []
-    const jobEvents = (Array.isArray(jobCardsQuery.data) ? jobCardsQuery.data : [])
-      .filter((job: any) => String(job.sales_order_id || "") === orderId)
-      .map((job: any) => ({
-        id: `${job.id}:job-card`,
-        event_type: "JOB_CARD_SYNCED",
-        title: `Job card synced: ${jobCardRef(job)}`,
-        message: `${job.current_stage} queue created for ${Number(job.planned_qty || 0).toFixed(0)} pcs.`,
-        created_at: job.created_at,
-        actor: job.current_machine_id || "planner",
-      }))
-
-    return [...baseEvents, ...jobEvents].sort(
-      (left: any, right: any) =>
-        dayjs(right?.created_at || 0).valueOf() - dayjs(left?.created_at || 0).valueOf(),
-    )
-  }, [jobCardsQuery.data, orderId, timelineQuery.data])
-
-  if (orderQuery.isLoading) {
-    return <EmptyState label="Loading sales order audit trail..." />
-  }
-
-  if (!order) {
-    return <EmptyState label="Sales order not found." />
-  }
-
-  return (
-    <div className="space-y-6">
-      <Panel
-        title="Sales order audit timeline"
-        subtitle="Commercial actions and planner sync events stitched into one trace."
-        actions={
-          <Link href={`/sales-orders/${order.id}`} className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2 text-sm font-semibold text-muted-foreground hover:bg-muted">
-            <ArrowLeft className="h-4 w-4" />
-            Back to tracking
-          </Link>
-        }
-      >
-        <div className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-2xl border border-border bg-muted p-4">
-            <p className="text-[12px] text-muted-foreground">Order</p>
-            <p className="mt-2 text-sm font-semibold text-foreground">{order.order_no}</p>
-          </div>
-          <div className="rounded-2xl border border-border bg-muted p-4">
-            <p className="text-[12px] text-muted-foreground">Status</p>
-            <div className="mt-2">
-              <StatusBadge value={order.status} />
-            </div>
-          </div>
-          <div className="rounded-2xl border border-border bg-muted p-4">
-            <p className="text-[12px] text-muted-foreground">Audit Events</p>
-            <p className="mt-2 text-sm font-semibold text-foreground">{events.length}</p>
-          </div>
-        </div>
-      </Panel>
-
-      <Panel title="Timeline" subtitle="Newest events first.">
-        {timelineQuery.isLoading ? (
-          <EmptyState label="Loading audit events..." />
-        ) : events.length === 0 ? (
-          <EmptyState label="No audit events were recorded for this order yet." />
-        ) : (
-          <div className="space-y-3">
-            {events.map((event: any) => (
-              <div key={event.id} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="flex items-start gap-3">
-                    <div className="rounded-2xl border border-border bg-muted p-3">
-                      {String(event.event_type || "").includes("JOB_CARD") ? (
-                        <ClipboardCheck className="h-4 w-4 text-signal-emerald-ink" />
-                      ) : (
-                        <ScrollText className="h-4 w-4 text-muted-foreground" />
-                      )}
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-foreground">{event.title || event.event_type}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">{event.message || "Event captured."}</p>
-                    </div>
-                  </div>
-                  <div className="text-right text-xs text-muted-foreground">
-                    <div>{formatDateTime(event.created_at)}</div>
-                    <div className="mt-1">{event.actor || "system"}</div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Panel>
-    </div>
-  )
+  useEffect(() => {
+    router.replace(orderId ? `/sales-orders/${orderId}?tab=history` : "/sales-orders")
+  }, [orderId, router])
+  return <p className="p-6 text-sm text-muted-foreground" data-testid="sales-order-audit:redirect">Opening the order history…</p>
 }

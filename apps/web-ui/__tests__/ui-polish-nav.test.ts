@@ -108,18 +108,24 @@ test("integrated-slice nav entries remain: Quality, Sales orders, Purchase (pend
   assert.match(layout, /href: "\/quality"/)
   assert.doesNotMatch(layout, /href: "\/sales-orders\/pending"/)
   assert.match(layout, /href: "\/sales-orders"/)
-  assert.match(layout, /name: "Purchase"/)
+  assert.match(layout, /name: "Purchase orders"/)
   assert.match(layout, /href: "\/purchase"/)
+  // One home per thing (client 2026-10-27): Orders replaces the tracker; floor entry is Log output / Log QC.
+  assert.doesNotMatch(layout, /href: "\/planning\/tracker"/)
+  assert.match(layout, /name: "Job card manager"/)
+  assert.match(layout, /href: "\/production\/entry\?mode=qc"/)
+  assert.equal((layout.match(/href: "\/reports\/quality"/g) || []).length, 1)
 })
 
 test("core pages no longer use EmptyState for loading", () => {
   const sales = read("app/(dashboard)/sales-orders/page.tsx")
   const jobs = read("app/(dashboard)/production/job-cards/page.tsx")
   const tracker = read("app/(dashboard)/planning/tracker/page.tsx")
-  assert.match(sales, /loadingLabel="Loading live sales orders/)
+  assert.match(sales, /loadingLabel="Loading orders/)
   assert.match(jobs, /loadingLabel="Loading recovered job cards/)
-  assert.match(tracker, /loadingLabel="Loading sales-order tracker/)
-  assert.doesNotMatch(sales, /EmptyState label="Loading live sales orders/)
+  // The tracker is a redirect into the Orders list now; it renders no loading state of its own.
+  assert.doesNotMatch(tracker, /EmptyState/)
+  assert.doesNotMatch(sales, /EmptyState label="Loading/)
 })
 
 test("UserEditor and audit use the shared design system", () => {

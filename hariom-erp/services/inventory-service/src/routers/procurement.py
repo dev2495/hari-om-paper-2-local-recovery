@@ -191,6 +191,8 @@ def _receipt_payload(receipt: PurchaseReceipt, db: Session) -> dict[str, Any]:
         "purchase_order_id": str(receipt.purchase_order_id) if receipt.purchase_order_id else None,
         "receipt_kind": receipt.receipt_kind, "supplier_id": str(receipt.supplier_id or receipt.order.supplier_id) if receipt.supplier_id or receipt.order else None,
         "supplier_name": receipt.supplier_name_snapshot or (receipt.order.supplier_name_snapshot if receipt.order else None),
+        # GSTIN as saved on the PO revision (vendor master snapshot); a manual GRN has none, the web shows the master's.
+        "supplier_gst_no": (receipt.order.metadata_json or {}).get("supplier_gst_no") if receipt.order else None,
         "manual_reason": receipt.manual_reason, "approval_history": receipt.approval_history or [], "po_no": receipt.order.po_no if receipt.order else None,
         "grn_no": receipt.grn_no, "supplier_challan_no": receipt.supplier_challan_no,
         "received_date": receipt.received_date.isoformat(), "status": receipt.status,
@@ -2098,7 +2100,8 @@ def _register_rows(register_name: str, db: Session, plant_id: str, current_user:
             for line in order.lines or []:
                 rows.append({"plant_id": plant_id, "po_no": order.po_no, "category": order.category,
                     "revision": order.current_revision_no, "expected_date": order.expected_date, "po_date": (order.metadata_json or {}).get("po_date"),
-                    "supplier": order.supplier_name_snapshot, "item_code": line.item.item_code if line.item else None,
+                    "supplier": order.supplier_name_snapshot, "supplier_gstin": (order.metadata_json or {}).get("supplier_gst_no"),
+                    "item_code": line.item.item_code if line.item else None,
                     "item_name": line.item.name if line.item else None, "ordered_qty": line.qty_ordered,
                     "received_qty": line.qty_received, "open_qty": float(line.qty_ordered)-float(line.qty_received)-float(line.qty_short_closed or 0),
                     "uom": line.uom, "expected_unit_count": line.expected_unit_count, "count_basis": line.count_basis,
@@ -2109,7 +2112,7 @@ def _register_rows(register_name: str, db: Session, plant_id: str, current_user:
         for receipt in db.query(PurchaseReceipt).filter(PurchaseReceipt.plant_id == plant_id).order_by(PurchaseReceipt.created_at.desc()).all():
             payload = _receipt_payload(receipt, db)
             for line in payload["lines"]:
-                rows.append({**{key: payload[key] for key in ("grn_no", "received_date", "receipt_kind", "po_no", "supplier_name", "supplier_challan_no", "invoice_no", "invoice_date", "commercial_status", "manual_reason")}, **line})
+                rows.append({**{key: payload[key] for key in ("grn_no", "received_date", "receipt_kind", "po_no", "supplier_name", "supplier_gst_no", "supplier_challan_no", "invoice_no", "invoice_date", "commercial_status", "manual_reason")}, **line})
     elif register_name == "inward-lots":
         reels = db.query(PaperReel).filter(PaperReel.plant_id == _plant_uuid(plant_id)).order_by(PaperReel.created_at.desc()).all()
         for reel in reels:

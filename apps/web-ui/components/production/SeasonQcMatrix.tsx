@@ -2,8 +2,11 @@
 
 // Stage QC readings for one batch: one row per check (name, allowed limit, one box per sample);
 // rows stack on a phone and line up as columns on a PC.
-// Each row shows what is allowed in plain words; each cell turns green or red as it is typed,
-// using the same frozen limits the server checks. Oven pre/post readings of a sample share a column.
+// Each row shows what is allowed in plain words; each cell turns green (in band) or amber with a flag
+// (outside the band — saved and flagged, never held: client rule 2026-10-27) as it is typed, using the
+// same frozen limits the server checks. Oven pre/post readings of a sample share a column.
+
+import { Flag } from "lucide-react"
 
 import { relativeLimitText } from "@/lib/qc-measurement"
 
@@ -80,30 +83,42 @@ export function SeasonQcMatrix({
   onChange,
   editable = true,
   stageLabel,
+  flagNote = true,
 }: {
   rules: Rule[]
   samples: QcSample[]
   onChange?: (samples: QcSample[]) => void
   editable?: boolean
   stageLabel: string
+  /** Show the "outside the band" note under the grid (a host may show its own). */
+  flagNote?: boolean
 }) {
   const shown = rules.filter((rule) => rule.applicable !== false)
   if (!shown.length) return null
-  const needed = Math.max(...shown.map((rule) => Number(rule.min_readings || 0)), 0)
+  // At least 2 readings per required check (moisture optional), more when the check asks for more.
+  const needOf = (rule: Rule) => (OPTIONAL_QC_CODES.has(rule.code) ? Number(rule.min_readings || 0) : Math.max(2, Number(rule.min_readings || 0)))
+  const needed = Math.max(...shown.map(needOf), 0)
   const setReading = (index: number, code: string, value: string) =>
     onChange?.(samples.map((sample, i) => (i === index ? { ...sample, readings: { ...sample.readings, [code]: value } } : sample)))
   const failures = shown.flatMap((rule) =>
-    samples.map((sample, i) => (readingVerdict(rule, sample.readings[rule.code], sample.readings) === "fail" ? `${rule.label} · sample ${i + 1}` : null)).filter(Boolean),
+    samples
+      .map((sample, i) => {
+        if (readingVerdict(rule, sample.readings[rule.code], sample.readings) !== "fail") return null
+        const band = sampleBand(rule, sample.readings)
+        const limits = band.min != null && band.max != null ? `${fmt(band.min)}–${fmt(band.max)}` : band.min != null ? `≥ ${fmt(band.min)}` : `≤ ${fmt(band.max as number)}`
+        return `${rule.label} ${sample.readings[rule.code]}${rule.unit ? ` ${rule.unit}` : ""} (band ${limits}) · sample ${i + 1}`
+      })
+      .filter(Boolean),
   )
   return (
     <div className="space-y-2" data-testid="season-qc-matrix">
       <p className="text-xs text-muted-foreground">
-        {stageLabel}: measure {needed || "the"} sample{needed === 1 ? "" : "s"} and type each in its own box (S1, S2…). Green = within limits, red = outside.
+        {stageLabel}: measure {needed || "the"} sample{needed === 1 ? "" : "s"} and type each in its own box (S1, S2…). Green = in band; amber with a flag = outside the band — it still saves and the run is flagged, not held.
       </p>
       <div className="divide-y divide-border rounded-xl border border-border bg-background">
         {shown.map((rule) => {
           const done = samples.filter((sample) => num(sample.readings[rule.code]) != null).length
-          const need = Number(rule.min_readings || 0)
+          const need = needOf(rule)
           return (
             <div key={rule.code} className="grid gap-1.5 px-3 py-2.5 md:grid-cols-[minmax(8rem,13rem)_minmax(8rem,12rem)_1fr] md:items-center md:gap-3">
               <div className="flex items-baseline justify-between gap-2 md:block">
@@ -123,7 +138,7 @@ export function SeasonQcMatrix({
                   const verdict = readingVerdict(rule, sample.readings[rule.code], sample.readings)
                   const band = rule.dynamic ? sampleBand(rule, sample.readings) : null
                   return (
-                    <div key={sample.sample_id} className="w-[5.75rem]">
+                    <div key={sample.sample_id} className="relative w-[5.75rem]">
                       {editable ? (
                         <input
                           aria-label={`${rule.label} sample ${i + 1}`}
@@ -134,17 +149,23 @@ export function SeasonQcMatrix({
                           placeholder={`S${i + 1}`}
                           value={sample.readings[rule.code] ?? ""}
                           onChange={(event) => setReading(i, rule.code, event.target.value)}
-                          className={`h-11 w-full rounded-lg border px-2 text-[15px] tabular-nums ${
+                          className={`h-11 w-full rounded-lg border px-2 text-[15px] tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none ${
                             verdict === "fail"
-                              ? "border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink"
+                              ? "border-signal-amber-line bg-signal-amber-soft pr-6 font-semibold text-signal-amber-ink"
                               : verdict === "pass"
                                 ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink"
                                 : "border-border bg-background"
                           }`}
                         />
                       ) : (
-                        <span className={verdict === "fail" ? "font-semibold text-signal-rose-ink" : ""}>{sample.readings[rule.code] ?? "—"}</span>
+                        <span className={verdict === "fail" ? "inline-flex items-center gap-1 font-semibold text-signal-amber-ink" : ""}>
+                          {verdict === "fail" ? <Flag className="h-3 w-3" aria-hidden="true" /> : null}
+                          {sample.readings[rule.code] ?? "—"}
+                        </span>
                       )}
+                      {editable && verdict === "fail" ? (
+                        <Flag className="pointer-events-none absolute right-2 top-[0.95rem] h-3.5 w-3.5 text-signal-amber-ink" aria-hidden="true" />
+                      ) : null}
                       {band && (band.min != null || band.max != null) ? (
                         <div className="mt-0.5 text-[11px] leading-tight text-muted-foreground">
                           {band.min != null ? fmt(band.min) : "…"}–{band.max != null ? fmt(band.max) : "…"}
@@ -161,9 +182,10 @@ export function SeasonQcMatrix({
           )
         })}
       </div>
-      {failures.length ? (
-        <p className="rounded-lg border border-signal-rose-line bg-signal-rose-soft px-3 py-2 text-xs text-signal-rose-ink" role="status">
-          Out of limits: {failures.join(" · ")}. The batch is held until QC decides.
+      {failures.length && flagNote ? (
+        <p className="flex items-start gap-1.5 rounded-lg border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-xs text-signal-amber-ink" role="status" data-testid="qc-matrix-out-of-band">
+          <Flag className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span>Outside the band: {failures.join(" · ")}. It saves; the run is flagged, not held.</span>
         </p>
       ) : null}
       {editable ? (

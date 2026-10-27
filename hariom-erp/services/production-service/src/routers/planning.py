@@ -4807,6 +4807,21 @@ def _apply_queue_locks(db: Session, stage: str, items: list[QueueJobCardItem]) -
             item.planning_locked_reason = f"Waiting for the {PLAN_STAGE_LABEL.get(previous, previous.title()).lower()} plan"
 
 
+def _qc_flagged_runs(db: Session, job_card_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
+    from ..entry_models import StageEntry
+
+    ids = [value for value in job_card_ids if value is not None]
+    if not ids:
+        return {}
+    rows = (
+        db.query(StageEntry.job_card_id, func.count(StageEntry.id))
+        .filter(StageEntry.job_card_id.in_(ids), StageEntry.status == "SUBMITTED", StageEntry.evaluation["verdict"].astext == "FAIL")
+        .group_by(StageEntry.job_card_id)
+        .all()
+    )
+    return {row[0]: int(row[1]) for row in rows}
+
+
 def _plan_status(db: Session, job_card: JobCard, open_segments: list[JobCardStageSegment]) -> dict[str, Any]:
     """Where the plan stands for the card's current stage, in plain words. Information only: never a block."""
     stage = str(job_card.current_stage or "")
@@ -6097,6 +6112,7 @@ def list_planning_job_cards(
         rows = ordered.offset(offset).limit(limit).all()
 
     response: list[JobCardPlannerSummary] = []
+    flagged_runs = _qc_flagged_runs(db, [job_card.id for job_card, _ in rows])
     for job_card, sales_order in rows:
         spec_snapshot = job_card.spec_snapshot or {}
         active_stage = next((stage for stage in (job_card.stages or []) if stage.stage_type == job_card.current_stage), None)
@@ -6153,6 +6169,7 @@ def list_planning_job_cards(
                 open_segment_count=open_segment_count,
                 blocked_reason=blocked_reason,
                 **plan_state,
+                qc_flagged_runs=flagged_runs.get(job_card.id, 0),
                 planner_gate_ready=planner_gate["planner_gate_ready"],
                 planner_gate_reason=planner_gate["planner_gate_reason"],
                 current_machine_id=str(active_segment.machine_id) if active_segment and active_segment.machine_id else (str(active_stage.machine_id) if active_stage and active_stage.machine_id else None),
@@ -6555,6 +6572,7 @@ def get_planning_job_card(
         open_segment_count=len(open_active_segments),
         blocked_reason=blocked_reason,
         **plan_state,
+        qc_flagged_runs=_qc_flagged_runs(db, [job_card.id]).get(job_card.id, 0),
         planner_gate_ready=planner_gate["planner_gate_ready"],
         planner_gate_reason=planner_gate["planner_gate_reason"],
         carry_forward_suggestion=_build_carry_forward_suggestion(job_card, sorted_stages),
@@ -7302,6 +7320,13 @@ def _reorder_stage_queue_core(
     message = "Queue order updated"
     if warnings:
         message = f"{message}. {' '.join(warnings)}"
+    # Every planner placement is on the card's history (client 2026-10-27: easy to trace and audit).
+    _record_audit_event(
+        db=db, plant_id=plant_uuid, entity_type="job_card", entity_id=job_card.id, action="planned",
+        actor_id=current_user.get("sub"), actor_role=_current_actor_role(current_user), job_card_id=job_card.id,
+        payload={"stage": selected_stage, "after": {"plan_date": str(stage.plan_date) if stage.plan_date else None, "shift_code": stage.shift_code, "machine_id": str(machine_uuid) if machine_uuid else None},
+                 "summary": (f"{stage.plan_date:%d %b} · {_shift_label(stage.shift_code)}" if machine_uuid and stage.plan_date else "Back to the queue (no machine)")},
+    )
     db.flush()
     return StageActionResponse(
         message=message,
@@ -7423,11 +7448,16 @@ def split_planning_segment(
         shift_code=segment.shift_code,
     )
     _sync_stage_row_from_segments(stage, _all_stage_segments(db, job_card.id, selected_stage))
+    _record_audit_event(
+        db=db, plant_id=plant_uuid, entity_type="job_card", entity_id=job_card.id, action="plan_split",
+        actor_id=current_user.get("sub"), actor_role=_current_actor_role(current_user), job_card_id=job_card.id,
+        payload={"stage": selected_stage, "summary": f"Plan split into {primary_qty:,.0f} + {secondary_qty:,.0f} pcs"},
+    )
     db.commit()
     db.refresh(job_card)
 
     return StageActionResponse(
-        message=f"Segment split into {primary_qty:.0f} pcs and {secondary_qty:.0f} pcs",
+        message=f"Plan split into {primary_qty:.0f} + {secondary_qty:.0f} pcs",
         job_card_id=job_card.id,
         stage=selected_stage,
         segment_id=segment.id,

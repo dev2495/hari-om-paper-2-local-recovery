@@ -12,10 +12,25 @@ import { ProcurementShell, Field, MessageBar, WorkPanel, areaClass, fieldClass, 
 import { useInventoryItems } from "@/hooks/use-inventory"
 import { useVendors } from "@/hooks/use-master-data"
 import { api, purchaseApi } from "@/lib/api"
+import { vendorAddress } from "@/lib/party-formats"
 
 const today = () => businessDate()
 type LineDraft = { logical_line_id?: string; metadata_json?: Record<string, any>; uom: string; incoming_qc_required: boolean; key: string; item_id: string; description: string; qty_ordered: string; unit_cost: string; width_mm: string; width_tolerance_mm: string; gsm: string; plybond: string; bulk: string; cobb: string; expected_unit_count: string; count_basis: "ESTIMATED" | "CONTRACTUAL" }
 const emptyLine = (): LineDraft => ({ uom: "KG", incoming_qc_required: true, key: crypto.randomUUID(), item_id: "", description: "", qty_ordered: "", unit_cost: "", width_mm: "", width_tolerance_mm: "", gsm: "", plybond: "", bulk: "", cobb: "", expected_unit_count: "", count_basis: "ESTIMATED" })
+
+// Vendor master details snapshotted on the PO with the GSTIN (client 2026-10-27); they print in the supplier block.
+const SUPPLIER_DETAIL_KEYS = ["supplier_legal_name", "supplier_pan_no", "supplier_state", "supplier_state_code", "supplier_phone", "supplier_email", "supplier_msme_no"] as const
+type SupplierDetails = Record<(typeof SUPPLIER_DETAIL_KEYS)[number], string>
+const supplierDetails = (vendor: any): SupplierDetails => ({
+  supplier_legal_name: vendor?.legal_name || "", supplier_pan_no: vendor?.pan_no || "", supplier_state: vendor?.state || "",
+  supplier_state_code: vendor?.state_code || "", supplier_phone: [vendor?.contact_phone, vendor?.alt_phone].filter(Boolean).join(" / "),
+  supplier_email: vendor?.contact_email || "", supplier_msme_no: vendor?.msme_no || "",
+})
+/** Header fields a vendor fills when chosen (the user may still edit contact, GSTIN and address). */
+const fromVendor = (vendor: any) => ({
+  supplier_contact: [vendor?.contact_name || vendor?.contact_person, vendor?.contact_phone].filter(Boolean).join(" · "),
+  supplier_address: vendorAddress(vendor), supplier_gst_no: vendor?.gst_no || "", ...supplierDetails(vendor),
+})
 
 function message(error: any) {
   const detail = error?.response?.data?.detail
@@ -39,9 +54,9 @@ export default function PurchaseOrderEditor({ orderId }: { orderId?: string }) {
   // tare or quality specification is typed here. Incoming QC checks each delivery against the
   // material standard; a revised older PO keeps whatever it had saved, unseen.
   const itemsQuery = useInventoryItems()
-  const vendors = Array.isArray(vendorsQuery.data) ? vendorsQuery.data : []
+  const vendors = useMemo(() => (Array.isArray(vendorsQuery.data) ? vendorsQuery.data : []), [vendorsQuery.data])
   const items = useMemo(() => (Array.isArray(itemsQuery.data) ? itemsQuery.data.filter((item: any) => String(item.type) !== "FINISHED_GOOD") : []), [itemsQuery.data])
-  const [header, setHeader] = useState({ category: "RM_PM", supplier_id: "", po_date: today(), expected_date: today(), supplier_contact: "", supplier_address: "", supplier_gst_no: "", payment_terms: "60 days from invoice date.", freight_terms: "Freight included in landed rate.", tax_terms: "GST extra as applicable.", delivery_terms: "Delivery as per agreed schedule.", test_report_terms: "Attach PB/GSM/RCT/COBB test report with each delivery.", special_instruction: "FOR AMIGO INDUSTRIES UNIT-2", notes: "" })
+  const [header, setHeader] = useState({ category: "RM_PM", supplier_id: "", po_date: today(), expected_date: today(), supplier_contact: "", supplier_address: "", supplier_gst_no: "", ...supplierDetails(null), payment_terms: "60 days from invoice date.", freight_terms: "Freight included in landed rate.", tax_terms: "GST extra as applicable.", delivery_terms: "Delivery as per agreed schedule.", test_report_terms: "Attach PB/GSM/RCT/COBB test report with each delivery.", special_instruction: "FOR AMIGO INDUSTRIES UNIT-2", notes: "" })
   const [lines, setLines] = useState<LineDraft[]>([emptyLine()])
   const [error, setError] = useState("")
   const selectedVendor = vendors.find((vendor: any) => String(vendor.id) === header.supplier_id)
@@ -53,9 +68,20 @@ export default function PurchaseOrderEditor({ orderId }: { orderId?: string }) {
 
   useEffect(() => {
     if (!existing) return
-    setHeader((current) => Object.fromEntries(Object.entries(current).map(([key, fallback]) => [key, existing[key] ?? fallback])) as typeof current)
+    setHeader((current) => Object.fromEntries(Object.entries(current).map(([key, fallback]) => [key, existing[key] ?? existing.metadata_json?.[key] ?? fallback])) as typeof current)
     setLines(existing.lines.map((row: any) => ({ ...emptyLine(), ...Object.fromEntries(Object.keys(emptyLine()).filter((key) => !["key", "incoming_qc_required"].includes(key)).map((key) => [key, row[key] == null ? "" : String(row[key])])), key: row.id, logical_line_id: row.logical_line_id, incoming_qc_required: row.incoming_qc_required, metadata_json: row.metadata_json, uom: row.uom, count_basis: row.count_basis || "ESTIMATED" })))
   }, [existing])
+
+  // A revision of an older PO picks up vendor details (GSTIN, address, PAN, state) the master has but the saved revision lacks.
+  const filledFromMaster = useRef(false)
+  useEffect(() => {
+    if (!existing || filledFromMaster.current || !header.supplier_id) return
+    const vendor: any = vendors.find((row: any) => String(row.id) === header.supplier_id)
+    if (!vendor) return
+    filledFromMaster.current = true
+    const master = fromVendor(vendor) as Record<string, string>
+    setHeader((current) => ({ ...current, ...Object.fromEntries(Object.entries(master).filter(([key, value]) => value && !(current as Record<string, string>)[key])) }))
+  }, [existing, vendors, header.supplier_id])
 
   useEffect(() => {
     if (!requisitionId) { appliedRequisition.current = ""; return }
@@ -79,6 +105,7 @@ export default function PurchaseOrderEditor({ orderId }: { orderId?: string }) {
       supplier_id: selectedVendor.id, supplier_name: selectedVendor.name, expected_date: header.expected_date,
       supplier_contact: header.supplier_contact || undefined, supplier_address: header.supplier_address || undefined,
       supplier_gst_no: header.supplier_gst_no || undefined, payment_terms: header.payment_terms,
+      metadata_json: Object.fromEntries(SUPPLIER_DETAIL_KEYS.filter((key) => header[key]).map((key) => [key, header[key]])),
       freight_terms: header.freight_terms, tax_terms: header.tax_terms, delivery_terms: header.delivery_terms,
       test_report_terms: header.test_report_terms, special_instruction: header.special_instruction, notes: header.notes || undefined,
       lines: lines.map((line) => ({ item_id: line.item_id, logical_line_id: line.logical_line_id, metadata_json: line.metadata_json, description: line.description || undefined,
@@ -109,11 +136,12 @@ export default function PurchaseOrderEditor({ orderId }: { orderId?: string }) {
             <Field label="PO number" hint="server owned"><div className="flex h-11 items-center rounded-lg border border-dashed border-signal-cyan-line bg-signal-cyan-soft px-3 text-sm font-semibold text-signal-cyan-ink">{existing?.po_no || "Assigned after save"}</div></Field>
             <Field label="PO date"><input className={fieldClass} type="date" required value={header.po_date} onChange={(e) => setHeader({ ...header, po_date: e.target.value })} /></Field>
             <Field label="Expected date"><input className={fieldClass} type="date" required value={header.expected_date} onChange={(e) => setHeader({ ...header, expected_date: e.target.value })} /></Field>
-            <Field label="Vendor"><select className={fieldClass} required value={header.supplier_id} onChange={(e) => { const vendor: any = vendors.find((row: any) => String(row.id) === e.target.value); setHeader({ ...header, supplier_id: e.target.value, supplier_contact: vendor?.contact_person || "", supplier_address: vendor?.address || "", supplier_gst_no: vendor?.gst_no || "" }) }}><option value="">Select actual vendor</option>{vendors.map((vendor: any) => <option key={vendor.id} value={vendor.id}>{vendor.supplier_code} · {vendor.name}</option>)}</select></Field>
+            <Field label="Vendor"><select className={fieldClass} required value={header.supplier_id} onChange={(e) => { const vendor: any = vendors.find((row: any) => String(row.id) === e.target.value); setHeader({ ...header, supplier_id: e.target.value, ...fromVendor(vendor), ...(vendor?.payment_terms_days != null ? { payment_terms: `${vendor.payment_terms_days} days from invoice date.` } : {}) }) }}><option value="">Select actual vendor</option>{vendors.map((vendor: any) => <option key={vendor.id} value={vendor.id}>{vendor.supplier_code} · {vendor.name}</option>)}</select></Field>
             <Field label="Contact"><input className={fieldClass} value={header.supplier_contact} onChange={(e) => setHeader({ ...header, supplier_contact: e.target.value })} /></Field>
-            <Field label="GST number"><input className={fieldClass} value={header.supplier_gst_no} onChange={(e) => setHeader({ ...header, supplier_gst_no: e.target.value.toUpperCase() })} /></Field>
+            <Field label="GSTIN"><input className={`${fieldClass} font-mono`} data-testid="po-supplier-gstin" value={header.supplier_gst_no} onChange={(e) => setHeader({ ...header, supplier_gst_no: e.target.value.toUpperCase() })} placeholder="Not in vendor master" /></Field>
             <Field label="Vendor address"><input className={fieldClass} value={header.supplier_address} onChange={(e) => setHeader({ ...header, supplier_address: e.target.value })} /></Field>
           </div>
+          {header.supplier_id ? <p className="mt-3 text-xs text-muted-foreground" data-testid="po-supplier-details">From the vendor master: {[header.supplier_legal_name && `legal name ${header.supplier_legal_name}`, header.supplier_pan_no && `PAN ${header.supplier_pan_no}`, header.supplier_state && `${header.supplier_state}${header.supplier_state_code ? ` (${header.supplier_state_code})` : ""}`, header.supplier_msme_no && `MSME ${header.supplier_msme_no}`, header.supplier_email].filter(Boolean).join(" · ") || "no GSTIN, PAN or state saved yet. Add them in Masters › Vendors."}</p> : null}
         </WorkPanel>
 
         <WorkPanel title="Material lines" description="One line for each material and rate. Goods inward receives against the ordered quantity of each line."

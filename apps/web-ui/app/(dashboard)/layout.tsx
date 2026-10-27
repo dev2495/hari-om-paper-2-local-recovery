@@ -1,9 +1,9 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname, useRouter } from "next/navigation"
-import { CalendarRange, LockKeyhole, AlertTriangle, BarChart3, Boxes, CheckCircle2, Inbox, TrendingUp, Users, Wrench, ChevronRight, ClipboardList, Factory, FileText, Gauge, Info, Layers, LineChart, LogOut, Menu, Package, PanelLeftClose, PanelLeftOpen, BookOpen, ScrollText, Search, ShieldCheck, Sparkles, Truck, X, CircleDot, CornerDownLeft, Undo2, CalendarCheck2 } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { CalendarRange, ClipboardPen, Scissors, LockKeyhole, AlertTriangle, BarChart3, Boxes, CheckCircle2, Inbox, TrendingUp, Users, Wrench, ChevronRight, ClipboardList, Factory, FileText, Gauge, Info, Layers, LineChart, LogOut, Menu, Package, PanelLeftClose, PanelLeftOpen, BookOpen, ScrollText, Search, ShieldCheck, Sparkles, Truck, X, CircleDot, CornerDownLeft, Undo2, CalendarCheck2 } from "lucide-react"
+import { Suspense, useEffect, useMemo, useState } from "react"
 import { PlantSwitcher } from "@/components/PlantSwitcher"
 import { BooksLockedChip } from "@/components/workspace/books-locked-chip"
 import { SeasonChip } from "@/components/workspace/SeasonChip"
@@ -70,32 +70,46 @@ const navigationUnits: NavGroup[] = [
     title: "Operations",
     items: [
       {
-        name: "Sales Orders",
+        name: "Orders",
         href: "/sales-orders",
         icon: ClipboardList,
-        description: "Commercial demand, releases, and customer intake.",
-        roles: ["Owner", "Admin", "Sales", "Planner"],
+        description: "Every sales order by status: fulfilment, job cards, deliveries and one history. Replaces the order tracker.",
+        roles: ["Owner", "Admin", "Sales", "Planner", "PlantManager", "Dispatch"],
       },
       {
         name: "Job Cards",
         href: "/production/job-cards",
         icon: Factory,
-        description: "Release truth, execution packets, and printable cards.",
-        roles: ["Owner", "Admin", "Planner", "PlantManager", "QC", "InProcessQC", "Operator"],
+        description: "Track every card: status, stage, plan, QC flags; open a card for its runs, QC, plan and history.",
+        roles: ["Owner", "Admin", "Planner", "PlantManager", "QC", "InProcessQC", "Operator", "Sales", "Dispatch"],
+      },
+      {
+        name: "Job card manager",
+        href: "/production/job-cards/manage",
+        icon: Scissors,
+        description: "Split into a new card, edit qty / colour, force close, emergency insert, cancel — with a preview and a reason.",
+        roles: ["Owner", "Admin", "Planner", "PlantManager"],
       },
       {
         name: "Planner",
         href: "/planning/board",
         icon: Sparkles,
-        description: "Machine queues, shift scheduling, and stage balancing.",
+        description: "Planning overview, machine queues, shift scheduling and Split plan.",
         roles: ["Owner", "Admin", "Planner", "PlantManager"],
       },
       {
-        name: "Tracker",
-        href: "/planning/tracker",
-        icon: LineChart,
-        description: "Live segment posture and release-to-dispatch tracking.",
-        roles: ["Owner", "Admin", "Planner", "PlantManager", "Dispatch", "Operator"],
+        name: "Log output",
+        href: "/production/entry",
+        icon: ClipboardPen,
+        description: "Scan or pick a card, choose the stage and log the run (phone or PC).",
+        roles: ["Owner", "Admin", "PlantManager", "Operator", "Planner"],
+      },
+      {
+        name: "Log QC",
+        href: "/production/entry?mode=qc",
+        icon: ShieldCheck,
+        description: "Scan or pick a card, choose the stage and enter the QC readings (operators log QC too).",
+        roles: ["Owner", "Admin", "PlantManager", "Operator", "QC", "InProcessQC"],
       },
       {
         name: "Reconciliation",
@@ -117,13 +131,12 @@ const navigationUnits: NavGroup[] = [
         roles: ["Owner", "Admin", "PlantManager", "QC", "InwardQC", "InProcessQC", "Dispatch", "Store", "Sales"],
       },
       { name: "Incoming QC", href: "/quality/incoming", icon: ClipboardList, description: "Inspect GRN lots; out-of-band readings hold the lot.", roles: ["Owner", "Admin", "QC", "InwardQC"] },
-      { name: "In-process QC", href: "/quality/stage", icon: Factory, description: "Winding, oven and process checks; the next stage opens on acceptance.", roles: ["Owner", "Admin", "QC", "InProcessQC", "PlantManager"] },
+      { name: "In-process QC", href: "/quality/stage", icon: Factory, description: "Flagged readings stage by stage, and runs still waiting for their 2 QC readings.", roles: ["Owner", "Admin", "QC", "InProcessQC", "PlantManager"] },
       { name: "Holds & inspections", href: "/quality/results", icon: LockKeyhole, description: "Held inward lots and job cards, with every inspection result.", roles: ["Owner", "Admin", "QC", "InwardQC", "InProcessQC", "PlantManager", "Store", "Sales", "Dispatch"] },
       { name: "Customer complaints", href: "/quality/returns", icon: Undo2, description: "Complaints and returns: batch, customer, size, qty, reason and status, followed to closure.", roles: ["Owner", "Admin", "QC", "PlantManager", "Store", "Sales", "Dispatch"] },
       { name: "Material standards", href: "/quality/material-standards", icon: ShieldCheck, description: "The checks QC does on each incoming material.", roles: ["Owner", "Admin", "QC", "InwardQC"] },
       { name: "Process stage rules", href: "/quality/stage-rules", icon: ShieldCheck, description: "Seasonal winding, oven and process tolerances, versioned.", roles: ["Owner", "Admin", "QC"] },
       { name: "Production season", href: "/settings/production-season", icon: Factory, description: "Global season and release readiness.", ownerOnly: true },
-      { name: "Quality analytics", href: "/reports/quality", icon: BarChart3, description: "Pass rates by stage and material, failing checks, holds and complaints.", roles: ["Owner", "Admin", "QC", "InwardQC", "InProcessQC", "PlantManager"] },
     ],
   },
   {
@@ -172,13 +185,6 @@ const navigationUnits: NavGroup[] = [
         icon: Package,
         description: "Raw material inward, reel issue, balances, and valuation.",
         roles: ["Owner", "Admin", "Store", "Planner", "PlantManager", "GRN", "RMIssue"],
-      },
-      {
-        name: "Purchase",
-        href: "/purchase",
-        icon: FileText,
-        description: "Supplier purchase orders, GRN receipts, and delivery schedules.",
-        roles: ["Owner", "Admin", "Store", "Planner", "PlantManager"],
       },
       {
         name: "Genealogy",
@@ -251,7 +257,7 @@ const navigationUnits: NavGroup[] = [
       { name: "Inventory intelligence", href: "/reports/inventory", icon: Boxes, description: "Stock value, ageing and velocity.", roles: ["Store", "Planner", "PlantManager"] },
       { name: "Supplier & reels", href: "/reports/loss", icon: Package, description: "Supplier and reel performance, losses.", roles: ["Store", "PlantManager"] },
       { name: "Slitting report", href: "/reports/slitting", icon: Layers, description: "Reels to the slitter: coils made, wastage and pending slitting cards.", roles: ["Store", "PlantManager", "Planner", "RMIssue"] },
-      { name: "Quality & variance", href: "/reports/quality", icon: ShieldCheck, description: "Inspections, fail causes and variance.", roles: ["QC", "InwardQC", "PlantManager"] },
+      { name: "Quality analytics", href: "/reports/quality", icon: BarChart3, description: "Pass rates by stage and material, flagged readings, holds and complaints.", roles: ["QC", "InwardQC", "InProcessQC", "PlantManager"] },
       { name: "Dispatch & SLA", href: "/reports/dispatch", icon: Truck, description: "Dispatch volume, readiness and SLA.", roles: ["Dispatch", "Sales"] },
       { name: "Tooling ledger", href: "/reports/tooling", icon: Wrench, description: "Tool assets, grinding and usage trail.", roles: ["PlantManager"] },
     ],
@@ -291,6 +297,13 @@ function canSeeLink(item: NavLink, roles: Set<string>) {
   return item.roles.some(role => roles.has(role))
 }
 
+function EntryModeWatcher({ onChange }: { onChange: (mode: string | null) => void }) {
+  const params = useSearchParams()
+  const mode = params?.get("mode") || null
+  useEffect(() => { onChange(mode) }, [mode, onChange])
+  return null
+}
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "/dashboard"
   const router = useRouter()
@@ -322,8 +335,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     "/quality": jobsBadge.data?.qc_holds ? { count: Number(jobsBadge.data.qc_holds), tone: "amber" as const } : undefined,
   }), [inboxSummary.data, salesBadge.data, jobsBadge.data])
   const navigationPath = pathname.startsWith("/landing/") ? "/dashboard" : pathname
-  const current = useMemo(() => flatLinks.filter(item => navigationPath === item.href || navigationPath.startsWith(item.href + "/") || MODULE_NAVIGATION[item.href]?.some(child => pathname === child.href || pathname.startsWith(child.href + "/")))
-    .sort((a,b) => b.href.length - a.href.length)[0], [pathname, navigationPath, flatLinks])
+  const [entryMode, setEntryMode] = useState<string | null>(null)
+  const current = useMemo(() => {
+    // Log output and Log QC share /production/entry; the ?mode= query says which one is open.
+    if (navigationPath === "/production/entry" || navigationPath.startsWith("/production/entry/")) {
+      const wanted = entryMode === "qc" ? "/production/entry?mode=qc" : "/production/entry"
+      const match = flatLinks.find(item => item.href === wanted)
+      if (match) return match
+    }
+    return flatLinks.filter(item => navigationPath === item.href || navigationPath.startsWith(item.href + "/") || MODULE_NAVIGATION[item.href]?.some(child => pathname === child.href || pathname.startsWith(child.href + "/")))
+      .sort((a,b) => b.href.length - a.href.length)[0]
+  }, [pathname, navigationPath, flatLinks, entryMode])
   const groupName = groups.find(group => group.items.some(item => item.href === current?.href))?.title
   const crumbs = useMemo(() => {
     const list: Array<{ label: string; href?: string; icon?: any }> = []
@@ -392,6 +414,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   </div>
   if (!user) return null
   return <div className="tube-shell" data-rail={sidebarPinned ? "expanded" : "compact"}>
+    <Suspense fallback={null}><EntryModeWatcher onChange={setEntryMode} /></Suspense>
     <a href="#workspace-content" className="tube-skip">Skip to workspace</a>
     <aside className="tube-rail" aria-label="Workspace navigation">
       <Link href="/dashboard" className="tube-brand" aria-label="Hari Om TubeOS home"><span className="tube-mark"><CircleDot size={18} strokeWidth={1.75} /></span><span className="tube-brand-label"><strong>Hari Om <span className="text-primary">TubeOS</span></strong><small>Paper tube manufacturing</small></span></Link>

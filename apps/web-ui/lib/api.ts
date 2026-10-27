@@ -333,6 +333,8 @@ export const specApi = {
 }
 
 export const salesApi = {
+  /** The order page's one history: the order's own events and every event of its job cards, newest first. */
+  getOrderHistory: (orderId: string, plantId?: string) => api.get(`/api/sales/orders/${orderId}/history`, withPlantHeader(plantId)),
   getOrders: (params?: any) => api.get("/api/sales/orders", { params }),
   getOrderAggregates: () => api.get("/api/sales/orders/aggregates"),
   getPendingOrders: (params?: any) => api.get("/api/sales/orders/pending", { params }),
@@ -418,7 +420,7 @@ export const productionApi = {
   }) => api.get("/api/production/planning/board", { params }),
   movePlanningBoard: (data: any) => api.post("/api/production/planning/board/move", data),
   splitPlanningSegment: (data: any) => api.post("/api/production/planning/board/split", data),
-  getJobCardLifecycle: (jobCardId: string) => api.get(`/api/production/job-cards/${jobCardId}/lifecycle`),
+  getJobCardLifecycle: (jobCardId: string, plantId?: string) => api.get(`/api/production/job-cards/${jobCardId}/lifecycle`, withPlantHeader(plantId)),
   amendJobCard: (jobCardId: string, data: { planned_qty?: number; parchment_color?: string; parchment_color_id?: string | null; reason?: string }) =>
     api.post(`/api/production/job-cards/${jobCardId}/amend`, data),
   splitJobCard: (jobCardId: string, data: { qty: number; reason?: string; request_id?: string }) => api.post(`/api/production/job-cards/${jobCardId}/split`, data),
@@ -445,6 +447,10 @@ export const productionApi = {
   getPlanningReport: (params: { date_from?: string; date_to?: string; stages?: string }) => api.get("/api/production/reports/planning", { params }),
   /** One card's planner slots and what the floor logged in each (read-only). */
   getJobCardPlan: (jobCardId: string, plantId?: string) => api.get(`/api/production/job-cards/${jobCardId}/plan`, withPlantHeader(plantId)),
+  /** One card's history, newest first: release, plan, runs, QC (with flags), holds, closes, splits, edits, dispatch. */
+  getJobCardHistory: (jobCardId: string, plantId?: string) => api.get(`/api/production/job-cards/${jobCardId}/history`, withPlantHeader(plantId)),
+  /** QC readings outside their band, stage by stage (flagged, never held). */
+  getQcFlags: (params?: { date_from?: string; date_to?: string; stage?: string; job_card_id?: string }) => api.get("/api/production/quality/flags", { params }),
   /** Several queue cards onto the board at once; all or nothing, in the order given. */
   movePlanningBulk: (moves: any[]) => api.post("/api/production/planning/board/move-bulk", { moves }),
   listPlannerViews: (stage?: string) => api.get("/api/production/planning/views", { params: stage ? { stage } : undefined }),

@@ -93,7 +93,7 @@ function PurchaseRegister() {
                 const open = Math.max(0, line.qty_ordered - line.qty_received - line.qty_short_closed)
                 return <tr key={`${order.id}-${line.id}`} className="border-b border-border last:border-0 hover:bg-signal-cyan-soft/35">
                   <td className="px-3 py-3"><Link href={`/purchase/${order.id}`} className="font-semibold text-signal-cyan-ink hover:underline">{order.po_no}</Link><div className="mt-1 text-xs text-muted-foreground">Revision {order.current_revision_no} · {order.category === "RM_PM" ? "RM / PM" : "Other"}</div></td>
-                  <td className="max-w-[180px] px-3 py-3 font-medium text-foreground">{order.supplier_name}</td>
+                  <td className="max-w-[180px] px-3 py-3 font-medium text-foreground">{order.supplier_name}{(order as any).supplier_gst_no ? <div className="mt-1 font-mono text-[11px] font-normal text-muted-foreground">GSTIN {(order as any).supplier_gst_no}</div> : null}</td>
                   <td className="px-3 py-3"><span className="font-semibold text-foreground">{line.item_code}</span><div className="text-xs text-muted-foreground">{line.item_name}</div></td>
                   <td className="px-3 py-3 tabular-nums">{line.qty_ordered.toLocaleString("en-IN")} {line.uom.toLowerCase()}</td>
                   <td className="px-3 py-3 tabular-nums">{line.qty_received.toLocaleString("en-IN")}</td>

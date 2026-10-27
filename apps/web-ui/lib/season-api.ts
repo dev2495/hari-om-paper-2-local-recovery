@@ -27,7 +27,9 @@ export const errorText = (error: any): string => {
   const detail = error?.response?.data?.detail
   if (typeof detail === "string") return detail
   if (Array.isArray(detail)) return detail.map((v: any) => v?.msg ? `${(v.loc || []).filter((part: any) => part !== "body").join(" › ")}: ${v.msg}` : String(v)).join(" · ")
-  if (detail?.blockers?.length) return `${detail.code === "SPEC_NOT_READY" ? "Not ready yet — " : detail.code === "STAGE_QC_READINGS_SHORT" ? "Stage cannot close: QC reading out of limit — " : ""}${detail.blockers.map(blockerText).join(" · ")}`
+  // Closing a stage needs at least 2 readings per required check on the stage (out of band is flagged, not blocking).
+  if (detail?.code === "STAGE_QC_READINGS_SHORT") return `Stage cannot close yet — QC readings missing: ${[...(detail.missing || []).map((v: any) => `${v.label || v.parameter} ${v.have} of ${v.need}`), ...(detail.blockers || []).map(blockerText)].join(" · ") || "see the QC tab"}`
+  if (detail?.blockers?.length) return `${detail.code === "SPEC_NOT_READY" ? "Not ready yet — " : ""}${detail.blockers.map(blockerText).join(" · ")}`
   if (detail?.missing) return detail.missing.map((v: any) => `${v.label || v.parameter}: ${v.have}/${v.need}`).join(" · ")
   return detail?.message || error?.message || "Could not complete this action"
 }

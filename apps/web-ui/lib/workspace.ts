@@ -107,7 +107,7 @@ export const LANDING_QUICK_ACTIONS: Record<LandingRole, QuickAction[]> = {
   Planner: [
     { href: "/sales-orders?due=week", label: "Due this week", detail: "Open orders with lines due in the next 7 days." },
     { href: "/planning/board?section=winder", label: "Planning Workspace", detail: "Plan by stage, machine, and shift." },
-    { href: "/planning/tracker", label: "Tracker", detail: "Monitor WIP and delays by stage." },
+    { href: "/planning/overview", label: "Planning overview", detail: "Plan against the floor log: on time, early, late and missed slots." },
     { href: "/specifications/new", label: "Spec Sheet", detail: "Create recipe-backed specification sheets." },
   ],
   Store: [
@@ -119,7 +119,7 @@ export const LANDING_QUICK_ACTIONS: Record<LandingRole, QuickAction[]> = {
   Dispatch: [
     { href: "/logistics/dispatch", label: "Dispatch Desk", detail: "Move finished-goods lots into challans." },
     { href: "/inventory/reservations", label: "FG Reservations", detail: "Check stock reserved against open customer demand." },
-    { href: "/planning/tracker", label: "Ready Tracker", detail: "See jobs moving toward dispatch readiness." },
+    { href: "/production/job-cards", label: "Job cards", detail: "See cards moving toward dispatch readiness." },
     { href: "/reports/dispatch", label: "Dispatch Reports", detail: "Review shipped quantity and pending handoff." },
   ],
   Sales: [
@@ -153,9 +153,9 @@ export const LANDING_QUICK_ACTIONS: Record<LandingRole, QuickAction[]> = {
     { href: "/inventory", label: "Stock overview", detail: "What is available to issue." },
   ],
   Operator: [
-    { href: "/production/supervisor-entry", label: "QR / Stage Entry", detail: "Scan job card and enter stage output." },
+    { href: "/production/entry", label: "Log output", detail: "Scan or pick a job card and log the run of your stage." },
     { href: "/production/job-cards", label: "Assigned Job Cards", detail: "Open printable job-card details." },
-    { href: "/planning/tracker", label: "Stage Tracker", detail: "Check where scanned jobs are standing." },
+    { href: "/production/entry?mode=qc", label: "Log QC", detail: "Enter the QC readings of a run (at least 2 per check)." },
     { href: "/dashboard", label: "My Work", detail: "Return to the operator landing." },
   ],
 }

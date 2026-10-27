@@ -2,259 +2,308 @@
 
 import dayjs from "dayjs"
 import Link from "next/link"
+import { useRouter, useSearchParams } from "next/navigation"
 import {
-  ArrowRightLeft,
+  AlertTriangle,
   Ban,
   CheckCircle2,
-  CircleSlash2,
   ChevronLeft,
-  Download,
-  Printer,
   ChevronRight,
+  CircleSlash2,
   ClipboardCheck,
+  Copy,
+  Download,
+  ExternalLink,
   Eye,
   Factory,
   History,
+  LoaderCircle,
+  PackageCheck,
   PauseCircle,
   PlayCircle,
-  TimerOff,
-  LoaderCircle,
   Plus,
+  Printer,
   Search,
-  SlidersHorizontal,
   Send,
+  SlidersHorizontal,
+  TimerReset,
+  X,
 } from "lucide-react"
-import { useSearchParams } from "next/navigation"
 import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react"
 
-import {
-  MetricCard,
-  MetricRail,
-  StatusBadge,
-} from "@/components/erp/shell"
-import { PageHeader } from "@/components/workspace/page-header"
-import { ReleaseToQueueDialog } from "@/components/sales/release-to-queue-dialog"
-import { OrderClosureDialog, OrderCloseReasonFields, closeReasonComplete, orderClosureAction, useOrderCloseReasons } from "@/components/sales/order-closure-dialog"
 import { RowMenu } from "@/components/common/row-menu"
+import { SavedViewsSelect } from "@/components/common/saved-views-select"
+import { ColorChip, JobCardNo, LifecycleBadge } from "@/components/production/lifecycle-chips"
+import { CardMixChips, Chip, DueCell, FulfilmentBar, FulfilmentLegend, OrderStatusChip, PlanChip, QcFlagChip, StageDots } from "@/components/sales/order-chips"
+import { OrderClosureDialog, orderClosureAction, orderPlantId } from "@/components/sales/order-closure-dialog"
+import { OrderHoldDialog } from "@/components/sales/order-hold-dialog"
+import { ReleaseToQueueDialog } from "@/components/sales/release-to-queue-dialog"
+import { PageHeader } from "@/components/workspace/page-header"
 import { QuerySwitch } from "@/components/workspace/query-state"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
 import { useCustomers } from "@/hooks/use-master-data"
-import {
-  usePlanningJobCards,
-} from "@/hooks/use-production"
-import {
-  useApproveSalesOrder,
-  useHoldSalesOrder,
-  useResumeSalesOrder,
-  useSalesOrderAggregates,
-  useSalesOrders,
-  fetchAllSalesOrders,
-} from "@/hooks/use-sales"
-import {
-  isInternalOrigin,
-  parchmentLineLabel,
-  salesOrderOriginLabel,
-  salesOrderReferenceLabel,
-} from "@/lib/sales-order-entry"
+import { usePendingJobCardsByOrder, usePlanningJobCards } from "@/hooks/use-production"
+import { fetchAllSalesOrders, useApproveSalesOrder, usePendingSalesOrders, useResumeSalesOrder, useSalesOrderAggregates, useSalesOrders, useSubmitSalesOrder } from "@/hooks/use-sales"
 import { describeErrorDetail } from "@/lib/api-error"
+import { isInternalOrigin, salesOrderReferenceLabel } from "@/lib/sales-order-entry"
+import {
+  ORDER_TABS,
+  cardState,
+  cardSummary,
+  formatShortDate,
+  isOrderTab,
+  kpiTileParams,
+  nextAction,
+  orderDue,
+  orderStatus,
+  orderTabParams,
+  orderTotals,
+  tabCount,
+  type KpiTile,
+  type OrderTabKey,
+} from "@/lib/sales-order-tracker"
+import { cn } from "@/lib/utils"
 
-type SyncResultMap = Record<string, string[]>
+const fmt = (value: unknown) => Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })
+const orders_ = (value: unknown) => `${fmt(value)} order${Number(value || 0) === 1 ? "" : "s"}`
 
+type Filters = { origin: string; due: string; expired: boolean; date_from: string; date_to: string; sort: string }
+const EMPTY_FILTERS: Filters = { origin: "", due: "", expired: false, date_from: "", date_to: "", sort: "newest" }
 
-function formatDate(value?: string | null) {
-  if (!value) return "-"
-  const parsed = dayjs(value)
-  return parsed.isValid() ? parsed.format("DD MMM YYYY") : String(value)
+/** Old links (`?status=open`, `?unreleased=1`, `?due=overdue`…) land on the matching tab and tile. */
+function initialFromParams(params: URLSearchParams | null): { tab: OrderTabKey; tile: KpiTile | null; filters: Filters; search: string } {
+  const status = String(params?.get("status") || params?.get("tab") || "").toLowerCase()
+  const tabByStatus: Record<string, OrderTabKey> = { draft: "draft", submitted: "approval", approval: "approval", approved: "ready", ready: "ready", released: "production", partially_released: "production", production: "production", partially_dispatched: "partly", partly: "partly", closed: "closed", cancelled: "cancelled", hold: "hold", all: "all" }
+  let tab: OrderTabKey = isOrderTab(status) ? status : tabByStatus[status] || "all"
+  let tile: KpiTile | null = null
+  const due = String(params?.get("due") || params?.get("due_risk") || "").toLowerCase()
+  if (status === "open") tile = "open"
+  if (params?.get("unreleased") === "1") tile = "unreleased"
+  if (params?.get("held") === "1") tab = "hold"
+  if (due === "overdue") tile = "overdue"
+  if (due === "priority") tile = "priority"
+  if (params?.get("ready") === "1") tile = "ready"
+  return {
+    tab,
+    tile,
+    search: String(params?.get("search") || ""),
+    filters: {
+      ...EMPTY_FILTERS,
+      origin: String(params?.get("origin") || params?.get("source") || "").toUpperCase(),
+      due: due === "week" ? "week" : "",
+      expired: params?.get("expired") === "1",
+      date_from: String(params?.get("date_from") || ""),
+      date_to: String(params?.get("date_to") || ""),
+      sort: String(params?.get("sort") || "newest"),
+    },
+  }
 }
 
-function resolveCustomerLabel(order: any, customerMap: Map<string, string>) {
-  return (
-    customerMap.get(String(order.customer_id || "")) ||
-    order.customer_name ||
-    String(order.customer_id || "-")
-  )
-}
-
-function orderPlantId(order: any) {
-  const value = String(order?.plant_id || order?.plant || "").trim()
-  return value && value.toUpperCase() !== "ALL" ? value : undefined
-}
+const KPI_TILES: Array<{ key: KpiTile; label: string; icon: any; tone: string }> = [
+  { key: "open", label: "Open pieces", icon: Factory, tone: "text-primary" },
+  { key: "unreleased", label: "Not released", icon: Send, tone: "text-signal-violet-ink" },
+  { key: "priority", label: "Due in 3 days", icon: TimerReset, tone: "text-signal-amber-ink" },
+  { key: "overdue", label: "Overdue", icon: AlertTriangle, tone: "text-signal-rose-ink" },
+  { key: "ready", label: "Ready to dispatch", icon: PackageCheck, tone: "text-signal-emerald-ink" },
+  { key: "hold", label: "On hold", icon: PauseCircle, tone: "text-signal-rose-ink" },
+]
 
 export default function SalesOrdersPage() {
   const { showToast } = useApp()
-  const { setActivePlant } = useAuth()
-  const [search, setSearch] = useState("")
-  const [selectedLines, setSelectedLines] = useState<Record<string, string[]>>({})
-  const [syncResults, setSyncResults] = useState<SyncResultMap>({})
-  const [releaseDialogOrder, setReleaseDialogOrder] = useState<any | null>(null)
+  const { user, setActivePlant, activePlant } = useAuth()
+  const router = useRouter()
   const searchParams = useSearchParams()
-  const [statusFilter, setStatusFilter] = useState(() => searchParams?.get("status") || "open")
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
-  const [holdOrder, setHoldOrder] = useState<any | null>(null)
-  const [closureOrder, setClosureOrder] = useState<any | null>(null)
-  const [holdReasonCode, setHoldReasonCode] = useState("")
-  const [holdNote, setHoldNote] = useState("")
-  const holdReasons = useOrderCloseReasons(holdOrder ? orderPlantId(holdOrder) : undefined, Boolean(holdOrder))
-  const holdSalesOrder = useHoldSalesOrder()
-  const resumeSalesOrder = useResumeSalesOrder()
+  const [initial] = useState(() => initialFromParams(searchParams))
+  const [tab, setTab] = useState<OrderTabKey>(initial.tab)
+  const [tile, setTile] = useState<KpiTile | null>(initial.tile)
+  const [search, setSearch] = useState(initial.search)
+  const [filters, setFilters] = useState<Filters>(initial.filters)
+  const [filtersOpen, setFiltersOpen] = useState(() => Boolean(initial.filters.origin || initial.filters.due || initial.filters.expired || initial.filters.date_from))
   const [pageSize, setPageSize] = useState(25)
   const [pageIndex, setPageIndex] = useState(0)
-  const initialDue = String(searchParams?.get("due") || searchParams?.get("due_risk") || "").toLowerCase()
-  const [filters, setFilters] = useState(() => ({
-    origin: String(searchParams?.get("origin") || searchParams?.get("source") || "").toUpperCase(),
-    due: initialDue === "overdue" ? "overdue" : initialDue === "priority" || initialDue === "week" ? "week" : "",
-    unreleased: searchParams?.get("unreleased") === "1",
-    held: searchParams?.get("held") === "1",
-    expired: searchParams?.get("expired") === "1",
-    date_from: String(searchParams?.get("date_from") || ""),
-    date_to: String(searchParams?.get("date_to") || ""),
-    sort: String(searchParams?.get("sort") || "newest"),
-  }))
-  const [filtersOpen, setFiltersOpen] = useState(() => Boolean(searchParams?.get("due") || searchParams?.get("due_risk") || searchParams?.get("origin") || searchParams?.get("source") || searchParams?.get("unreleased")))
-  const activeFilterCount = [filters.origin, filters.due, filters.unreleased, filters.held, filters.expired, filters.date_from, filters.date_to, filters.sort !== "newest"].filter(Boolean).length
-  const setFilter = (patch: Partial<typeof filters>) => setFilters((current) => ({ ...current, ...patch }))
-  const deferredSearch = useDeferredValue(search.trim())
-  const offset = pageIndex * pageSize
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set())
+  const [selectedLines, setSelectedLines] = useState<Record<string, string[]>>({})
+  const [releaseOrder, setReleaseOrder] = useState<any | null>(null)
+  const [holdOrders, setHoldOrders] = useState<any[]>([])
+  const [closureOrder, setClosureOrder] = useState<any | null>(null)
+  const [busyOrder, setBusyOrder] = useState<string | null>(null)
+  const [exporting, setExporting] = useState(false)
 
-  const salesQueryParams = useMemo(
-    () => ({
+  const approveOrder = useApproveSalesOrder()
+  const submitOrder = useSubmitSalesOrder()
+  const resumeOrder = useResumeSalesOrder()
+
+  const deferredSearch = useDeferredValue(search.trim())
+  const customersQuery = useCustomers()
+  const customers: any[] = useMemo(() => (Array.isArray(customersQuery.data) ? customersQuery.data : []), [customersQuery.data])
+  const customerById = useMemo(() => new Map<string, any>(customers.map((customer) => [String(customer.id), customer])), [customers])
+  // Customer name / code live in master data: send the ids that match the text so the server can OR them in.
+  const searchCustomerIds = useMemo(() => {
+    const needle = deferredSearch.toLowerCase()
+    if (!needle) return ""
+    return customers.filter((customer) => [customer.name, customer.customer_code].some((value) => String(value || "").toLowerCase().includes(needle))).map((customer) => String(customer.id)).slice(0, 50).join(",")
+  }, [customers, deferredSearch])
+
+  const clientFiltered = tile === "ready"
+  const activeFilterCount = [filters.origin, filters.due, filters.expired, filters.date_from, filters.date_to, filters.sort !== "newest"].filter(Boolean).length
+  const offset = pageIndex * pageSize
+  const queryParams = useMemo(() => {
+    const tabParams = orderTabParams(tab)
+    const tileParams = kpiTileParams(tile)
+    // A KPI tile narrows whatever the tab shows; "open" only matters on All.
+    if (tab !== "all") delete tileParams.status_group
+    return {
+      ...tabParams,
+      ...tileParams,
       search: deferredSearch || undefined,
-      status: statusFilter === "open" || statusFilter === "all" ? undefined : statusFilter,
-      status_group: statusFilter === "open" ? "open" : undefined,
+      search_customer_ids: deferredSearch && searchCustomerIds ? searchCustomerIds : undefined,
       origin: filters.origin || undefined,
-      due: filters.due || undefined,
-      unreleased: filters.unreleased || undefined,
-      held: filters.held || undefined,
+      due: tileParams.due || (filters.due || undefined),
       expired: filters.expired || undefined,
       date_from: filters.date_from || undefined,
       date_to: filters.date_to || undefined,
       sort: filters.sort !== "newest" ? filters.sort : undefined,
-      limit: pageSize + 1,
-      offset,
-    }),
-    [deferredSearch, filters, offset, pageSize, statusFilter],
-  )
+      ...(clientFiltered ? { status_group: tab === "all" ? "open" : undefined, limit: 500, offset: 0 } : { limit: pageSize + 1, offset }),
+    }
+  }, [tab, tile, deferredSearch, searchCustomerIds, filters, clientFiltered, pageSize, offset])
 
-  const ordersQuery = useSalesOrders(salesQueryParams)
+  const ordersQuery = useSalesOrders(queryParams)
   const aggregatesQuery = useSalesOrderAggregates()
-  const customersQuery = useCustomers()
+  const pendingQuery = usePendingSalesOrders({ limit: 1 })
+  const byOrderQuery = usePendingJobCardsByOrder()
   const jobCardsQuery = usePlanningJobCards({ limit: 250 })
 
-  const approveOrder = useApproveSalesOrder()
+  useEffect(() => { setPageIndex(0) }, [deferredSearch, filters, pageSize, tab, tile])
+  useEffect(() => { setSelectedOrders(new Set()) }, [tab, tile, deferredSearch, pageIndex])
 
-  const customerMap = useMemo(
-    () =>
-      new Map<string, string>(
-        (Array.isArray(customersQuery.data) ? customersQuery.data : []).map((customer: any) => [
-          String(customer.id),
-          customer.customer_code ? `${customer.customer_code} · ${customer.name}` : customer.name,
-        ]),
-      ),
-    [customersQuery.data],
-  )
-
-  const jobsByOrderId = useMemo(() => {
+  const jobsByOrder = useMemo(() => {
     const buckets = new Map<string, any[]>()
     for (const job of Array.isArray(jobCardsQuery.data) ? jobCardsQuery.data : []) {
       const orderId = String(job?.sales_order_id || "")
       if (!orderId) continue
-      const bucket = buckets.get(orderId) || []
-      bucket.push(job)
-      buckets.set(orderId, bucket)
+      buckets.set(orderId, [...(buckets.get(orderId) || []), job])
     }
     return buckets
   }, [jobCardsQuery.data])
+  const byOrderMap = useMemo(() => {
+    const map = new Map<string, any>()
+    for (const row of Array.isArray(byOrderQuery.data?.items) ? byOrderQuery.data.items : []) map.set(String(row.sales_order_id), row)
+    return map
+  }, [byOrderQuery.data])
 
-  useEffect(() => {
-    setPageIndex(0)
-  }, [deferredSearch, filters, pageSize, statusFilter])
+  const serverRows: any[] = useMemo(() => (Array.isArray(ordersQuery.data) ? ordersQuery.data : []), [ordersQuery.data])
+  const readyRows = useMemo(() => (clientFiltered ? serverRows.filter((order) => cardSummary(jobsByOrder.get(String(order.id)) || []).ready > 0 || Number(byOrderMap.get(String(order.id))?.dispatch_ready_job_count || 0) > 0) : serverRows), [clientFiltered, serverRows, jobsByOrder, byOrderMap])
+  const hasNextPage = clientFiltered ? readyRows.length > offset + pageSize : serverRows.length > pageSize
+  const orders = useMemo(() => (clientFiltered ? readyRows.slice(offset, offset + pageSize) : serverRows.slice(0, pageSize)), [clientFiltered, readyRows, serverRows, offset, pageSize])
 
-  const serverRows = useMemo(() => (Array.isArray(ordersQuery.data) ? ordersQuery.data : []), [ordersQuery.data])
-  const hasNextPage = serverRows.length > pageSize
-  const orders = useMemo(() => serverRows.slice(0, pageSize), [serverRows, pageSize])
-  const aggregates = aggregatesQuery.data || {}
-  // Never show zeros for a summary that did not load.
+  const aggregates: any = aggregatesQuery.data || {}
   const aggReady = Boolean(aggregatesQuery.data) && !aggregatesQuery.isError
-  const aggValue = (text: string) => (aggReady ? text : "—")
-  const metrics = {
-    draftOrders: Number(aggregates.draft_count || 0),
-    readyOrders: Number(aggregates.ready_count || 0),
-    syncedOrders: Number(aggregates.planner_synced_count || 0),
-    openQty: Number(aggregates.open_qty || 0),
-    expiredOpen: Number(aggregates.expired_open_count || 0),
-    expiringSoon: Number(aggregates.expiring_7d_count || 0),
-    heldOrders: Number(aggregates.held_order_count || 0),
-    holdQty: Number(aggregates.hold_qty || 0),
+  const counts: Record<string, number> | undefined = aggReady ? aggregates.status_counts || {} : undefined
+  const pendingSummary: any = pendingQuery.data?.summary || {}
+  const byOrderSummary: any = byOrderQuery.data?.summary || {}
+  const dash = (ready: boolean, text: string) => (ready ? text : "—")
+  const kpi: Record<KpiTile, { value: string; sub: string }> = {
+    open: { value: dash(aggReady, `${fmt(aggregates.open_qty)} pcs`), sub: dash(aggReady, `${orders_(aggregates.open_order_count)} open`) },
+    unreleased: { value: dash(Boolean(pendingQuery.data), `${fmt(pendingSummary.unreleased_qty)} pcs`), sub: "not yet on job cards" },
+    priority: { value: dash(Boolean(pendingQuery.data), orders_(pendingSummary.due_priority_count)), sub: pendingSummary.priority_start ? `${formatShortDate(pendingSummary.priority_start)} – ${formatShortDate(pendingSummary.priority_end)}` : "next 3 plant days" },
+    overdue: { value: dash(Boolean(pendingQuery.data), orders_(pendingSummary.due_overdue_count)), sub: "due before today" },
+    ready: { value: dash(Boolean(byOrderQuery.data), orders_(byOrderSummary.dispatch_ready_order_count)), sub: "packed, waiting for a DC" },
+    hold: { value: dash(aggReady, orders_(aggregates.held_order_count)), sub: dash(aggReady, `${fmt(aggregates.hold_qty)} pcs held`) },
   }
 
-  const updateSelectedLines = (orderId: string, lineId: string, checked: boolean) => {
-    setSelectedLines((current) => {
-      const previous = new Set(current[orderId] || [])
-      if (checked) previous.add(lineId)
-      else previous.delete(lineId)
-      return { ...current, [orderId]: Array.from(previous) }
+  const viewFilters = useMemo(() => ({ tab, tile, search: search.trim(), filters }), [tab, tile, search, filters])
+  const isDefaultView = tab === "all" && !tile && !search.trim() && activeFilterCount === 0
+  const applyView = (saved: Record<string, unknown>) => {
+    startTransition(() => {
+      setTab(isOrderTab(saved.tab) ? saved.tab : "all")
+      setTile(["open", "unreleased", "priority", "overdue", "ready", "hold"].includes(String(saved.tile)) ? (saved.tile as KpiTile) : null)
+      setSearch(String(saved.search || ""))
+      setFilters({ ...EMPTY_FILTERS, ...((saved.filters as Partial<Filters>) || {}) })
     })
   }
+  const resetView = () => { setTab("all"); setTile(null); setSearch(""); setFilters(EMPTY_FILTERS) }
 
-  const handleApprove = async (order: any) => {
+  const customerLabel = (order: any) => {
+    const customer = customerById.get(String(order.customer_id || ""))
+    return { name: customer?.name || order.customer_name || "Customer", code: customer?.customer_code || "" }
+  }
+  const releasableLineIds = (order: any) =>
+    (["closed", "cancelled"].includes(String(order.status || "")) || order.is_held ? [] : order.lines || [])
+      .filter((line: any) => Number(line.release_remaining_qty ?? line.remaining_qty ?? 0) > 0)
+      .map((line: any) => String(line.id))
+  const canRelease = (order: any) => ["approved", "released", "partially_released", "partially_dispatched"].includes(String(order.status || "")) && !order.is_held && releasableLineIds(order).length > 0
+  const canApprove = (order: any) => ["draft", "submitted"].includes(String(order.status || ""))
+  const isMine = (order: any) => String(order.created_by || "").toLowerCase() === String(user?.email || "").toLowerCase()
+
+  const run = async (order: any, action: () => Promise<unknown>, done: string) => {
+    setBusyOrder(String(order.id))
     try {
-      await approveOrder.mutateAsync({ orderId: String(order.id), plantId: orderPlantId(order) })
-      showToast("Sales order approved.", "success")
+      await action()
+      showToast(done, "success")
     } catch (error: any) {
-      const detail = error?.response?.data?.detail || error?.message || "Approval failed."
-      showToast(describeErrorDetail(detail), "error")
+      showToast(describeErrorDetail(error?.response?.data?.detail || error?.message || "The action did not go through."), "error")
+    } finally {
+      setBusyOrder(null)
     }
   }
+  const handleApprove = (order: any) => run(order, () => approveOrder.mutateAsync({ orderId: String(order.id), plantId: orderPlantId(order) }), `${order.order_no || "Order"} approved. Next: release its lines.`)
+  const handleSubmit = (order: any) => run(order, () => submitOrder.mutateAsync({ orderId: String(order.id) }), `${order.order_no || "Order"} sent for approval.`)
+  const handleResume = (order: any) => run(order, () => resumeOrder.mutateAsync({ orderId: String(order.id), plantId: orderPlantId(order) }), `Customer hold lifted on ${order.order_no || "the order"}.`)
+  const openRelease = (order: any) => {
+    const ticked = (selectedLines[String(order.id)] || []).filter((id) => releasableLineIds(order).includes(id))
+    if (!ticked.length) setSelectedLines((current) => ({ ...current, [String(order.id)]: releasableLineIds(order) }))
+    setReleaseOrder(order)
+  }
+  const toggleExpanded = (orderId: string) => setExpanded((current) => { const next = new Set(current); if (next.has(orderId)) next.delete(orderId); else next.add(orderId); return next })
+  const toggleSelected = (orderId: string, checked: boolean) => setSelectedOrders((current) => { const next = new Set(current); if (checked) next.add(orderId); else next.delete(orderId); return next })
+  const updateSelectedLines = (orderId: string, lineId: string, checked: boolean) =>
+    setSelectedLines((current) => { const set = new Set(current[orderId] || []); if (checked) set.add(lineId); else set.delete(lineId); return { ...current, [orderId]: Array.from(set) } })
 
-  const openReleaseDialog = (order: any) => {
-    const selectedLineIds = selectedLines[String(order.id)] || []
-    if (selectedLineIds.length === 0) {
-      showToast("Select one or more lines before opening the release planner.", "error")
-      return
+  const selected = orders.filter((order) => selectedOrders.has(String(order.id)))
+  const bulkApprove = selected.filter((order) => canApprove(order) && !isMine(order))
+  const bulkSubmit = selected.filter((order) => String(order.status) === "draft")
+  const bulkHold = selected.filter((order) => !order.is_held && orderTotals(order).pending > 0 && !["closed", "cancelled"].includes(String(order.status)))
+  const runBulk = async (rows: any[], action: (order: any) => Promise<unknown>, label: string) => {
+    let done = 0
+    for (const order of rows) {
+      try { await action(order); done += 1 } catch (error: any) { showToast(`${order.order_no}: ${describeErrorDetail(error?.response?.data?.detail || error?.message || "failed")}`, "error") }
     }
-    // One shared release dialog everywhere: one color per card, winder queue required, queue load bars.
-    setReleaseDialogOrder(order)
+    if (done) showToast(`${done} order${done === 1 ? "" : "s"} ${label}.`, "success")
+    setSelectedOrders(new Set())
   }
 
-  const [exporting, setExporting] = useState(false)
-  const exportRegister = async () => {
-    // Every order matching the filters, not only the page on screen.
+  const exportRegister = async (rowsOnly?: any[]) => {
     setExporting(true)
-    let allOrders: any[] = []
+    let allOrders: any[] = rowsOnly || []
     let complete = true
-    try {
-      const { limit: _limit, offset: _offset, ...filterParams } = salesQueryParams as any
-      const result = await fetchAllSalesOrders(filterParams)
-      allOrders = result.rows
-      complete = result.complete
-    } catch (error: any) {
-      setExporting(false)
-      showToast(`Export failed: ${error?.response?.data?.detail || error?.message || "orders did not load"}. Nothing was downloaded.`, "error")
-      return
+    if (!rowsOnly) {
+      try {
+        const { limit: _limit, offset: _offset, ...filterParams } = queryParams as any
+        const result = await fetchAllSalesOrders(filterParams)
+        allOrders = clientFiltered ? result.rows.filter((order) => cardSummary(jobsByOrder.get(String(order.id)) || []).ready > 0) : result.rows
+        complete = result.complete
+      } catch (error: any) {
+        setExporting(false)
+        showToast(`Export failed: ${error?.response?.data?.detail || error?.message || "orders did not load"}. Nothing was downloaded.`, "error")
+        return
+      }
     }
-    setExporting(false)
     const ExcelJS = await import("exceljs")
     const workbook = new ExcelJS.Workbook()
-    const sheet = workbook.addWorksheet("Sales orders")
-    sheet.addRow(["SO No", "Customer", "PO Date", "PO No", "Line", "Size", "Color", "PO Qty", "Released", "Delivered", "Pending", "Hold", "Expiry", "Due", "Status"])
+    const sheet = workbook.addWorksheet("Orders")
+    sheet.addRow(["SO No", "Status", "Customer", "Code", "PO No", "PO Date", "Due", "Line", "Size", "Colour", "Ordered", "Released", "Made (cards done)", "Dispatched", "Pending", "Hold", "Job cards", "Flagged QC", "Expiry"])
     if (!complete) showToast("Export stopped at 10,000 orders — narrow the filters for the rest.", "error")
     for (const order of allOrders) {
+      const customer = customerLabel(order)
+      const cards = cardSummary(jobsByOrder.get(String(order.id)) || [])
       for (const line of order.lines || []) {
         const pendingQty = Number(line.pending_qty ?? Math.max(0, Number(line.qty || 0) - Number(line.fulfilled_qty || 0) - Number(line.hold_qty || 0)))
         sheet.addRow([
-          order.order_no, resolveCustomerLabel(order, customerMap), isInternalOrigin(order.origin) ? order.internal_order_date : order.po_date, order.po_number || "Internal",
-          line.line_no, line.size_label || line.product_code || "", line.parchment_required ? line.parchment_color || "" : "",
-          Number(line.qty || 0), Number(line.released_qty || 0), Number(line.fulfilled_qty || 0), pendingQty, Number(line.hold_qty || 0),
-          order.expiry_date || "", line.due_date || "", order.is_held ? "Customer hold" : String(order.status || "").replaceAll("_", " "),
+          order.order_no, orderStatus(order).label, customer.name, customer.code, isInternalOrigin(order.origin) ? "Internal" : order.po_number || "", isInternalOrigin(order.origin) ? order.internal_order_date : order.po_date, line.due_date || "",
+          line.line_no, line.size_label || line.product_code || "", line.parchment_required ? line.parchment_color || (line.color_splits || []).map((split: any) => split.color).join(", ") : "plain",
+          Number(line.qty || 0), Number(line.released_qty || 0), cards.made, Number(line.fulfilled_qty || 0), pendingQty, Number(line.hold_qty || 0), cards.total, cards.flagged, order.expiry_date || "",
         ])
       }
     }
@@ -266,148 +315,88 @@ export default function SalesOrdersPage() {
     const url = URL.createObjectURL(blob)
     const link = document.createElement("a")
     link.href = url
-    link.download = `sales-orders-${statusFilter}-${dayjs().format("YYYY-MM-DD")}.xlsx`
+    link.download = `orders-${tab}-${dayjs().format("YYYY-MM-DD")}.xlsx`
     link.click()
     URL.revokeObjectURL(url)
+    setExporting(false)
   }
 
-  const handleHold = async () => {
-    if (!holdOrder || !closeReasonComplete(holdReasonCode, holdNote)) return
-    try {
-      await holdSalesOrder.mutateAsync({ orderId: String(holdOrder.id), reasonCode: holdReasonCode, note: holdNote, plantId: orderPlantId(holdOrder) })
-      showToast(`${holdOrder.order_no || "Order"} is on customer hold. The pending balance is held and the PO closed.`, "success")
-      setHoldOrder(null)
-    } catch (error: any) {
-      const detail = error?.response?.data?.detail || error?.message || "Could not put the order on hold."
-      showToast(describeErrorDetail(detail), "error")
-    }
-  }
-
-  const handleResume = async (order: any) => {
-    try {
-      await resumeSalesOrder.mutateAsync({ orderId: String(order.id), plantId: orderPlantId(order) })
-      showToast(`Customer hold lifted on ${order.order_no || "the order"}.`, "success")
-    } catch (error: any) {
-      const detail = error?.response?.data?.detail || error?.message || "Could not lift the hold."
-      showToast(describeErrorDetail(detail), "error")
-    }
-  }
-
-  const closeReleaseDialog = () => setReleaseDialogOrder(null)
-
-  const releasableStatuses = ["approved", "released", "partially_released", "partially_dispatched"]
-  const releasableLineIds = (order: any) =>
-    (["closed", "cancelled"].includes(String(order.status || "")) ? [] : order.lines || [])
-      .filter((line: any) => Number(line.release_remaining_qty ?? line.remaining_qty ?? 0) > 0)
-      .map((line: any) => String(line.id))
-  const toggleAllLines = (order: any, checked: boolean) => {
-    const ids = releasableLineIds(order)
-    setSelectedLines((current) => ({ ...current, [String(order.id)]: checked ? ids : [] }))
-    if (checked) setExpanded((current) => new Set(current).add(String(order.id)))
-  }
-  const toggleExpanded = (orderId: string) =>
-    setExpanded((current) => {
-      const next = new Set(current)
-      if (next.has(orderId)) next.delete(orderId)
-      else next.add(orderId)
-      return next
-    })
-  const customerName = (id?: string | null) => {
-    const label = customerMap.get(String(id || "")) || ""
-    return label.includes(" · ") ? label.split(" · ").slice(1).join(" · ") : label || "Customer"
-  }
+  const plantId = activePlant && String(activePlant).toUpperCase() !== "ALL" ? String(activePlant) : undefined
+  const rangeText = ordersQuery.isFetching ? "Refreshing…" : orders.length ? `${offset + 1}–${offset + orders.length}${hasNextPage ? "+" : ""}${clientFiltered ? ` of ${readyRows.length}` : tab === "all" && !tile && aggReady ? ` of ${fmt(aggregates.total_order_count)}` : ""}` : ""
 
   return (
     <>
-      <div className="space-y-5" data-testid="sales-orders:page">
+      <div className="space-y-4" data-testid="sales-orders:page">
         <PageHeader
-          badge="Sales"
-          title="Sales orders"
-          description="Every customer PO with released, delivered, pending and held quantity. Expand an order to release its lines to planning."
+          badge="Sales · Operations"
+          title="Orders"
+          description="Every customer PO from draft to closed. One list for the sales desk, planners and the owner — status, fulfilment, job cards and the next action, in one row. Expand a row to see its lines and job cards."
           actions={
             <>
-              <Link href="/sales-orders/new" className="erp-btn-primary">
-                <Plus className="h-4 w-4" />
-                New sales order
-              </Link>
+              <button type="button" className="erp-btn-secondary" onClick={() => window.print()}><Printer className="h-4 w-4" />Print</button>
+              <button type="button" className="erp-btn-secondary" onClick={() => void exportRegister()} disabled={!orders.length || exporting}><Download className="h-4 w-4" />{exporting ? "Exporting…" : "Excel"}</button>
+              <Link href="/sales-orders/new" className="erp-btn-primary" data-testid="sales-orders:new"><Plus className="h-4 w-4" />New sales order</Link>
             </>
           }
         />
 
-        {aggregatesQuery.isError ? <p role="alert" className="text-[13px] text-signal-rose-ink">Order summary did not load — the figures below show “—” instead of zero. <button type="button" className="font-semibold underline" onClick={() => aggregatesQuery.refetch()}>Try again</button></p> : null}
-        <MetricRail className="md:grid-cols-3 2xl:grid-cols-6">
-          <button type="button" className="text-left" onClick={() => setStatusFilter("draft")}>
-            <MetricCard label="Awaiting approval" value={aggValue(metrics.draftOrders.toLocaleString("en-IN"))} detail="Draft orders waiting for commercial approval" icon={CheckCircle2} tone="amber" />
-          </button>
-          <button type="button" className="text-left" onClick={() => setStatusFilter("open")}>
-            <MetricCard label="Ready to release" value={aggValue(metrics.readyOrders.toLocaleString("en-IN"))} detail="Approved orders with lines still to release" icon={ArrowRightLeft} tone="cyan" />
-          </button>
-          <MetricCard label="Linked to planning" value={aggValue(metrics.syncedOrders.toLocaleString("en-IN"))} detail="Orders already mapped to job cards" icon={ClipboardCheck} tone="emerald" />
-          <MetricCard label="Open quantity" value={aggValue(`${metrics.openQty.toLocaleString("en-IN", { maximumFractionDigits: 0 })} pcs`)} detail="Pieces still open across all in-scope orders" icon={Factory} tone="violet" />
-          <MetricCard label="Expired SOs" value={aggValue(metrics.expiredOpen.toLocaleString("en-IN"))} detail={`${metrics.expiringSoon} more expire within 7 days · consider a customer hold`} icon={TimerOff} tone={metrics.expiredOpen ? "rose" : "slate"} />
-          <MetricCard label="On customer hold" value={aggValue(`${metrics.holdQty.toLocaleString("en-IN", { maximumFractionDigits: 0 })} pcs`)} detail={`${metrics.heldOrders} order${metrics.heldOrders === 1 ? "" : "s"} held and closed`} icon={PauseCircle} tone="amber" />
-        </MetricRail>
+        {aggregatesQuery.isError ? <p role="alert" className="text-[13px] text-signal-rose-ink">Order summary did not load — the figures show “—” instead of zero. <button type="button" className="font-semibold underline" onClick={() => aggregatesQuery.refetch()}>Try again</button></p> : null}
 
-        <section className="erp-panel min-w-0 overflow-hidden rounded-xl" aria-label="Sales order register">
-          <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2.5">
-            <label className="flex h-9 min-w-[200px] flex-1 items-center gap-2 rounded-lg border border-border bg-card px-2.5 sm:max-w-[360px] focus-within:border-ring/70 focus-within:ring-[3px] focus-within:ring-ring/15">
-              <Search className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-              <span className="sr-only">Search sales orders</span>
-              <input
-                value={search}
-                onChange={(event) => {
-                  const nextValue = event.target.value
-                  startTransition(() => setSearch(nextValue))
-                }}
-                placeholder="Search PO, product code, parchment…"
-                className="h-full min-w-0 flex-1 border-0 bg-transparent text-[13px] shadow-none outline-none focus:shadow-none"
-              />
-            </label>
-            <div className="tube-segment max-w-full overflow-x-auto" role="group" aria-label="Quick status filter">
-              {[
-                ["open", "Open"],
-                ["draft", "Draft"],
-                ["approved", "Approved"],
-                ["partially_released", "Partial"],
-                ["all", "All"],
-              ].map(([value, label]) => (
-                <button key={value} type="button" aria-pressed={statusFilter === value} onClick={() => setStatusFilter(value)}>
-                  {label}
+        <section className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-6" aria-label="Order summary" data-testid="sales-orders:kpis">
+          {KPI_TILES.map((item) => {
+            const Icon = item.icon
+            const active = tile === item.key
+            return (
+              <button
+                key={item.key}
+                type="button"
+                aria-pressed={active}
+                data-testid={`sales-orders:kpi-${item.key}`}
+                onClick={() => setTile(active ? null : item.key)}
+                className={cn("tube-kpi erp-metric-card text-left transition-colors", active && "!border-primary ring-2 ring-primary/20")}
+              >
+                <p className="tube-kpi-label flex items-center gap-1.5"><Icon className={cn("h-3.5 w-3.5", item.tone)} aria-hidden="true" />{item.label}</p>
+                <p className="tube-kpi-value !text-[20px] sm:!text-[22px]">{kpi[item.key].value}</p>
+                <p className="mt-1 truncate text-[12px] text-muted-foreground">{kpi[item.key].sub}</p>
+              </button>
+            )
+          })}
+        </section>
+
+        <section className="erp-panel min-w-0 overflow-hidden rounded-xl" aria-label="Orders list">
+          <div className="flex items-center gap-1 overflow-x-auto border-b border-border px-2 pt-1 [scrollbar-width:none]" role="tablist" aria-label="Order status">
+            {ORDER_TABS.map((item) => {
+              const count = tabCount(counts, item.key)
+              const active = tab === item.key
+              return (
+                <button key={item.key} type="button" role="tab" aria-selected={active} data-testid={`sales-orders:tab-${item.key}`} onClick={() => setTab(item.key)} className={cn("-mb-px inline-flex h-10 shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-2.5 text-[13px] font-medium transition-colors", active ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")}>
+                  {item.label}
+                  <span className={cn("rounded px-1.5 text-[11px] font-semibold tabular-nums", active ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")}>{count === null ? "—" : count}</span>
                 </button>
-              ))}
-            </div>
-            <select
-              aria-label="Status filter"
-              value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value)}
-              className="h-9 rounded-lg border border-border bg-card px-2.5 text-[13px] text-foreground"
-            >
-              <option value="open">Open queue</option>
-              <option value="all">All statuses</option>
-              <option value="draft">Draft</option>
-              <option value="submitted">Submitted</option>
-              <option value="approved">Approved</option>
-              <option value="released">Released</option>
-              <option value="partially_released">Partially released</option>
-              <option value="partially_dispatched">Partially dispatched</option>
-              <option value="closed">Closed</option>
-              <option value="cancelled">Cancelled</option>
-            </select>
-            <button type="button" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((value) => !value)} className={`erp-btn-secondary !h-9 ${activeFilterCount ? "!border-primary/40 !text-primary" : ""}`}>
+              )
+            })}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2.5">
+            <label className="flex h-9 min-w-[220px] flex-1 items-center gap-2 rounded-lg border border-border bg-card px-2.5 sm:max-w-[380px] focus-within:border-ring/70 focus-within:ring-[3px] focus-within:ring-ring/15">
+              <Search className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <span className="sr-only">Search orders</span>
+              <input value={search} onChange={(event) => { const next = event.target.value; startTransition(() => setSearch(next)) }} placeholder="Search SO no, PO, customer or code, product, colour" className="h-full min-w-0 flex-1 border-0 bg-transparent text-[13px] shadow-none outline-none focus:shadow-none" data-testid="sales-orders:search" />
+              {search ? <button type="button" aria-label="Clear search" onClick={() => setSearch("")} className="text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button> : null}
+            </label>
+            <button type="button" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((value) => !value)} className={cn("erp-btn-secondary !h-9", activeFilterCount && "!border-primary/40 !text-primary")}>
               <SlidersHorizontal className="h-4 w-4" />Filters{activeFilterCount ? <span className="rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground">{activeFilterCount}</span> : null}
             </button>
-            <button type="button" className="erp-btn-secondary !h-9" onClick={() => void exportRegister()} disabled={!orders.length || exporting}><Download className="h-4 w-4" /><span className="hidden sm:inline">Excel</span></button>
-            <button type="button" className="erp-btn-secondary !h-9" onClick={() => window.print()}><Printer className="h-4 w-4" /><span className="hidden sm:inline">Print</span></button>
-            <span className="ml-auto text-xs tabular-nums text-muted-foreground" aria-live="polite">
-              {ordersQuery.isFetching ? "Refreshing…" : orders.length ? `${offset + 1}–${offset + orders.length}${hasNextPage ? "+" : ""}` : ""}
-            </span>
+            <SavedViewsSelect viewKey="ORDERS" plantId={plantId} filters={viewFilters} isDefault={isDefaultView} defaultLabel="All orders" onApply={applyView} onReset={resetView} testId="sales-orders:views" />
+            {tile ? <Chip tone="blue" className="!h-9 !rounded-lg !px-2.5 !text-[12.5px]">{KPI_TILES.find((item) => item.key === tile)?.label}<button type="button" aria-label="Clear tile filter" onClick={() => setTile(null)} className="ml-1 opacity-70 hover:opacity-100"><X className="h-3 w-3" /></button></Chip> : null}
+            <span className="ml-auto text-xs tabular-nums text-muted-foreground" aria-live="polite">{rangeText}</span>
           </div>
 
           {filtersOpen ? (
             <div className="grid gap-3 border-b border-border bg-[hsl(var(--surface-2))] px-3 py-3 animate-enter-up sm:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))_auto]" aria-label="More filters">
               <label className="space-y-1">
                 <span className="text-[12px] font-medium text-muted-foreground">Source</span>
-                <select value={filters.origin} onChange={(event) => setFilter({ origin: event.target.value })} className="h-9 w-full rounded-lg border border-input bg-card px-2.5 text-[13px]">
+                <select value={filters.origin} onChange={(event) => setFilters((current) => ({ ...current, origin: event.target.value }))} className="h-9 w-full rounded-lg border border-input bg-card px-2.5 text-[13px]">
                   <option value="">Customer PO + internal</option>
                   <option value="CUSTOMER_PO">Customer PO</option>
                   <option value="INTERNAL">Internal order</option>
@@ -416,22 +405,22 @@ export default function SalesOrdersPage() {
               <div className="space-y-1">
                 <span className="text-[12px] font-medium text-muted-foreground">Delivery</span>
                 <div className="tube-segment w-full" role="group" aria-label="Delivery filter">
-                  {([["", "Any"], ["overdue", "Overdue"], ["week", "Due in 7 days"]] as const).map(([value, label]) => (
-                    <button key={value || "any"} type="button" className="flex-1 justify-center" aria-pressed={filters.due === value} onClick={() => setFilter({ due: value })}>{label}</button>
+                  {([["", "Any"], ["overdue", "Overdue"], ["priority", "3 days"], ["week", "7 days"]] as const).map(([value, label]) => (
+                    <button key={value || "any"} type="button" className="flex-1 justify-center" aria-pressed={filters.due === value} onClick={() => setFilters((current) => ({ ...current, due: value }))}>{label}</button>
                   ))}
                 </div>
               </div>
               <div className="space-y-1">
                 <span className="text-[12px] font-medium text-muted-foreground">PO / order date</span>
                 <div className="flex items-center gap-1.5">
-                  <input type="date" aria-label="From date" value={filters.date_from} onChange={(event) => setFilter({ date_from: event.target.value })} className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-card px-2 text-[13px]" />
+                  <input type="date" aria-label="From date" value={filters.date_from} onChange={(event) => setFilters((current) => ({ ...current, date_from: event.target.value }))} className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-card px-2 text-[13px]" />
                   <span className="text-muted-foreground">–</span>
-                  <input type="date" aria-label="To date" value={filters.date_to} onChange={(event) => setFilter({ date_to: event.target.value })} className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-card px-2 text-[13px]" />
+                  <input type="date" aria-label="To date" value={filters.date_to} onChange={(event) => setFilters((current) => ({ ...current, date_to: event.target.value }))} className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-card px-2 text-[13px]" />
                 </div>
               </div>
               <label className="space-y-1">
                 <span className="text-[12px] font-medium text-muted-foreground">Sort</span>
-                <select value={filters.sort} onChange={(event) => setFilter({ sort: event.target.value })} className="h-9 w-full rounded-lg border border-input bg-card px-2.5 text-[13px]">
+                <select value={filters.sort} onChange={(event) => setFilters((current) => ({ ...current, sort: event.target.value }))} className="h-9 w-full rounded-lg border border-input bg-card px-2.5 text-[13px]">
                   <option value="newest">Newest first</option>
                   <option value="due">Earliest delivery first</option>
                   <option value="po_date">PO date (latest)</option>
@@ -439,15 +428,20 @@ export default function SalesOrdersPage() {
                 </select>
               </label>
               <div className="flex flex-wrap items-end gap-2">
-                {([["unreleased", "Has unreleased qty"], ["held", "On hold"], ["expired", "Expired"]] as const).map(([key, label]) => (
-                  <button key={key} type="button" aria-pressed={filters[key]} onClick={() => setFilter({ [key]: !filters[key] } as any)} className={`h-9 rounded-full border px-3 text-[12.5px] font-medium transition-colors ${filters[key] ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground hover:text-foreground"}`}>
-                    {label}
-                  </button>
-                ))}
-                {activeFilterCount ? (
-                  <button type="button" className="h-9 px-2 text-[12.5px] font-semibold text-primary hover:underline" onClick={() => setFilters({ origin: "", due: "", unreleased: false, held: false, expired: false, date_from: "", date_to: "", sort: "newest" })}>Clear</button>
-                ) : null}
+                <button type="button" aria-pressed={filters.expired} onClick={() => setFilters((current) => ({ ...current, expired: !current.expired }))} className={cn("h-9 rounded-full border px-3 text-[12.5px] font-medium transition-colors", filters.expired ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground hover:text-foreground")}>PO validity expired</button>
+                {activeFilterCount ? <button type="button" className="h-9 px-2 text-[12.5px] font-semibold text-primary hover:underline" onClick={() => setFilters(EMPTY_FILTERS)}>Clear</button> : null}
               </div>
+            </div>
+          ) : null}
+
+          {selected.length ? (
+            <div className="flex flex-wrap items-center gap-2 border-b border-primary/30 bg-primary/[.06] px-3 py-2 text-[12.5px]" data-testid="sales-orders:bulk" aria-live="polite">
+              <strong>{selected.length} selected</strong>
+              <button type="button" className="erp-btn-secondary !h-8" disabled={!bulkApprove.length || approveOrder.isPending} onClick={() => void runBulk(bulkApprove, (order) => approveOrder.mutateAsync({ orderId: String(order.id), plantId: orderPlantId(order) }), "approved")}><CheckCircle2 className="h-3.5 w-3.5" />Approve{bulkApprove.length ? ` ${bulkApprove.length}` : ""}</button>
+              <button type="button" className="erp-btn-secondary !h-8" disabled={!bulkSubmit.length || submitOrder.isPending} onClick={() => void runBulk(bulkSubmit, (order) => submitOrder.mutateAsync({ orderId: String(order.id) }), "sent for approval")}><Send className="h-3.5 w-3.5" />Send for approval{bulkSubmit.length ? ` ${bulkSubmit.length}` : ""}</button>
+              <button type="button" className="erp-btn-secondary !h-8 !text-signal-amber-ink" disabled={!bulkHold.length} onClick={() => setHoldOrders(bulkHold)}><PauseCircle className="h-3.5 w-3.5" />Hold…{bulkHold.length ? ` ${bulkHold.length}` : ""}</button>
+              <button type="button" className="erp-btn-secondary !h-8" disabled={exporting} onClick={() => void exportRegister(selected)}><Download className="h-3.5 w-3.5" />Excel</button>
+              <button type="button" className="ml-auto text-[12.5px] font-semibold text-primary hover:underline" onClick={() => setSelectedOrders(new Set())}>Clear</button>
             </div>
           ) : null}
 
@@ -457,167 +451,119 @@ export default function SalesOrdersPage() {
                 isLoading={ordersQuery.isLoading}
                 isError={ordersQuery.isError}
                 isEmpty={orders.length === 0}
-                loadingLabel="Loading live sales orders..."
-                emptyTitle="No sales orders matched this queue yet."
-                emptyMessage="Adjust the status filter or create a new sales order."
-                errorMessage="Sales orders could not be loaded. This is not an empty queue — refresh to retry."
-                onRetry={() => {
-                  void ordersQuery.refetch()
-                }}
+                loadingLabel="Loading orders…"
+                emptyTitle={tile ? `No order matches “${KPI_TILES.find((item) => item.key === tile)?.label}” here.` : "No orders in this tab yet."}
+                emptyMessage={tile ? "Clear the tile or pick another tab." : search ? "Try another search — SO no, PO, customer, code, product or colour." : "Pick another tab or create a new sales order."}
+                errorMessage="Orders could not be loaded. This is not an empty list — refresh to retry."
+                onRetry={() => { void ordersQuery.refetch() }}
               >
                 {null}
               </QuerySwitch>
             </div>
           ) : (
-            <div className="tube-print-expand max-h-[calc(100dvh-240px)] min-h-[320px] overflow-auto">
+            <div className="tube-print-expand max-h-[calc(100dvh-300px)] min-h-[320px] overflow-auto">
               <table className="tube-grid" data-testid="sales-orders:register">
                 <thead>
                   <tr>
-                    <th className="w-[64px] !pr-0"><span className="sr-only">Select and expand</span></th>
-                    <th>SO No.</th>
-                    <th className="hidden lg:table-cell">Customer</th>
-                    <th className="hidden md:table-cell">PO date</th>
-                    <th>PO No.</th>
-                    <th className="hidden xl:table-cell">Size</th>
-                    <th className="hidden xl:table-cell">Color</th>
-                    <th className="num">PO qty</th>
-                    <th className="num hidden md:table-cell">Released</th>
-                    <th className="num hidden md:table-cell">Delivered</th>
-                    <th className="num">Pending</th>
-                    <th className="num hidden sm:table-cell">Hold</th>
-                    <th className="hidden lg:table-cell">Expiry</th>
+                    <th className="w-[60px] !pr-0"><span className="sr-only">Select and expand</span></th>
+                    <th>Order</th>
+                    <th className="hidden xl:table-cell">Customer</th>
+                    <th className="hidden 2xl:table-cell">PO</th>
+                    <th>Due</th>
+                    <th className="hidden xl:table-cell">Fulfilment</th>
+                    <th className="hidden xl:table-cell">Job cards</th>
                     <th>Status</th>
-                    <th className="text-right">Actions</th>
+                    <th className="w-[1%] whitespace-nowrap text-right">Next action</th>
                   </tr>
                 </thead>
                 {orders.map((order: any) => {
                   const orderId = String(order.id)
                   const lines: any[] = order.lines || []
-                  const selectedLineIds = selectedLines[orderId] || []
-                  const linkedJobs = jobsByOrderId.get(orderId) || []
-                  const locallySynced = syncResults[orderId] || []
-                  const jobIds = [...linkedJobs.map((job: any) => String(job.id)), ...locallySynced].filter((value, index, rows) => rows.indexOf(value) === index)
-                  const releasable = releasableLineIds(order)
-                  const allSelected = releasable.length > 0 && releasable.every((id: string) => selectedLineIds.includes(id))
-                  const someSelected = selectedLineIds.length > 0 && !allSelected
-                  const isOpen = expanded.has(orderId)
-                  const sum = (key: string) => lines.reduce((total, line) => total + Number(line[key] || 0), 0)
-                  const ordered = sum("qty")
-                  const released = sum("released_qty")
-                  const delivered = sum("fulfilled_qty")
-                  const hold = sum("hold_qty")
-                  const pending = lines.reduce((total, line) => total + Number(line.pending_qty ?? Math.max(0, Number(line.qty || 0) - Number(line.fulfilled_qty || 0) - Number(line.hold_qty || 0))), 0)
-                  const sizes = Array.from(new Set(lines.map((line) => String(line.size_label || line.product_code || "").trim()).filter(Boolean)))
-                  const colors = Array.from(new Set(lines.filter((line) => line.parchment_required && line.parchment_color).map((line) => String(line.parchment_color))))
-                  const expiryDays = order.expiry_date ? dayjs(order.expiry_date).startOf("day").diff(dayjs().startOf("day"), "day") : null
-                  const isHeld = Boolean(order.is_held)
-                  const isCancelled = order.status === "cancelled"
+                  const jobs = jobsByOrder.get(orderId) || []
+                  const overlay = byOrderMap.get(orderId)
+                  const cards = cardSummary(jobs)
+                  const cardTotal = Math.max(cards.total, Number(overlay?.job_count || 0))
+                  const totals = orderTotals(order)
+                  const due = orderDue(order)
+                  const action = nextAction(order, cards, user?.email)
+                  const customer = customerLabel(order)
                   const closure = orderClosureAction(order)
-                  const canApprove = order.status === "draft" || order.status === "submitted"
-                  const canRelease = releasableStatuses.includes(order.status) && !isHeld
-                  const releaseBusy = false
-                  const fmt = (value: number) => value.toLocaleString("en-IN", { maximumFractionDigits: 0 })
+                  const isOpen = expanded.has(orderId)
+                  const isSelected = selectedOrders.has(orderId)
+                  const busy = busyOrder === orderId
+                  const colours = Array.from(new Set(lines.flatMap((line) => (line.parchment_required ? (line.color_splits?.length ? line.color_splits.map((split: any) => String(split.color)) : [line.parchment_color || "colour not decided"]) : ["plain"]))))
+                  const ticked = (selectedLines[orderId] || []).filter((id) => releasableLineIds(order).includes(id))
+                  const actionButton = (() => {
+                    const base = cn("inline-flex h-8 items-center gap-1 whitespace-nowrap rounded-md px-2.5 text-[12.5px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-50", action.tone === "primary" ? "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90" : action.tone === "secondary" ? "border border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink hover:brightness-[.97]" : "border border-border bg-card text-foreground hover:bg-muted")
+                    const testId = `sales-orders:next-${action.key}`
+                    if (action.key === "open") return <Link href={`/sales-orders/${orderId}`} className={base} data-testid={testId}>{action.label}</Link>
+                    if (action.href) return <Link href={action.href} className={base} title={action.hint} data-testid={testId}>{action.label}</Link>
+                    if (action.key === "waiting") return <span className={cn(base, "cursor-default opacity-70")} title={action.hint} data-testid={testId}>{action.label}</span>
+                    const onClick = action.key === "approve" ? () => void handleApprove(order) : action.key === "submit" ? () => void handleSubmit(order) : action.key === "resume" ? () => void handleResume(order) : () => openRelease(order)
+                    return (
+                      <button type="button" className={base} title={action.hint} onClick={onClick} disabled={busy} data-testid={testId}>
+                        {busy ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : action.key === "release" ? <Send className="h-3.5 w-3.5" /> : action.key === "approve" ? <CheckCircle2 className="h-3.5 w-3.5" /> : action.key === "resume" ? <PlayCircle className="h-3.5 w-3.5" /> : null}
+                        {action.label}{action.key === "release" && ticked.length && ticked.length < releasableLineIds(order).length ? <span className="rounded bg-primary-foreground/20 px-1 text-[11px] tabular-nums">{ticked.length} line{ticked.length === 1 ? "" : "s"}</span> : null}
+                      </button>
+                    )
+                  })()
                   return (
-                    <tbody key={order.id} data-order-id={order.id} className="group/order">
-                      <tr data-state={selectedLineIds.length ? "selected" : undefined} data-expanded={isOpen || undefined}>
-                        <td className="!pr-0">
-                          <div className="flex items-center gap-0.5">
-                            <input
-                              type="checkbox"
-                              aria-label={`Select releasable lines of ${salesOrderReferenceLabel(order)}`}
-                              checked={allSelected}
-                              ref={(element) => { if (element) element.indeterminate = someSelected }}
-                              disabled={!releasable.length || isHeld}
-                              onChange={(event) => toggleAllLines(order, event.target.checked)}
-                              className="h-3.5 w-3.5 cursor-pointer disabled:cursor-not-allowed"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => toggleExpanded(orderId)}
-                              aria-expanded={isOpen}
-                              aria-label={`${isOpen ? "Hide" : "Show"} ${lines.length} lines`}
-                              className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition hover:bg-foreground/[.06] hover:text-foreground"
-                            >
-                              <ChevronRight className={`h-4 w-4 transition-transform duration-200 ${isOpen ? "rotate-90" : ""}`} />
+                    <tbody key={orderId} data-order-id={orderId} className="group/order">
+                      <tr data-state={isSelected ? "selected" : undefined} data-expanded={isOpen || undefined}>
+                        <td className="!pr-0 align-top">
+                          <div className="flex items-center gap-0.5 pt-0.5">
+                            <input type="checkbox" aria-label={`Select ${salesOrderReferenceLabel(order)}`} checked={isSelected} onChange={(event) => toggleSelected(orderId, event.target.checked)} className="h-3.5 w-3.5 cursor-pointer" />
+                            <button type="button" onClick={() => toggleExpanded(orderId)} aria-expanded={isOpen} aria-label={`${isOpen ? "Hide" : "Show"} ${lines.length} line${lines.length === 1 ? "" : "s"} and job cards`} data-testid="sales-orders:expand" className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition hover:bg-foreground/[.06] hover:text-foreground">
+                              <ChevronRight className={cn("h-4 w-4 transition-transform duration-200", isOpen && "rotate-90")} />
                             </button>
                           </div>
                         </td>
-                        <td className="whitespace-nowrap">
-                          <Link href={`/sales-orders/${order.id}`} data-testid="sales-orders:detail-link" className="font-semibold text-foreground transition-colors hover:text-primary">
-                            {order.order_no || orderId.slice(0, 8)}
-                          </Link>
-                          <span className="block text-[11px] text-muted-foreground">{lines.length} line{lines.length === 1 ? "" : "s"}<span className="lg:hidden"> · {resolveCustomerLabel(order, customerMap)}</span></span>
+                        <td className="max-w-[240px] align-top xl:max-w-[170px]">
+                          <Link href={`/sales-orders/${orderId}`} data-testid="sales-orders:detail-link" className="font-semibold text-foreground transition-colors hover:text-primary">{order.order_no || orderId.slice(0, 8)}</Link>
+                          <span className="block truncate text-[11.5px] text-muted-foreground" title={colours.join(", ")}>{lines.length} line{lines.length === 1 ? "" : "s"} · {colours.join(", ")}</span>
+                          <span className="block truncate text-[11.5px] text-muted-foreground xl:hidden" title={`${customer.name}${customer.code ? ` · ${customer.code}` : ""}`}>{customer.name}{customer.code ? ` · ${customer.code}` : ""}</span>
+                          {/* Narrow screens: the fulfilment bar sits under the order number instead of its own column. */}
+                          <FulfilmentBar ordered={totals.ordered} released={totals.released} made={cards.made} dispatched={totals.dispatched} compact madeUnknown={jobCardsQuery.isError} className="mt-1.5 max-w-[230px] xl:hidden" />
                         </td>
-                        <td className="hidden max-w-[220px] lg:table-cell"><span className="block truncate text-foreground/90" title={resolveCustomerLabel(order, customerMap)}>{resolveCustomerLabel(order, customerMap)}</span></td>
-                        <td className="hidden whitespace-nowrap tabular-nums text-foreground/85 md:table-cell">{isInternalOrigin(order.origin) ? formatDate(order.internal_order_date) : formatDate(order.po_date)}</td>
-                        <td className="max-w-[160px]">
+                        <td className="hidden max-w-[190px] align-top xl:table-cell">
+                          <span className="block truncate font-medium text-foreground/90" title={customer.name}>{customer.name}</span>
+                          <span className="block truncate text-[11.5px] text-muted-foreground" title={order.po_number || undefined}>{customer.code || "—"}<span className="2xl:hidden"> · {isInternalOrigin(order.origin) ? "Internal" : order.po_number || "PO —"} · {formatShortDate(isInternalOrigin(order.origin) ? order.internal_order_date : order.po_date)}</span></span>
+                        </td>
+                        <td className="hidden max-w-[150px] align-top 2xl:table-cell">
                           <span className="block truncate text-foreground/90" title={order.po_number || undefined}>{isInternalOrigin(order.origin) ? <span className="text-muted-foreground">Internal</span> : order.po_number || "—"}</span>
+                          <span className="block text-[11.5px] tabular-nums text-muted-foreground">{formatShortDate(isInternalOrigin(order.origin) ? order.internal_order_date : order.po_date)}</span>
                         </td>
-                        <td className="hidden max-w-[170px] xl:table-cell">
-                          <span className="block truncate text-foreground/85" title={sizes.join(", ")}>{sizes[0] || "—"}{sizes.length > 1 ? <span className="text-muted-foreground"> +{sizes.length - 1}</span> : null}</span>
+                        <td className="whitespace-nowrap align-top"><DueCell due={due} /></td>
+                        <td className="hidden align-top xl:table-cell"><FulfilmentBar ordered={totals.ordered} released={totals.released} made={cards.made} dispatched={totals.dispatched} compact madeUnknown={jobCardsQuery.isError} /></td>
+                        <td className="hidden align-top xl:table-cell">
+                          {cardTotal ? (
+                            <div className="space-y-1">
+                              <span className="text-[13px] font-semibold tabular-nums">{cardTotal}</span>
+                              {cards.total ? <CardMixChips chips={cards.chips} flagged={cards.flagged} /> : <span className="block text-[11px] text-muted-foreground">{overlay?.flow_status || "cards"}</span>}
+                            </div>
+                          ) : <span className="text-[12px] text-muted-foreground">{String(order.status) === "approved" ? "release to create" : "none yet"}</span>}
                         </td>
-                        <td className="hidden max-w-[120px] xl:table-cell"><span className="block truncate text-foreground/85" title={colors.join(", ")}>{colors.length ? colors.join(", ") : <span className="text-muted-foreground">—</span>}</span></td>
-                        <td className="num font-medium">{fmt(ordered)}</td>
-                        <td className="num hidden text-foreground/85 md:table-cell">{fmt(released)}</td>
-                        <td className="num hidden text-foreground/85 md:table-cell">
-                          {fmt(delivered)}
-                          {ordered > 0 ? <div className="ml-auto mt-1 h-1 w-14 overflow-hidden rounded-full bg-muted" aria-hidden="true"><div className="h-full rounded-full bg-signal-emerald-ink/70" style={{ width: `${Math.min(100, (delivered / ordered) * 100)}%` }} /></div> : null}
+                        <td className="max-w-[150px] align-top">
+                          <OrderStatusChip order={order} />
+                          {cardTotal ? <span className="mt-1 block text-[11px] text-muted-foreground xl:hidden">{cardTotal} card{cardTotal === 1 ? "" : "s"}{cards.flagged ? ` · ${cards.flagged} flagged QC` : ""}{cards.ready ? ` · ${cards.ready} ready` : ""}</span> : null}
+                          {order.is_held ? <span className="mt-1 block truncate text-[11px] text-muted-foreground" title={`${order.hold_reason || ""}${order.hold_reason_code ? ` (${order.hold_reason_code})` : ""}`}>since {formatShortDate(order.held_at)}{order.hold_reason ? ` · ${order.hold_reason}` : ""}</span> : null}
+                          {order.closure_kind ? <span className="mt-1 block truncate text-[11px] text-muted-foreground" title={`${order.closure_reason || ""}${order.closure_reason_code ? ` (${order.closure_reason_code})` : ""}`}>{formatShortDate(order.closure_at)} · {order.closure_reason || order.closure_reason_code}</span> : null}
                         </td>
-                        <td className={`num font-semibold ${pending > 0 && !isCancelled ? "text-foreground" : "text-muted-foreground"}`}>{isCancelled ? "—" : fmt(pending)}</td>
-                        <td className={`num hidden sm:table-cell ${hold > 0 ? "font-semibold text-signal-amber-ink" : "text-muted-foreground"}`}>{hold > 0 ? fmt(hold) : "—"}</td>
-                        <td className="hidden whitespace-nowrap lg:table-cell">
-                          {order.expiry_date ? (
-                            <>
-                              <span className="block tabular-nums text-foreground/85">{formatDate(order.expiry_date)}</span>
-                              {pending > 0 && !isHeld && !isCancelled && order.status !== "closed" && expiryDays !== null ? (
-                                <span className={`text-[11px] font-medium ${expiryDays < 0 ? "text-signal-rose-ink" : expiryDays <= 7 ? "text-signal-amber-ink" : "text-muted-foreground"}`}>
-                                  {expiryDays < 0 ? `Expired ${Math.abs(expiryDays)}d ago` : expiryDays === 0 ? "Expires today" : `${expiryDays}d left`}
-                                </span>
-                              ) : null}
-                            </>
-                          ) : <span className="text-muted-foreground">—</span>}
-                        </td>
-                        <td>
-                          {isHeld ? (
-                            <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-signal-amber-line bg-signal-amber-soft px-2 py-0.5 text-[11.5px] font-medium text-signal-amber-ink" title={order.hold_reason || undefined}>
-                              <PauseCircle className="h-3 w-3" />Customer hold
-                            </span>
-                          ) : <span title={order.closure_reason ? `${order.closure_reason}${order.closure_note ? ` — ${order.closure_note}` : ""}` : undefined}><StatusBadge value={order.status} />{order.closure_kind === "SHORT_CLOSED" ? <span className="mt-0.5 block text-[11px] text-signal-amber-ink">Short-closed</span> : null}</span>}
-                        </td>
-                        <td>
+                        <td className="w-[1%] whitespace-nowrap align-top">
                           <div className="flex items-center justify-end gap-1">
-                            {canApprove ? (
-                              <button
-                                type="button"
-                                onClick={() => handleApprove(order)}
-                                disabled={approveOrder.isPending}
-                                aria-label="Approve commercial PO"
-                                className="inline-flex h-8 items-center gap-1 rounded-md border border-signal-emerald-line bg-signal-emerald-soft px-2.5 text-[12.5px] font-semibold text-signal-emerald-ink transition hover:brightness-[.97] disabled:opacity-60"
-                              >
-                                <CheckCircle2 className="h-3.5 w-3.5" />
-                                Approve
-                              </button>
-                            ) : null}
-                            <button
-                              type="button"
-                              onClick={() => openReleaseDialog(order)}
-                              aria-label="Release selected lines to planner"
-                              title={isHeld ? "Lift the customer hold to release" : !canRelease ? "Approve the order before releasing" : !selectedLineIds.length ? "Select lines to release" : undefined}
-                              disabled={releaseBusy || selectedLineIds.length === 0 || !canRelease}
-                              className="inline-flex h-8 items-center gap-1 rounded-md bg-primary px-2.5 text-[12.5px] font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
-                            >
-                              {releaseBusy ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                              <span className="hidden sm:inline">Release</span>
-                              {selectedLineIds.length ? <span className="rounded bg-primary-foreground/20 px-1 text-[11px] tabular-nums">{selectedLineIds.length}</span> : null}
-                            </button>
+                            {actionButton}
                             <RowMenu
                               items={[
-                                { label: "View order", href: `/sales-orders/${order.id}`, icon: Eye, testId: "sales-orders:view-link" },
-                                { label: "Audit trail", href: `/sales-orders/${order.id}/audit`, icon: History },
-                                ...(isHeld
-                                  ? [{ label: "Lift customer hold", icon: PlayCircle, onSelect: () => void handleResume(order) }]
-                                  : pending > 0 && !isCancelled && order.status !== "closed"
-                                    ? [{ label: "Customer hold & close…", icon: PauseCircle, tone: "warn" as const, onSelect: () => { setHoldOrder(order); setHoldReasonCode(""); setHoldNote("") } }]
+                                { label: "Open order", href: `/sales-orders/${orderId}`, icon: Eye, testId: "sales-orders:view-link" },
+                                { label: "History", href: `/sales-orders/${orderId}?tab=history`, icon: History },
+                                { label: "Print", href: `/sales-orders/${orderId}?print=1`, icon: Printer },
+                                { label: "Copy as new order", href: `/sales-orders/new?copy=${orderId}`, icon: Copy },
+                                ...(canApprove(order) && action.key !== "approve" && !isMine(order) ? [{ label: "Approve", icon: CheckCircle2, onSelect: () => void handleApprove(order) }] : []),
+                                ...(canRelease(order) && action.key !== "release" ? [{ label: "Release lines…", icon: Send, onSelect: () => openRelease(order) }] : []),
+                                ...(order.is_held
+                                  ? [{ label: "Resume (lift hold)", icon: PlayCircle, onSelect: () => void handleResume(order) }]
+                                  : totals.pending > 0 && !["closed", "cancelled"].includes(String(order.status))
+                                    ? [{ label: "Customer hold & close…", icon: PauseCircle, tone: "warn" as const, testId: "sales-orders:hold", onSelect: () => setHoldOrders([order]) }]
                                     : []),
                                 ...(closure.kind === "cancel"
                                   ? [{ label: "Cancel order…", icon: Ban, tone: "danger" as const, testId: "sales-orders:cancel", onSelect: () => setClosureOrder(order) }]
@@ -629,66 +575,19 @@ export default function SalesOrdersPage() {
                           </div>
                         </td>
                       </tr>
-                      {isOpen ? lines.map((line: any) => {
-                        const checked = selectedLineIds.includes(String(line.id))
-                        const releaseRemainingQty = Number(line.release_remaining_qty ?? line.remaining_qty ?? 0)
-                        const lineReleasable = releaseRemainingQty > 0 && !isHeld
-                        const linePending = Number(line.pending_qty ?? Math.max(0, Number(line.qty || 0) - Number(line.fulfilled_qty || 0) - Number(line.hold_qty || 0)))
-                        return (
-                          <tr key={line.id} className="sub-line animate-fade-in bg-[hsl(var(--surface-sunken))] text-[12.5px]" data-state={checked ? "selected" : undefined}>
-                            <td className="!pr-0">
-                              <div className="flex justify-end pr-2">
-                                <input
-                                  type="checkbox"
-                                  aria-label={`Select line ${line.line_no || "-"} ${line.product_code || ""}`}
-                                  checked={checked}
-                                  disabled={!lineReleasable}
-                                  onChange={(event) => updateSelectedLines(orderId, String(line.id), event.target.checked)}
-                                  className="h-3.5 w-3.5 cursor-pointer disabled:cursor-not-allowed"
-                                />
-                              </div>
-                            </td>
-                            <td className="whitespace-nowrap text-muted-foreground">
-                              <span className="font-medium text-foreground/90">Line {line.line_no || "-"}</span>
-                              <span className="block text-[11px]">Due {formatDate(line.due_date)}</span>
-                            </td>
-                            <td className="hidden lg:table-cell" />
-                            <td className="hidden md:table-cell" />
-                            <td className="max-w-[160px]"><span className="block truncate text-muted-foreground" title={line.product_code || undefined}>{line.product_code || "—"}</span></td>
-                            <td className="hidden max-w-[170px] xl:table-cell"><span className="block truncate text-foreground/85">{line.size_label || line.product_code || "—"}</span></td>
-                            <td className="hidden xl:table-cell text-foreground/85">{line.parchment_required ? line.parchment_color || "—" : <span className="text-muted-foreground">—</span>}</td>
-                            <td className="num">{fmt(Number(line.qty || 0))}</td>
-                            <td className="num hidden md:table-cell">{fmt(Number(line.released_qty || 0))}</td>
-                            <td className="num hidden md:table-cell">{fmt(Number(line.fulfilled_qty || 0))}</td>
-                            <td className="num font-medium">{fmt(linePending)}</td>
-                            <td className={`num hidden sm:table-cell ${Number(line.hold_qty || 0) > 0 ? "text-signal-amber-ink" : "text-muted-foreground"}`}>{Number(line.hold_qty || 0) > 0 ? fmt(Number(line.hold_qty)) : "—"}</td>
-                            <td className="hidden lg:table-cell text-muted-foreground">{releaseRemainingQty > 0 ? `${fmt(releaseRemainingQty)} to release` : "Fully released"}</td>
-                            <td colSpan={2} className="text-muted-foreground">{parchmentLineLabel(line)}</td>
-                          </tr>
-                        )
-                      }) : null}
                       {isOpen ? (
-                        <tr className="sub-line bg-[hsl(var(--surface-sunken))]">
-                          <td colSpan={15} className="!py-2">
-                            <div className="flex flex-wrap items-center gap-2 pl-[64px] text-[12px] text-muted-foreground">
-                              {isHeld ? (
-                                <span className="text-signal-amber-ink">On customer hold since {formatDate(order.held_at)}{order.hold_reason ? ` — ${order.hold_reason}` : ""}.</span>
-                              ) : canRelease ? (
-                                <span>{selectedLineIds.length ? `${selectedLineIds.length} line${selectedLineIds.length === 1 ? "" : "s"} selected. Use Release to open the winder planner.` : "Tick the lines production needs now. A PO can release many times over its life."}</span>
-                              ) : (
-                                <span>Approve this order to release its lines to planning.</span>
-                              )}
-                              {jobIds.length ? (
-                                <span className="ml-auto flex flex-wrap items-center gap-1">
-                                  Job cards:
-                                  {jobIds.slice(0, 6).map((jobCardId) => (
-                                    <Link key={jobCardId} href={`/production/job-cards/${jobCardId}`} className="rounded-md border border-signal-emerald-line bg-signal-emerald-soft px-1.5 py-0.5 font-mono text-[11px] text-signal-emerald-ink hover:underline">
-                                      {jobCardId.slice(0, 8)}
-                                    </Link>
-                                  ))}
-                                </span>
-                              ) : null}
-                            </div>
+                        <tr className="sub-row">
+                          <td colSpan={9} className="!p-0">
+                            <OrderLinesExpansion
+                              order={order}
+                              jobs={jobs}
+                              overlay={overlay}
+                              jobsFailed={jobCardsQuery.isError}
+                              releasable={releasableLineIds(order)}
+                              selectedLineIds={ticked}
+                              onToggleLine={(lineId, checked) => updateSelectedLines(orderId, lineId, checked)}
+                              onRelease={canRelease(order) ? () => openRelease(order) : undefined}
+                            />
                           </td>
                         </tr>
                       ) : null}
@@ -702,100 +601,147 @@ export default function SalesOrdersPage() {
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-3 py-2">
               <label className="flex items-center gap-2 text-xs text-muted-foreground">
                 Rows
-                <select
-                  aria-label="Rows per page"
-                  value={pageSize}
-                  onChange={(event) => setPageSize(Number(event.target.value))}
-                  className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground"
-                >
+                <select aria-label="Rows per page" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))} className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground">
                   <option value={10}>10</option>
                   <option value={25}>25</option>
                   <option value={50}>50</option>
                   <option value={100}>100</option>
                 </select>
               </label>
+              <FulfilmentLegend className="hidden md:flex" />
               <div className="flex items-center gap-2">
                 <span className="text-xs tabular-nums text-muted-foreground">Page {pageIndex + 1}</span>
-                <button
-                  type="button"
-                  onClick={() => setPageIndex((current) => Math.max(0, current - 1))}
-                  disabled={pageIndex === 0 || ordersQuery.isFetching}
-                  aria-label="Previous page"
-                  className="grid h-8 w-8 place-items-center rounded-md border border-border bg-card text-muted-foreground transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPageIndex((current) => current + 1)}
-                  disabled={!hasNextPage || ordersQuery.isFetching}
-                  aria-label="Next page"
-                  className="grid h-8 w-8 place-items-center rounded-md border border-border bg-card text-muted-foreground transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </button>
+                <button type="button" onClick={() => setPageIndex((current) => Math.max(0, current - 1))} disabled={pageIndex === 0 || ordersQuery.isFetching} aria-label="Previous page" className="grid h-8 w-8 place-items-center rounded-md border border-border bg-card text-muted-foreground transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button>
+                <button type="button" onClick={() => setPageIndex((current) => current + 1)} disabled={!hasNextPage || ordersQuery.isFetching} aria-label="Next page" className="grid h-8 w-8 place-items-center rounded-md border border-border bg-card text-muted-foreground transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button>
               </div>
             </div>
           ) : null}
         </section>
       </div>
 
-      <Dialog open={Boolean(holdOrder)} onOpenChange={(open) => (!open ? setHoldOrder(null) : null)}>
-        <DialogContent data-testid="sales-orders:hold-dialog" className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Customer hold &amp; close</DialogTitle>
-            <DialogDescription>
-              Use this when the customer is not lifting material. The undelivered balance becomes hold qty and the PO closes. Delivered quantities and job cards are not changed, and you can lift the hold later.
-            </DialogDescription>
-          </DialogHeader>
-          {holdOrder ? (
-            <div className="grid grid-cols-3 overflow-hidden rounded-lg border border-border text-center">
-              {[
-                ["SO", holdOrder.order_no || "—"],
-                ["PO", holdOrder.po_number || "Internal"],
-                ["Will hold", `${(holdOrder.lines || []).reduce((total: number, line: any) => total + Math.max(0, Number(line.qty || 0) - Number(line.fulfilled_qty || 0)), 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })} pcs`],
-              ].map(([label, value], index) => (
-                <div key={label} className={`px-3 py-2 ${index ? "border-l border-border" : ""}`}>
-                  <p className="text-[11px] text-muted-foreground">{label}</p>
-                  <p className="truncate text-[13px] font-semibold">{value}</p>
-                </div>
-              ))}
-            </div>
-          ) : null}
-          <OrderCloseReasonFields
-            reasons={holdReasons}
-            reasonCode={holdReasonCode}
-            note={holdNote}
-            onReasonCodeChange={setHoldReasonCode}
-            onNoteChange={setHoldNote}
-            testIdPrefix="sales-orders:hold"
-            notePlaceholder="e.g. Customer has not lifted material since July; confirmed on call."
-          />
-          <DialogFooter>
-            <button type="button" className="erp-btn-secondary" onClick={() => setHoldOrder(null)}>Cancel</button>
-            <button type="button" data-testid="sales-orders:hold-confirm" className="erp-btn-primary !bg-signal-amber-ink !text-background" disabled={!closeReasonComplete(holdReasonCode, holdNote) || holdSalesOrder.isPending} onClick={() => void handleHold()}>
-              {holdSalesOrder.isPending ? "Holding…" : "Hold & close PO"}
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
+      <OrderHoldDialog orders={holdOrders} open={holdOrders.length > 0} onOpenChange={(open) => { if (!open) setHoldOrders([]) }} />
       <OrderClosureDialog order={closureOrder} open={Boolean(closureOrder)} onOpenChange={(open) => { if (!open) setClosureOrder(null) }} />
-
       <ReleaseToQueueDialog
-        order={releaseDialogOrder}
-        selectedLineIds={releaseDialogOrder ? selectedLines[String(releaseDialogOrder.id)] || [] : []}
-        open={Boolean(releaseDialogOrder)}
-        onOpenChange={(open) => { if (!open) closeReleaseDialog() }}
+        order={releaseOrder}
+        selectedLineIds={releaseOrder ? (selectedLines[String(releaseOrder.id)] || []).filter((id) => releasableLineIds(releaseOrder).includes(id)) : []}
+        open={Boolean(releaseOrder)}
+        onOpenChange={(open) => { if (!open) setReleaseOrder(null) }}
         testIdPrefix="sales-orders"
-        onReleased={({ lotIds }) => {
-          if (!releaseDialogOrder) return
-          const releasedPlantId = orderPlantId(releaseDialogOrder)
-          if (releasedPlantId) setActivePlant(releasedPlantId)
-          setSelectedLines((current) => ({ ...current, [String(releaseDialogOrder.id)]: [] }))
-          setSyncResults((current) => ({ ...current, [String(releaseDialogOrder.id)]: lotIds }))
+        onReleased={() => {
+          if (!releaseOrder) return
+          // Keep the plant scope on the order's plant (same id, case-insensitive, is left alone).
+          const releasedPlantId = orderPlantId(releaseOrder)
+          if (releasedPlantId && String(activePlant || "").toLowerCase() !== releasedPlantId.toLowerCase()) setActivePlant(releasedPlantId.toLowerCase())
+          setSelectedLines((current) => ({ ...current, [String(releaseOrder.id)]: [] }))
+          setExpanded((current) => new Set(current).add(String(releaseOrder.id)))
+          router.refresh()
         }}
       />
     </>
+  )
+}
+
+/** Lines → job cards under an expanded order row: card no, stages, state, plan · QC, quick links. */
+function OrderLinesExpansion({ order, jobs, overlay, jobsFailed, releasable, selectedLineIds, onToggleLine, onRelease }: {
+  order: any
+  jobs: any[]
+  overlay?: any
+  jobsFailed: boolean
+  releasable: string[]
+  selectedLineIds: string[]
+  onToggleLine: (lineId: string, checked: boolean) => void
+  onRelease?: () => void
+}) {
+  const lines: any[] = order.lines || []
+  const status = String(order.status || "")
+  const missing = Math.max(0, Number(overlay?.job_count || 0) - jobs.length)
+  return (
+    // width 0 + min-width 100%: the inner table scrolls on its own and never widens the orders table.
+    <div className="overflow-x-auto bg-[hsl(var(--surface-sunken))] px-3 py-2.5 pl-[60px] animate-fade-in" style={{ width: 0, minWidth: "100%" }} data-testid={`sales-orders:lines-${order.id}`}>
+      <table className="tube-grid min-w-[760px] !text-[12.5px]">
+        <thead>
+          <tr>
+            <th className="!bg-transparent">Line · size · colour</th>
+            <th className="num !bg-transparent">Qty</th>
+            <th className="!bg-transparent">Job card</th>
+            <th className="!bg-transparent">Stages <span className="font-normal normal-case text-muted-foreground">W · O · P · Pk · QC · D</span></th>
+            <th className="!bg-transparent">State</th>
+            <th className="!bg-transparent">Plan · QC</th>
+            <th className="!bg-transparent text-right"><span className="sr-only">Quick links</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {lines.map((line: any) => {
+            const lineJobs = jobs.filter((job) => String(job.sales_order_line_id || "") === String(line.id)).sort((a, b) => String(a.job_card_no || "").localeCompare(String(b.job_card_no || "")))
+            const released = Number(line.released_qty || 0)
+            const lineReleasable = releasable.includes(String(line.id))
+            const colour = line.parchment_required ? (line.color_splits?.length ? line.color_splits.map((split: any) => `${split.color} ${fmt(split.qty)}`).join(", ") : line.parchment_color || "colour not decided") : "plain"
+            const lineCells = (rowSpan: number) => (
+              <>
+                <td rowSpan={rowSpan} className="align-top">
+                  <label className="flex items-start gap-2">
+                    {lineReleasable ? <input type="checkbox" aria-label={`Select line ${line.line_no} to release`} checked={selectedLineIds.includes(String(line.id))} onChange={(event) => onToggleLine(String(line.id), event.target.checked)} className="mt-0.5 h-3.5 w-3.5 cursor-pointer" /> : <span className="w-3.5" />}
+                    <span className="min-w-0">
+                      <strong>Line {line.line_no}</strong> · <span className="whitespace-nowrap">{line.size_label || line.product_code || "—"}</span>
+                      <span className="block truncate text-[11.5px] text-muted-foreground" title={colour}>{colour}{line.due_date ? ` · due ${formatShortDate(line.due_date)}` : ""}</span>
+                    </span>
+                  </label>
+                </td>
+                <td rowSpan={rowSpan} className="num align-top"><strong>{fmt(line.qty)}</strong><span className="block text-[11px] text-muted-foreground">{released ? `${fmt(released)} released` : "not released"}{Number(line.short_closed_qty || 0) > 0 ? ` · ${fmt(line.short_closed_qty)} dropped` : ""}</span></td>
+              </>
+            )
+            if (!lineJobs.length) {
+              return (
+                <tr key={line.id}>
+                  {lineCells(1)}
+                  <td colSpan={5} className="text-muted-foreground">
+                    {jobsFailed ? "Job cards did not load." : released > 0 ? "Job card not in the latest 250 cards — open the order to see it." : status === "approved" ? "No job card yet — release this line to create one." : ["draft", "submitted"].includes(status) ? "No job card yet — waiting for approval." : "No job card yet."}
+                  </td>
+                </tr>
+              )
+            }
+            return lineJobs.map((job, index) => {
+              const state = cardState(job)
+              const parentNo = job.parent_job_card_id ? jobs.find((row) => String(row.id) === String(job.parent_job_card_id))?.job_card_no : null
+              return (
+                <tr key={job.id} data-testid={`sales-orders:card-${job.job_card_no || job.id}`}>
+                  {index === 0 ? lineCells(lineJobs.length) : null}
+                  <td className="align-top">
+                    <Link href={`/production/job-cards/${job.id}`} className="hover:text-primary"><JobCardNo job={job} /></Link>
+                    <span className="block text-[11px] text-muted-foreground">{fmt(job.planned_qty)} pcs{job.target_bamboo_count ? ` · ${fmt(job.target_bamboo_count)} bamboo` : ""}{job.parchment_color ? <> · <ColorChip color={job.parchment_color} className="!text-[11px]" /></> : ""}{parentNo ? ` · ${job.split_kind === "CARRY_FORWARD" ? "top-up of" : "split of"} ${parentNo}` : ""}</span>
+                  </td>
+                  <td className="align-top"><StageDots job={job} /></td>
+                  <td className="whitespace-nowrap align-top"><LifecycleBadge state={state} /><span className="ml-1.5 text-[11.5px] text-muted-foreground">{String(job.current_stage || "").toUpperCase() === "DONE" ? "" : (job.current_stage ? String(job.current_stage).charAt(0) + String(job.current_stage).slice(1).toLowerCase() : "")}</span></td>
+                  <td className="align-top"><span className="flex flex-col items-start gap-1"><PlanChip job={job} /><QcFlagChip runs={Number(job.qc_flagged_runs || 0)} /></span></td>
+                  <td className="whitespace-nowrap text-right align-top">
+                    <span className="inline-flex items-center gap-1">
+                      {state !== "COMPLETED" && state !== "FORCE_CLOSED" && state !== "CANCELLED" ? (
+                        <>
+                          <Link href={`/production/job-cards/${job.id}?log=output`} title="Log output" aria-label={`Log output on ${job.job_card_no}`} className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-foreground/[.06] hover:text-foreground"><Factory className="h-3.5 w-3.5" /></Link>
+                          <Link href={`/production/job-cards/${job.id}?log=qc`} title="Log QC" aria-label={`Log QC on ${job.job_card_no}`} className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-foreground/[.06] hover:text-foreground"><ClipboardCheck className="h-3.5 w-3.5" /></Link>
+                        </>
+                      ) : null}
+                      <Link href={`/production/job-cards/${job.id}`} title="Open card" aria-label={`Open card ${job.job_card_no}`} className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-foreground/[.06] hover:text-foreground"><ExternalLink className="h-3.5 w-3.5" /></Link>
+                    </span>
+                  </td>
+                </tr>
+              )
+            })
+          })}
+        </tbody>
+      </table>
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-muted-foreground">
+        <span>
+          {order.is_held ? `On customer hold since ${formatShortDate(order.held_at)}${order.hold_reason ? ` — ${order.hold_reason}` : ""}.`
+            : onRelease ? (selectedLineIds.length ? `${selectedLineIds.length} line${selectedLineIds.length === 1 ? "" : "s"} ticked. Release makes one job card per line and colour and puts it in the winder queue.` : "Tick the lines production needs now, or release everything open. A PO can release many times over its life.")
+            : ["draft", "submitted"].includes(status) ? "Approve this order to release its lines to planning." : "Open the order for deliveries and the full history."}
+          {missing ? ` ${missing} older card${missing === 1 ? "" : "s"} not shown here.` : ""}
+        </span>
+        <span className="ml-auto flex items-center gap-1.5">
+          {onRelease ? <button type="button" className="erp-btn-primary !h-8" onClick={onRelease} data-testid="sales-orders:release-lines"><Send className="h-3.5 w-3.5" />Release lines…</button> : null}
+          <Link href={`/sales-orders/${order.id}`} className="erp-btn-secondary !h-8"><ExternalLink className="h-3.5 w-3.5" />Open order</Link>
+        </span>
+      </div>
+    </div>
   )
 }

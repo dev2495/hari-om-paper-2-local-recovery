@@ -104,6 +104,7 @@ function invalidateSalesQueries(queryClient: ReturnType<typeof useQueryClient>, 
   if (orderId) {
     queryClient.invalidateQueries({ queryKey: ["sales", "order", orderId] })
     queryClient.invalidateQueries({ queryKey: ["sales", "timeline", orderId] })
+    queryClient.invalidateQueries({ queryKey: ["sales", "history", orderId] })
   }
 }
 
@@ -333,6 +334,53 @@ export function useSalesOrderTimeline(orderId?: string) {
       }
     },
     enabled: Boolean(orderId),
+  })
+}
+
+export type OrderHistoryEvent = {
+  id: string
+  at: string | null
+  actor: string | null
+  role: string | null
+  kind: string
+  source: "SALES" | "PRODUCTION"
+  title: string | null
+  detail: string | null
+  stage: string | null
+  stage_label: string | null
+  job_card_id: string | null
+  job_card_no: string | null
+  line_id?: string | null
+  flag: boolean
+  before: Record<string, any> | null
+  after: Record<string, any> | null
+}
+
+export type OrderHistory = {
+  order_id: string
+  order_no: string | null
+  status: string | null
+  events: OrderHistoryEvent[]
+  job_cards: Array<{ id: string; job_card_no: string | null; status: string }>
+  warnings: string[]
+  summary: { events: number; flags: number }
+}
+
+/** The order page's one history: sales events and every event of its job cards, newest first (client 2026-10-27). */
+export function useOrderHistory(orderId?: string, plantId?: string) {
+  return useQuery({
+    queryKey: ["sales", "history", orderId, plantId || null],
+    queryFn: async () => (await salesApi.getOrderHistory(String(orderId), plantId)).data as OrderHistory,
+    enabled: Boolean(orderId),
+  })
+}
+
+/** Draft → submitted ("Send for approval"): the maker marks the order ready for another user to approve. */
+export function useSubmitSalesOrder() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ orderId }: { orderId: string; plantId?: string }) => salesApi.updateOrder(orderId, { status: "submitted" }),
+    onSuccess: (_response, variables) => invalidateSalesQueries(queryClient, variables.orderId),
   })
 }
 

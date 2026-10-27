@@ -143,8 +143,7 @@ export default function DispatchSelectionPage() {
                                             <div className="mt-5 flex flex-wrap justify-center gap-2">
                                                 {jobs.length === 0 ? (
                                                     <>
-                                                        <Button asChild variant="outline"><Link href="/production/job-cards"><Factory className="mr-2 h-4 w-4" />Open job cards</Link></Button>
-                                                        <Button asChild><Link href="/planning/tracker">Open tracker</Link></Button>
+                                                        <Button asChild><Link href="/production/job-cards"><Factory className="mr-2 h-4 w-4" />Open job cards</Link></Button>
                                                     </>
                                                 ) : (
                                                     <Button variant="outline" onClick={() => { setFilterCustomer(""); setFilterJobNo(""); setFilterStatus(""); }}>Clear all filters</Button>
