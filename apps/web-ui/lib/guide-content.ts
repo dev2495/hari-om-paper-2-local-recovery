@@ -162,7 +162,7 @@ const guides: GuideContent[] = [
       { label: "Choose receipt source", detail: "Select vendor, then approved PO and material lines. For a manual GRN, select materials directly and explain why no PO exists; a separate checker must approve it." },
       { label: "Record challan and invoice", detail: "Enter the supplier challan number (always required), then invoice number, date, quantity and rate, or mark invoice pending to save held physical stock. A challan number the same supplier already used shows a warning, not a block." },
       { label: "Weigh every lot", detail: "The grid opens with 10 empty rows (Add 10 more for big loads). Enter or paste vendor reel number, net kg and measured width for every physical reel or coil; empty rows are left out." },
-      { label: "Post once", detail: "The server rechecks the PO balance and creates one inward number (P/26/001 paper, A/26/001 adhesive, IN/26/001 everything else; restarting every year), one stock identity and one label per physical unit." },
+      { label: "Post once", detail: "The server rechecks the PO balance and creates one inward number (P/26/001 paper, A/26/001 adhesive, IN/26/001 everything else; restarting every financial year on 1 April), one stock identity and one label per physical unit." },
     ],
     fieldRules: [
       "Sum of individual net weights is the received quantity in kg. Add another material for mixed loads.",

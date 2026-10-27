@@ -69,10 +69,15 @@ def normalize_challan_number(value: Any) -> str:
     return cleaned
 
 
-# Inward (GRN) numbers (client 2026-10-26): own counter per plant and calendar year, 001, 002…
+# Inward (GRN) numbers (client 2026-10-26): own counter per plant and financial year, 001, 002…
 # Paper inwards P/26/001, adhesive inwards A/26/001, everything else (parchment, plastic, box,
-# mixed) IN/26/001.
+# mixed) IN/26/001. The year restarts on 1 April (client 2026-10-27); 26 = financial year 2026-27.
 GRN_SERIES_PREFIX = {"PAPER": "P", "ADHESIVE": "A", "GENERAL": "IN"}
+
+
+def financial_year(on_date: date) -> int:
+    """Start year of the Indian financial year (April to March) of ``on_date``."""
+    return on_date.year if on_date.month >= 4 else on_date.year - 1
 
 
 def grn_series_for(item_types: Iterable[Any]) -> str:

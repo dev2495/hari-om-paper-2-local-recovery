@@ -121,7 +121,7 @@ def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_
             db.flush()
     state = "INVOICE_PENDING" if payload.invoice_pending else "MANUAL_REVIEW"
     warnings = _challan_warnings(db, plant_id, payload.supplier_id, payload.supplier_challan_no)
-    # Same inward series as PO receipts (P / A / IN per calendar year, client 2026-10-26).
+    # Same inward series as PO receipts (P / A / IN per financial year from April, client 2026-10-27).
     grn_no = _next_grn_no(db, plant_id, [item.type for _, item, _, _ in rows], payload.received_date)
     receipt = PurchaseReceipt(plant_id=plant_id, receipt_kind="MANUAL", supplier_id=payload.supplier_id,
         supplier_name_snapshot=payload.supplier_name.strip(), manual_reason=payload.reason.strip(), request_id=payload.request_id,

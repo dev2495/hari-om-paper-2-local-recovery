@@ -67,6 +67,7 @@ from ..services.labels import reel_label_payload, batch_label_payload
 from ..services.receipt_quality import initial_quality, refresh_receipt_stock
 from ..services.procurement import (
     ProcurementRuleError,
+    financial_year,
     alert_severity,
     calculate_landed_cost,
     canonical_hash,
@@ -262,13 +263,14 @@ def _validate_receipt(payload: GovernedReceiptCreate, db: Session = None, plant_
 
 
 def _next_grn_no(db: Session, plant_id: str, item_types: list[Any], on_date: date) -> str:
-    """Next inward number of the series the lines decide (P / A / IN), restarting each calendar year.
+    """Next inward number of the series the lines decide (P / A / IN), restarting each financial year.
 
-    Year and series are part of the counter key, so 2027 starts again at 001. Older GRN numbers are
-    left as they are; a number already taken in the plant is skipped.
+    Financial year and series are part of the counter key, so 1 April 2027 starts again at P/27/001.
+    Older GRN numbers are left as they are; a number already taken in the plant is skipped.
     """
     series = grn_series_for(item_types)
-    year = on_date.year % 100
+    fy = financial_year(on_date)
+    year = fy % 100
     category = f"{series}-{year:02d}"
     db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": f"grn-series:{plant_id}:{category}"})
     counter = db.query(DocumentSeries).filter(
@@ -281,10 +283,10 @@ def _next_grn_no(db: Session, plant_id: str, item_types: list[Any], on_date: dat
         db.add(counter)
         db.flush()
     sequence = int(counter.next_value or 1)
-    candidate = grn_number(series, on_date.year, sequence)
+    candidate = grn_number(series, fy, sequence)
     while db.query(PurchaseReceipt.id).filter(PurchaseReceipt.plant_id == plant_id, PurchaseReceipt.grn_no == candidate).first():
         sequence += 1
-        candidate = grn_number(series, on_date.year, sequence)
+        candidate = grn_number(series, fy, sequence)
     counter.next_value = sequence + 1
     counter.version = int(counter.version or 1) + 1
     return candidate

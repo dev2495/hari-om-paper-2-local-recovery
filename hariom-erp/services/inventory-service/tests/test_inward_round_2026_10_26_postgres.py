@@ -108,13 +108,16 @@ def test_inward_numbers_follow_material_series_and_restart_each_year():
         ]), db, PLANT, MAKER)
         assert mixed["grn_no"] == "IN/26/002"
 
-        next_year = post_governed_receipt(_receipt(paper_po, [_paper_line(paper_po, 300)], on=date(2027, 1, 2)), db, PLANT, MAKER)
+        # The year restarts on 1 April (financial year), not on 1 January.
+        january = post_governed_receipt(_receipt(paper_po, [_paper_line(paper_po, 300)], on=date(2027, 1, 2)), db, PLANT, MAKER)
+        assert january["grn_no"] == "P/26/003"
+        next_year = post_governed_receipt(_receipt(paper_po, [_paper_line(paper_po, 300)], on=date(2027, 4, 1)), db, PLANT, MAKER)
         assert next_year["grn_no"] == "P/27/001"
         other_plant_paper = _item(db, "RAW_PAPER", tracking="REEL", plant=OTHER_PLANT)
         other_po = _po(db, [{"item_id": other_plant_paper.id, "qty_ordered": 900, "unit_cost": 30, "uom": "KG"}], plant=OTHER_PLANT)
         assert post_governed_receipt(_receipt(other_po, [_paper_line(other_po, 400)]), db, OTHER_PLANT, MAKER)["grn_no"] == "P/26/001"
         counters = {row.category: row.next_value for row in db.query(DocumentSeries).filter_by(plant_id=PLANT, document_type="GRN")}
-        assert counters == {"PAPER-26": 3, "ADHESIVE-26": 2, "GENERAL-26": 3, "PAPER-27": 2}
+        assert counters == {"PAPER-26": 4, "ADHESIVE-26": 2, "GENERAL-26": 3, "PAPER-27": 2}
 
 
 def test_challan_is_required_and_a_repeat_by_the_same_supplier_only_warns():

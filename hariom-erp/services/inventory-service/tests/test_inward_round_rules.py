@@ -16,7 +16,7 @@ from src.routers.issue import check_issue_quantity
 from src.routers.procurement import GovernedReceiptCreate
 from src.routers.reel_issues import plan_weight_issue
 from src.services.procurement import (
-    ProcurementRuleError, grn_number, grn_series_for, normalize_challan_number, over_receipt,
+    ProcurementRuleError, financial_year, grn_number, grn_series_for, normalize_challan_number, over_receipt,
 )
 from src.services.procurement_documents import render_purchase_order_pdf
 
@@ -29,6 +29,13 @@ def test_inward_series_is_decided_by_every_line():
     assert grn_series_for(["PACKAGING"]) == "GENERAL"
     assert grn_series_for(["RAW_PAPER", "ADHESIVE"]) == "GENERAL"
     assert grn_series_for([]) == "GENERAL"
+
+
+def test_inward_year_is_the_financial_year_from_april():
+    assert financial_year(date(2026, 10, 27)) == 2026
+    assert financial_year(date(2027, 3, 31)) == 2026
+    assert financial_year(date(2027, 4, 1)) == 2027
+    assert financial_year(date(2026, 1, 15)) == 2025
 
 
 def test_inward_number_format_is_prefix_two_digit_year_and_three_digit_counter():
