@@ -114,7 +114,7 @@ const ROLE_CHARTS: Record<LandingRole, ChartKey[]> = {
   Operator: ["pipeline", "output"],
 }
 
-const STAGE_ORDER = ["SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING", "QC", "DISPATCH"]
+const STAGE_ORDER = ["SLITTING", "WINDER", "OVEN", "PROCESS", "DISPATCH"]
 const STAGE_COLORS: Record<string, string> = {
   winder_qty: "hsl(var(--chart-1))",
   oven_qty: "hsl(var(--chart-4))",
@@ -183,8 +183,14 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
   const produced = outputRows.reduce((total, row) => total + row.packing_qty, 0)
   const flowRows = orderSeries.map((row) => ({ label: bucketLabel(row.bucket), created: Number(row.orders_created || 0), closed: Number(row.orders_closed || 0), dispatch: Number(row.dispatch_qty || 0) }))
   const qualityRows = qualitySeries.map((row) => ({ label: bucketLabel(row.bucket), passed: Number(row.passed || 0), failed: Number(row.failed || 0) }))
-  const pipelineRows = (Array.isArray(pack.production?.stage_pipeline) ? pack.production.stage_pipeline : [])
-    .map((row: any) => ({ stage: String(row.stage_type || "").toUpperCase(), count: Number(row.count || 0) }))
+  // Packing and QC close with Process, so their counts belong to Process.
+  const pipelineCounts = new Map<string, number>()
+  for (const row of Array.isArray(pack.production?.stage_pipeline) ? pack.production.stage_pipeline : []) {
+    const raw = String(row.stage_type || "").toUpperCase()
+    const stage = raw === "PACKING" || raw === "QC" ? "PROCESS" : raw
+    pipelineCounts.set(stage, (pipelineCounts.get(stage) || 0) + Number(row.count || 0))
+  }
+  const pipelineRows = Array.from(pipelineCounts, ([stage, count]) => ({ stage, count }))
     .sort((a: any, b: any) => (STAGE_ORDER.indexOf(a.stage) + 99) % 99 - (STAGE_ORDER.indexOf(b.stage) + 99) % 99)
   const machineRows = (Array.isArray(pack.production?.machine_utilization) ? pack.production.machine_utilization : []).slice(0, 8)
   const inv: any = pack.inventory?.summary || {}

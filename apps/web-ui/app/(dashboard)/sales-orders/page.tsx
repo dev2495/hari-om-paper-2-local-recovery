@@ -49,6 +49,7 @@ import { describeErrorDetail } from "@/lib/api-error"
 import { isInternalOrigin, salesOrderReferenceLabel } from "@/lib/sales-order-entry"
 import {
   ORDER_TABS,
+  STAGE_LABEL,
   cardState,
   cardSummary,
   formatShortDate,
@@ -59,6 +60,7 @@ import {
   orderStatus,
   orderTabParams,
   orderTotals,
+  routeStage,
   tabCount,
   type KpiTile,
   type OrderTabKey,
@@ -657,14 +659,12 @@ function OrderLinesExpansion({ order, jobs, overlay, jobsFailed, releasable, sel
   const missing = Math.max(0, Number(overlay?.job_count || 0) - jobs.length)
   return (
     // width 0 + min-width 100%: the inner table scrolls on its own and never widens the orders table.
-    <div className="overflow-x-auto bg-[hsl(var(--surface-sunken))] px-3 py-2.5 pl-[60px] animate-fade-in" style={{ width: 0, minWidth: "100%" }} data-testid={`sales-orders:lines-${order.id}`}>
-      <table className="tube-grid min-w-[760px] !text-[12.5px]">
+    <div className="overflow-x-auto bg-[hsl(var(--surface-sunken))] px-3 py-2.5 pl-10 animate-fade-in" style={{ width: 0, minWidth: "100%" }} data-testid={`sales-orders:lines-${order.id}`}>
+      <table className="tube-grid w-full min-w-[620px] !text-[12.5px]">
         <thead>
           <tr>
-            <th className="!bg-transparent">Line · size · colour</th>
-            <th className="num !bg-transparent">Qty</th>
             <th className="!bg-transparent">Job card</th>
-            <th className="!bg-transparent">Stages <span className="font-normal normal-case text-muted-foreground">W · O · P · Pk · QC · D</span></th>
+            <th className="!bg-transparent">Stages <span className="font-normal normal-case text-muted-foreground">W · O · P · D</span></th>
             <th className="!bg-transparent">State</th>
             <th className="!bg-transparent">Plan · QC</th>
             <th className="!bg-transparent text-right"><span className="sr-only">Quick links</span></th>
@@ -676,42 +676,44 @@ function OrderLinesExpansion({ order, jobs, overlay, jobsFailed, releasable, sel
             const released = Number(line.released_qty || 0)
             const lineReleasable = releasable.includes(String(line.id))
             const colour = line.parchment_required ? (line.color_splits?.length ? line.color_splits.map((split: any) => `${split.color} ${fmt(split.qty)}`).join(", ") : line.parchment_color || "colour not decided") : "plain"
-            const lineCells = (rowSpan: number) => (
-              <>
-                <td rowSpan={rowSpan} className="align-top">
-                  <label className="flex items-start gap-2">
-                    {lineReleasable ? <input type="checkbox" aria-label={`Select line ${line.line_no} to release`} checked={selectedLineIds.includes(String(line.id))} onChange={(event) => onToggleLine(String(line.id), event.target.checked)} className="mt-0.5 h-3.5 w-3.5 cursor-pointer" /> : <span className="w-3.5" />}
-                    <span className="min-w-0">
-                      <strong>Line {line.line_no}</strong> · <span className="whitespace-nowrap">{line.size_label || line.product_code || "—"}</span>
-                      <span className="block truncate text-[11.5px] text-muted-foreground" title={colour}>{colour}{line.due_date ? ` · due ${formatShortDate(line.due_date)}` : ""}</span>
-                    </span>
+            // One slim strip per line: what was ordered; its job cards follow underneath.
+            const lineHead = (
+              <tr key={`${line.id}:head`} className="[&>td]:!border-b-0 [&>td]:!pb-0.5 [&>td]:!pt-2">
+                <td colSpan={5}>
+                  <label className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px]">
+                    {lineReleasable ? <input type="checkbox" aria-label={`Select line ${line.line_no} to release`} checked={selectedLineIds.includes(String(line.id))} onChange={(event) => onToggleLine(String(line.id), event.target.checked)} className="h-3.5 w-3.5 cursor-pointer" /> : null}
+                    <strong className="text-foreground">Line {line.line_no}</strong>
+                    <span className="whitespace-nowrap text-foreground/85">{line.size_label || line.product_code || "—"}</span>
+                    <span className="text-muted-foreground">·</span>
+                    <span className="max-w-[260px] truncate text-muted-foreground" title={colour}>{colour}</span>
+                    <span className="text-muted-foreground">·</span>
+                    <span className="whitespace-nowrap tabular-nums"><strong>{fmt(line.qty)}</strong> pcs <span className="text-muted-foreground">{released ? `(${fmt(released)} released${Number(line.short_closed_qty || 0) > 0 ? `, ${fmt(line.short_closed_qty)} dropped` : ""})` : "(not released)"}</span></span>
+                    {line.due_date ? <span className="whitespace-nowrap text-muted-foreground">· due {formatShortDate(line.due_date)}</span> : null}
                   </label>
                 </td>
-                <td rowSpan={rowSpan} className="num align-top"><strong>{fmt(line.qty)}</strong><span className="block text-[11px] text-muted-foreground">{released ? `${fmt(released)} released` : "not released"}{Number(line.short_closed_qty || 0) > 0 ? ` · ${fmt(line.short_closed_qty)} dropped` : ""}</span></td>
-              </>
+              </tr>
             )
             if (!lineJobs.length) {
-              return (
+              return [
+                lineHead,
                 <tr key={line.id}>
-                  {lineCells(1)}
                   <td colSpan={5} className="text-muted-foreground">
                     {jobsFailed ? "Job cards did not load." : released > 0 ? "Job card not in the latest 250 cards — open the order to see it." : status === "approved" ? "No job card yet — release this line to create one." : ["draft", "submitted"].includes(status) ? "No job card yet — waiting for approval." : "No job card yet."}
                   </td>
-                </tr>
-              )
+                </tr>,
+              ]
             }
-            return lineJobs.map((job, index) => {
+            return [lineHead, ...lineJobs.map((job) => {
               const state = cardState(job)
               const parentNo = job.parent_job_card_id ? jobs.find((row) => String(row.id) === String(job.parent_job_card_id))?.job_card_no : null
               return (
                 <tr key={job.id} data-testid={`sales-orders:card-${job.job_card_no || job.id}`}>
-                  {index === 0 ? lineCells(lineJobs.length) : null}
                   <td className="align-top">
                     <Link href={`/production/job-cards/${job.id}`} className="hover:text-primary"><JobCardNo job={job} /></Link>
                     <span className="block text-[11px] text-muted-foreground">{fmt(job.planned_qty)} pcs{job.target_bamboo_count ? ` · ${fmt(job.target_bamboo_count)} bamboo` : ""}{job.parchment_color ? <> · <ColorChip color={job.parchment_color} className="!text-[11px]" /></> : ""}{parentNo ? ` · ${job.split_kind === "CARRY_FORWARD" ? "top-up of" : "split of"} ${parentNo}` : ""}</span>
                   </td>
                   <td className="align-top"><StageDots job={job} /></td>
-                  <td className="whitespace-nowrap align-top"><LifecycleBadge state={state} /><span className="ml-1.5 text-[11.5px] text-muted-foreground">{String(job.current_stage || "").toUpperCase() === "DONE" ? "" : (job.current_stage ? String(job.current_stage).charAt(0) + String(job.current_stage).slice(1).toLowerCase() : "")}</span></td>
+                  <td className="whitespace-nowrap align-top"><LifecycleBadge state={state} /><span className="ml-1.5 text-[11.5px] text-muted-foreground">{job.current_stage && String(job.current_stage).toUpperCase() !== "DONE" ? STAGE_LABEL[routeStage(job.current_stage)] || String(job.current_stage) : ""}</span></td>
                   <td className="align-top"><span className="flex flex-col items-start gap-1"><PlanChip job={job} /><QcFlagChip runs={Number(job.qc_flagged_runs || 0)} /></span></td>
                   <td className="whitespace-nowrap text-right align-top">
                     <span className="inline-flex items-center gap-1">
@@ -726,7 +728,7 @@ function OrderLinesExpansion({ order, jobs, overlay, jobsFailed, releasable, sel
                   </td>
                 </tr>
               )
-            })
+            })]
           })}
         </tbody>
       </table>

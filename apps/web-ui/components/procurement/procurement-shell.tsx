@@ -24,15 +24,17 @@ export function Field({ label, hint, children }: { label: string; hint?: string;
   )
 }
 
-export function ProcurementShell({ title, eyebrow, description, actions, children }: {
-  title: string; eyebrow: string; description: string; actions?: ReactNode; children: ReactNode
+/** allPlants: the page writes each lot to its own plant, so it also works from "All plants". */
+export function ProcurementShell({ title, eyebrow, description, actions, children, allPlants = false }: {
+  title: string; eyebrow: string; description: string; actions?: ReactNode; children: ReactNode; allPlants?: boolean
 }) {
   const { activePlant } = useAuth()
+  const open = allPlants || (activePlant && activePlant !== "ALL")
   return (
     <div className="min-w-0 space-y-5" data-testid="procurement-workspace">
-      <PageHeader title={title} description={description} actions={activePlant && activePlant !== "ALL" ? actions : null} />
-      {!activePlant || activePlant === "ALL" ? <MessageBar tone="info">Choose one plant using the plant selector above to work with purchase orders, receipts, schedules and costing.</MessageBar> : null}
-      {activePlant && activePlant !== "ALL" ? children : null}
+      <PageHeader title={title} description={description} actions={open ? actions : null} />
+      {!open ? <MessageBar tone="info">Choose one plant using the plant selector above to work with purchase orders, receipts, schedules and costing.</MessageBar> : null}
+      {open ? children : null}
     </div>
   )
 }

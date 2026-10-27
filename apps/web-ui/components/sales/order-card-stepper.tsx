@@ -1,13 +1,13 @@
 "use client"
 
-import { Check, Disc3, Package, Scissors, ShieldCheck, SlidersHorizontal, Thermometer, Truck } from "lucide-react"
+import { Check, Disc3, Scissors, SlidersHorizontal, Thermometer, Truck } from "lucide-react"
 
 import type { JobCardLifecycle } from "@/hooks/use-lifecycle"
-import { STAGE_LABEL, formatShortDate } from "@/lib/sales-order-tracker"
+import { STAGE_LABEL, formatShortDate, routeStage } from "@/lib/sales-order-tracker"
 import { cn } from "@/lib/utils"
 
 const fmt = (value: unknown) => Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })
-const STAGE_ICON: Record<string, any> = { SLITTING: Scissors, WINDER: Disc3, OVEN: Thermometer, PROCESS: SlidersHorizontal, PACKING: Package, QC: ShieldCheck, DISPATCH: Truck }
+const STAGE_ICON: Record<string, any> = { SLITTING: Scissors, WINDER: Disc3, OVEN: Thermometer, PROCESS: SlidersHorizontal, DISPATCH: Truck }
 
 type StepState = "done" | "running" | "planned" | "todo"
 
@@ -34,8 +34,9 @@ function slotText(stage: JobCardLifecycle["stages"][number]) {
  */
 export function OrderCardStepper({ lifecycle, dispatchedQty = 0, className }: { lifecycle: JobCardLifecycle; dispatchedQty?: number; className?: string }) {
   const cardDone = String(lifecycle.status || "").toUpperCase() === "COMPLETED"
-  const stages = lifecycle.stages || []
-  const current = String(lifecycle.current_stage || "").toUpperCase()
+  // Packing and QC close with Process; they are not steps of their own.
+  const stages = (lifecycle.stages || []).filter((stage) => !["PACKING", "QC"].includes(String(stage.stage || "").toUpperCase()))
+  const current = routeStage(lifecycle.current_stage)
   return (
     <ol className={cn("grid gap-1", className)} style={{ gridTemplateColumns: `repeat(${Math.max(1, stages.length)}, minmax(0, 1fr))` }} aria-label="Stages">
       {stages.map((stage, index) => {

@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert"
-import { groupRows, managementTrail, serverTime, stageTrack, trackStatus } from "../lib/job-card-tracking"
+import { floorStage, groupRows, managementTrail, serverTime, stageTrack, stageWord, trackStatus } from "../lib/job-card-tracking"
 
 // Server timestamps are naive UTC: 05:30 UTC is 11:00 in the plant, never 05:30.
 assert.equal(serverTime("2026-10-27T05:30:15")?.toISOString(), "2026-10-27T05:30:15.000Z")
@@ -16,7 +16,14 @@ assert.equal(trackStatus({ status: "IN_PROGRESS", current_stage: "WINDER" }, tru
 assert.equal(trackStatus({ status: "CANCELLED", close_mode: "CANCELLED" }), "CLOSED_EARLY")
 assert.equal(trackStatus({ status: "IN_PROGRESS", close_mode: "FORCE", current_stage: "OVEN" }), "CLOSED_EARLY")
 assert.equal(trackStatus({ status: "COMPLETED", current_stage: "DONE" }), "DONE")
-assert.deepEqual(stageTrack({ status: "IN_PROGRESS", current_stage: "OVEN" }).map((step) => step.state), ["done", "current", "pending", "pending", "pending", "pending"])
+assert.deepEqual(stageTrack({ status: "IN_PROGRESS", current_stage: "OVEN" }).map((step) => step.state), ["done", "current", "pending", "pending"])
+// Packing and the end QC are part of Process: the track is W · O · P · D and an old PACKING/QC stage reads as Process.
+assert.deepEqual(stageTrack({ status: "IN_PROGRESS", current_stage: "OVEN" }).map((step) => step.short), ["W", "O", "P", "D"])
+assert.deepEqual(stageTrack({ status: "IN_PROGRESS", current_stage: "QC" }).map((step) => step.state), ["done", "done", "current", "pending"])
+assert.equal(floorStage("PACKING"), "PROCESS")
+assert.equal(stageWord("QC"), "Process")
+assert.equal(trackStatus({ status: "IN_PROGRESS", current_stage: "QC" }), "RUNNING")
+assert.equal(trackStatus({ status: "IN_PROGRESS", current_stage: "DISPATCH" }), "READY_DISPATCH")
 
 // Group by status and stage reads in flow order, whatever order the rows come in.
 const rows = [

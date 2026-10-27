@@ -125,7 +125,7 @@ function NewDispatchForm() {
         return <div className="p-6">Loading dispatch details...</div>
     }
     if (!jobCard || (!handoffsQuery.isFetching && !handoff)) return <div className="space-y-3 p-6"><p>This job card has not reached packing, or is outside your selected plant scope.</p><Button variant="outline" onClick={() => router.push("/logistics/dispatch")}>Back to dispatch</Button></div>
-    if (handoff?.handoff_state === "REJECTED_QC") return <div className="space-y-3 rounded-xl border border-border bg-card p-6"><h2 className="text-xl font-semibold">No accepted finished goods after final QC</h2><p className="text-sm text-muted-foreground">Packed {handoff.packed_qty} pcs · final QC rejected {handoff.qc_rejected_qty} pcs · unused / uninspected {handoff.qc_uninspected_qty || 0} pcs · accepted FG 0 pcs. This card has no quantity eligible for shipment or surplus retention.</p><Button variant="outline" onClick={() => router.push("/logistics/dispatch")}>Back to dispatch</Button><Button variant="ghost" onClick={() => router.push(`/quality/results?job_card_id=${jobCardId}`)}>Review QC results</Button></div>
+    if (handoff?.handoff_state === "REJECTED_QC") return <div className="space-y-3 rounded-xl border border-border bg-card p-6"><h2 className="text-xl font-semibold">No accepted finished goods after Process QC</h2><p className="text-sm text-muted-foreground">Packed {handoff.packed_qty} pcs · QC rejected {handoff.qc_rejected_qty} pcs · unused / uninspected {handoff.qc_uninspected_qty || 0} pcs · accepted FG 0 pcs. This card has no quantity eligible for shipment or surplus retention.</p><Button variant="outline" onClick={() => router.push("/logistics/dispatch")}>Back to dispatch</Button><Button variant="ghost" onClick={() => router.push(`/quality/results?job_card_id=${jobCardId}`)}>Review QC results</Button></div>
     if (!dispatchData) return <div className="p-6">Loading dispatch details...</div>
 
     const getDispatchRequestId = () => {
@@ -225,10 +225,10 @@ function NewDispatchForm() {
                     <p className="text-sm text-muted-foreground">
                         {isSealed ? "This dispatch is sealed and locked." : "Draft data auto-generated from Job Card Snapshot."}
                     </p>
-                    <p className="mt-1 text-sm text-muted-foreground">Accepted FG {handoff?.dispatchable_qty || 0} pcs · final QC rejected {handoff?.qc_rejected_qty || 0} pcs · unused / uninspected {handoff?.qc_uninspected_qty || 0} pcs · gross packed {handoff?.packed_qty || 0} pcs</p>
+                    <p className="mt-1 text-sm text-muted-foreground">Accepted FG {handoff?.dispatchable_qty || 0} pcs · QC rejected {handoff?.qc_rejected_qty || 0} pcs · unused / uninspected {handoff?.qc_uninspected_qty || 0} pcs · gross packed {handoff?.packed_qty || 0} pcs</p>
                     <p className="mt-1 text-sm text-muted-foreground">Shipped {handoff?.dispatched_qty || 0} pcs · available to ship {maxShipQty} pcs · accepted FG remaining {handoff?.remaining_qty || 0} pcs{handoff?.retained_qty > 0 ? ` · retained FG ${handoff.retained_qty} pcs` : ""}</p>
                     {maxShipQty === 0 && handoff?.handoff_state === "UNSEALED" && handoff?.remaining_qty > 0 && <p className="mt-1 text-sm text-signal-amber-ink">The shipment allowance for this card has been fulfilled. Return to the dispatch register to review retention of the accepted surplus.</p>}
-                    {handoff && !["UNSEALED", "SEALED"].includes(handoff.handoff_state) && <p className="mt-1 text-sm text-signal-amber-ink">Complete packing, final QC and FG posting, and resolve any QC hold before sealing.</p>}
+                    {handoff && !["UNSEALED", "SEALED"].includes(handoff.handoff_state) && <p className="mt-1 text-sm text-signal-amber-ink">Close Process (packing and its two QC readings close with it), post FG, and resolve any QC hold before sealing.</p>}
                     {recovering && <p className="mt-1 text-sm text-signal-amber-ink">This shipment was interrupted. Retry its original command to finish stock and sales posting once. Its saved details remain locked.</p>}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">

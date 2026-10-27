@@ -309,7 +309,7 @@ export default function SalesOrderPage() {
                 {totals.shortClosed > 0 ? <span className="text-signal-amber-ink"><strong className="tabular-nums">{fmt(totals.shortClosed)}</strong> dropped by short close</span> : null}
                 {!finished ? <span><strong className="tabular-nums text-foreground">{fmt(totals.pending)}</strong> still to send</span> : null}
               </p>
-              {cards.readyQty > 0 ? <p className="mt-2 rounded-lg border border-signal-teal-line bg-signal-teal-soft px-3 py-2 text-[12.5px] text-signal-teal-ink">{fmt(cards.readyQty)} pcs packed and passed final QC, waiting for a DC. <Link href={dcHref} className="font-semibold underline">Make DC</Link></p> : null}
+              {cards.readyQty > 0 ? <p className="mt-2 rounded-lg border border-signal-teal-line bg-signal-teal-soft px-3 py-2 text-[12.5px] text-signal-teal-ink">{fmt(cards.readyQty)} pcs through Process (packed, both QC readings in), waiting for a DC. <Link href={dcHref} className="font-semibold underline">Make DC</Link></p> : null}
             </section>
 
             <section className="erp-panel overflow-hidden rounded-xl" aria-label="Lines">

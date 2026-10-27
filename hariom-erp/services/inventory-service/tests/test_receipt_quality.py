@@ -1,4 +1,4 @@
-"""Real database checks for independent commercial and physical lot QC controls."""
+"""Real database checks: each physical lot is released by its own QC verdict, never by commercial approval."""
 import os
 import uuid
 from datetime import date
@@ -40,12 +40,15 @@ def approve(db, result):
         reason='Independent commercial approval'), db, PLANT, CHECKER)
 
 
-def test_qc_before_commercial_remains_blocked_and_other_lot_remains_held():
+def test_qc_pass_releases_lot_before_commercial_approval_and_other_lot_remains_held():
+    # Client decision 2026-10-27: incoming QC is the only gate to the floor.
     with SessionLocal() as db:
         result, ids=receipt(db)
         assert all(db.get(PaperReel, i).inward_metadata['quality_profile']['revision']==1 for i in ids)
+        assert all(db.get(PaperReel, i).stock_status=='QC_HOLD' for i in ids)
         verdict=inspect(db,ids[0])
-        assert verdict.status=='PASS' and db.get(PaperReel,ids[0]).stock_status=='BLOCKED'
+        assert verdict.status=='PASS' and db.get(PaperReel,ids[0]).stock_status=='UNRESTRICTED'
+        assert db.get(PaperReel,ids[1]).stock_status=='QC_HOLD'
         approve(db,result)
         assert db.get(PaperReel,ids[0]).stock_status=='UNRESTRICTED'
         assert db.get(PaperReel,ids[1]).stock_status=='QC_HOLD'
@@ -181,3 +184,38 @@ def test_po_reel_receipt_queues_one_qc_task_per_held_reel():
         assert len(ids) == 3
         assert all(db.get(PaperReel, i).stock_status == 'QC_HOLD' for i in ids)
         _assert_one_task_per_reel_and_relay_notifies_qc(db, ids, posted['id'])
+
+
+def test_startup_release_frees_commercially_blocked_lots_but_keeps_rejected_ones():
+    from src.services.receipt_quality import release_blocked_receipt_lines
+    with SessionLocal() as db:
+        result, ids = receipt(db)
+        inspect(db, ids[0])
+        create_quality_inspection(QualityInspectionCreate(entity_type='REEL', entity_id=ids[1],
+            readings={'gsm': 230}, disposition='REJECT', notes='Wet edges'), db, PLANT, QC)
+        # Stock as the old commercial gate left it.
+        for reel_id in ids:
+            db.get(PaperReel, reel_id).stock_status = 'BLOCKED'
+        db.commit()
+        assert release_blocked_receipt_lines(db) >= 1
+        db.commit()
+        assert db.get(PaperReel, ids[0]).stock_status == 'UNRESTRICTED'
+        assert db.get(PaperReel, ids[1]).stock_status == 'BLOCKED'
+        assert release_blocked_receipt_lines(db) >= 1
+        db.commit()
+        assert db.get(PaperReel, ids[0]).stock_status == 'UNRESTRICTED'
+
+
+def test_startup_release_moves_plain_fail_to_qc_hold_and_uninspected_to_waiting():
+    from src.services.receipt_quality import release_blocked_receipt_lines
+    with SessionLocal() as db:
+        result, ids = receipt(db)
+        create_quality_inspection(QualityInspectionCreate(entity_type='REEL', entity_id=ids[0],
+            readings={'gsm': 150}, reasons={'gsm': 'Light paper'}), db, PLANT, QC)
+        for reel_id in ids:
+            db.get(PaperReel, reel_id).stock_status = 'BLOCKED'
+        db.commit()
+        release_blocked_receipt_lines(db)
+        db.commit()
+        assert db.get(PaperReel, ids[0]).stock_status == 'QC_HOLD'
+        assert db.get(PaperReel, ids[1]).stock_status == 'QC_HOLD'

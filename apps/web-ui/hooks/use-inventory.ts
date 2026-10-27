@@ -642,7 +642,7 @@ export function useCreateReelIssue() {
 export function useIssueParchmentByWeight() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (data: { item_id: string; qty_kg: number; shift: string; issue_date: string; notes?: string }) => inventoryApi.issueParchmentByWeight(data),
+    mutationFn: (data: { item_id: string; qty_kg: number; shift: string; issue_date: string; notes?: string; plantId?: string }) => inventoryApi.issueParchmentByWeight(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["inventory-reel-issues"] })
       queryClient.invalidateQueries({ queryKey: ["inventory-reels"] })
@@ -769,7 +769,7 @@ export function useCreateInventoryQualityConcession() {
 export function useReturnRejectedLotToSupplier() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (data: { entity_type: string; entity_id: string; reason: string; return_reference?: string }) =>
+    mutationFn: (data: { entity_type: string; entity_id: string; reason: string; return_reference?: string; plantId?: string }) =>
       inventoryApi.returnRejectedLotToSupplier(data),
     onSuccess: () => {
       invalidateIncomingQc(queryClient)

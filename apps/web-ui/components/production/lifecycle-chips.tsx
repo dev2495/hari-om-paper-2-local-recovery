@@ -1,6 +1,6 @@
 "use client"
 
-import { Ban, CalendarCheck2, CalendarX2, CheckCircle2, Clock3, Flag, Flame, Hourglass, Loader, PauseOctagon, Scissors, Truck, Undo2 } from "lucide-react"
+import { Ban, CalendarCheck2, CalendarX2, CheckCircle2, Clock3, Flag, Flame, Loader, PauseOctagon, Scissors, Truck, Undo2 } from "lucide-react"
 
 import { lifecycleStateOf, trackMeta, type TrackStatus } from "@/lib/job-card-tracking"
 import { cn } from "@/lib/utils"
@@ -38,7 +38,6 @@ const TRACK_STYLE: Record<TrackStatus, { className: string; icon: any }> = {
   QUEUE: { className: "bg-muted text-muted-foreground ring-border", icon: Clock3 },
   SCHEDULED: { className: "bg-signal-blue-soft text-signal-blue-ink ring-signal-blue-line", icon: CalendarCheck2 },
   RUNNING: { className: "bg-signal-violet-soft text-signal-violet-ink ring-signal-violet-line", icon: Loader },
-  WAITING_QC: { className: "bg-signal-amber-soft text-signal-amber-ink ring-signal-amber-line", icon: Hourglass },
   ON_HOLD: { className: "bg-signal-rose-soft text-signal-rose-ink ring-signal-rose-line", icon: PauseOctagon },
   READY_DISPATCH: { className: "bg-signal-emerald-soft text-signal-emerald-ink ring-signal-emerald-line", icon: Truck },
   CLOSED_EARLY: { className: "bg-signal-rose-soft text-signal-rose-ink ring-signal-rose-line", icon: Flag },

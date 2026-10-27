@@ -137,9 +137,16 @@ export function cardState(job: any): CardState {
   return "QUEUED"
 }
 
-export const CARD_STAGES = ["SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING", "QC", "DISPATCH"] as const
-export const STAGE_SHORT: Record<string, string> = { SLITTING: "S", WINDER: "W", OVEN: "O", PROCESS: "P", PACKING: "Pk", QC: "QC", DISPATCH: "D", DONE: "✓" }
-export const STAGE_LABEL: Record<string, string> = { SLITTING: "Slitting", WINDER: "Winding", OVEN: "Oven", PROCESS: "Process", PACKING: "Packing", QC: "Final QC", DISPATCH: "Dispatch", DONE: "Done" }
+/** Packing and the two QC readings happen at Process, so a card's route is W · O · P · D (S first when slit). */
+export const CARD_STAGES = ["SLITTING", "WINDER", "OVEN", "PROCESS", "DISPATCH"] as const
+export const STAGE_SHORT: Record<string, string> = { SLITTING: "S", WINDER: "W", OVEN: "O", PROCESS: "P", DISPATCH: "D", DONE: "✓" }
+export const STAGE_LABEL: Record<string, string> = { SLITTING: "Slitting", WINDER: "Winding", OVEN: "Oven", PROCESS: "Process", PACKING: "Process", QC: "Process", DISPATCH: "Dispatch", DONE: "Done" }
+
+/** The route stage a card is on; a PACKING or QC step from before the rule reads as Process. */
+export function routeStage(stage?: string | null) {
+  const key = String(stage || "").toUpperCase()
+  return key === "PACKING" || key === "QC" ? "PROCESS" : key
+}
 
 /** True once the card's pieces are packed and waiting for a delivery challan. */
 export function cardReadyToDispatch(job: any) {
@@ -297,7 +304,7 @@ export function whatIsNext(order: any, totals: OrderTotals, cards: CardSummary, 
   if (["approved", "released", "partially_released", "partially_dispatched"].includes(status) && totals.unreleased > 0 && !order?.is_held) {
     items.push({ title: `Release ${fmt(totals.unreleased)} pcs`, detail: "Release makes one job card per line and colour and puts it in the winder queue." })
   }
-  if (cards.ready > 0) items.push({ title: `Make a DC for ${fmt(cards.readyQty)} pcs`, detail: `${cards.ready} card${cards.ready === 1 ? " is" : "s are"} packed and passed final QC.` })
+  if (cards.ready > 0) items.push({ title: `Make a DC for ${fmt(cards.readyQty)} pcs`, detail: `${cards.ready} card${cards.ready === 1 ? " has" : "s have"} closed Process: packed, with both QC readings in.` })
   const unplanned = jobs.filter((job) => cardState(job) !== "COMPLETED" && cardState(job) !== "FORCE_CLOSED" && cardState(job) !== "CANCELLED" && cardUnplanned(job))
   if (unplanned.length) items.push({ title: `Plan ${unplanned.length} card${unplanned.length === 1 ? "" : "s"}`, detail: unplanned.slice(0, 3).map((job) => `${job.job_card_no || "card"} · ${String(job.plan_status_label || "not planned")}`).join(" · ") })
   const flagged = jobs.filter((job) => num(job.qc_flagged_runs) > 0)

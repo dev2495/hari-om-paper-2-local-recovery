@@ -23,7 +23,7 @@ from ..models import (
 )
 from ..quality_task_queue import enqueue_incoming_qc_task
 from ..services.labels import reel_label_payload, batch_label_payload
-from ..services.receipt_quality import initial_quality
+from ..services.receipt_quality import initial_quality, inward_stock_status
 from ..services.procurement import canonical_hash, normalize_invoice_number
 from ..utils.auth import get_current_plant, require_role
 
@@ -134,6 +134,7 @@ def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_
     db.flush()
     for index, (requested, item, qty, is_reel) in enumerate(rows, 1):
         metadata, qc_status = initial_quality(item, plant_id, payload.received_date)
+        lot_status = inward_stock_status(qc_status)
         rate = requested.invoice_rate or 0
         line = PurchaseReceiptLine(receipt_id=receipt.id, item_id=item.id, qty_received=float(qty), unit_cost=rate,
             invoice_rate=requested.invoice_rate, tracking_mode="REEL" if is_reel else "BULK", commercial_status=state,
@@ -153,7 +154,7 @@ def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_
                     vendor_batch_no=lot.vendor_batch_no, inward_weight_kg=lot.net_weight_kg, net_weight_kg=lot.net_weight_kg,
                     current_weight_kg=lot.net_weight_kg, gross_weight_kg=lot.gross_weight_kg, tare_weight_kg=lot.tare_weight_kg,
                     width_mm=lot.width_mm, physical_form=lot.physical_form, location_id=lot.location_id,
-                    unit_cost=rate, cost_source=CostSource.SUPPLIER, status=ReelStatus.IN_STOCK, stock_status="BLOCKED",
+                    unit_cost=rate, cost_source=CostSource.SUPPLIER, status=ReelStatus.IN_STOCK, stock_status=lot_status,
                     commercial_status=state, inward_date=payload.received_date, inward_metadata=metadata)
                 db.add(reel)
                 db.flush()
@@ -164,7 +165,7 @@ def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_
                 db.add(ReelScanEvent(plant_id=_plant_uuid(plant_id), reel_id=reel.id, event_type=ReelScanEventType.INWARD_SCAN, source=ReelScanSource.INVENTORY, event_metadata=metadata))
         else:
             batch = StockBatch(plant_id=plant_id, item_id=item.id, batch_no=(requested.batch_no or f"{receipt.grn_no}-{index}").strip().upper(),
-                received_qty=float(qty), stock_status="BLOCKED", unit_cost=rate, cost_source="SUPPLIER", supplier_id=payload.supplier_id,
+                received_qty=float(qty), stock_status=lot_status, unit_cost=rate, cost_source="SUPPLIER", supplier_id=payload.supplier_id,
                 supplier_name_snapshot=payload.supplier_name, location_id=requested.location_id, inward_metadata=metadata)
             db.add(batch)
             db.flush()
@@ -174,7 +175,7 @@ def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_
             db.add(ReceiptStockAllocation(receipt_line_id=line.id, batch_id=batch.id, allocated_qty=qty))
             db.add(StockTransaction(plant_id=plant_id, item_id=item.id, batch_id=batch.id, transaction_type=TransactionType.INWARD,
                 qty_change=float(qty), reference_type=ReferenceType.PURCHASE, reference_id=receipt.id, effective_date=payload.received_date,
-                stock_status="BLOCKED", external_ref=f"MGRN:{receipt.id}:{index}", movement_metadata=metadata))
+                stock_status=lot_status, external_ref=f"MGRN:{receipt.id}:{index}", movement_metadata=metadata))
         if invoice:
             invoice_qty = Decimal(str(requested.invoice_quantity)) if requested.invoice_quantity is not None else qty
             invoice_line = SupplierInvoiceLine(invoice_id=invoice.id, item_id=item.id, qty=invoice_qty, rate=rate, uom=_enum(item.uom), tax_amount=requested.tax_amount, charge_amount=requested.charge_amount)

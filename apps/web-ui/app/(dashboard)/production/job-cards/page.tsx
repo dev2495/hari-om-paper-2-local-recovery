@@ -24,6 +24,7 @@ import {
   downloadText,
   dueInDays,
   dueText,
+  floorStage,
   groupRows,
   jobCardsCsv,
   orderRef,
@@ -37,7 +38,7 @@ import {
 import { matchesSearch } from "@/lib/planner-queue-filters"
 import { cn } from "@/lib/utils"
 
-const STAGE_TILES = ["SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING", "QC", "DISPATCH"]
+const STAGE_TILES = ["SLITTING", "WINDER", "OVEN", "PROCESS", "DISPATCH"]
 const PAGE_VIEW_KEY = "JOB_CARDS"
 /** Rows drawn at a time; "Show more" adds the next batch (print shows them all). */
 const PAGE_ROWS = 60
@@ -203,7 +204,8 @@ export default function JobCardsPage() {
 
   const stageCounts = useMemo(() => {
     const fromServer = Array.isArray(aggregates.stage_counts) ? aggregates.stage_counts : []
-    const byStage = new Map(fromServer.map((row: any) => [String(row.stage).toUpperCase(), Number(row.count || 0)]))
+    const byStage = new Map<string, number>()
+    for (const row of fromServer) byStage.set(floorStage(row.stage), (byStage.get(floorStage(row.stage)) || 0) + Number(row.count || 0))
     return STAGE_TILES.map((stage) => ({ stage, count: Number(byStage.get(stage) || 0) })).filter((row) => row.count > 0 || row.stage !== "SLITTING")
   }, [aggregates])
 
@@ -346,7 +348,7 @@ export default function JobCardsPage() {
       {Number(aggregates.blocked || 0) ? (
         <p className="flex items-start gap-2 rounded-xl border border-signal-rose-line bg-signal-rose-soft px-3 py-2 text-[12.5px] text-signal-rose-ink" data-testid="job-cards:blocked">
           <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          <span>{aggregates.blocked} open card{Number(aggregates.blocked) === 1 ? " has" : "s have"} an active quality hold or wait at final QC. <Link href="/quality" className="font-semibold underline">Quality desk</Link> before dispatch.</span>
+          <span>{aggregates.blocked} open card{Number(aggregates.blocked) === 1 ? " has" : "s have"} an active quality hold. <Link href="/quality" className="font-semibold underline">Quality desk</Link> before dispatch.</span>
         </p>
       ) : null}
 
@@ -558,8 +560,6 @@ export default function JobCardsPage() {
                             <Link href={`${href}?tab=qc`} onClick={(event) => event.stopPropagation()} title="A reading outside its band: allowed, flagged, never held" className="inline-flex items-center gap-1 rounded-full bg-signal-amber-soft px-2 py-0.5 text-[11.5px] font-semibold text-signal-amber-ink ring-1 ring-inset ring-signal-amber-line" data-testid="job-cards:qc-flag">
                               <Flag className="h-3 w-3" aria-hidden="true" />Flagged · {flagged} run{flagged > 1 ? "s" : ""}
                             </Link>
-                          ) : track === "WAITING_QC" ? (
-                            <span className="text-[11.5px] font-medium text-signal-amber-ink">Final QC due</span>
                           ) : (
                             <span className="text-[11.5px] text-muted-foreground">—</span>
                           )}

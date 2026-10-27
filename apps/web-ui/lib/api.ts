@@ -543,6 +543,12 @@ export const productionApi = {
     api.put("/api/production/tolerance-settings", payload, withPlantHeader(plantId)),
 }
 
+/**
+ * Writes for one lot go to that lot's own plant. Owners usually browse "All plants", a read-only
+ * scope on the services, so issue / QC / slitting from that view would otherwise be refused.
+ */
+const onPlant = (plantId?: string | null) => (plantId ? { headers: { "X-Plant-ID": String(plantId) } } : undefined)
+
 export const inventoryApi = {
   getItems: () => api.get("/api/inventory/items"),
   /** Create the stock item for every master that has none (safe to repeat; never changes items). */
@@ -597,7 +603,7 @@ export const inventoryApi = {
   getInventoryGenealogyExceptions: () => api.get("/api/inventory/health/genealogy-exceptions"),
   getValuationSummary: () => api.get("/api/inventory/valuation/summary"),
   getValuationReels: () => api.get("/api/inventory/valuation/reels"),
-  createTransaction: (data: any) => api.post("/api/inventory/issue", data),
+  createTransaction: ({ plantId, ...data }: any) => api.post("/api/inventory/issue", data, onPlant(plantId)),
   createInward: (data: any) => api.post("/api/inventory/inward", data),
   getInwardStockAsOn: (params?: any) => api.get("/api/inventory/inward/stock-as-on", { params }),
   createIssue: (data: any) => api.post("/api/inventory/issue", data),
@@ -617,14 +623,14 @@ export const inventoryApi = {
   getReelScans: (id: string, params?: any) => api.get(`/api/inventory/reels/${id}/scans`, { params }),
   getBatchLabel: (id: string) => api.get(`/api/inventory/labels/batches/${id}`),
   getReelLabel: (id: string) => api.get(`/api/inventory/labels/reels/${id}`),
-  createReelIssue: (data: any) => api.post("/api/inventory/reel-issues", data),
+  createReelIssue: ({ plantId, ...data }: any) => api.post("/api/inventory/reel-issues", data, onPlant(plantId)),
   /** Parchment to the floor by colour and kg; the oldest cleared coils are used (client 2026-10-26). */
-  issueParchmentByWeight: (data: { item_id: string; qty_kg: number; shift: string; issue_date: string; notes?: string }) =>
-    api.post("/api/inventory/reel-issues/by-weight", data),
+  issueParchmentByWeight: ({ plantId, ...data }: { item_id: string; qty_kg: number; shift: string; issue_date: string; notes?: string; plantId?: string }) =>
+    api.post("/api/inventory/reel-issues/by-weight", data, onPlant(plantId)),
   getReelIssues: (params?: any) => api.get("/api/inventory/reel-issues", { params }),
-  closeReelIssue: (id: string, data: any) => api.post(`/api/inventory/reel-issues/${id}/close`, data),
-  recordSlittingCard: (id: string, data: { coils_made: number; wastage_kg: number; coil_width_mm?: number; slit_date?: string; shift?: string; operator_name?: string; notes?: string; correction_reason?: string }) =>
-    api.post(`/api/inventory/reel-issues/${id}/slitting-card`, data),
+  closeReelIssue: (id: string, { plantId, ...data }: any) => api.post(`/api/inventory/reel-issues/${id}/close`, data, onPlant(plantId)),
+  recordSlittingCard: (id: string, { plantId, ...data }: { coils_made: number; wastage_kg: number; coil_width_mm?: number; slit_date?: string; shift?: string; operator_name?: string; notes?: string; correction_reason?: string; plantId?: string }) =>
+    api.post(`/api/inventory/reel-issues/${id}/slitting-card`, data, onPlant(plantId)),
   getSlittingReport: (params: { date_from: string; date_to: string }) => api.get("/api/inventory/reel-issues/slitting-report", { params }),
   slitCoil: (data: any) => api.post("/api/inventory/reels/slit", data),
   getQualityTemplates: (params?: any) => api.get("/api/inventory/quality/templates", { params }),
@@ -655,12 +661,12 @@ export const inventoryApi = {
   getPendingQuality: () => api.get("/api/inventory/quality/pending"),
   getInventoryQualityInspections: (params?: any) => api.get("/api/inventory/quality/inspections", { params }),
   getInventoryQualityConcessions: (params?: any) => api.get("/api/inventory/quality/concessions", { params }),
-  createInventoryQualityInspection: (data: any) => api.post("/api/inventory/quality/inspections", data),
-  createInventoryQualityConcession: (data: any) => api.post("/api/inventory/quality/concessions", data),
+  createInventoryQualityInspection: ({ plantId, ...data }: any) => api.post("/api/inventory/quality/inspections", data, onPlant(plantId)),
+  createInventoryQualityConcession: ({ plantId, ...data }: any) => api.post("/api/inventory/quality/concessions", data, onPlant(plantId)),
   getIncomingQualityAnalytics: (params?: { date_from?: string; date_to?: string }) =>
     api.get("/api/inventory/quality/analytics", { params }),
-  returnRejectedLotToSupplier: (data: { entity_type: string; entity_id: string; reason: string; return_reference?: string }) =>
-    api.post("/api/inventory/quality/rejected-lots/return-to-supplier", data),
+  returnRejectedLotToSupplier: ({ plantId, ...data }: { entity_type: string; entity_id: string; reason: string; return_reference?: string; plantId?: string }) =>
+    api.post("/api/inventory/quality/rejected-lots/return-to-supplier", data, onPlant(plantId)),
   getCustomerRejections: (params?: any) => api.get("/api/inventory/quality/customer-rejections", { params }),
   createCustomerRejection: (data: any) => api.post("/api/inventory/quality/customer-rejections", data),
   lookupDispatchForReturn: (dispatchRef: string) =>

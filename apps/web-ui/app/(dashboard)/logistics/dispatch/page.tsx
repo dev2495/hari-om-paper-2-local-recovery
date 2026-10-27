@@ -13,7 +13,7 @@ import { usePlants } from "@/hooks/use-system"
 import { errorText } from "@/lib/season-api"
 import { RetainSurplusButton } from "@/components/production/RetainSurplusButton"
 
-const handoffLabels: Record<string, string> = { AWAITING_PACKING: "Awaiting packing", AWAITING_QC: "Awaiting final QC", AWAITING_FG: "Awaiting FG posting", QC_HOLD: "QC hold", REJECTED_QC: "No accepted FG (QC closed)", RETAINED_FG: "Surplus retained in FG", UNSEALED: "Unsealed", SEALED: "Sealed" }
+const handoffLabels: Record<string, string> = { AWAITING_PACKING: "Awaiting Process close", AWAITING_QC: "Awaiting Process close", AWAITING_FG: "Awaiting FG posting", QC_HOLD: "QC hold", REJECTED_QC: "No accepted FG (QC closed)", RETAINED_FG: "Surplus retained in FG", UNSEALED: "Unsealed", SEALED: "Sealed" }
 
 export default function DispatchSelectionPage() {
     const { activePlant, user } = useAuth()
@@ -169,7 +169,7 @@ export default function DispatchSelectionPage() {
                                             <td className="px-4 py-3 text-muted-foreground">{plant?.name || plant?.code || "Plant unavailable"}</td>
                                             <td className="px-4 py-3 text-muted-foreground">{customerName}</td>
                                             <td className="px-4 py-3 text-muted-foreground">{specDisplay}</td>
-                                            <td className="px-4 py-3 text-muted-foreground"><p className="whitespace-nowrap">Accepted {job.dispatchable_qty ?? 0} · remaining {job.remaining_qty ?? 0} pcs</p><p className="text-xs">Packed {job.packed_qty ?? 0} · final QC rejected {job.qc_rejected_qty ?? 0} pcs</p><p className="text-xs">Unused / uninspected at final QC {job.qc_uninspected_qty ?? 0} pcs</p><p className="text-xs">Shipped {job.dispatched_qty ?? 0} · can ship {maxShipQty} pcs</p><p className="text-xs">Released {job.released_qty ?? job.planned_qty} · shipment allowance {job.shipping_allowance ?? 0} pcs</p>{job.retained_qty > 0 && <p className="text-xs">Retained FG {job.retained_qty} pcs</p>}</td>
+                                            <td className="px-4 py-3 text-muted-foreground"><p className="whitespace-nowrap">Accepted {job.dispatchable_qty ?? 0} · remaining {job.remaining_qty ?? 0} pcs</p><p className="text-xs">Packed {job.packed_qty ?? 0} · QC rejected {job.qc_rejected_qty ?? 0} pcs</p><p className="text-xs">Unused / uninspected at final QC {job.qc_uninspected_qty ?? 0} pcs</p><p className="text-xs">Shipped {job.dispatched_qty ?? 0} · can ship {maxShipQty} pcs</p><p className="text-xs">Released {job.released_qty ?? job.planned_qty} · shipment allowance {job.shipping_allowance ?? 0} pcs</p>{job.retained_qty > 0 && <p className="text-xs">Retained FG {job.retained_qty} pcs</p>}</td>
                                             <td className="px-4 py-3">
                                                 <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs transition-colors bg-muted text-muted-foreground font-normal">
                                                     {job.current_stage}

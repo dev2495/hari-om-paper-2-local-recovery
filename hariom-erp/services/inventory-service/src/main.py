@@ -890,6 +890,31 @@ def apply_quality_standards() -> None:
 
 apply_quality_standards()
 
+
+def release_commercially_blocked_stock() -> int:
+  """Inward lots blocked only by the old commercial gate follow their own QC verdict (2026-10-27).
+
+  Idempotent: re-derives every receipt line that still has a BLOCKED reel or batch. Lots that QC
+  rejected or failed stay BLOCKED; uninspected lots go to QC_HOLD; passed lots become issuable."""
+  from .database import SessionLocal
+  from .services.receipt_quality import release_blocked_receipt_lines
+
+  db = SessionLocal()
+  try:
+    count = release_blocked_receipt_lines(db)
+    db.commit()
+    print(f"[schema-compat] commercial gate retired: {count} inward line(s) re-derived from QC")
+    return count
+  except Exception as exc:  # pragma: no cover - defensive migration guard
+    db.rollback()
+    print(f"[schema-compat] skipped commercial gate release: {exc}")
+    return 0
+  finally:
+    db.close()
+
+
+release_commercially_blocked_stock()
+
 app = FastAPI(
   title="Hari Om Paper Inventory Service",
   description="Inventory, inward, issue, reservation, and dispatch material control",

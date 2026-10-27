@@ -91,7 +91,7 @@ export function DispatchTab({ card, flow }: { card: any; flow: any }) {
 
         <div className="space-y-4">
           <section className="rounded-xl border border-border bg-card p-4" data-testid="dispatch-packing">
-            <h3 className="text-[14px] font-semibold">Packing &amp; final QC</h3>
+            <h3 className="text-[14px] font-semibold">Packing · at Process close</h3>
             {packing ? (
               <dl className="mt-2 grid grid-cols-[8rem_minmax(0,1fr)] gap-x-3 gap-y-1 text-[13px]">
                 <dt className="text-muted-foreground">Packed</dt>

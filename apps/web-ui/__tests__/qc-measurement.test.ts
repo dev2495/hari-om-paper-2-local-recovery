@@ -106,6 +106,7 @@ test("job card, spec dialog, and quality desks keep stage-specific fields", () =
   const eod = readFileSync(resolve(process.cwd(), "app/(dashboard)/production/eod-entry/page.tsx"), "utf8")
   const supervisorEntry = readFileSync(resolve(process.cwd(), "app/(dashboard)/production/supervisor-entry/page.tsx"), "utf8")
   const incoming = readFileSync(resolve(process.cwd(), "app/(dashboard)/quality/incoming/page.tsx"), "utf8")
+  const incomingEntry = readFileSync(resolve(process.cwd(), "components/qc/IncomingInspectionEntry.tsx"), "utf8")
   const nextConfig = readFileSync(resolve(process.cwd(), "next.config.js"), "utf8")
   assert.match(jobCard, /renderStageQc\("WINDER"\)/)
   assert.match(jobCard, /renderStageQc\("OVEN"\)/)
@@ -123,9 +124,13 @@ test("job card, spec dialog, and quality desks keep stage-specific fields", () =
   }
   assert.match(nextConfig, /source: "\/production\/eod-entry"/)
   assert.match(nextConfig, /destination: "\/production\/supervisor-entry"/)
-  assert.doesNotMatch(incoming, /Pass and release/)
-  assert.match(incoming, /Save QC inspection/)
-  assert.doesNotMatch(incoming, /status: "PASS"/)
+  // Incoming QC saves readings and the server decides PASS / FAIL; the page never sets a verdict itself.
+  assert.match(incoming, /IncomingInspectionEntry/)
+  for (const source of [incoming, incomingEntry]) {
+    assert.doesNotMatch(source, /Pass and release/)
+    assert.doesNotMatch(source, /status: "PASS"/)
+  }
+  assert.match(incomingEntry, /Save inspection/)
 })
 
 test("floor QC forms keep the stage measurement rules (min 2 readings, moisture optional, flagged not held)", () => {

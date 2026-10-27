@@ -64,7 +64,6 @@ export function OverviewTab({
   const drafts = live.filter((e) => e.status === "DRAFT")
   const waitingQc = live.filter((e) => e.status === "SUBMITTED" && e.kind !== "QC_ONLY" && !runQcState(card, e).accepted)
   const holds = (card?.quality_holds || []).filter((h: any) => String(h.status || "").toUpperCase() === "HOLD")
-  const stepsShown = steps.filter((s) => s.stage !== "PACKING_QC" || s.state === "done")
 
   return (
     <div className="space-y-4" data-testid="tab-overview">
@@ -97,7 +96,7 @@ export function OverviewTab({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {stepsShown.map((s) => {
+                  {steps.map((s) => {
                     const started = s.state === "done" || s.state === "running"
                     const word = STATE_WORD[s.state]
                     return (

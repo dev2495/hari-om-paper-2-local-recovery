@@ -1,18 +1,20 @@
 "use client"
 
 import Link from "next/link"
-import { FormEvent, useMemo, useState } from "react"
-import { ArrowUpRight, Barcode, ClipboardList, PackageCheck, Scissors } from "lucide-react"
+import { useMemo, useState } from "react"
+import { ArrowUpRight, Barcode, Check, CircleAlert, ClipboardList, Hourglass, PackageCheck, Scissors, Search, Truck } from "lucide-react"
 
 import { QrScanner } from "@/components/common/qr-scanner"
 import { Field, MessageBar, ProcurementShell, WorkPanel, fieldClass, primaryButton, secondaryButton } from "@/components/procurement/procurement-shell"
 import { IssueDeskTabs } from "@/components/procurement/issue-desk-tabs"
+import { Chip } from "@/components/sales/order-chips"
 import { RoleGate } from "@/components/workspace/role-gate"
-import { useCloseReelIssue, useCreateReelIssue, useInventoryItems, useRecordSlittingCard, useReelIssues, useReels } from "@/hooks/use-inventory"
+import { useCloseReelIssue, useCreateReelIssue, useInventoryItems, usePendingInventoryQuality, useRecordSlittingCard, useReelIssues, useReels } from "@/hooks/use-inventory"
 import { businessDate } from "@/lib/business-date"
+import { displayPlantScope } from "@/lib/plant-scope"
 import { cn } from "@/lib/utils"
 
-const ISSUABLE = "UNRESTRICTED,WIP"
+const ISSUABLE = ["UNRESTRICTED", "WIP"]
 const SHIFTS = [{ value: "A", label: "Shift A" }, { value: "B", label: "Shift B" }, { value: "GENERAL", label: "General" }]
 const clockShift = () => { const hour = new Date().getHours(); return hour >= 8 && hour < 20 ? "A" : "B" }
 const kg = (value: any) => `${Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 3 })} kg`
@@ -24,13 +26,17 @@ const errorText = (error: any) => {
   return error?.message || "Action failed"
 }
 const isCoil = (row: any) => String(row?.physical_form || "REEL").toUpperCase() === "COIL"
-// Why an in-stock reel or coil cannot go to the floor yet (client 2026-10-25: "issue in item issue to
-// floor" — the list was empty while every reel still waited for incoming QC, with no reason shown).
-function waitingReason(row: any): { text: string; href: string; action: string } {
+
+/**
+ * Why an in-stock reel or coil cannot go to the floor yet. Incoming QC is the only gate
+ * (client 2026-10-27): invoice or rate questions never hold paper back.
+ */
+function waitingReason(row: any, queueState?: string): { text: string; tone: "blue" | "amber" | "rose"; action: string } {
+  const state = String(queueState || "").toUpperCase()
   const status = String(row?.stock_status || "").toUpperCase()
-  if (status === "QC_HOLD") return { text: "on QC hold — decide release, concession or return", href: "/quality/results", action: "Holds & inspections" }
-  if (status === "BLOCKED" || status === "PENDING") return { text: "waiting for incoming QC", href: "/quality/incoming", action: "Incoming QC" }
-  return { text: `not cleared (${status.toLowerCase().replace(/_/g, " ") || "unknown"})`, href: "/quality/results", action: "Holds & inspections" }
+  if (state === "FAILED") return { text: "Failed incoming QC", tone: "amber", action: "Re-check or concede" }
+  if (state === "REJECTED" || status === "BLOCKED") return { text: "Rejected by QC", tone: "rose", action: "Return or concede" }
+  return { text: "Waiting for incoming QC", tone: "blue", action: "Inspect now" }
 }
 
 function parseInventoryQr(raw: string) {
@@ -41,84 +47,136 @@ function parseInventoryQr(raw: string) {
 
 const EMPTY_CARD = { coils_made: "", wastage_kg: "", coil_width_mm: "", operator_name: "", notes: "" }
 
+function Stat({ icon: Icon, label, value, hint, tone }: { icon: any; label: string; value: string | number; hint: string; tone: string }) {
+  const tones: Record<string, string> = {
+    emerald: "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink",
+    blue: "border-signal-blue-line bg-signal-blue-soft text-signal-blue-ink",
+    amber: "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink",
+    slate: "border-border bg-muted text-muted-foreground",
+  }
+  return (
+    <div className="erp-panel flex items-center gap-3 rounded-xl p-3.5">
+      <span className={cn("grid h-10 w-10 shrink-0 place-items-center rounded-xl border", tones[tone] || tones.slate)}><Icon className="h-5 w-5" /></span>
+      <span className="min-w-0">
+        <span className="block text-[20px] font-semibold leading-none tabular-nums">{value}</span>
+        <span className="mt-1 block text-[12.5px] font-semibold text-foreground/85">{label}</span>
+        <span className="block truncate text-[11.5px] text-muted-foreground">{hint}</span>
+      </span>
+    </div>
+  )
+}
+
 export default function ReelAndCoilIssuePage() {
   const [notice, setNotice] = useState<{ tone: "success" | "error" | "info"; text: string } | null>(null)
   const [scanCode, setScanCode] = useState("")
-  const [reelId, setReelId] = useState("")
+  const [search, setSearch] = useState("")
+  const [form, setForm] = useState<"ALL" | "REEL" | "COIL">("ALL")
+  const [picked, setPicked] = useState<string[]>([])
   const [shift, setShift] = useState(clockShift())
   const [issueDate, setIssueDate] = useState(businessDate())
+  const [issuing, setIssuing] = useState(false)
   const [cardFor, setCardFor] = useState<string | null>(null)
   const [card, setCard] = useState(EMPTY_CARD)
   const [legacyWeights, setLegacyWeights] = useState<Record<string, string>>({})
 
-  const reelsQuery = useReels({ status: "IN_STOCK", stock_status: ISSUABLE, limit: 500 })
   const stockQuery = useReels({ status: "IN_STOCK", limit: 500 })
   const itemsQuery = useInventoryItems()
-  // Parchment is issued by colour and kg on the material tab, never by coil number (client 2026-10-26).
-  const itemById = useMemo(() => new Map((Array.isArray(itemsQuery.data) ? itemsQuery.data : []).map((item: any) => [String(item.id), item])), [itemsQuery.data])
-  const isParchmentReel = (row: any) => String(itemById.get(String(row?.paper_id))?.type || "").toUpperCase() === "PARCHMENT"
+  const pendingQc = usePendingInventoryQuality()
   const openQuery = useReelIssues({ status: "OPEN", limit: 300 })
   const todayQuery = useReelIssues({ date_from: businessDate(), date_to: businessDate(), limit: 300 })
   const createIssue = useCreateReelIssue()
   const recordCard = useRecordSlittingCard()
   const closeLegacy = useCloseReelIssue()
 
-  const reels: any[] = useMemo(() => (Array.isArray(reelsQuery.data) ? reelsQuery.data : []).filter((row: any) => Number(row.current_weight_kg || 0) > 0 && !isParchmentReel(row)), [reelsQuery.data, itemById]) // eslint-disable-line react-hooks/exhaustive-deps
-  const waiting: any[] = useMemo(() => {
-    const issuable = new Set(reels.map((row) => String(row.id)))
-    return (Array.isArray(stockQuery.data) ? stockQuery.data : []).filter((row: any) => Number(row.current_weight_kg || 0) > 0 && !isParchmentReel(row) && !issuable.has(String(row.id)) && !ISSUABLE.split(",").includes(String(row.stock_status || "").toUpperCase()))
-  }, [stockQuery.data, reels, itemById]) // eslint-disable-line react-hooks/exhaustive-deps
-  // Stock on hand per paper (client 2026-10-26): what is cleared for issue now, and what still waits.
+  // Parchment is issued by colour and kg on the material tab, never by coil number (client 2026-10-26).
+  const itemById = useMemo(() => new Map((Array.isArray(itemsQuery.data) ? itemsQuery.data : []).map((item: any) => [String(item.id), item])), [itemsQuery.data])
+  const itemOf = (row: any): any => itemById.get(String(row?.paper_id))
+  const isParchmentReel = (row: any) => String(itemOf(row)?.type || "").toUpperCase() === "PARCHMENT"
+  const qcState = useMemo(() => {
+    const out = new Map<string, string>()
+    for (const row of Array.isArray(pendingQc.data) ? pendingQc.data : []) if (row?.entity_type === "REEL") out.set(String(row.entity_id), String(row.queue_state || ""))
+    return out
+  }, [pendingQc.data])
+
+  const inStock: any[] = useMemo(
+    () => (Array.isArray(stockQuery.data) ? stockQuery.data : []).filter((row: any) => Number(row.current_weight_kg || 0) > 0 && !isParchmentReel(row)),
+    [stockQuery.data, itemById], // eslint-disable-line react-hooks/exhaustive-deps
+  )
+  const ready = useMemo(() => inStock.filter((row) => ISSUABLE.includes(String(row.stock_status || "").toUpperCase())), [inStock])
+  const waiting = useMemo(() => inStock.filter((row) => !ISSUABLE.includes(String(row.stock_status || "").toUpperCase())), [inStock])
+  const manyPlants = new Set(inStock.map((row) => String(row.plant_id || ""))).size > 1
+  const needle = search.trim().toLowerCase()
+  const describe = (row: any) => [row.reel_code, itemOf(row)?.item_code, itemOf(row)?.name, row.source_reel_no, row.supplier_name_snapshot || row.supplier_name].filter(Boolean).join(" ").toLowerCase()
+  const shown = ready.filter((row) => (form === "ALL" || (form === "COIL") === isCoil(row)) && (!needle || describe(row).includes(needle)))
+  const selected = ready.filter((row) => picked.includes(String(row.id)))
+  const selectedKg = selected.reduce((sum, row) => sum + Number(row.current_weight_kg || 0), 0)
+  const readyKg = ready.reduce((sum, row) => sum + Number(row.current_weight_kg || 0), 0)
+
   const onHand = useMemo(() => {
     const rows = new Map<string, { id: string; code: string; name: string; reels: number; kg: number; waitingKg: number }>()
     const add = (row: any, cleared: boolean) => {
-      const item: any = itemById.get(String(row.paper_id))
+      const item: any = itemOf(row)
       const key = String(row.paper_id)
       const entry = rows.get(key) || { id: key, code: item?.item_code || "Paper", name: item?.name || "", reels: 0, kg: 0, waitingKg: 0 }
       if (cleared) { entry.reels += 1; entry.kg += Number(row.current_weight_kg || 0) } else entry.waitingKg += Number(row.current_weight_kg || 0)
       rows.set(key, entry)
     }
-    reels.forEach((row) => add(row, true))
+    ready.forEach((row) => add(row, true))
     waiting.forEach((row) => add(row, false))
     return Array.from(rows.values()).sort((a, b) => a.code.localeCompare(b.code))
-  }, [reels, waiting, itemById])
-  const waitingQc = waiting.filter((row) => ["BLOCKED", "PENDING"].includes(String(row.stock_status || "").toUpperCase())).length
-  const waitingHold = waiting.length - waitingQc
+  }, [ready, waiting, itemById]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const openIssues: any[] = Array.isArray(openQuery.data) ? openQuery.data : []
   const cardsDue = openIssues.filter((row) => row.issue_mode === "FLOOR" && row.issue_section === "SLITTING_SECTION")
   const legacyOpen = openIssues.filter((row) => row.issue_mode !== "FLOOR")
   const parchmentCodes = new Set(Array.from(itemById.values()).filter((item: any) => String(item?.type || "").toUpperCase() === "PARCHMENT").map((item: any) => String(item.item_code)))
   const today: any[] = (Array.isArray(todayQuery.data) ? todayQuery.data : []).filter((row: any) => !parchmentCodes.has(String(row.paper_code || "")))
-  const selected = reels.find((row) => String(row.id) === reelId)
-  const busy = createIssue.isPending || recordCard.isPending || closeLegacy.isPending
+  const todayKg = today.reduce((sum, row) => sum + Number(row.issued_weight_kg || 0), 0)
+  const busy = issuing || recordCard.isPending || closeLegacy.isPending
+
+  const toggle = (id: string) => setPicked((current) => (current.includes(id) ? current.filter((value) => value !== id) : [...current, id]))
 
   function resolveScan(value: string = scanCode) {
     const parsed = parseInventoryQr(value)
     if (parsed.entityType && parsed.entityType !== "REEL") return setNotice({ tone: "error", text: "Scan a reel or coil QR label." })
     const id = parsed.entityId.trim().toUpperCase()
     const code = parsed.code.trim().toUpperCase()
-    const parchmentCoil = (Array.isArray(stockQuery.data) ? stockQuery.data : []).find((row: any) => isParchmentReel(row) && (String(row.id).toUpperCase() === id || String(row.reel_code || "").toUpperCase() === code))
+    const same = (row: any) => String(row.id).toUpperCase() === id || String(row.reel_code || "").toUpperCase() === code
+    const all = Array.isArray(stockQuery.data) ? stockQuery.data : []
+    const parchmentCoil = all.find((row: any) => isParchmentReel(row) && same(row))
     if (parchmentCoil) return setNotice({ tone: "info", text: `${parchmentCoil.reel_code} is parchment. Parchment is issued by colour and kg on the Adhesive / parchment / packing tab.` })
-    const matched = reels.find((row) => String(row.id).toUpperCase() === id || String(row.reel_code || "").toUpperCase() === code)
+    const matched = ready.find(same)
     if (!matched) {
-      const held = waiting.find((row) => String(row.id).toUpperCase() === id || String(row.reel_code || "").toUpperCase() === code)
-      if (held) return setNotice({ tone: "error", text: `${held.reel_code} cannot go to the floor yet: it is ${waitingReason(held).text}. Clear it in ${waitingReason(held).action}.` })
+      const held = waiting.find(same)
+      if (held) return setNotice({ tone: "error", text: `${held.reel_code} cannot go to the floor yet: ${waitingReason(held, qcState.get(String(held.id))).text.toLowerCase()}. Open it from "Not cleared yet" to clear it.` })
       return setNotice({ tone: "error", text: `${code || "That label"} is not in stock.` })
     }
-    setReelId(String(matched.id)); setScanCode("")
-    setNotice({ tone: "info", text: `${matched.reel_code} selected · ${isCoil(matched) ? "coil → winders" : "reel → slitter"}.` })
+    setPicked((current) => (current.includes(String(matched.id)) ? current : [...current, String(matched.id)]))
+    setScanCode("")
+    setNotice({ tone: "info", text: `${matched.reel_code} added · ${isCoil(matched) ? "coil → winders" : "reel → slitter"}.` })
   }
 
-  async function issue(event: FormEvent) {
-    event.preventDefault()
-    if (!selected) return setNotice({ tone: "error", text: "Scan or choose a reel or coil." })
-    try {
-      await createIssue.mutateAsync({ reel_id: selected.id, shift, issue_date: issueDate, issued_weight_kg: Number(selected.current_weight_kg) })
-      setNotice({ tone: "success", text: isCoil(selected)
-        ? `${selected.reel_code} (${kg(selected.current_weight_kg)}) issued to the winders for shift ${shift}.`
-        : `${selected.reel_code} (${kg(selected.current_weight_kg)}) issued to the slitter for shift ${shift}. Write its slitting card when it is slit.` })
-      setReelId("")
-    } catch (error) { setNotice({ tone: "error", text: errorText(error) }) }
+  async function issueSelected() {
+    if (!selected.length) return setNotice({ tone: "error", text: "Pick or scan the reels and coils going to the floor." })
+    setIssuing(true)
+    const done: string[] = []
+    const failed: string[] = []
+    for (const row of selected) {
+      try {
+        await createIssue.mutateAsync({ plantId: row.plant_id || undefined, reel_id: row.id, shift, issue_date: issueDate, issued_weight_kg: Number(row.current_weight_kg) })
+        done.push(String(row.id))
+      } catch (error) {
+        failed.push(`${row.reel_code}: ${errorText(error)}`)
+      }
+    }
+    setIssuing(false)
+    setPicked((current) => current.filter((id) => !done.includes(id)))
+    const slit = selected.filter((row) => done.includes(String(row.id)) && !isCoil(row)).length
+    if (failed.length) {
+      setNotice({ tone: "error", text: `${done.length} issued. Not issued — ${failed.join(" · ")}` })
+    } else {
+      setNotice({ tone: "success", text: `${done.length} issued to the floor for shift ${shift}.${slit ? ` Write the slitting card for ${slit === 1 ? "the reel" : `the ${slit} reels`} once slit.` : ""}` })
+    }
   }
 
   async function saveCard(row: any) {
@@ -128,6 +186,7 @@ export default function ReelAndCoilIssuePage() {
     if (card.wastage_kg === "" || !(wastage >= 0) || wastage > Number(row.issued_weight_kg)) return setNotice({ tone: "error", text: `Wastage must be between 0 and ${kg(row.issued_weight_kg)}.` })
     try {
       await recordCard.mutateAsync({ id: row.id, data: {
+        plantId: row.plant_id || undefined,
         coils_made: coils, wastage_kg: wastage, coil_width_mm: card.coil_width_mm ? Number(card.coil_width_mm) : undefined,
         operator_name: card.operator_name.trim() || undefined, notes: card.notes.trim() || undefined, shift: row.shift,
       } })
@@ -140,54 +199,93 @@ export default function ReelAndCoilIssuePage() {
     const consumed = override ?? Number(legacyWeights[row.id] ?? row.issued_weight_kg)
     if (!Number.isFinite(consumed) || consumed < 0 || consumed > Number(row.issued_weight_kg)) return setNotice({ tone: "error", text: `Consumed must be between 0 and ${kg(row.issued_weight_kg)}.` })
     try {
-      await closeLegacy.mutateAsync({ id: row.id, data: { consumed_weight_kg: consumed } })
+      await closeLegacy.mutateAsync({ id: row.id, data: { plantId: row.plant_id || undefined, consumed_weight_kg: consumed } })
       setNotice({ tone: "success", text: `${row.reel_code} older issue closed.` })
     } catch (error) { setNotice({ tone: "error", text: errorText(error) }) }
   }
 
   return (
     <RoleGate allow={["Store", "PlantManager", "RMIssue"]}>
-      <ProcurementShell eyebrow="Stores" title="Reel & coil issue to floor" description="Issue is done every day to the floor, by shift — never to a machine. A reel always goes to the slitter and gets a slitting card (coils made + wastage); a coil goes straight to the winders. What goes to the floor is consumed in full; nothing comes back. Parchment is issued by colour and kg on the next tab." actions={<IssueDeskTabs />}>
+      <ProcurementShell
+        eyebrow="Stores"
+        title="Reel & coil issue to floor"
+        description="Issue to the floor by shift, never to a machine. A reel goes to the slitter and gets a slitting card; a coil goes straight to the winders. Everything issued is used in full. Any reel that passed incoming QC can go — invoice or rate questions never hold it."
+        actions={<IssueDeskTabs />}
+        allPlants
+      >
         {notice ? <MessageBar tone={notice.tone}>{notice.text}</MessageBar> : null}
-        {reelsQuery.isError || openQuery.isError ? <MessageBar tone="error">Stock could not load. Refresh before issuing.</MessageBar> : null}
+        {stockQuery.isError || openQuery.isError ? <MessageBar tone="error">Stock could not load. Refresh before issuing.</MessageBar> : null}
 
-        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          <WorkPanel title="Issue to floor" description="Only in-stock, QC-cleared reels and coils are listed. The whole reel goes out.">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" data-testid="reel-issue-stats">
+          <Stat icon={PackageCheck} label="Ready for the floor" value={ready.length} hint={kg(readyKg)} tone="emerald" />
+          <Stat icon={Hourglass} label="Not cleared yet" value={waiting.length} hint={waiting.length ? "QC decides — see the list" : "Nothing waiting"} tone={waiting.length ? "blue" : "slate"} />
+          <Stat icon={Scissors} label="Slitting cards to write" value={cardsDue.length} hint={cardsDue.length ? "Coils made + wastage" : "All written"} tone={cardsDue.length ? "amber" : "slate"} />
+          <Stat icon={Truck} label="Issued today" value={today.length} hint={kg(todayKg)} tone="slate" />
+        </div>
+
+        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+          <WorkPanel title="Ready for the floor" description="Passed incoming QC and in stock. Tap to pick one or more, or scan the label; the whole reel or coil goes out.">
             <div className="flex flex-wrap gap-2">
-              <label className="flex min-w-[220px] flex-1 items-center gap-2"><Barcode className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" /><input aria-label="Scan reel or coil label" className={fieldClass} value={scanCode} placeholder="Scan QR or type AT number" onChange={(e) => setScanCode(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); resolveScan() } }} /></label>
-              <button type="button" className={secondaryButton} onClick={() => resolveScan()}><PackageCheck className="h-4 w-4" />Select</button>
+              <label className="flex min-w-[200px] flex-1 items-center gap-2">
+                <Barcode className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <input aria-label="Scan reel or coil label" className={fieldClass} value={scanCode} placeholder="Scan QR or type AT number" onChange={(e) => setScanCode(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); resolveScan() } }} />
+              </label>
+              <button type="button" className={secondaryButton} onClick={() => resolveScan()}><PackageCheck className="h-4 w-4" />Add</button>
               <QrScanner onScan={(value) => { setScanCode(value); resolveScan(value) }} label="Camera" title="Scan reel label" hint="Point the camera at the reel or coil QR label." />
             </div>
-            <form onSubmit={issue} className="mt-4 space-y-3">
-              <Field label="Reel / coil">
-                <select className={fieldClass} value={reelId} onChange={(e) => setReelId(e.target.value)}>
-                  <option value="">{reels.length ? "Select from stock" : "Nothing cleared for issue yet"}</option>
-                  {reels.map((row) => <option key={row.id} value={row.id}>{row.reel_code} · {(itemById.get(String(row.paper_id)) as any)?.item_code || (isCoil(row) ? "Coil" : "Reel")}{row.width_mm ? ` ${row.width_mm} mm` : ""}{row.gsm ? ` · ${row.gsm} GSM` : ""} · {kg(row.current_weight_kg)} on hand</option>)}
-                  {waiting.length ? (
-                    <optgroup label="Not cleared yet — cannot be issued">
-                      {waiting.map((row) => <option key={row.id} value="" disabled>{row.reel_code} · {isCoil(row) ? "Coil" : "Reel"} · {kg(row.current_weight_kg)} — {waitingReason(row).text}</option>)}
-                    </optgroup>
-                  ) : null}
-                </select>
-              </Field>
-              {waiting.length ? (
-                <p className={cn("rounded-lg border px-3 py-2 text-[12.5px]", reels.length ? "border-border bg-muted/60 text-muted-foreground" : "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink")} data-testid="floor-issue-waiting">
-                  {reels.length ? "Also in stock but not cleared: " : "Nothing is cleared for the floor yet. In stock but waiting: "}
-                  {waitingQc ? <><strong>{waitingQc}</strong> for incoming QC (<Link className="font-semibold underline" href="/quality/incoming">Incoming QC</Link>)</> : null}
-                  {waitingQc && waitingHold ? " · " : ""}
-                  {waitingHold ? <><strong>{waitingHold}</strong> on QC hold (<Link className="font-semibold underline" href="/quality/results">Holds & inspections</Link>)</> : null}
-                  . A reel or coil can go to the floor once QC passes it.
-                </p>
-              ) : !reels.length && !reelsQuery.isLoading ? (
-                <p className="rounded-lg border border-border bg-muted/60 px-3 py-2 text-[12.5px] text-muted-foreground">No reels or coils are in stock. Receive them in Goods inward first.</p>
-              ) : null}
-              {selected ? (
-                <div className={cn("flex flex-wrap items-center gap-3 rounded-lg border px-3 py-2.5 text-[13px]", isCoil(selected) ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink" : "border-signal-cyan-line bg-signal-cyan-soft text-signal-cyan-ink")}>
-                  {isCoil(selected) ? <PackageCheck className="h-4 w-4" aria-hidden="true" /> : <Scissors className="h-4 w-4" aria-hidden="true" />}
-                  <span className="font-semibold">{isCoil(selected) ? "Coil → production winders" : "Reel → slitter (slitting card follows)"}</span>
-                  <span>{kg(selected.current_weight_kg)} · whole {isCoil(selected) ? "coil" : "reel"}</span>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <label className="relative min-w-[180px] flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input aria-label="Find reel" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Find paper, AT no., vendor reel…" className={cn(fieldClass, "pl-9")} />
+              </label>
+              <div role="radiogroup" aria-label="Form" className="flex gap-1 rounded-lg bg-muted p-1">
+                {([["ALL", "All"], ["REEL", "Reels → slitter"], ["COIL", "Coils → winders"]] as const).map(([value, label]) => (
+                  <button key={value} type="button" role="radio" aria-checked={form === value} onClick={() => setForm(value)} className={cn("h-8 rounded-md px-3 text-[12.5px] font-semibold", form === value ? "bg-card shadow-sm ring-1 ring-border" : "text-muted-foreground")}>{label}</button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-3 max-h-[440px] space-y-1.5 overflow-y-auto pr-1" data-testid="floor-issue-ready">
+              {stockQuery.isLoading ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">Loading stock…</p>
+              ) : shown.length ? (
+                shown.map((row) => {
+                  const on = picked.includes(String(row.id))
+                  const item = itemOf(row)
+                  return (
+                    <button
+                      key={row.id}
+                      type="button"
+                      onClick={() => toggle(String(row.id))}
+                      aria-pressed={on}
+                      data-testid={`floor-issue-reel-${row.reel_code}`}
+                      className={cn("flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all", on ? "border-primary bg-primary/[.06] ring-1 ring-primary/40" : "border-border bg-card hover:border-foreground/25")}
+                    >
+                      <span className={cn("grid h-5 w-5 shrink-0 place-items-center rounded-md border", on ? "border-primary bg-primary text-primary-foreground" : "border-input bg-card")}>{on ? <Check className="h-3.5 w-3.5" /> : null}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex flex-wrap items-center gap-x-2">
+                          <span className="text-[13.5px] font-semibold">{row.reel_code}</span>
+                          <span className="truncate text-[12.5px] text-muted-foreground">{item?.item_code || ""}{item?.name ? ` · ${item.name}` : ""}</span>
+                        </span>
+                        <span className="block text-[12px] text-muted-foreground">
+                          {[manyPlants ? displayPlantScope(row.plant_id) : null, row.width_mm ? `${row.width_mm} mm` : null, row.gsm ? `${row.gsm} GSM` : null, row.source_reel_no ? `vendor ${row.source_reel_no}` : null, row.supplier_name_snapshot || row.supplier_name].filter(Boolean).join(" · ")}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-right">
+                        <span className="block text-[13.5px] font-semibold tabular-nums">{kg(row.current_weight_kg)}</span>
+                        <Chip tone={isCoil(row) ? "emerald" : "blue"} size="xs" icon={isCoil(row) ? PackageCheck : Scissors}>{isCoil(row) ? "Coil → winders" : "Reel → slitter"}</Chip>
+                      </span>
+                    </button>
+                  )
+                })
+              ) : (
+                <div className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-[13px] text-muted-foreground">
+                  {ready.length ? "Nothing matches this search." : waiting.length ? "Nothing has passed incoming QC yet — see Not cleared yet." : "No reels or coils in stock. Receive them in Goods inward first."}
                 </div>
-              ) : null}
+              )}
+            </div>
+
+            <div className="sticky bottom-0 -mx-4 mt-3 space-y-3 border-t border-border bg-card/95 px-4 pt-3 backdrop-blur sm:-mx-5 sm:px-5">
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Shift">
                   <div role="radiogroup" aria-label="Shift" className="flex gap-1 rounded-lg bg-muted p-1">
@@ -196,81 +294,117 @@ export default function ReelAndCoilIssuePage() {
                 </Field>
                 <Field label="Issue date"><input className={fieldClass} type="date" value={issueDate} max={businessDate()} onChange={(e) => setIssueDate(e.target.value)} /></Field>
               </div>
-              <button type="submit" className={cn(primaryButton, "w-full justify-center")} disabled={busy || !selected}><PackageCheck className="h-4 w-4" />{selected ? `Issue ${isCoil(selected) ? "coil" : "reel"} to floor · ${kg(selected.current_weight_kg)}` : "Issue to floor"}</button>
-            </form>
+              <div className="flex flex-wrap items-center gap-2">
+                {selected.length ? (
+                  <button type="button" className="text-[12.5px] font-semibold text-muted-foreground hover:text-foreground" onClick={() => setPicked([])}>Clear</button>
+                ) : null}
+                <button type="button" data-testid="floor-issue-submit" className={cn(primaryButton, "h-10 flex-1 justify-center")} disabled={busy || !selected.length} onClick={() => void issueSelected()}>
+                  <PackageCheck className="h-4 w-4" />
+                  {issuing ? "Issuing…" : selected.length ? `Issue ${selected.length} to floor · ${kg(selectedKg)} · shift ${shift}` : "Pick reels or coils to issue"}
+                </button>
+              </div>
+            </div>
           </WorkPanel>
 
-          <WorkPanel title={`Slitting cards to write · ${cardsDue.length}`} description="Every reel sent to the slitter: write how many coils came out and the wastage, like a job card. These feed the slitting reports.">
-            {cardsDue.length ? (
-              <ul className="space-y-2" data-testid="slitting-cards-due">
-                {cardsDue.map((row) => (
-                  <li key={row.id} className="rounded-lg border border-border">
-                    <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5">
-                      <div className="min-w-0">
-                        <p className="font-semibold">{row.reel_code} <span className="font-normal text-muted-foreground">· {row.paper_code || "paper"}{row.gsm ? ` · ${row.gsm} GSM` : ""}</span></p>
-                        <p className="text-[12.5px] text-muted-foreground">{kg(row.issued_weight_kg)} · issued {day(row.issue_date)} · shift {row.shift}</p>
+          <div className="space-y-4">
+            <WorkPanel title={`Not cleared yet · ${waiting.length}`} description="In stock but not passed by incoming QC. Open one to inspect it — once it passes it moves to Ready.">
+              {waiting.length ? (
+                <ul className="max-h-[300px] space-y-1.5 overflow-y-auto pr-1" data-testid="floor-issue-waiting">
+                  {waiting.map((row) => {
+                    const reason = waitingReason(row, qcState.get(String(row.id)))
+                    return (
+                      <li key={row.id}>
+                        <Link href={`/quality/incoming?lot=REEL:${row.id}`} className="group flex items-center gap-3 rounded-xl border border-border bg-card px-3 py-2 hover:border-foreground/25">
+                          <CircleAlert className={cn("h-4 w-4 shrink-0", reason.tone === "rose" ? "text-signal-rose-ink" : reason.tone === "amber" ? "text-signal-amber-ink" : "text-signal-blue-ink")} />
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-[13px] font-semibold">{row.reel_code} <span className="font-normal text-muted-foreground">· {itemOf(row)?.item_code || (isCoil(row) ? "Coil" : "Reel")} · {kg(row.current_weight_kg)}</span></span>
+                            <Chip tone={reason.tone} size="xs">{reason.text}</Chip>
+                          </span>
+                          <span className="inline-flex shrink-0 items-center gap-1 text-[12px] font-semibold text-primary group-hover:underline">{reason.action}<ArrowUpRight className="h-3.5 w-3.5" /></span>
+                        </Link>
+                      </li>
+                    )
+                  })}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted-foreground">Everything in stock has passed QC.</p>
+              )}
+            </WorkPanel>
+
+            <WorkPanel title={`Slitting cards to write · ${cardsDue.length}`} description="For every reel sent to the slitter: coils made and wastage. These feed the slitting report.">
+              {cardsDue.length ? (
+                <ul className="space-y-2" data-testid="slitting-cards-due">
+                  {cardsDue.map((row) => (
+                    <li key={row.id} className="rounded-xl border border-border">
+                      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5">
+                        <div className="min-w-0">
+                          <p className="font-semibold">{row.reel_code} <span className="font-normal text-muted-foreground">· {row.paper_code || "paper"}{row.gsm ? ` · ${row.gsm} GSM` : ""}</span></p>
+                          <p className="text-[12.5px] text-muted-foreground">{kg(row.issued_weight_kg)} · issued {day(row.issue_date)} · shift {row.shift}</p>
+                        </div>
+                        <button type="button" className={cardFor === row.id ? secondaryButton : primaryButton} onClick={() => { setCardFor(cardFor === row.id ? null : row.id); setCard(EMPTY_CARD) }}>{cardFor === row.id ? "Cancel" : <><ClipboardList className="h-4 w-4" />Write card</>}</button>
                       </div>
-                      <button type="button" className={cardFor === row.id ? secondaryButton : primaryButton} onClick={() => { setCardFor(cardFor === row.id ? null : row.id); setCard(EMPTY_CARD) }}>{cardFor === row.id ? "Cancel" : <><ClipboardList className="h-4 w-4" />Write card</>}</button>
-                    </div>
-                    {cardFor === row.id ? (
-                      <div className="grid gap-3 border-t border-border bg-muted/30 p-3 sm:grid-cols-2" data-testid="slitting-card-form">
-                        <Field label="Coils made"><input autoFocus className={fieldClass} type="number" min="1" step="1" inputMode="numeric" value={card.coils_made} onChange={(e) => setCard({ ...card, coils_made: e.target.value })} /></Field>
-                        <Field label="Wastage kg" hint={`of ${kg(row.issued_weight_kg)}`}><input className={fieldClass} type="number" min="0" step="0.001" inputMode="decimal" value={card.wastage_kg} onChange={(e) => setCard({ ...card, wastage_kg: e.target.value })} /></Field>
-                        <Field label="Coil width mm" hint="optional"><input className={fieldClass} type="number" min="0" step="0.1" value={card.coil_width_mm} onChange={(e) => setCard({ ...card, coil_width_mm: e.target.value })} /></Field>
-                        <Field label="Slitter operator" hint="optional"><input className={fieldClass} value={card.operator_name} onChange={(e) => setCard({ ...card, operator_name: e.target.value })} /></Field>
-                        <div className="sm:col-span-2"><Field label="Notes" hint="optional"><input className={fieldClass} value={card.notes} onChange={(e) => setCard({ ...card, notes: e.target.value })} /></Field></div>
-                        {card.coils_made && card.wastage_kg !== "" ? <p className="text-[12.5px] text-muted-foreground sm:col-span-2">Good paper {kg(Number(row.issued_weight_kg) - Number(card.wastage_kg))} · wastage {((100 * Number(card.wastage_kg)) / Number(row.issued_weight_kg || 1)).toFixed(1)}% · about {kg((Number(row.issued_weight_kg) - Number(card.wastage_kg)) / Math.max(1, Number(card.coils_made)))} per coil</p> : null}
-                        <button type="button" className={cn(primaryButton, "sm:col-span-2 justify-center")} disabled={busy} onClick={() => void saveCard(row)}>Save slitting card</button>
-                      </div>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            ) : <p className="text-sm text-muted-foreground">No reel is waiting for its slitting card.</p>}
-            <Link href="/reports/slitting" className="mt-3 inline-flex items-center gap-1 text-[13px] font-semibold text-primary hover:underline">Slitting report<ArrowUpRight className="h-3.5 w-3.5" /></Link>
-          </WorkPanel>
+                      {cardFor === row.id ? (
+                        <div className="grid gap-3 border-t border-border bg-muted/30 p-3 sm:grid-cols-2" data-testid="slitting-card-form">
+                          <Field label="Coils made"><input autoFocus className={fieldClass} type="number" min="1" step="1" inputMode="numeric" value={card.coils_made} onChange={(e) => setCard({ ...card, coils_made: e.target.value })} /></Field>
+                          <Field label="Wastage kg" hint={`of ${kg(row.issued_weight_kg)}`}><input className={fieldClass} type="number" min="0" step="0.001" inputMode="decimal" value={card.wastage_kg} onChange={(e) => setCard({ ...card, wastage_kg: e.target.value })} /></Field>
+                          <Field label="Coil width mm" hint="optional"><input className={fieldClass} type="number" min="0" step="0.1" value={card.coil_width_mm} onChange={(e) => setCard({ ...card, coil_width_mm: e.target.value })} /></Field>
+                          <Field label="Slitter operator" hint="optional"><input className={fieldClass} value={card.operator_name} onChange={(e) => setCard({ ...card, operator_name: e.target.value })} /></Field>
+                          <div className="sm:col-span-2"><Field label="Notes" hint="optional"><input className={fieldClass} value={card.notes} onChange={(e) => setCard({ ...card, notes: e.target.value })} /></Field></div>
+                          {card.coils_made && card.wastage_kg !== "" ? <p className="text-[12.5px] text-muted-foreground sm:col-span-2">Good paper {kg(Number(row.issued_weight_kg) - Number(card.wastage_kg))} · wastage {((100 * Number(card.wastage_kg)) / Number(row.issued_weight_kg || 1)).toFixed(1)}% · about {kg((Number(row.issued_weight_kg) - Number(card.wastage_kg)) / Math.max(1, Number(card.coils_made)))} per coil</p> : null}
+                          <button type="button" className={cn(primaryButton, "justify-center sm:col-span-2")} disabled={busy} onClick={() => void saveCard(row)}>Save slitting card</button>
+                        </div>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : <p className="text-sm text-muted-foreground">No reel is waiting for its slitting card.</p>}
+              <Link href="/reports/slitting" className="mt-3 inline-flex items-center gap-1 text-[13px] font-semibold text-primary hover:underline">Slitting report<ArrowUpRight className="h-3.5 w-3.5" /></Link>
+            </WorkPanel>
+          </div>
         </div>
 
-        <WorkPanel title="Stock on hand" description="Paper reels and coils in stock now, by paper. Cleared stock can be issued; the rest waits for QC. Updates after every issue.">
-          {onHand.length ? (
-            <div className="overflow-x-auto" data-testid="reel-stock-on-hand">
-              <table className="tube-grid w-full min-w-[520px]">
-                <thead><tr><th>Paper</th><th className="text-right">Cleared reels / coils</th><th className="text-right">Cleared kg</th><th className="text-right">Waiting for QC kg</th></tr></thead>
-                <tbody>
-                  {onHand.map((row) => (
-                    <tr key={row.id}>
-                      <td className="font-medium">{row.code}<span className="block text-[12px] font-normal text-muted-foreground">{row.name}</span></td>
-                      <td className="text-right tabular-nums">{row.reels}</td>
-                      <td className="text-right font-semibold tabular-nums">{kg(row.kg)}</td>
-                      <td className="text-right tabular-nums text-muted-foreground">{row.waitingKg ? kg(row.waitingKg) : "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : <p className="text-sm text-muted-foreground">No paper reels or coils in stock.</p>}
-        </WorkPanel>
+        <div className="grid items-start gap-4 xl:grid-cols-2">
+          <WorkPanel title="Stock on hand" description="Paper reels and coils in stock, by paper. Updates after every issue.">
+            {onHand.length ? (
+              <div className="overflow-x-auto" data-testid="reel-stock-on-hand">
+                <table className="tube-grid w-full min-w-[460px]">
+                  <thead><tr><th>Paper</th><th className="text-right">Ready</th><th className="text-right">Ready kg</th><th className="text-right">Not cleared kg</th></tr></thead>
+                  <tbody>
+                    {onHand.map((row) => (
+                      <tr key={row.id}>
+                        <td className="font-medium">{row.code}<span className="block text-[12px] font-normal text-muted-foreground">{row.name}</span></td>
+                        <td className="text-right tabular-nums">{row.reels}</td>
+                        <td className="text-right font-semibold tabular-nums">{kg(row.kg)}</td>
+                        <td className="text-right tabular-nums text-muted-foreground">{row.waitingKg ? kg(row.waitingKg) : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : <p className="text-sm text-muted-foreground">No paper reels or coils in stock.</p>}
+          </WorkPanel>
 
-        <WorkPanel title={`Issued today · ${today.length}`} description="Reels and coils that went to the floor on today's business date.">
-          {today.length ? (
-            <div className="overflow-x-auto">
-              <table className="tube-grid w-full min-w-[640px]">
-                <thead><tr><th>Reel / coil</th><th>Went to</th><th>Shift</th><th className="text-right">Weight</th><th>Slitting card</th></tr></thead>
-                <tbody>
-                  {today.map((row) => (
-                    <tr key={row.id}>
-                      <td className="font-medium">{row.reel_code}<span className="block text-[12px] font-normal text-muted-foreground">{row.paper_code || ""}</span></td>
-                      <td>{row.issue_section === "SLITTING_SECTION" ? "Slitter" : "Winders"}</td>
-                      <td>{row.shift}</td>
-                      <td className="text-right tabular-nums">{kg(row.issued_weight_kg)}</td>
-                      <td>{row.issue_section !== "SLITTING_SECTION" ? <span className="text-muted-foreground">—</span> : row.slitting_card ? `${row.slitting_card.coils_made} coils · ${kg(row.slitting_card.wastage_kg)} wastage` : <span className="font-semibold text-signal-amber-ink">To write</span>}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : <p className="text-sm text-muted-foreground">Nothing issued yet today.</p>}
-        </WorkPanel>
+          <WorkPanel title={`Issued today · ${today.length}`} description="Reels and coils that went to the floor on today's business date.">
+            {today.length ? (
+              <div className="overflow-x-auto">
+                <table className="tube-grid w-full min-w-[520px]">
+                  <thead><tr><th>Reel / coil</th><th>Went to</th><th>Shift</th><th className="text-right">Weight</th><th>Slitting card</th></tr></thead>
+                  <tbody>
+                    {today.map((row) => (
+                      <tr key={row.id}>
+                        <td className="font-medium">{row.reel_code}<span className="block text-[12px] font-normal text-muted-foreground">{row.paper_code || ""}</span></td>
+                        <td>{row.issue_section === "SLITTING_SECTION" ? "Slitter" : "Winders"}</td>
+                        <td>{row.shift}</td>
+                        <td className="text-right tabular-nums">{kg(row.issued_weight_kg)}</td>
+                        <td>{row.issue_section !== "SLITTING_SECTION" ? <span className="text-muted-foreground">—</span> : row.slitting_card ? `${row.slitting_card.coils_made} coils · ${kg(row.slitting_card.wastage_kg)} wastage` : <span className="font-semibold text-signal-amber-ink">To write</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : <p className="text-sm text-muted-foreground">Nothing issued yet today.</p>}
+          </WorkPanel>
+        </div>
 
         {legacyOpen.length ? (
           <WorkPanel title={`Older open issues · ${legacyOpen.length}`} description="Issued before floor issue started, to a machine with a return expected. Close each once with what was used; from now on nothing comes back.">

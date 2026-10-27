@@ -64,7 +64,7 @@ from ..models import (
 )
 from ..quality_task_queue import enqueue_incoming_qc_task
 from ..services.labels import reel_label_payload, batch_label_payload
-from ..services.receipt_quality import initial_quality, refresh_receipt_stock
+from ..services.receipt_quality import initial_quality, inward_stock_status, refresh_receipt_stock
 from ..services.procurement import (
     ProcurementRuleError,
     financial_year,
@@ -473,7 +473,7 @@ def post_governed_receipt(
         quality_metadata, qc_status = initial_quality(po_line.item, plant_id, payload.received_date)
         if requested.sample_count is not None:
             quality_metadata["sample_count"] = requested.sample_count
-        stock_status = "BLOCKED" if commercial != "CLEAR" else ("QC_HOLD" if qc_status == "PENDING" else "UNRESTRICTED")
+        stock_status = inward_stock_status(qc_status)
         receipt_line = PurchaseReceiptLine(
             receipt_id=receipt.id, purchase_order_line_id=po_line.id, approved_revision_line_id=revision_line.id,
             item_id=po_line.item_id, qty_received=qty, unit_cost=float(revision_line.unit_rate),

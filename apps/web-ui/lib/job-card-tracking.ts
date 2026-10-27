@@ -18,27 +18,25 @@ export function lifecycleStateOf(job: any): LifecycleState {
   return "QUEUED"
 }
 
-export type TrackStatus = "QUEUE" | "SCHEDULED" | "RUNNING" | "WAITING_QC" | "ON_HOLD" | "READY_DISPATCH" | "CLOSED_EARLY" | "DONE"
+export type TrackStatus = "QUEUE" | "SCHEDULED" | "RUNNING" | "ON_HOLD" | "READY_DISPATCH" | "CLOSED_EARLY" | "DONE"
 export type TrackTone = "blue" | "violet" | "amber" | "rose" | "emerald" | "slate"
 
 export const TRACK_STATUSES: Array<{ key: TrackStatus; label: string; tone: TrackTone; open: boolean; hint: string }> = [
   { key: "QUEUE", label: "Queue", tone: "slate", open: true, hint: "Released, not on the planner board yet" },
   { key: "SCHEDULED", label: "Scheduled", tone: "blue", open: true, hint: "On the board with a date, shift and machine" },
   { key: "RUNNING", label: "Running", tone: "violet", open: true, hint: "The floor is logging runs on the current stage" },
-  { key: "WAITING_QC", label: "Waiting QC", tone: "amber", open: true, hint: "At the final QC gate" },
   { key: "ON_HOLD", label: "On hold", tone: "rose", open: true, hint: "An active quality hold stops the next stage" },
-  { key: "READY_DISPATCH", label: "Ready to dispatch", tone: "emerald", open: true, hint: "Packed and checked; waiting for the truck" },
+  { key: "READY_DISPATCH", label: "Ready to dispatch", tone: "emerald", open: true, hint: "Process closed: packed with its two QC readings; waiting for a DC" },
   { key: "CLOSED_EARLY", label: "Closed early", tone: "rose", open: false, hint: "Force-closed or cancelled; the balance went back to the order" },
   { key: "DONE", label: "Done", tone: "emerald", open: false, hint: "All stages done" },
 ]
 
 export function trackStatus(job: any, onHold = false): TrackStatus {
   const life = lifecycleStateOf(job)
-  const stage = String(job?.current_stage || "").toUpperCase()
+  const stage = floorStage(job?.current_stage)
   if (life === "FORCE_CLOSED" || life === "CANCELLED") return "CLOSED_EARLY"
   if (life === "COMPLETED" || stage === "DONE") return "DONE"
   if (onHold) return "ON_HOLD"
-  if (stage === "QC") return "WAITING_QC"
   if (stage === "DISPATCH") return "READY_DISPATCH"
   if (life === "RUNNING") return "RUNNING"
   if (life === "SCHEDULED") return "SCHEDULED"
@@ -58,20 +56,27 @@ export const STAGE_TRACK: Array<{ stage: string; short: string; label: string }>
   { stage: "WINDER", short: "W", label: "Winding" },
   { stage: "OVEN", short: "O", label: "Oven" },
   { stage: "PROCESS", short: "P", label: "Process" },
-  { stage: "PACKING", short: "Pk", label: "Packing" },
-  { stage: "QC", short: "QC", label: "Final QC" },
   { stage: "DISPATCH", short: "D", label: "Dispatch" },
 ]
 
-export function stageWord(stage?: string | null) {
+/**
+ * Packing and the end-of-line QC are part of Process (client rule 2026-10-18): the two QC readings
+ * are taken at Process and packing follows on the same line, so the floor sees W · O · P · D only.
+ */
+export function floorStage(stage?: string | null) {
   const key = String(stage || "").toUpperCase()
+  return key === "PACKING" || key === "QC" ? "PROCESS" : key
+}
+
+export function stageWord(stage?: string | null) {
+  const key = floorStage(stage)
   if (key === "DONE") return "Done"
   return STAGE_TRACK.find((row) => row.stage === key)?.label || (key ? key.charAt(0) + key.slice(1).toLowerCase() : "—")
 }
 
-/** The W · O · P · Pk · QC · D track of a card: stages before the current one are done. */
+/** The W · O · P · D track of a card: stages before the current one are done. */
 export function stageTrack(job: any): Array<{ stage: string; short: string; label: string; state: "done" | "current" | "pending" }> {
-  const current = String(job?.current_stage || "").toUpperCase()
+  const current = floorStage(job?.current_stage)
   const life = lifecycleStateOf(job)
   const closed = life === "FORCE_CLOSED" || life === "CANCELLED"
   const route = STAGE_TRACK.filter((row) => row.stage !== "SLITTING" || current === "SLITTING" || job?.requires_slitting)
@@ -109,7 +114,7 @@ export function groupOf(job: any, groupBy: GroupBy, machineLabel: (id: string) =
     return { key, label: orderRef(job), sub: [job?.customer_name, job?.due_date ? `due ${dayText(job.due_date)}` : null].filter(Boolean).join(" · ") }
   }
   if (groupBy === "stage") {
-    const stage = String(job?.current_stage || "").toUpperCase() || "NONE"
+    const stage = floorStage(job?.current_stage) || "NONE"
     return { key: stage, label: stageWord(stage), sub: "" }
   }
   if (groupBy === "machine") {

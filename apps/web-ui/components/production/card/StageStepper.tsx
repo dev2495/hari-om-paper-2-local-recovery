@@ -32,11 +32,9 @@ const STATE_WORD: Record<StepInfo["state"], { label: string; tone: "emerald" | "
   system: { label: "Closes with Process", tone: "muted" },
 }
 
-/** Steps from a batch-entry card's flow (Packing and Final QC fold into one system step when hidden). */
+/** Steps from a batch-entry card's flow: W · O · P · D. Packing and the end QC close with Process, so they are no step. */
 export function stepsFromFlow(flow: any): StepInfo[] {
-  const shown = visibleStages(flow)
-  const all: any[] = flow?.stages || []
-  const steps: StepInfo[] = shown.map((s: any) => ({
+  return visibleStages(flow).map((s: any) => ({
     stage: s.stage,
     label: stageLabel(s.stage),
     state: s.status === "COMPLETED" ? "done" : Number(s.produced_total || 0) > 0 || s.status === "RUNNING" ? "running" : (s.segments || []).some((seg: any) => seg.plan_date) ? "planned" : "todo",
@@ -51,15 +49,6 @@ export function stepsFromFlow(flow: any): StepInfo[] {
     closedBy: s.supervisor_name,
     closedAt: s.closed_at,
   }))
-  const hidden = all.filter((s: any) => ["PACKING", "QC"].includes(s.stage) && !shown.some((v: any) => v.stage === s.stage))
-  if (hidden.length) {
-    const qc = all.find((s: any) => s.stage === "QC")
-    const done = hidden.every((s: any) => s.status === "COMPLETED")
-    const index = steps.findIndex((s) => s.stage === "DISPATCH")
-    const step: StepInfo = { stage: "PACKING_QC", label: hidden.some((s: any) => s.stage === "PACKING") ? "Packing & final QC" : "Final QC", state: done ? "done" : "system", good: Number(qc?.accepted_total || 0), target: Number(qc?.target || 0), unit: "pcs", note: done ? undefined : "closed with Process" }
-    steps.splice(index === -1 ? steps.length : index, 0, step)
-  }
-  return steps
 }
 
 /** Steps for an old-form card (no batch flow): from the card's stage rows and the lifecycle summary. */
@@ -67,7 +56,7 @@ export function stepsFromOldCard(card: any, lifecycle: any): StepInfo[] {
   const rows: any[] = Array.isArray(card?.stages) ? card.stages : []
   const life: any[] = lifecycle?.stages || []
   return rows
-    .filter((row) => row.stage_type !== "SLITTING" || card?.requires_slitting)
+    .filter((row) => (row.stage_type !== "SLITTING" || card?.requires_slitting) && !["PACKING", "QC"].includes(row.stage_type))
     .map((row) => {
       const l = life.find((s) => s.stage === row.stage_type)
       const status = String(row.status || "").toUpperCase()
@@ -94,7 +83,7 @@ export function StageStepper({ steps, current, onSelect }: { steps: StepInfo[]; 
         const word = STATE_WORD[step.state]
         const pct = step.target ? Math.min(100, Math.round((step.good / step.target) * 100)) : 0
         const isCurrent = current === step.stage
-        const selectable = Boolean(onSelect) && step.stage !== "PACKING_QC"
+        const selectable = Boolean(onSelect)
         const body = (
           <>
             <div className="flex items-center">

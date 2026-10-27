@@ -387,7 +387,7 @@ const guides: GuideContent[] = [
     controlChecks: [
       "Capacity shown on cards should match machine settings.",
       "Review material availability before scheduling urgent orders.",
-      "Do not ignore QC or stock holds while planning. Packing measurements do not replace final QC. Dispatch requires a current passing final inspection.",
+      "Do not ignore QC or stock holds while planning. There is no separate packing or final QC step: packing follows Process on the same line, and the two QC readings at Process are the final check before dispatch.",
     ],
     outputs: ["Shift schedule", "Machine queue", "Job card handoff", "Shop-floor planning sheets"],
     relatedRoutes: ["/planning/overview", "/planning/print", "/sales-orders", "/production/job-cards", "/production/entry", "/reports/planning", "/reports/production"],
@@ -468,7 +468,7 @@ const guides: GuideContent[] = [
     flowTitle: "Dispatch handoff flow",
     steps: [
       { label: "Pick FG", detail: "Select finished goods lot or job card output ready for dispatch." },
-      { label: "Verify QC", detail: "Confirm no active hold remains and a current complete final QC inspection has passed. Packing measurements alone do not release the job." },
+      { label: "Verify QC", detail: "Confirm no active hold remains and the card closed Process with its two QC readings in. That is the final check; there is no separate final QC step." },
       { label: "Prepare shipment", detail: "Select the remaining quantity to ship, review packing and customer details, then enter vehicle, transporter and LR information. Phone screens show the same fields in stacked sections." },
       { label: "Post dispatch", detail: "Seal once. Only this shipment's quantity moves out; sales fulfillment and remaining FG update. Open the sealed shipment to print its challan. A retry of the same request does not post stock twice." },
     ],

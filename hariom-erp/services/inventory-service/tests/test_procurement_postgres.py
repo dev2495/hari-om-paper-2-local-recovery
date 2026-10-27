@@ -420,7 +420,7 @@ def test_manual_multi_material_receipt_labels_and_independent_approval():
         assert result["receipt_kind"] == "MANUAL"
         assert result["lot_count"] == 2 and result["received_kg"] == 1000
         assert db.query(PurchaseOrder).count() == order_count
-        assert {row["stock_status"] for row in result["lots"]} == {"BLOCKED"}
+        assert {row["stock_status"] for row in result["lots"]} == {"QC_HOLD"}
         assert len({row["label"]["qr_value"] for row in result["lots"]}) == 2
         assert {row["label"]["width_mm"] for row in result["lots"]} == {850, 100}
         assert {row["label"]["physical_form"] for row in result["lots"]} == {"REEL", "COIL"}
@@ -472,7 +472,7 @@ def test_manual_receipt_http_auth_roles_retry_and_cross_plant():
     assert client.post("/inventory/procurement/manual-receipts", json=body, headers=headers("Store", "maker", "00000000-0000-0000-0000-0000000000b2")).status_code == 403
     response = client.post("/inventory/procurement/manual-receipts", json=body, headers=headers("Store", "maker"))
     assert response.status_code == 200, response.text
-    saved = response.json(); assert saved["lots"][0]["stock_status"] == "BLOCKED"
+    saved = response.json(); assert saved["lots"][0]["stock_status"] == "QC_HOLD"
     assert client.post("/inventory/procurement/manual-receipts", json=body, headers=headers("Store", "maker")).json()["idempotent"]
     changed = {**body, "reason": "Changed request contents"}
     assert client.post("/inventory/procurement/manual-receipts", json=changed, headers=headers("Store", "maker")).status_code == 409
@@ -511,7 +511,7 @@ def test_manual_quantity_discrepancy_cannot_bypass_purchase_approval():
         assert decision["supplier_name"] == "Quantity review mill"
         saved = db.get(PurchaseReceipt, uuid.UUID(result["id"]))
         assert saved.commercial_status == "MANUAL_REVIEW"
-        assert db.get(PaperReel, uuid.UUID(result["lots"][0]["id"])).stock_status == "BLOCKED"
+        assert db.get(PaperReel, uuid.UUID(result["lots"][0]["id"])).stock_status == "QC_HOLD"
         with pytest.raises(HTTPException, match="Approve the manual purchase"):
             act_on_discrepancy(case.id, DiscrepancyAction(action="RELEASE_STOCK", expected_version=case.version, reason="Release reviewed lot"), db, PLANT, CHECKER)
         approved = approve_manual_receipt(saved.id, VersionAction(expected_version=1, reason="Manual invoice authorized"), db, PLANT, CHECKER)

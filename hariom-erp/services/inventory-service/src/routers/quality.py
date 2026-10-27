@@ -108,6 +108,18 @@ def _pin_quality_profile(item: Optional[ItemMaster], entity: Any) -> Optional[di
     return approved_profile_payload(live)
 
 
+def _effective_profile(item: Optional[ItemMaster], entity: Any) -> Optional[dict[str, Any]]:
+    """The standard the next inspection will check against, without writing anything.
+
+    A lot received before its material standard was approved carries a "missing" placeholder;
+    the inspection attaches the approved standard, so the desk must show those checks too."""
+    pinned = (getattr(entity, "inward_metadata", None) or {}).get("quality_profile")
+    if isinstance(pinned, dict) and pinned and not is_missing_profile_pin(pinned):
+        return pinned
+    live = approved_profile_payload(getattr(item, "quality_profile", None) if item is not None else None)
+    return live or (pinned if isinstance(pinned, dict) else None)
+
+
 def _open_entity_holds(db: Session, *, plant_id: str, entity_type: str, entity_id) -> list[InventoryQualityHold]:
     return (
         db.query(InventoryQualityHold)
@@ -432,6 +444,8 @@ class PendingQualityItem(BaseModel):
     challan_no: Optional[str] = None
     unit_ref: Optional[str] = None
     unit_label: Optional[str] = None
+    # The lot's own plant, so an all-plants viewer saves the inspection where the lot lives.
+    plant_id: Optional[str] = None
 
 
 class CustomerRejectionCreate(BaseModel):
@@ -690,7 +704,8 @@ def list_pending_quality(
                 **_incoming_deadline(batch.created_at),
                 source="INWARD",
                 item_id=item.id if item else None,
-                quality_profile=(batch.inward_metadata or {}).get("quality_profile"),
+                quality_profile=_effective_profile(item, batch),
+                plant_id=str(batch.plant_id) if batch.plant_id else None,
             )
         )
 
@@ -721,7 +736,8 @@ def list_pending_quality(
                     **_incoming_deadline(reel.created_at),
                     source="INWARD",
                     item_id=paper.id if paper else getattr(reel, "paper_id", None),
-                    quality_profile=(reel.inward_metadata or {}).get("quality_profile"),
+                    quality_profile=_effective_profile(paper, reel),
+                    plant_id=str(reel.plant_id) if reel.plant_id else None,
                 )
             )
 
@@ -747,6 +763,7 @@ def list_pending_quality(
                 source="CUSTOMER_REJECTION",
                 item_id=rejection.item_id,
                 quality_profile=getattr(item, "quality_profile", None) if item else None,
+                plant_id=str(rejection.plant_id) if rejection.plant_id else None,
             )
         )
 
@@ -1605,17 +1622,6 @@ def create_quality_concession(
         )
         stock_status_before = rejection.status if rejection else None
         stock_status = stock_status_before
-
-    if payload.release_stock and (batch or reel):
-        from ..models import ReceiptStockAllocation, PurchaseReceiptLine
-        from ..services.receipt_quality import CLEAR_COMMERCIAL
-        allocation = db.query(ReceiptStockAllocation).filter(
-            ReceiptStockAllocation.batch_id == batch.id if batch else ReceiptStockAllocation.reel_id == reel.id
-        ).first()
-        if allocation:
-            line = db.query(PurchaseReceiptLine).filter_by(id=allocation.receipt_line_id).one()
-            if line.commercial_status not in CLEAR_COMMERCIAL:
-                raise HTTPException(status_code=409, detail="Resolve the receipt's commercial hold before releasing concession stock")
 
     open_holds = _open_entity_holds(
         db, plant_id=plant_id, entity_type=inspection.entity_type, entity_id=inspection.entity_id

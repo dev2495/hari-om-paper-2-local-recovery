@@ -3,7 +3,7 @@
 import { AlertTriangle, Ban, CalendarCheck2, CheckCircle2, Clock3, Flag, PauseCircle, Pencil, PlayCircle, Truck } from "lucide-react"
 
 import { cn } from "@/lib/utils"
-import { CARD_STAGES, STAGE_LABEL, STAGE_SHORT, cardState, formatShortDate, orderDue, orderStatus, type CardMixChip, type OrderDue } from "@/lib/sales-order-tracker"
+import { CARD_STAGES, STAGE_LABEL, STAGE_SHORT, cardState, routeStage, formatShortDate, orderDue, orderStatus, type CardMixChip, type OrderDue } from "@/lib/sales-order-tracker"
 
 const fmt = (value: unknown) => Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })
 
@@ -133,7 +133,7 @@ export function PlanChip({ job, size = "xs" }: { job: any; size?: "xs" | "sm" })
 /** Compact stage dots from a planner summary row: done · now · to do. */
 export function StageDots({ job, className }: { job: any; className?: string }) {
   const route = (job?.requires_slitting ? [...CARD_STAGES] : CARD_STAGES.filter((stage) => stage !== "SLITTING")) as string[]
-  const current = String(job?.current_stage || "").toUpperCase()
+  const current = routeStage(job?.current_stage)
   const state = cardState(job)
   const done = state === "COMPLETED" || current === "DONE"
   const at = route.indexOf(current)
