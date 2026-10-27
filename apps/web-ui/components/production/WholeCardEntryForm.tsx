@@ -30,7 +30,6 @@ export function WholeCardEntryForm({ card, flow, onDone }: { card: any; flow: an
   const [businessDate, setDate] = useState(new Date().toLocaleDateString("en-CA"))
   const [shift, setShift] = useState(clockShift())
   const [operator, setOperator] = useState("")
-  const [supervisor, setSupervisor] = useState("")
   const [reason, setReason] = useState("")
   const [fgItem, setFgItem] = useState("")
   const [error, setError] = useState("")
@@ -100,7 +99,6 @@ export function WholeCardEntryForm({ card, flow, onDone }: { card: any; flow: an
             ? {
                 request_id: `whole-close-${r.stage}`,
                 expected_version: r.row_version + 1,
-                supervisor_id: supervisor,
                 short_close: goodOf(r) < r.target,
                 residual_disposition: "HOLD",
                 reason,
@@ -122,7 +120,6 @@ export function WholeCardEntryForm({ card, flow, onDone }: { card: any; flow: an
     ...selected.map((r) => (r.produced === "" ? `${label(r.stage)} output total` : "")),
     ...selected.map((r) => (Number(r.rejected || 0) > Number(r.produced || 0) ? `${label(r.stage)} rejected not more than output` : "")),
     ...selected.map((r) => (r.stage === "PROCESS" && r.input === "" ? "Process bamboo taken total" : "")),
-    selected.some((r) => r.close) && !supervisor ? "the supervisor (to close stages)" : "",
     "",
     selected.some(
       (r) =>
@@ -164,20 +161,6 @@ export function WholeCardEntryForm({ card, flow, onDone }: { card: any; flow: an
             <option value="">Choose operator</option>
             {[...active]
               .sort((a: any, b: any) => (String(a.role || "").toLowerCase() === "operator" ? 0 : 1) - (String(b.role || "").toLowerCase() === "operator" ? 0 : 1) || String(a.name).localeCompare(String(b.name)))
-              .map((e: any) => (
-                <option key={e.id} value={e.id}>
-                  {e.name}
-                  {e.employee_code ? ` · ${e.employee_code}` : ""}
-                </option>
-              ))}
-          </select>
-        </label>
-        <label className="col-span-2 text-sm sm:col-span-1">
-          Supervisor <span className="text-muted-foreground">(to close stages)</span>
-          <select className={selectClass} value={supervisor} onChange={(e) => setSupervisor(e.target.value)} aria-label="Supervisor for closures">
-            <option value="">Choose supervisor</option>
-            {active
-              .filter((e: any) => ["supervisor", "manager"].includes(String(e.role || "").toLowerCase()))
               .map((e: any) => (
                 <option key={e.id} value={e.id}>
                   {e.name}

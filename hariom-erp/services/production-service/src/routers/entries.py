@@ -61,7 +61,8 @@ class EntryInput(Mutation):
 
 
 class CloseInput(Mutation):
-    supervisor_id:uuid.UUID
+    # Optional since 2026-10-27: the client closes stages without naming a supervisor; the login is recorded.
+    supervisor_id:uuid.UUID|None=None
     fg_item_id:uuid.UUID|None=None
     location_id:uuid.UUID|None=None
     short_close:bool=False
@@ -848,7 +849,7 @@ def batch_entries(card_id:uuid.UUID,payload:BatchInput,db:Session=Depends(get_db
         if machine_id:machines[machine_id]=machine
         if step.close:
             key=(str(step.close.supervisor_id),"supervisor")
-            if key not in employees:employees[key]=employee(step.close.supervisor_id,user,plant,"supervisor")
+            if step.close.supervisor_id and key not in employees:employees[key]=employee(step.close.supervisor_id,user,plant,"supervisor")
             if step.entry.stage=="PACKING" and step.close.fg_item_id:fg[str(step.close.fg_item_id)]=verified_fg(step.close.fg_item_id,user,plant)
             elif step.entry.stage in ("PROCESS","PACKING") and "auto_fg" not in fg and system_stages_open(db,job):fg["auto_fg"]=fg_item_for(job,user,plant)
             if step.close.reel_issue_ids:verified_reel_links(db,job,step.close.reel_issue_ids,user,plant)
@@ -958,7 +959,8 @@ def close_stage(card_id:uuid.UUID,stage:str,payload:CloseInput,db:Session=Depend
     if stage=="DISPATCH":raise HTTPException(409,"Complete dispatch through Logistics Dispatch")
     preliminary=card(db,card_id,plant);cached=replay(db,preliminary,payload,f"close:{stage}")
     if cached:return cached
-    supervisor=verified_employee(db,payload.supervisor_id,user,plant,"supervisor")
+    supervisor=verified_employee(db,payload.supervisor_id,user,plant,"supervisor") if payload.supervisor_id else None
+    closed_by_name=supervisor["name"] if supervisor else (user.get("name") or user.get("email") or user["sub"])
     if payload.reel_issue_ids:
         if stage!='WINDER':raise HTTPException(422,'Link reel issues to Winding only')
         verified_reel_links(db,preliminary,payload.reel_issue_ids,user,plant)
@@ -1002,8 +1004,8 @@ def close_stage(card_id:uuid.UUID,stage:str,payload:CloseInput,db:Session=Depend
         slit_snapshot=dict(slit.actuals_snapshot or {});slit_snapshot.update(closed_at=datetime.utcnow().isoformat(),closed_by=user["sub"],close_kind="CLOSED_WITH_WINDING",material_prep_pending=True,close_reason="Slitting not recorded; material settled by stock count and reconciliation",row_version=int(slit_snapshot.get("row_version",1))+1);slit.actuals_snapshot=slit_snapshot
         for segment in db.query(JobCardStageSegment).filter_by(job_card_id=job.id,stage_type="SLITTING").all():segment.status="COMPLETED";segment.completed_at=datetime.utcnow()
     row.status="COMPLETED";row.entered_by=user["sub"];row.entered_at=datetime.utcnow()
-    snapshot=dict(row.actuals_snapshot or {});snapshot.update(closed_at=datetime.utcnow().isoformat(),closed_by=user["sub"],supervisor_id=str(payload.supervisor_id),supervisor_name=supervisor["name"],close_reason=payload.reason,residual_quantity=residual or 0,residual_disposition=payload.residual_disposition,close_kind="SHORT_CLOSE" if state["accepted_total"]<state["target"] else "TARGET_MET",row_version=state["row_version"]+1);row.actuals_snapshot=snapshot
-    row.entry_snapshot={**(row.entry_snapshot or {}),"supervisor_name":supervisor["name"]}
+    snapshot=dict(row.actuals_snapshot or {});snapshot.update(closed_at=datetime.utcnow().isoformat(),closed_by=user["sub"],supervisor_id=str(payload.supervisor_id) if payload.supervisor_id else None,supervisor_name=closed_by_name,close_reason=payload.reason,residual_quantity=residual or 0,residual_disposition=payload.residual_disposition,close_kind="SHORT_CLOSE" if state["accepted_total"]<state["target"] else "TARGET_MET",row_version=state["row_version"]+1);row.actuals_snapshot=snapshot
+    row.entry_snapshot={**(row.entry_snapshot or {}),"supervisor_name":closed_by_name}
     for segment in db.query(JobCardStageSegment).filter_by(job_card_id=job.id,stage_type=stage).all():segment.status="COMPLETED";segment.completed_at=datetime.utcnow()
     routing=route(job);index=routing.index(stage)
     if state['accepted_total']<state['target']:

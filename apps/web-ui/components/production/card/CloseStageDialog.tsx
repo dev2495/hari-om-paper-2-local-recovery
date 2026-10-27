@@ -1,10 +1,11 @@
 "use client"
 
-// Closing a stage: a supervisor (verified employee) confirms the totals. Short of target needs a reason,
+// Closing a stage: the plant manager / owner / admin who is logged in confirms the totals; no supervisor is
+// picked (client 2026-10-27), the login is recorded as who closed it. Short of target needs a reason,
 // unused input needs a disposition, Packing / the completing Process step may name the finished-good item
 // and location, Winding may link reel issues. QC must be ready (at least 2 readings per required check on the
 // stage — the same rule for a short close) and drafts must be submitted or voided first; the server refuses
-// otherwise and its words are shown. Anyone may open this to see what is missing; only a supervisor confirms.
+// otherwise and its words are shown. Anyone may open this to see what is missing; only those logins confirm.
 
 import { AlertTriangle, CheckCircle2, ClipboardCheck, Clock3, Lock } from "lucide-react"
 import { useEffect, useState } from "react"
@@ -14,7 +15,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
-import { useCardMasters, useCardMutation, useEntryApi, useStableCommand } from "./data"
+import { useCardMutation, useEntryApi, useStableCommand } from "./data"
 import { fieldLabel, selectClass } from "./EntrySheet"
 import { fmt, runNo, runsWithoutQc, stageLabel, stageParameters, toneClass, useCardRoles } from "./model"
 
@@ -60,17 +61,14 @@ export function CloseStageDialog({
 }) {
   const entryApi = useEntryApi(card)
   const { canSubmit } = useCardRoles()
-  const { activeEmployees } = useCardMasters(card)
   const { mutation, error, setError } = useCardMutation(String(card.id))
   const { stableCommand, reset } = useStableCommand()
   const state = (flow?.stages || []).find((s: any) => s.stage === stage)
-  const [supervisor, setSupervisor] = useState("")
   const [closeReason, setCloseReason] = useState("")
   const [fgItem, setFgItem] = useState("")
   const [location, setLocation] = useState("")
   const [reelLinks, setReelLinks] = useState<string[]>([])
   const [residual, setResidual] = useState("HOLD")
-  const supervisorOptions = activeEmployees.filter((e: any) => ["supervisor", "manager"].includes(String(e.role || "").toLowerCase()))
   const winderMachine = card.stages?.find((s: any) => s.stage_type === "WINDER")?.machine_id
   const items = useQuery({
     queryKey: ["continuous-items", card.plant_id],
@@ -102,20 +100,18 @@ export function CloseStageDialog({
   const completes = state.completes_card || stage === "QC" || stage === "PACKING"
   const blocked = closeBlockedReason(state, card)
   const needsReason = short || Number(state.available_from_upstream) > 0
-  const canConfirm = canSubmit && !mutation.isPending && Boolean(supervisor) && Boolean(state.qc?.ready) && !state.draft_count && (!needsReason || closeReason.trim().length > 0)
+  const canConfirm = canSubmit && !mutation.isPending && Boolean(state.qc?.ready) && !state.draft_count && (!needsReason || closeReason.trim().length > 0)
   const missingLines = missingQcLines(state, card)
   const unchecked = runsWithoutQc(card, entries, stage).filter((e: any) => e.status === "SUBMITTED")
   const confirmHint = !canSubmit
     ? ""
     : blocked
       ? "The stage can be closed once the note above is cleared."
-      : !supervisor
-        ? "Choose the supervisor who checked the totals."
-        : needsReason && !closeReason.trim()
-          ? short
-            ? "Write why the stage closes short."
-            : "Write the reason for the unused input."
-          : ""
+      : needsReason && !closeReason.trim()
+        ? short
+          ? "Write why the stage closes short."
+          : "Write the reason for the unused input."
+        : ""
 
   const confirm = () =>
     mutation.mutate(async () => {
@@ -124,7 +120,6 @@ export function CloseStageDialog({
         stage,
         stableCommand({
           expected_version: state.row_version,
-          supervisor_id: supervisor,
           reel_issue_ids: stage === "WINDER" ? reelLinks : [],
           fg_item_id: stage === "PACKING" || state.completes_card ? fgItem || null : null,
           location_id: location || null,
@@ -153,7 +148,7 @@ export function CloseStageDialog({
           <p className={cn("flex items-start gap-2 rounded-lg border px-3 py-2 text-[13px]", toneClass("blue"))} data-testid="close-stage-role">
             <Lock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
             <span>
-              <b>A supervisor closes the stage.</b> Plant manager, owner or admin confirms the totals here. You can keep logging runs and QC; this shows what is still needed.
+              <b>The plant manager closes the stage.</b> A plant manager, owner or admin login confirms the totals here; no supervisor needs to be picked. You can keep logging runs and QC; this shows what is still needed.
             </span>
           </p>
         ) : null}
@@ -252,18 +247,6 @@ export function CloseStageDialog({
 
         {canSubmit && !blocked ? (
           <>
-            <label className="block text-sm">
-              <span className={fieldLabel}>Supervisor</span>
-              <select className={selectClass} value={supervisor} onChange={(e) => setSupervisor(e.target.value)} data-testid="close-stage-supervisor">
-                <option value="">{supervisorOptions.length ? "Choose supervisor" : "No active Supervisor or Manager — add one in Masters › Employees"}</option>
-                {supervisorOptions.map((e: any) => (
-                  <option key={e.id} value={e.id}>
-                    {e.name}
-                    {e.employee_code ? ` · ${e.employee_code}` : ""} · {e.role}
-                  </option>
-                ))}
-              </select>
-            </label>
             {stage === "WINDER" ? (
               <details>
                 <summary className="cursor-pointer text-sm font-semibold">Link reel issues (optional — the monthly stock count settles material)</summary>

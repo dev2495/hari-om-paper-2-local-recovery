@@ -47,6 +47,13 @@ def test_operator_posts_qc_without_a_run_but_runs_stay_drafts(card):
     assert refused.value.status_code==403
     db.rollback()
 
+def test_stage_closes_without_naming_a_supervisor(card):
+    a,db,job=card
+    create(a,db,job,samples=winding_samples())
+    result=a.close_stage(job.id,'WINDER',a.CloseInput(request_id=str(uuid.uuid4()),expected_version=2,short_close=True,reason='Five bamboos accepted; close this short run'),db,PLANT,USER)
+    winder={s['stage']:s for s in result['flow']['stages']}['WINDER']
+    assert winder['status']=='COMPLETED' and winder['supervisor_name']=='entry-test-owner'
+
 def test_rejected_excess_production_still_requires_variance_reason(card):
     a,db,job=card
     with pytest.raises(HTTPException) as error:
