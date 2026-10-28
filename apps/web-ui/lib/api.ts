@@ -72,7 +72,7 @@ api.interceptors.response.use(
           const session = await fetch("/api/auth/me", { credentials: "include", cache: "no-store", signal: controller.signal })
           if (session.status === 401) {
             await fetch("/api/auth/logout", { method: "POST", credentials: "include", signal: controller.signal })
-            window.location.assign("/login?reason=access_changed")
+            window.location.assign(`/login?reason=access_changed&next=${encodeURIComponent(window.location.pathname + window.location.search)}`)
           } else if (session.ok && error.response) {
             error.response.data = { detail: "This service could not verify your access. Your sign-in is still valid. Refresh or contact Owner/Admin." }
           }
@@ -399,11 +399,11 @@ export const productionApi = {
   releaseSyncSalesOrder: (salesOrderId: string, data: any, plantId?: string) =>
     api.post(`/api/production/sales-orders/${salesOrderId}/release-sync`, data, withPlantHeader(plantId)),
   createPlanningJobCard: (data: any) => api.post("/api/production/job-cards", data),
-  getPlanningJobCards: (params?: any) => api.get("/api/production/job-cards", { params: clampPlanningListParams(params) }),
+  getPlanningJobCards: (params?: any, plantId?: string) => api.get("/api/production/job-cards", { params: clampPlanningListParams(params), ...(withPlantHeader(plantId) || {}) }),
   getJobCardAggregates: () => api.get("/api/production/job-cards/aggregates"),
   getPendingJobCardsByOrder: () => api.get("/api/production/job-cards/pending-by-order"),
   exportJobCards: (params?: any) => api.get("/api/production/job-cards/export", { params, responseType: "blob" }),
-  getPlanningJobCard: (id: string) => api.get(`/api/production/job-cards/${id}`),
+  getPlanningJobCard: (id: string, plantId?: string) => api.get(`/api/production/job-cards/${id}`, withPlantHeader(plantId)),
   getStageTimeReconciliation: (params?: any) => api.get("/api/production/planning/time-reconciliation", { params }),
   getJobCardGenealogy: (id: string) => api.get(`/api/production/genealogy/job-cards/${id}`),
   getPlanningQueue: (params: {
@@ -621,8 +621,8 @@ export const inventoryApi = {
   getReel: (id: string) => api.get(`/api/inventory/reels/${id}`),
   createReelScan: (id: string, data: any) => api.post(`/api/inventory/reels/${id}/scan`, data),
   getReelScans: (id: string, params?: any) => api.get(`/api/inventory/reels/${id}/scans`, { params }),
-  getBatchLabel: (id: string) => api.get(`/api/inventory/labels/batches/${id}`),
-  getReelLabel: (id: string) => api.get(`/api/inventory/labels/reels/${id}`),
+  getBatchLabel: (id: string) => api.get(`/api/inventory/labels/batches/${encodeURIComponent(id)}`),
+  getReelLabel: (id: string) => api.get(`/api/inventory/labels/reels/${encodeURIComponent(id)}`),
   createReelIssue: ({ plantId, ...data }: any) => api.post("/api/inventory/reel-issues", data, onPlant(plantId)),
   /** Parchment to the floor by colour and kg; the oldest cleared coils are used (client 2026-10-26). */
   issueParchmentByWeight: ({ plantId, ...data }: { item_id: string; qty_kg: number; shift: string; issue_date: string; notes?: string; plantId?: string }) =>

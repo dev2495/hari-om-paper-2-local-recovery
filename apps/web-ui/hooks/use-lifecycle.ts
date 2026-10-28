@@ -60,10 +60,16 @@ export function invalidateJobCardViews(queryClient: QueryClient) {
   }
 }
 
-export function useJobCardLifecycle(jobCardId?: string | null) {
+/**
+ * The lifecycle read needs one concrete plant (the "All plants" view gets 400), so it is asked in the
+ * card's own plant: the one passed in, else the plant of the card already loaded on the page.
+ */
+export function useJobCardLifecycle(jobCardId?: string | null, plantId?: string | null) {
+  const queryClient = useQueryClient()
+  const cardPlant = plantId || (jobCardId ? queryClient.getQueryData<any>(["planning-job-card", jobCardId])?.plant_id : null) || null
   return useQuery({
-    queryKey: ["job-card-lifecycle", jobCardId],
-    queryFn: async () => (await productionApi.getJobCardLifecycle(String(jobCardId))).data as JobCardLifecycle,
+    queryKey: ["job-card-lifecycle", jobCardId, cardPlant],
+    queryFn: async () => (await productionApi.getJobCardLifecycle(String(jobCardId), cardPlant ? String(cardPlant) : undefined)).data as JobCardLifecycle,
     enabled: Boolean(jobCardId),
   })
 }

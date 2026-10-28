@@ -9,6 +9,7 @@ import hashlib
 import io
 import json
 import math
+import os
 import re
 from typing import Any, Optional
 import uuid
@@ -2470,7 +2471,8 @@ def _build_document_snapshot(
         "header": {
             "company_name": "Hari Om Paper",
             "logo_key": "hariom",
-            "qr_value": f"/production/entry/{job_card.id}",
+            # A full link when the public site is known, so a phone camera opens the card; else the path.
+            "qr_value": f"{os.getenv('PUBLIC_APP_ORIGIN', '').strip().rstrip('/')}/production/entry/{job_card.id}",
             "date": str(job_card.created_at.date()),
             "shift": "",
             "plant_id": str(job_card.plant_id),
@@ -6030,7 +6032,8 @@ def list_planning_job_cards(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Store", "Sales", "Dispatch", "QC", "InProcessQC", "RMIssue"])),
+    # Operators pick their card on the floor picker (read-only; detail already allows them).
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Store", "Sales", "Dispatch", "QC", "InProcessQC", "RMIssue", "Operator"])),
 ):
     _sweep_missed_slots_safely(db, None if plant_scope.get("scope_all") else plant_scope.get("selected_plant_id"))
     query = (

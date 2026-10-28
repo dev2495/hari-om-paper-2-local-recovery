@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import urllib.parse
 from datetime import date
 from typing import Any
 
@@ -8,6 +10,21 @@ from ..models import ItemMaster, PaperReel, StockBatch
 
 def _enum_value(value: Any) -> str:
     return str(getattr(value, "value", value) or "")
+
+
+def scan_url(qr_value: str | None) -> str | None:
+    """Link printed in a lot or tool QR so the phone camera opens the app (client 2026-10-27).
+
+    The app's /scan page reads the wrapped qr_value and sends the user to the right page for
+    their role. qr_value itself stays the lot's identity; in-app scanners read both forms.
+    None when PUBLIC_APP_ORIGIN is not set, so the label falls back to the plain qr_value.
+    Worked out when a label is drawn, never kept in the lot payloads: those are saved as label
+    snapshots at receipt, and a saved link would keep an old site address.
+    """
+    origin = os.getenv("PUBLIC_APP_ORIGIN", "").strip().rstrip("/")
+    if not origin or not qr_value:
+        return None
+    return f"{origin}/scan?c={urllib.parse.quote(str(qr_value), safe='')}"
 
 
 def batch_label_payload(batch: StockBatch, item: ItemMaster | None = None, *, inward_date: date | None = None) -> dict[str, Any]:

@@ -1,6 +1,7 @@
 """Saved-record PDF documents for the governed procurement workflow."""
 from __future__ import annotations
 
+from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 from html import escape
 from io import BytesIO
@@ -19,6 +20,8 @@ from reportlab.platypus import (
     Table,
     TableStyle,
 )
+
+from .labels import scan_url
 
 
 INK = colors.HexColor("#10212B")
@@ -42,6 +45,17 @@ def _qty(value: Any, places: str = "0.001") -> str:
 def _text(value: Any, fallback: str = "-") -> str:
     cleaned = str(value or "").strip()
     return escape(cleaned or fallback)
+
+
+def _label_date(value: Any) -> str:
+    """Indian date on a printed label (27 Oct 2026); saved label snapshots hold ISO dates."""
+    if isinstance(value, (date, datetime)):
+        return value.strftime("%d %b %Y")
+    raw = str(value or "").strip()
+    try:
+        return date.fromisoformat(raw[:10]).strftime("%d %b %Y")
+    except ValueError:
+        return raw
 
 
 def _styles() -> dict[str, ParagraphStyle]:
@@ -358,7 +372,7 @@ def build_lot_label_pdf(labels: list[dict[str, Any]], copies: int = 1, profile: 
         left, top = 3 * mm, h - 5 * mm
         text(meta.get("legal_entity") or "AMIGO INDUSTRIES", left, top, w - 6 * mm, 10, True)
         text(label.get("supplier_name"), left, top - 5 * mm, w * .56, 8)
-        text(label.get("inward_date"), w * .64, top - 5 * mm, w * .32, 8)
+        text(_label_date(label.get("inward_date")), w * .64, top - 5 * mm, w * .32, 8)
         grn = label.get("grn_no") or meta.get("grn_no")
         text(f"Bill: {label.get('bill_no') or meta.get('invoice_no') or '-'}" + (f"   GRN: {grn}" if grn else ""), left, top - 9 * mm, w - 6 * mm, 8)
         text((label.get("item_name") or label.get("item_code")) if is_batch else f"PLYBOND {label.get('ply_bond') or '-'}   VARIETY {label.get('variety') or label.get('item_code') or '-'}   GSM {label.get('gsm') or '-'}", left, top - 14 * mm, w - 6 * mm, 8, True)
@@ -368,8 +382,11 @@ def build_lot_label_pdf(labels: list[dict[str, Any]], copies: int = 1, profile: 
         text("BATCH | " + str(label.get("item_code") or "") if is_batch else f"{label.get('physical_form') or 'REEL'} | {label.get('width_mm') or '-'} mm", left, 3 * mm, w - 6 * mm, 8)
         if not thermal:
             text(f"PO {label.get('po_no') or 'Manual inward'}" + (f"   GRN {label.get('grn_no')}" if label.get("grn_no") else ""), left, 8 * mm, w - 26 * mm, 8)
-            text(label.get("stock_status") or "QC required", left, 13 * mm, w - 26 * mm, 8)
-        qr = QrCodeWidget(label["qr_value"])
+            # No stock status on paper: the saved one is from receipt and goes stale once QC acts.
+            # The QR opens the lot's live state (client 2026-10-27).
+            text("QC status: scan the QR", left, 13 * mm, w - 26 * mm, 8)
+        # Worked out at print time (never from a saved snapshot), so reprints of old lots get the link too.
+        qr = QrCodeWidget(scan_url(label["qr_value"]) or label["qr_value"])
         bounds = qr.getBounds(); size = 22 * mm
         drawing = Drawing(size, size, transform=[size/(bounds[2]-bounds[0]),0,0,size/(bounds[3]-bounds[1]),0,0]); drawing.add(qr)
         renderPDF.draw(drawing, pdf, w - size - 2 * mm, 7 * mm)

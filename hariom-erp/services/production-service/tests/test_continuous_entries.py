@@ -47,6 +47,36 @@ def test_operator_posts_qc_without_a_run_but_runs_stay_drafts(card):
     assert refused.value.status_code==403
     db.rollback()
 
+@pytest.mark.parametrize('status',['CANCELLED','IN_PROGRESS'])
+def test_cancelled_card_takes_no_runs_drafts_or_qc(card,status):
+    a,db,job=card
+    run=create(a,db,job,samples=winding_samples())['entry']
+    job.status=status;job.close_mode='CANCELLED';db.flush()
+    attempts=[lambda:a.create_entry(job.id,a.EntryInput(request_id=str(uuid.uuid4()),stage='WINDER',kind='QC_ONLY',business_date=date.today(),samples=winding_samples(),submit=True),db,PLANT,USER),
+        lambda:a.create_entry(job.id,a.EntryInput(request_id=str(uuid.uuid4()),stage='WINDER',business_date=date.today(),shift_code='SHIFT_A',operator_id=uuid.uuid4(),produced=5,accepted=5,submit=False),db,PLANT,USER),
+        lambda:a.save_observations(job.id,uuid.UUID(run['id']),a.Observations(request_id=str(uuid.uuid4()),expected_version=run['row_version'],samples=winding_samples(),reason=''),db,PLANT,USER)]
+    for attempt in attempts:
+        with pytest.raises(HTTPException) as refused:attempt()
+        assert refused.value.status_code==409 and 'cancelled' in refused.value.detail
+    db.rollback()
+
+@pytest.mark.parametrize('status',['CANCELLED','IN_PROGRESS'])
+def test_cancelled_card_takes_no_void_close_or_reopen(card,status):
+    # A void, close or reopen would sync the totals and put a cancelled card back in progress.
+    a,db,job=card
+    run=create(a,db,job,samples=winding_samples())['entry']
+    version=next(s for s in a.flow(db,job)['stages'] if s['stage']=='WINDER')['row_version']
+    job.status=status;job.close_mode='CANCELLED';db.flush()
+    attempts=[lambda:a.void_entry(job.id,uuid.UUID(run['id']),a.Mutation(request_id=str(uuid.uuid4()),expected_version=run['row_version'],reason='Wrong run'),db,PLANT,USER),
+        lambda:a.close_stage(job.id,'WINDER',a.CloseInput(request_id=str(uuid.uuid4()),expected_version=version,short_close=True,reason='Close short'),db,PLANT,USER),
+        lambda:a.reopen_stage(job.id,'WINDER',a.Mutation(request_id=str(uuid.uuid4()),expected_version=version,reason='Reopen'),db,PLANT,USER)]
+    for attempt in attempts:
+        with pytest.raises(HTTPException) as refused:attempt()
+        assert refused.value.status_code==409 and 'cancelled' in refused.value.detail
+    entry=db.query(a.StageEntry).filter_by(id=uuid.UUID(run['id'])).one()
+    assert entry.status=='SUBMITTED' and job.status==status
+    db.rollback()
+
 def test_stage_closes_without_naming_a_supervisor(card):
     a,db,job=card
     create(a,db,job,samples=winding_samples())

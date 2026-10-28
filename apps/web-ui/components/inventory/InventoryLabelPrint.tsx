@@ -3,6 +3,8 @@
 import { Printer, QrCode } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 
+import { buildScanUrl } from "@/lib/app-url"
+
 type InventoryLabel = {
   entity_type?: string
   entity_id?: string
@@ -47,7 +49,8 @@ export function InventoryLabelPrint({ label, title = "Inventory Label Preview" }
   if (!label) return null
   const code = label.human_label || label.amigo_no || label.code || label.reel_code || label.batch_no || label.entity_id || ""
   if (!code) return null
-  const qrValue = label.qr_value || code
+  // Printed QR = a /scan link around the lot's identity, so a phone camera opens the right page.
+  const qrValue = buildScanUrl(label.qr_value || code)
   const entityType = String(label.entity_type || (label.reel_code ? "REEL" : "BATCH")).toUpperCase()
 
   return (

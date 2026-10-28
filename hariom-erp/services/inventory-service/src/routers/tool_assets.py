@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import InventoryLocation, ToolAsset, ToolAssetAssignment, ToolAssetEvent, ToolReceipt
+from ..services.labels import scan_url
 from ..utils.auth import get_current_plant, get_current_plant_scope, require_role
 
 router = APIRouter(prefix="/inventory/tools", tags=["physical-tooling"])
@@ -146,6 +147,8 @@ def _asset_payload(row: ToolAsset) -> dict[str, Any]:
         "id": row.id,
         "asset_no": row.asset_no,
         "qr_value": row.qr_value,
+        # Printed tool labels carry this link so the phone camera opens the app (client 2026-10-27).
+        "scan_url": scan_url(row.qr_value),
         "tool_definition_id": row.tool_definition_id,
         "category": row.category,
         "definition_name": row.definition_name,

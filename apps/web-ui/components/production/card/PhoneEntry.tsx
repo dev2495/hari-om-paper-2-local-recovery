@@ -2,12 +2,14 @@
 
 // Phone scan landing: the printed card's QR opens this. One card, its stages as tabs, two big buttons
 // (Log output, Log QC), the stage's recent runs and what still needs QC. Old-form cards keep their form.
+// A card from another plant switches the active plant; a closed card is shown read-only.
 
 import Link from "next/link"
-import { Camera, CheckCircle2, ClipboardCheck, ClipboardList, Clock3, Flag, Lock, ScanLine } from "lucide-react"
+import { ArrowLeftRight, Camera, CheckCircle2, ClipboardCheck, ClipboardList, Clock3, Flag, Lock, ScanLine, SearchX } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 
 import { ErrorState, LoadingState } from "@/components/workspace/query-state"
+import { useCardPlantFallback } from "@/hooks/use-card-plant"
 import { useJobCardLifecycle } from "@/hooks/use-lifecycle"
 import { usePlanningJobCard } from "@/hooks/use-production"
 import { cn } from "@/lib/utils"
@@ -28,7 +30,10 @@ export function PhoneEntry({ jobCardId, mode, stage: wantedStage, entryId }: { j
   const facts = cardFacts(card)
   const isV2 = Boolean(card) && facts.isV2
   const flow = useCardFlow(card, isV2)
-  const lifecycle = useJobCardLifecycle(card?.id)
+  // Asked in the card's own plant, so the status badge also shows in the "All plants" view.
+  const lifecycle = useJobCardLifecycle(card?.id, card?.plant_id)
+  // A card from another plant answers 404 here: it is looked for in this user's other plants.
+  const plant = useCardPlantFallback(jobCardId, cardQuery)
   const stages = useMemo(() => visibleStages(flow.data), [flow.data])
   const [stage, setStage] = useState<string>(wantedStage || "")
   const [panel, setPanel] = useState<EntryPanel>(null)
@@ -42,34 +47,70 @@ export function PhoneEntry({ jobCardId, mode, stage: wantedStage, entryId }: { j
   const entries: any[] = listing.data?.entries || []
   const state = stages.find((s: any) => s.stage === stage)
   const prev = previousStage(stages, stage)
-  const waiting = entries.filter((e) => e.status === "SUBMITTED" && e.kind !== "QC_ONLY" && stageParameters(card, e.stage).length && !runQcState(card, e).accepted)
+  // A completed or cancelled card takes no more runs and no run edits. QC readings can still be added or
+  // corrected on a completed card (as before); a cancelled card takes nothing. A card cancelled by its
+  // close mode can still carry an older status, so both are read.
+  const cancelled = String(card?.status || "").toUpperCase() === "CANCELLED" || String(card?.close_mode || "").toUpperCase() === "CANCELLED"
+  const cardOpen = facts.open && !cancelled
+  const closedWord = cancelled ? "cancelled" : "completed"
+  const waiting = !cancelled ? entries.filter((e) => e.status === "SUBMITTED" && e.kind !== "QC_ONLY" && stageParameters(card, e.stage).length && !runQcState(card, e).accepted) : []
   const hasQc = stageParameters(card, stage).length > 0
-  const outputBlocked = !facts.open ? "Card is closed" : !state ? "" : !isLoggable(state) ? (state.status === "COMPLETED" ? `${stageLabel(stage)} is closed` : `${stageLabel(stage)} is not logged as runs`) : !canDraft ? "Your role cannot log runs" : ""
-  const qcBlocked = !hasQc ? `No QC checks on ${stageLabel(stage)}` : !canQc ? "Your role cannot record QC" : ""
+  const outputBlocked = !cardOpen ? "Card is closed" : !state ? "" : !isLoggable(state) ? (state.status === "COMPLETED" ? `${stageLabel(stage)} is closed` : `${stageLabel(stage)} is not logged as runs`) : !canDraft ? "Your role cannot log runs" : ""
+  const qcBlocked = cancelled ? "Card is cancelled" : !hasQc ? `No QC checks on ${stageLabel(stage)}` : !canQc ? "Your role cannot record QC" : ""
   // The stage the card is on now can be closed from the phone too (a supervisor confirms; others see what is missing).
-  const closeable = Boolean(state) && facts.open && state?.status !== "COMPLETED" && currentFloorStage(stages)?.stage === stage
+  const closeable = Boolean(state) && cardOpen && state?.status !== "COMPLETED" && currentFloorStage(stages)?.stage === stage
   const closeBlocked = closeable ? closeBlockedReason(state, card) : ""
-  // ?mode=output|qc from the picker opens the form straight away, once the stages are known.
+  // ?mode=output|qc from the picker opens the form straight away, once the stages are known, but only a
+  // form this role can use on this card. Old supervisor-entry links always ask for output, so a QC role
+  // gets its own Log QC; a role with neither (Planner) gets no form, only the card.
+  const autoPanel = mode === "output" && canDraft ? "output" : (mode === "qc" || mode === "output") && canQc ? "qc" : ""
   useEffect(() => {
-    if (!isV2 || !stages.length || !stage || panel || !mode) return
-    if (mode === "output") setPanel({ kind: "output", stage: isLoggable(state) ? stage : defaultOutputStage(stages) })
-    if (mode === "qc") setPanel({ kind: "qc", stage: hasQc ? stage : defaultQcStage(card, stages, entries).stage, entryId: entryId || null })
+    if (!isV2 || !stages.length || !stage || panel || !autoPanel) return
+    if (autoPanel === "output" && cardOpen) setPanel({ kind: "output", stage: isLoggable(state) ? stage : defaultOutputStage(stages) })
+    if (autoPanel === "qc" && !cancelled) setPanel({ kind: "qc", stage: hasQc ? stage : defaultQcStage(card, stages, entries).stage, entryId: entryId || null })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isV2, stages.length, stage, listing.isLoading])
 
-  if (cardQuery.isLoading) return <LoadingState label="Opening the job card…" />
-  if (cardQuery.isError || !card) return <ErrorState title="This job card could not be opened" message="Scan the card again or pick it from the list." onRetry={() => void cardQuery.refetch()} />
+  const pickerHref = `/production/entry${mode ? `?mode=${mode}` : ""}`
+  if (cardQuery.isLoading || plant.probing) return <LoadingState label="Opening the job card…" />
+  if (plant.missing) {
+    return (
+      <section className="mx-auto max-w-lg rounded-xl border border-signal-rose-line bg-card p-5" data-testid="phone-card-missing">
+        <div role="alert">
+          <p className="flex items-center gap-1.5 text-[13px] font-semibold text-signal-rose-ink">
+            <SearchX className="h-4 w-4" aria-hidden="true" /> No such job card
+          </p>
+          <h1 className="mt-2 text-[18px] font-semibold">This QR or link does not match a job card {plant.multiPlant ? "in your plants" : "in this plant"}.</h1>
+          <p className="mt-1 text-[13px] text-muted-foreground">Scan the QR on the printed card again, or type its number on the floor entry page.</p>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Link href={pickerHref} className="erp-btn-primary !h-11" data-testid="phone-missing-scan">
+            <ScanLine className="h-4 w-4" /> Scan another card
+          </Link>
+          <Link href={`${pickerHref}#open-cards`} className="erp-btn-secondary !h-11" data-testid="phone-missing-pick">
+            <ClipboardList className="h-4 w-4" /> Pick from open cards
+          </Link>
+        </div>
+      </section>
+    )
+  }
+  if (cardQuery.isError || plant.failed || !card) return <ErrorState title="This job card could not be opened" message="Check the connection and try again, or scan another card." onRetry={() => (plant.failed ? plant.retry() : void cardQuery.refetch())} />
 
   const tabs: StageTab[] = stages.map((s: any) => ({ stage: s.stage, status: s.status, good: s.accepted_total, target: s.target, unit: s.unit, badge: s.draft_count ? `${s.draft_count} draft` : s.qc_flagged_runs ? `${s.qc_flagged_runs} flagged` : undefined }))
   const pct = state && Number(state.target) ? Math.min(100, (Number(state.accepted_total) / Number(state.target)) * 100) : 0
 
   return (
     <div className="space-y-3" data-testid="phone-entry">
+      {plant.switchedTo ? (
+        <p role="status" className={cn("flex items-center gap-2 rounded-xl border px-3.5 py-2.5 text-[13px] font-medium", toneClass("blue"))} data-testid="phone-plant-switched">
+          <ArrowLeftRight className="h-4 w-4 shrink-0" aria-hidden="true" /> Switched to {plant.switchedToName} for this card
+        </p>
+      ) : null}
       <section className="rounded-xl border border-border bg-card px-3.5 py-3 shadow-[var(--shadow-premium)]">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-[22px] font-bold tracking-tight">{facts.no}</h1>
           {lifecycle.data ? <LifecycleBadge state={lifecycle.data.state} /> : null}
-          <Link href={`/production/job-cards/${card.id}`} className="ml-auto inline-flex items-center gap-1 text-[12.5px] font-medium text-primary underline-offset-2 hover:underline" data-testid="phone-open-card">
+          <Link href={`/production/job-cards/${card.id}`} className="-mr-2 ml-auto inline-flex min-h-11 items-center gap-1 px-2 text-[12.5px] font-medium text-primary underline-offset-2 hover:underline" data-testid="phone-open-card">
             <ClipboardList className="h-3.5 w-3.5" aria-hidden="true" /> Full card
           </Link>
         </div>
@@ -85,13 +126,26 @@ export function PhoneEntry({ jobCardId, mode, stage: wantedStage, entryId }: { j
         </p>
       </section>
 
+      {!cardOpen ? (
+        <p className="flex items-center gap-2 rounded-xl border border-border bg-muted px-4 py-3 text-[13px]" data-testid="phone-card-closed">
+          <Lock className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <span>
+            <b>This card is closed ({closedWord}).</b> {cancelled || !isV2 ? "Nothing more can be logged on it." : "No more runs can be logged; QC readings can still be added to its runs."}{!isV2 ? " Full card shows what was entered." : ""}
+          </span>
+        </p>
+      ) : null}
+
       {!isV2 ? (
         <div className="space-y-3" data-testid="phone-old-form">
-          <p className="rounded-xl border border-border bg-muted/60 px-4 py-3 text-[13px]">
-            <b>Old entry form.</b> Enter this card&apos;s stage output and QC below as before.
-          </p>
-          <LiveFloorLog jobCardId={String(card.id)} />
-          <JobCardDocument jobCardId={String(card.id)} mode="supervisor" />
+          {cardOpen ? (
+            <p className="rounded-xl border border-border bg-muted/60 px-4 py-3 text-[13px]">
+              <b>Old entry form.</b> Enter this card&apos;s stage output and QC below as before.
+            </p>
+          ) : null}
+          {/* Its "put the card on the schedule" hint does not apply to a cancelled card. */}
+          {closedWord !== "cancelled" ? <LiveFloorLog jobCardId={String(card.id)} /> : null}
+          {/* A closed card's whole sheet is read-only on Full card; the phone shows no form to fill. */}
+          {cardOpen ? <JobCardDocument jobCardId={String(card.id)} mode="supervisor" /> : null}
         </div>
       ) : (
         <>
@@ -164,7 +218,7 @@ export function PhoneEntry({ jobCardId, mode, stage: wantedStage, entryId }: { j
                       Run {runNo(e)} · {fmt(e.accepted)} good{e.machine_id ? ` · ${machineName(e.machine_id)}` : ""}
                       {runQcState(card, e).key === "short" ? " · needs more readings" : ""}
                     </span>
-                    <button type="button" className="erp-btn-primary !h-8 !px-3" onClick={() => setPanel({ kind: "qc", stage: e.stage, entryId: e.id })} data-testid={`phone-qc-${e.entry_no}`}>
+                    <button type="button" className="erp-btn-primary !h-11 !px-3" onClick={() => setPanel({ kind: "qc", stage: e.stage, entryId: e.id })} data-testid={`phone-qc-${e.entry_no}`}>
                       <CheckCircle2 className="h-3.5 w-3.5" /> Log QC
                     </button>
                   </li>
@@ -180,7 +234,7 @@ export function PhoneEntry({ jobCardId, mode, stage: wantedStage, entryId }: { j
               </h3>
               <span className="text-[11.5px] text-muted-foreground">newest first</span>
             </div>
-            {listing.isLoading ? <p className="px-4 py-6 text-center text-[13px] text-muted-foreground">Loading runs…</p> : <RunRows card={card} flow={flow.data} entries={entries.slice(0, 20)} showStage={false} layout="list" onEdit={(entry) => setPanel({ kind: "output", stage: entry.stage, entry })} onQc={(entry) => setPanel({ kind: "qc", stage: entry.stage, entryId: entry.id })} emptyText={`No runs on ${stageLabel(stage)} yet.`} />}
+            {listing.isLoading ? <p className="px-4 py-6 text-center text-[13px] text-muted-foreground">Loading runs…</p> : <RunRows card={card} flow={flow.data} entries={entries.slice(0, 20)} showStage={false} layout="list" onEdit={cardOpen ? (entry) => setPanel({ kind: "output", stage: entry.stage, entry }) : undefined} onQc={!cancelled ? (entry) => setPanel({ kind: "qc", stage: entry.stage, entryId: entry.id }) : undefined} readOnly={!cardOpen} emptyText={`No runs on ${stageLabel(stage)} yet.`} />}
           </section>
 
           <CardEntrySheets card={card} flow={flow.data} stages={stages} panel={panel} onChange={setPanel} />
@@ -189,10 +243,10 @@ export function PhoneEntry({ jobCardId, mode, stage: wantedStage, entryId }: { j
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-2 pb-4 text-[12.5px]">
-        <Link href={`/production/entry${mode ? `?mode=${mode}` : ""}`} className="erp-btn-secondary !h-9">
+        <Link href={pickerHref} className="erp-btn-secondary !h-11">
           <ScanLine className="h-4 w-4" /> Scan another card
         </Link>
-        <Link href={`/production/job-cards/${card.id}`} className="text-primary underline-offset-2 hover:underline">
+        <Link href={`/production/job-cards/${card.id}`} className="inline-flex min-h-11 items-center px-1 text-primary underline-offset-2 hover:underline">
           Open the full job card
         </Link>
       </div>

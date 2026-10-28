@@ -3,7 +3,8 @@
 // Runs of a card: one row per run with who / when / machine, made · good · rejected and the reason, its QC
 // state (flagged runs stay accepted, with the reading and its band in words) and whether it matched the plan.
 // Drafts can be edited and submitted, submitted runs can be voided by a supervisor with a reason, and each
-// run keeps its revision history. A table on a wide screen, one card per run on a phone or narrow screen.
+// run keeps its revision history; a closed card shows its runs read-only. A table on a wide screen, one
+// card per run on a phone or narrow screen.
 
 import { CheckCircle2, Clock3, Flag, History, Pencil, Send, X } from "lucide-react"
 import { useMemo, useState } from "react"
@@ -50,6 +51,7 @@ export function RunRows({
   layout = "auto",
   onEdit,
   onQc,
+  readOnly = false,
   emptyText = "No runs logged yet.",
 }: {
   card: any
@@ -61,6 +63,8 @@ export function RunRows({
   layout?: "auto" | "list"
   onEdit?: (entry: any) => void
   onQc?: (entry: any) => void
+  /** A closed (completed or cancelled) card: no Submit or Void on its runs (Edit and QC follow onEdit / onQc). */
+  readOnly?: boolean
   emptyText?: string
 }) {
   const entryApi = useEntryApi(card)
@@ -142,12 +146,12 @@ export function RunRows({
             {e.samples?.length ? "QC" : "Add QC"}
           </Button>
         ) : null}
-        {e.status === "DRAFT" && canSubmit ? (
+        {e.status === "DRAFT" && canSubmit && !readOnly ? (
           <Button size="sm" className="h-8 px-2.5" disabled={mutation.isPending} onClick={() => submit(e)} title="Checked — post this run" data-testid={`run-submit-${e.entry_no}${suffix}`}>
             <Send className="h-3.5 w-3.5" />
             Submit
           </Button>
-        ) : e.status === "DRAFT" ? (
+        ) : e.status === "DRAFT" && !readOnly ? (
           <span className="px-1 text-[11.5px] text-muted-foreground" data-testid={`run-waiting-supervisor-${e.entry_no}${suffix}`}>
             supervisor submits
           </span>
@@ -157,7 +161,7 @@ export function RunRows({
             <Pencil className="h-3.5 w-3.5" />
           </Button>
         ) : null}
-        {e.status !== "VOID" && canSubmit && state?.status !== "COMPLETED" ? (
+        {e.status !== "VOID" && canSubmit && !readOnly && state?.status !== "COMPLETED" ? (
           <Button size="icon" variant="ghost" className="h-8 w-8" disabled={mutation.isPending} onClick={() => voidRun(e)} title="Void this run (reason required)" aria-label={`Void ${runNo(e)}`} data-testid={`run-void-${e.entry_no}${suffix}`}>
             <X className="h-3.5 w-3.5" />
           </Button>

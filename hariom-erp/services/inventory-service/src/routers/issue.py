@@ -116,7 +116,8 @@ def create_issue(
     issue: IssueCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Store", "Admin", "RMIssue"])),
+    # PlantManager issues material as they issue reels and parchment (role matrix); returns stay with Stores.
+    current_user: dict = Depends(require_role(["Store", "PlantManager", "Admin", "RMIssue"])),
 ):
     reason_code = str(issue.reason_code or "FLOOR_ISSUE").strip().upper()
     shift = str(issue.shift or "").strip().upper() or None

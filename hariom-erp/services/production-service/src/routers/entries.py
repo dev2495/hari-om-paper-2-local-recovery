@@ -516,7 +516,13 @@ def matching_segment(active,e):
     return min(active,key=lambda s:(s.plan_date or date.max,rank.get(s.shift_code or "",2),s.sequence_no or 0,s.segment_no or 0))
 
 
+def refuse_cancelled(job):
+    # QC may still be added to a completed card; a cancelled card takes no runs, drafts or readings at all,
+    # and no voids, stage closes or reopens (their totals sync would put the card back in progress).
+    if job.status=="CANCELLED" or str(job.close_mode or "").upper()=="CANCELLED":raise HTTPException(409,"This job card was cancelled")
+
 def validate_setup(db,job,e):
+    refuse_cancelled(job)
     if e.kind=="QC_ONLY":return
     if e.stage=="DISPATCH":raise HTTPException(409,"Dispatch quantity is recorded through Logistics Dispatch")
     stage=stage_row(db,job,e.stage)
@@ -820,6 +826,7 @@ def create_entry(card_id:uuid.UUID,payload:EntryInput,db:Session=Depends(get_db)
         for field in ("produced","accepted","input_quantity","cutting_loss_pcs"):
             data[field]-=sum(getattr(x,field) for x in current)
             if data[field]<0:raise HTTPException(409,"Cumulative total is below the posted total; use a governed correction")
+    refuse_cancelled(job)
     e=StageEntry(**data,plant_id=job.plant_id,job_card_id=job.id,entry_no=number,rejected=data["produced"]-data["accepted"],created_by=user["sub"])
     if operator:e.operator_name=operator["name"];e.operator_code=operator["employee_code"]
     if e.accepted>e.produced:raise HTTPException(422,"Accepted cannot exceed produced")
@@ -911,6 +918,7 @@ def save_observations(card_id:uuid.UUID,entry_id:uuid.UUID,payload:Observations,
     # Operators log QC as well as output (client 2026-10-27); a separate QC inspector is not required.
     job=card(db,card_id,plant,True);prior=replay(db,job,payload,f"observations:{entry_id}")
     if prior:return prior
+    refuse_cancelled(job)
     e=db.query(StageEntry).filter_by(id=entry_id,job_card_id=job.id).first()
     if not e:raise HTTPException(404,"Entry not found")
     if e.status=="VOID":raise HTTPException(409,"Voided observations cannot be revised")
@@ -936,6 +944,7 @@ def save_observations(card_id:uuid.UUID,entry_id:uuid.UUID,payload:Observations,
 def void_entry(card_id:uuid.UUID,entry_id:uuid.UUID,payload:Mutation,db:Session=Depends(get_db),plant:str=Depends(get_current_plant),user:dict=Depends(require_role(["Owner","Admin","PlantManager"]))):
     job=card(db,card_id,plant,True);prior=replay(db,job,payload,f"void:{entry_id}")
     if prior:return prior
+    refuse_cancelled(job)
     e=db.query(StageEntry).filter_by(id=entry_id,job_card_id=job.id).first()
     if not e:raise HTTPException(404,"Entry not found")
     if not payload.reason.strip() or payload.expected_version!=e.row_version:raise HTTPException(409,"Current version and void reason required")
@@ -959,6 +968,7 @@ def close_stage(card_id:uuid.UUID,stage:str,payload:CloseInput,db:Session=Depend
     if stage=="DISPATCH":raise HTTPException(409,"Complete dispatch through Logistics Dispatch")
     preliminary=card(db,card_id,plant);cached=replay(db,preliminary,payload,f"close:{stage}")
     if cached:return cached
+    refuse_cancelled(preliminary)
     supervisor=verified_employee(db,payload.supervisor_id,user,plant,"supervisor") if payload.supervisor_id else None
     closed_by_name=supervisor["name"] if supervisor else (user.get("name") or user.get("email") or user["sub"])
     if payload.reel_issue_ids:
@@ -972,6 +982,7 @@ def close_stage(card_id:uuid.UUID,stage:str,payload:CloseInput,db:Session=Depend
         fg_item_id=db.info.get("entry_batch_auto_fg") or (None if stage=="QC" else fg_item_for(preliminary,user,plant))
     job=card(db,card_id,plant,True);prior=replay(db,job,payload,f"close:{stage}")
     if prior:return prior
+    refuse_cancelled(job)
     row=stage_row(db,job,stage);state=next(s for s in flow(db,job)["stages"] if s["stage"]==stage)
     if row.status=="COMPLETED":raise HTTPException(409,"Stage already closed")
     if payload.expected_version!=state["row_version"]:raise HTTPException(409,"Stage changed; refresh before closing")
@@ -1039,6 +1050,7 @@ def close_stage(card_id:uuid.UUID,stage:str,payload:CloseInput,db:Session=Depend
 def reopen_stage(card_id:uuid.UUID,stage:str,payload:Mutation,db:Session=Depends(get_db),plant:str=Depends(get_current_plant),user:dict=Depends(require_role(["Owner","Admin"]))):
     job=card(db,card_id,plant,True);prior=replay(db,job,payload,f"reopen:{stage}")
     if prior:return prior
+    refuse_cancelled(job)
     row=stage_row(db,job,stage)
     if payload.expected_version!=int((row.actuals_snapshot or {}).get("row_version",1)):raise HTTPException(409,"Stage changed; refresh")
     if row.status!="COMPLETED" or not payload.reason.strip():raise HTTPException(409,"Closed stage and reopen reason required")

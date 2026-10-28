@@ -214,7 +214,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const expireIdleSession = async () => {
       await logout()
       if (window.location.pathname !== "/login") {
-        window.location.assign("/login?reason=inactive")
+        // Back to the same page after signing in again (a floor phone left idle on a job card).
+        window.location.assign(`/login?reason=inactive&next=${encodeURIComponent(window.location.pathname + window.location.search)}`)
       }
     }
 

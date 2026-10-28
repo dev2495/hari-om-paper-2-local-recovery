@@ -1,7 +1,8 @@
 "use client"
 
 import Link from "next/link"
-import { useMemo, useState } from "react"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { ArrowUpRight, Barcode, Check, CircleAlert, ClipboardList, Hourglass, PackageCheck, Scissors, Search, Truck } from "lucide-react"
 
 import { QrScanner } from "@/components/common/qr-scanner"
@@ -9,9 +10,13 @@ import { Field, MessageBar, ProcurementShell, WorkPanel, fieldClass, primaryButt
 import { IssueDeskTabs } from "@/components/procurement/issue-desk-tabs"
 import { Chip } from "@/components/sales/order-chips"
 import { RoleGate } from "@/components/workspace/role-gate"
+import { useAuth } from "@/context/AuthContext"
 import { useCloseReelIssue, useCreateReelIssue, useInventoryItems, usePendingInventoryQuality, useRecordSlittingCard, useReelIssues, useReels } from "@/hooks/use-inventory"
+import { usePlants } from "@/hooks/use-system"
+import { inventoryApi } from "@/lib/api"
 import { businessDate } from "@/lib/business-date"
-import { displayPlantScope } from "@/lib/plant-scope"
+import { canonicalPlantScopeValue, displayPlantScope } from "@/lib/plant-scope"
+import { parseScanCode } from "@/lib/scan-code"
 import { cn } from "@/lib/utils"
 
 const ISSUABLE = ["UNRESTRICTED", "WIP"]
@@ -39,11 +44,10 @@ function waitingReason(row: any, queueState?: string): { text: string; tone: "bl
   return { text: "Waiting for incoming QC", tone: "blue", action: "Inspect now" }
 }
 
-function parseInventoryQr(raw: string) {
-  const parts = raw.trim().split("|")
-  if (parts.length >= 5 && parts[0].toUpperCase() === "HARIOM") return { entityType: parts[1].toUpperCase(), entityId: parts[3], code: parts[4] }
-  return { entityType: "", entityId: "", code: raw.trim() }
-}
+const samePlant = (a?: string | null, b?: string | null) => canonicalPlantScopeValue(a).toLowerCase() === canonicalPlantScopeValue(b).toLowerCase()
+const rowsOf = (data: any): any[] => (Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : [])
+
+type Notice = { tone: "success" | "error" | "info"; text: string; action?: { label: string; href?: string; onClick?: () => void } }
 
 const EMPTY_CARD = { coils_made: "", wastage_kg: "", coil_width_mm: "", operator_name: "", notes: "" }
 
@@ -67,8 +71,19 @@ function Stat({ icon: Icon, label, value, hint, tone }: { icon: any; label: stri
 }
 
 export default function ReelAndCoilIssuePage() {
-  const [notice, setNotice] = useState<{ tone: "success" | "error" | "info"; text: string } | null>(null)
+  const { user, activePlant, activeRole, setActivePlant } = useAuth()
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const linkedScan = searchParams?.get("scan") || ""
+  const linkedDone = useRef("")
+  const [notice, setNotice] = useState<Notice | null>(null)
   const [scanCode, setScanCode] = useState("")
+  // A scan made while stock is still loading waits here instead of saying "not in stock".
+  const [queuedScan, setQueuedScan] = useState("")
+  // Reels found by id outside the newest-500 stock window, so they can still be picked.
+  const [extraRows, setExtraRows] = useState<any[]>([])
+  const submitButton = useRef<HTMLButtonElement | null>(null)
   const [search, setSearch] = useState("")
   const [form, setForm] = useState<"ALL" | "REEL" | "COIL">("ALL")
   const [picked, setPicked] = useState<string[]>([])
@@ -81,6 +96,7 @@ export default function ReelAndCoilIssuePage() {
 
   const stockQuery = useReels({ status: "IN_STOCK", limit: 500 })
   const itemsQuery = useInventoryItems()
+  const plantsQuery = usePlants()
   const pendingQc = usePendingInventoryQuality()
   const openQuery = useReelIssues({ status: "OPEN", limit: 300 })
   const todayQuery = useReelIssues({ date_from: businessDate(), date_to: businessDate(), limit: 300 })
@@ -98,9 +114,14 @@ export default function ReelAndCoilIssuePage() {
     return out
   }, [pendingQc.data])
 
+  const stockRows: any[] = useMemo(() => {
+    const loaded = Array.isArray(stockQuery.data) ? stockQuery.data : []
+    const known = new Set(loaded.map((row: any) => String(row.id)))
+    return [...loaded, ...extraRows.filter((row) => !known.has(String(row.id)))]
+  }, [stockQuery.data, extraRows])
   const inStock: any[] = useMemo(
-    () => (Array.isArray(stockQuery.data) ? stockQuery.data : []).filter((row: any) => Number(row.current_weight_kg || 0) > 0 && !isParchmentReel(row)),
-    [stockQuery.data, itemById], // eslint-disable-line react-hooks/exhaustive-deps
+    () => stockRows.filter((row: any) => Number(row.current_weight_kg || 0) > 0 && !isParchmentReel(row)),
+    [stockRows, itemById], // eslint-disable-line react-hooks/exhaustive-deps
   )
   const ready = useMemo(() => inStock.filter((row) => ISSUABLE.includes(String(row.stock_status || "").toUpperCase())), [inStock])
   const waiting = useMemo(() => inStock.filter((row) => !ISSUABLE.includes(String(row.stock_status || "").toUpperCase())), [inStock])
@@ -136,25 +157,108 @@ export default function ReelAndCoilIssuePage() {
 
   const toggle = (id: string) => setPicked((current) => (current.includes(id) ? current.filter((value) => value !== id) : [...current, id]))
 
-  function resolveScan(value: string = scanCode) {
-    const parsed = parseInventoryQr(value)
-    if (parsed.entityType && parsed.entityType !== "REEL") return setNotice({ tone: "error", text: "Scan a reel or coil QR label." })
-    const id = parsed.entityId.trim().toUpperCase()
-    const code = parsed.code.trim().toUpperCase()
-    const same = (row: any) => String(row.id).toUpperCase() === id || String(row.reel_code || "").toUpperCase() === code
-    const all = Array.isArray(stockQuery.data) ? stockQuery.data : []
-    const parchmentCoil = all.find((row: any) => isParchmentReel(row) && same(row))
-    if (parchmentCoil) return setNotice({ tone: "info", text: `${parchmentCoil.reel_code} is parchment. Parchment is issued by colour and kg on the Adhesive / parchment / packing tab.` })
-    const matched = ready.find(same)
-    if (!matched) {
-      const held = waiting.find(same)
-      if (held) return setNotice({ tone: "error", text: `${held.reel_code} cannot go to the floor yet: ${waitingReason(held, qcState.get(String(held.id))).text.toLowerCase()}. Open it from "Not cleared yet" to clear it.` })
-      return setNotice({ tone: "error", text: `${code || "That label"} is not in stock.` })
-    }
-    setPicked((current) => (current.includes(String(matched.id)) ? current : [...current, String(matched.id)]))
-    setScanCode("")
-    setNotice({ tone: "info", text: `${matched.reel_code} added · ${isCoil(matched) ? "coil → winders" : "reel → slitter"}.` })
+  const roles = new Set([user?.role, activeRole, ...(user?.roles || [])].filter(Boolean) as string[])
+  // The Incoming inspection page lets these roles in; everyone else is told to ask QC instead of a link they cannot open.
+  const canOpenQc = ["QC", "InwardQC", "Store", "PlantManager", "Owner", "Admin"].some((role) => roles.has(role))
+  // Same test as /scan and the server: Owner and Admin too are limited to their login's plants.
+  const canSeePlant = (plantId: string) => Boolean(user?.is_owner_all_plants) || [...(user?.allowed_plant_ids || []), ...(user?.allowed_plants || [])].some((value) => samePlant(value, plantId))
+  // Plain plant name for a label's plant; a plant this login cannot list is just "another plant".
+  const plantName = (id: string) => {
+    const plant = (Array.isArray(plantsQuery.data) ? plantsQuery.data : []).find((row: any) => samePlant(String(row.id), id))
+    const known = displayPlantScope(canonicalPlantScopeValue(id))
+    return plant?.name || (known !== canonicalPlantScopeValue(id) ? known : "another plant")
   }
+  const stockReady = stockQuery.isSuccess && !itemsQuery.isLoading && !pendingQc.isLoading
+
+  /** Picks a scanned reel or coil, or says exactly why it cannot go to the floor. */
+  async function explainReel(row: any, queueState?: string) {
+    const code = row.reel_code
+    if (isParchmentReel(row)) return setNotice({ tone: "info", text: `${code} is parchment. Parchment is issued by colour and kg on the Adhesive / parchment / packing tab.`, action: { label: "Open material issue", href: `/inventory/production-issue?item=${row.paper_id}` } })
+    const status = String(row.status || "").toUpperCase()
+    if (status === "CONSUMED" || status === "ISSUED") {
+      let when = ""
+      try {
+        const last = rowsOf((await inventoryApi.getReelIssues({ reel_id: row.id, limit: 1 })).data)[0]
+        if (last?.issue_date) when = ` on ${day(last.issue_date)}${last.shift ? `, shift ${last.shift}` : ""}`
+      } catch { /* the reason stands without the date */ }
+      return setNotice({ tone: "error", text: `${code} was already issued to the floor${when} and is used up. Nothing is left to issue.` })
+    }
+    if (status === "SCRAP") return setNotice({ tone: "error", text: `${code} was scrapped. It cannot be issued.` })
+    if (Number(row.current_weight_kg || 0) <= 0) return setNotice({ tone: "error", text: `${code} has no weight left. Nothing is left to issue.` })
+    if (!ISSUABLE.includes(String(row.stock_status || "").toUpperCase())) {
+      const { text } = waitingReason(row, queueState ?? qcState.get(String(row.id)))
+      const reason = text.charAt(0).toLowerCase() + text.slice(1)
+      return setNotice(canOpenQc
+        ? { tone: "error", text: `${code} cannot go to the floor yet: ${reason}.`, action: { label: "Open in incoming QC", href: `/quality/incoming?lot=REEL:${row.id}` } }
+        : { tone: "error", text: `${code} cannot go to the floor yet: ${reason}. Ask QC to inspect it.` })
+    }
+    if (!stockRows.some((item) => String(item.id) === String(row.id))) setExtraRows((current) => [...current, row])
+    setPicked((current) => (current.includes(String(row.id)) ? current : [...current, String(row.id)]))
+    setScanCode("")
+    setNotice({ tone: "info", text: `${code} added · ${isCoil(row) ? "coil → winders" : "reel → slitter"}.` })
+    // On a phone the issue button can be off screen: bring it up so the scan is one tap from issue.
+    if (window.innerWidth < 1280) window.setTimeout(() => submitButton.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 80)
+  }
+
+  async function resolveScan(value: string = scanCode) {
+    const parsed = parseScanCode(value)
+    if (!parsed.raw) return setNotice({ tone: "error", text: "Scan the reel or coil label, or type its AT number." })
+    if (parsed.kind === "BATCH") return setNotice({ tone: "error", text: "That is a material lot label. Adhesive, packing and parchment are issued on the Adhesive / parchment / packing tab.", action: { label: "Open material issue", href: `/inventory/production-issue?scan=${encodeURIComponent(parsed.raw)}` } })
+    if (parsed.kind === "JOB_CARD" || parsed.kind === "TOOL") return setNotice({ tone: "error", text: `That is a ${parsed.kind === "TOOL" ? "tool" : "job card"} label. Scan the reel or coil label.` })
+    if (!stockReady) {
+      setQueuedScan(value)
+      return setNotice({ tone: "info", text: "Stock is still loading. The label is checked as soon as it is ready." })
+    }
+    // An AT number is short; anything long (another system's QR) is not a reel or coil label.
+    if (!parsed.id && parsed.code.length > 60) return setNotice({ tone: "error", text: "That is not a reel or coil label. Scan the QR on the reel or coil, or type its AT number." })
+    const label = parsed.code || "That label"
+    if (parsed.plantId && !canSeePlant(parsed.plantId)) return setNotice({ tone: "error", text: `${label} is from ${plantName(parsed.plantId)}, which your login cannot open.` })
+    if (parsed.plantId && activePlant && activePlant !== "ALL" && !samePlant(parsed.plantId, activePlant)) {
+      const plant = plantName(parsed.plantId)
+      return setNotice({
+        tone: "error",
+        text: `${label} is from ${plant}. You are working in ${displayPlantScope(activePlant)}: switch plant to issue it.`,
+        action: { label: `Switch to ${plant}`, onClick: () => { setActivePlant(parsed.plantId); window.location.assign(`${pathname}?scan=${encodeURIComponent(parsed.raw)}`) } },
+      })
+    }
+    const id = parsed.id.toUpperCase()
+    const code = parsed.code.toUpperCase()
+    const same = (row: any) => (id && String(row.id).toUpperCase() === id) || (code && String(row.reel_code || "").toUpperCase() === code)
+    const local = stockRows.find(same)
+    const cleared = (row: any) => ISSUABLE.includes(String(row?.stock_status || "").toUpperCase())
+    if (local && cleared(local)) return explainReel(local)
+    // Held in the loaded list (the desk stays open all shift while QC passes reels), or not in it at all:
+    // older stock, already used, or never received here. Ask the server before refusing.
+    try {
+      const found = id
+        ? rowsOf((await inventoryApi.getReels({ reel_ids: parsed.id, limit: 1 })).data)[0]
+        : rowsOf((await inventoryApi.getReels({ search: parsed.code, limit: 20 })).data).find(same)
+      if (found && local && cleared(found)) await stockQuery.refetch()
+      if (found && !cleared(found)) {
+        const queue = await pendingQc.refetch()
+        return explainReel(found, rowsOf(queue.data).find((row: any) => row?.entity_type === "REEL" && String(row.entity_id) === String(found.id))?.queue_state)
+      }
+      if (found || local) return explainReel(found || local)
+    } catch (error) {
+      if (local) return explainReel(local)
+      return setNotice({ tone: "error", text: `${label} could not be checked: ${errorText(error)}` })
+    }
+    setNotice({ tone: "error", text: `${label} was not found in ${displayPlantScope(activePlant)}. Check the label, or type the AT number.` })
+  }
+
+  // The /scan page sends issue roles here with ?scan=<label>: check it once stock has loaded, then drop it from the URL.
+  // scroll: false, or the URL change lands after the scroll to the issue button and jumps the phone back to the top.
+  useEffect(() => {
+    if (!linkedScan || !stockReady || linkedDone.current === linkedScan) return
+    linkedDone.current = linkedScan
+    void resolveScan(linkedScan)
+    router.replace(pathname, { scroll: false })
+  }, [linkedScan, stockReady]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!queuedScan || !stockReady) return
+    setQueuedScan("")
+    void resolveScan(queuedScan)
+  }, [queuedScan, stockReady]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function issueSelected() {
     if (!selected.length) return setNotice({ tone: "error", text: "Pick or scan the reels and coils going to the floor." })
@@ -171,6 +275,7 @@ export default function ReelAndCoilIssuePage() {
     }
     setIssuing(false)
     setPicked((current) => current.filter((id) => !done.includes(id)))
+    setExtraRows((current) => current.filter((row) => !done.includes(String(row.id))))
     const slit = selected.filter((row) => done.includes(String(row.id)) && !isCoil(row)).length
     if (failed.length) {
       setNotice({ tone: "error", text: `${done.length} issued. Not issued — ${failed.join(" · ")}` })
@@ -213,7 +318,18 @@ export default function ReelAndCoilIssuePage() {
         actions={<IssueDeskTabs />}
         allPlants
       >
-        {notice ? <MessageBar tone={notice.tone}>{notice.text}</MessageBar> : null}
+        {notice ? (
+          <MessageBar tone={notice.tone}>
+            <span data-testid="reel-issue-notice">{notice.text}</span>
+            {notice.action ? (
+              <span className="mt-2 flex" data-no-mirror>
+                {notice.action.href
+                  ? <Link href={notice.action.href} className={cn(secondaryButton, "h-11")}>{notice.action.label}<ArrowUpRight className="h-4 w-4" /></Link>
+                  : <button type="button" className={cn(secondaryButton, "h-11")} onClick={notice.action.onClick}>{notice.action.label}</button>}
+              </span>
+            ) : null}
+          </MessageBar>
+        ) : null}
         {stockQuery.isError || openQuery.isError ? <MessageBar tone="error">Stock could not load. Refresh before issuing.</MessageBar> : null}
 
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" data-testid="reel-issue-stats">
@@ -228,10 +344,10 @@ export default function ReelAndCoilIssuePage() {
             <div className="flex flex-wrap gap-2">
               <label className="flex min-w-[200px] flex-1 items-center gap-2">
                 <Barcode className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                <input aria-label="Scan reel or coil label" className={fieldClass} value={scanCode} placeholder="Scan QR or type AT number" onChange={(e) => setScanCode(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); resolveScan() } }} />
+                <input aria-label="Scan reel or coil label" className={fieldClass} value={scanCode} placeholder="Scan QR or type AT number" onChange={(e) => setScanCode(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void resolveScan() } }} />
               </label>
-              <button type="button" className={secondaryButton} onClick={() => resolveScan()}><PackageCheck className="h-4 w-4" />Add</button>
-              <QrScanner onScan={(value) => { setScanCode(value); resolveScan(value) }} label="Camera" title="Scan reel label" hint="Point the camera at the reel or coil QR label." />
+              <button type="button" className={secondaryButton} onClick={() => void resolveScan()}><PackageCheck className="h-4 w-4" />Add</button>
+              <QrScanner onScan={(value) => { setScanCode(parseScanCode(value).code || value); void resolveScan(value) }} label="Camera" title="Scan reel label" hint="Point the camera at the reel or coil QR label." />
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <label className="relative min-w-[180px] flex-1">
@@ -298,7 +414,7 @@ export default function ReelAndCoilIssuePage() {
                 {selected.length ? (
                   <button type="button" className="text-[12.5px] font-semibold text-muted-foreground hover:text-foreground" onClick={() => setPicked([])}>Clear</button>
                 ) : null}
-                <button type="button" data-testid="floor-issue-submit" className={cn(primaryButton, "h-10 flex-1 justify-center")} disabled={busy || !selected.length} onClick={() => void issueSelected()}>
+                <button ref={submitButton} type="button" data-testid="floor-issue-submit" className={cn(primaryButton, "h-10 flex-1 justify-center")} disabled={busy || !selected.length} onClick={() => void issueSelected()}>
                   <PackageCheck className="h-4 w-4" />
                   {issuing ? "Issuing…" : selected.length ? `Issue ${selected.length} to floor · ${kg(selectedKg)} · shift ${shift}` : "Pick reels or coils to issue"}
                 </button>
@@ -307,21 +423,33 @@ export default function ReelAndCoilIssuePage() {
           </WorkPanel>
 
           <div className="space-y-4">
-            <WorkPanel title={`Not cleared yet · ${waiting.length}`} description="In stock but not passed by incoming QC. Open one to inspect it — once it passes it moves to Ready.">
+            <WorkPanel title={`Not cleared yet · ${waiting.length}`} description={canOpenQc ? "In stock but not passed by incoming QC. Open one to inspect it — once it passes it moves to Ready." : "In stock but not passed by incoming QC. Ask QC to inspect them — once one passes it moves to Ready."}>
               {waiting.length ? (
                 <ul className="max-h-[300px] space-y-1.5 overflow-y-auto pr-1" data-testid="floor-issue-waiting">
                   {waiting.map((row) => {
                     const reason = waitingReason(row, qcState.get(String(row.id)))
+                    const body = (
+                      <>
+                        <CircleAlert className={cn("h-4 w-4 shrink-0", reason.tone === "rose" ? "text-signal-rose-ink" : reason.tone === "amber" ? "text-signal-amber-ink" : "text-signal-blue-ink")} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[13px] font-semibold">{row.reel_code} <span className="font-normal text-muted-foreground">· {itemOf(row)?.item_code || (isCoil(row) ? "Coil" : "Reel")} · {kg(row.current_weight_kg)}</span></span>
+                          <Chip tone={reason.tone} size="xs">{reason.text}</Chip>
+                        </span>
+                      </>
+                    )
                     return (
                       <li key={row.id}>
-                        <Link href={`/quality/incoming?lot=REEL:${row.id}`} className="group flex items-center gap-3 rounded-xl border border-border bg-card px-3 py-2 hover:border-foreground/25">
-                          <CircleAlert className={cn("h-4 w-4 shrink-0", reason.tone === "rose" ? "text-signal-rose-ink" : reason.tone === "amber" ? "text-signal-amber-ink" : "text-signal-blue-ink")} />
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-[13px] font-semibold">{row.reel_code} <span className="font-normal text-muted-foreground">· {itemOf(row)?.item_code || (isCoil(row) ? "Coil" : "Reel")} · {kg(row.current_weight_kg)}</span></span>
-                            <Chip tone={reason.tone} size="xs">{reason.text}</Chip>
-                          </span>
-                          <span className="inline-flex shrink-0 items-center gap-1 text-[12px] font-semibold text-primary group-hover:underline">{reason.action}<ArrowUpRight className="h-3.5 w-3.5" /></span>
-                        </Link>
+                        {canOpenQc ? (
+                          <Link href={`/quality/incoming?lot=REEL:${row.id}`} className="group flex items-center gap-3 rounded-xl border border-border bg-card px-3 py-2 hover:border-foreground/25">
+                            {body}
+                            <span className="inline-flex shrink-0 items-center gap-1 text-[12px] font-semibold text-primary group-hover:underline">{reason.action}<ArrowUpRight className="h-3.5 w-3.5" /></span>
+                          </Link>
+                        ) : (
+                          <div className="flex items-center gap-3 rounded-xl border border-border bg-card px-3 py-2">
+                            {body}
+                            <span className="shrink-0 text-[12px] font-semibold text-muted-foreground">Ask QC to inspect</span>
+                          </div>
+                        )}
                       </li>
                     )
                   })}

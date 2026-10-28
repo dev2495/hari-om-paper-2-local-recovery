@@ -3,7 +3,7 @@
 import { NotchDiagramPanel } from "@/components/specs/NotchDiagramPanel"
 import { SpecSheetDocument } from "@/components/specs/SpecSheetDocument"
 import Link from "next/link"
-import { CheckCircle2, ExternalLink, Printer, Save, Smartphone } from "lucide-react"
+import { ArrowLeftRight, CheckCircle2, ExternalLink, Printer, Save, Smartphone } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 import { Fragment, useEffect, useMemo, useRef, useState } from "react"
 
@@ -12,6 +12,8 @@ import { useAuth } from "@/context/AuthContext"
 import { useIssueToolAsset, useReelIssues, useToolAssets } from "@/hooks/use-inventory"
 import { useEmployees, useMandrels, useShifts } from "@/hooks/use-master-data"
 import { displayPlantScope } from "@/lib/plant-scope"
+import { buildProductionEntryUrl } from "@/lib/app-url"
+import { useCardPlantFallback } from "@/hooks/use-card-plant"
 import {
   useCompleteStageEntry,
   useCompleteStagesBatch,
@@ -109,12 +111,22 @@ type Props = {
   materialPreparationOnly?: boolean
 }
 
-function buildProductionEntryUrl(jobCardId?: string) {
-  if (typeof window !== "undefined" && window.location?.origin) {
-    const id = jobCardId || ""
-    return `${window.location.origin}/production/entry/${encodeURIComponent(id)}`
+/**
+ * The link printed in the card's QR, always a full link the phone camera opens. The server's public
+ * address (PUBLIC_APP_ORIGIN, sent as the snapshot's qr_value) wins over the address this browser uses,
+ * so a card printed from a PC on an IP or an internal name still opens on every phone. A public address
+ * set by hand on this browser still wins. Older snapshots carry a bare path, which is never printed.
+ */
+function printedEntryUrl(jobCardId: string, snapshotQr: unknown) {
+  const fromServer = String(snapshotQr || "").trim()
+  let override = ""
+  try {
+    override = typeof window !== "undefined" ? String(window.localStorage.getItem("hariom_public_app_url") || "").trim() : ""
+  } catch {
+    override = ""
   }
-  return `/production/entry/${encodeURIComponent(jobCardId || "")}`
+  if (!override && jobCardId && /^https?:\/\/[^/]+\/production\/entry\//i.test(fromServer) && fromServer.endsWith(`/production/entry/${jobCardId}`)) return fromServer
+  return buildProductionEntryUrl(jobCardId)
 }
 
 function formatNumber(value: any, digits = 2) {
@@ -563,6 +575,8 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
   const { showToast } = useApp()
   const { user } = useAuth()
   const jobCardQuery = usePlanningJobCard(jobCardId)
+  // Print: a card from another plant is found in the user's other plants and printed there.
+  const printPlant = useCardPlantFallback(jobCardId, jobCardQuery, mode === "print")
   const allMachinesQuery = useMachines()
   const saveDraftMutation = useSaveStageDraft()
   const completeStageMutation = useCompleteStageEntry()
@@ -888,7 +902,8 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
       documentSnapshot?.header?.weight_per_mm_g ??
       0,
   )
-  const qrValue = documentSnapshot?.header?.qr_value || buildProductionEntryUrl(jobCardId)
+  // Printed QR: a full link to this card's scan landing, on the public address (see printedEntryUrl).
+  const qrValue = printedEntryUrl(String(card?.id || jobCardId || ""), documentSnapshot?.header?.qr_value)
   const assignedWinderMachineId = String(
     documentSnapshot?.header?.assigned_winder_machine_id ||
       documentSnapshot?.header?.winder_machine_id ||
@@ -1751,7 +1766,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
                 <QRCodeSVG value={qrValue} size={72} />
                 <div className="min-w-0">
                   <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Scan Entry</div>
-                  <div className="mt-1 text-sm font-semibold text-foreground">Phone scan opens the live stage-entry screen for this exact job card on the running ERP host.</div>
+                  <div className="mt-1 text-sm font-semibold text-foreground">Scan with the phone camera to open this card&apos;s Log output and Log QC screen.</div>
                   <a href={qrValue} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 break-all text-[11px] text-signal-cyan-ink hover:text-signal-cyan-ink">
                     {qrValue}
                     <ExternalLink className="h-3 w-3" />
@@ -3421,7 +3436,8 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
                   </div>
                 </td>
                 <td className="jc-qr">
-                  <QRCodeSVG value={qrValue} size={64} />
+                  {/* About 18 mm printed with white all round, level M: reads first time from a creased or smudged print. */}
+                  <QRCodeSVG value={qrValue} size={160} level="M" data-testid="print-card-qr" />
                 </td>
               </tr>
             </tbody>
@@ -4069,7 +4085,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             font-weight: 500;
             color: var(--jc-muted);
           }
-          .jc-row-title td { height: 12mm; vertical-align: middle; }
+          .jc-row-title td { height: 26mm; vertical-align: middle; }
           .jc-row-head td { height: 8.5mm; }
           .jc-row-label td { height: 6mm; }
           .jc-row-band td { height: 6.5mm; }
@@ -4181,10 +4197,15 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
           .jc-qr {
             text-align: center;
             vertical-align: middle !important;
+            padding: 0 !important;
           }
+          /* 21 mm (about 18 mm once the front is fitted to the page) keeps each square near 0.5 mm, with
+             at least 2 mm of white to the cell lines. */
           .jc-qr svg {
-            width: 10mm;
-            height: 10mm;
+            display: block;
+            width: 21mm;
+            height: 21mm;
+            margin: 0 auto;
           }
           .jc-drawing {
             flex: 1 1 auto;
@@ -4320,23 +4341,47 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
     )
   }
 
-  if (jobCardQuery.isLoading) {
+  if (jobCardQuery.isLoading || printPlant.probing) {
     return <div className="rounded-xl border border-border bg-card p-8 text-sm text-muted-foreground">Loading job card...</div>
+  }
+
+  if (mode === "print" && printPlant.missing) {
+    return (
+      <div role="alert" className="rounded-xl border border-signal-rose-line bg-signal-rose-soft p-8 text-sm text-signal-rose-ink" data-testid="print-card-missing">
+        <b>No such job card {printPlant.multiPlant ? "in your plants" : "in this plant"}.</b> Open the card from the{" "}
+        <Link href="/production/job-cards" className="font-semibold underline underline-offset-2">
+          job cards list
+        </Link>{" "}
+        and print it from there.
+      </div>
+    )
   }
 
   if (jobCardQuery.isError || !card) {
     return <div className="rounded-xl border border-signal-rose-line bg-signal-rose-soft p-8 text-sm text-signal-rose-ink">Unable to load job card.</div>
   }
 
+  // Print of a card found in another plant: say which plant the page switched to (not printed).
+  const printWithNotice = () => (
+    <>
+      {printPlant.switchedTo ? (
+        <p role="status" className="no-print mx-auto mb-3 flex max-w-[210mm] items-center gap-2 rounded-xl border border-signal-blue-line bg-signal-blue-soft px-3.5 py-2.5 text-[13px] font-medium text-signal-blue-ink" data-testid="print-plant-switched">
+          <ArrowLeftRight className="h-4 w-4 shrink-0" aria-hidden="true" /> Switched to {printPlant.switchedToName} for this card
+        </p>
+      ) : null}
+      {renderReleasePrintLayout()}
+    </>
+  )
+
   if (seasonalCard) {
     // Seasonal cards keep the same job card layout (page 3 adds the production & QC log);
     // only stage logging uses continuous entries.
-    if (mode === "print") return renderReleasePrintLayout()
+    if (mode === "print") return printWithNotice()
     return renderCompactExecutionLayout()
   }
 
   if (mode === "print") {
-    return renderReleasePrintLayout()
+    return printWithNotice()
   }
 
   if (mode === "view" || mode === "supervisor") {

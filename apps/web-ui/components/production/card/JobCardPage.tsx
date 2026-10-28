@@ -133,9 +133,13 @@ export function JobCardPage({ jobCardId }: { jobCardId: string }) {
   const cardQuery = usePlanningJobCard(jobCardId)
   const card = cardQuery.data
   const facts = cardFacts(card)
+  // A card cancelled by its close mode can still carry an older status: it is closed all the same. A closed
+  // card takes no more runs; QC readings can still be added on a completed card, never on a cancelled one.
+  const cancelled = String(card?.status || "").toUpperCase() === "CANCELLED" || String(card?.close_mode || "").toUpperCase() === "CANCELLED"
+  const cardOpen = facts.open && !cancelled
   const isV2 = Boolean(card) && facts.isV2
   const flow = useCardFlow(card, isV2)
-  const lifecycle = useJobCardLifecycle(card?.id)
+  const lifecycle = useJobCardLifecycle(card?.id, card?.plant_id)
   const stages = useMemo(() => visibleStages(flow.data), [flow.data])
   const entryStages = useMemo(() => (flow.data?.stages || []).map((s: any) => s.stage).filter((s: string) => !["SLITTING", "DISPATCH"].includes(s)), [flow.data])
   const all = useAllStageEntries(card, entryStages, isV2)
@@ -164,13 +168,14 @@ export function JobCardPage({ jobCardId }: { jobCardId: string }) {
   const [closing, setClosing] = useState<string | null>(null)
   const [phoneLink, setPhoneLink] = useState(false)
   const [wholeCard, setWholeCard] = useState(false)
-  // Deep link from the floor or a notification: ?log=output|qc opens that form once.
+  // Deep link from the floor or a notification: ?log=output|qc opens that form once (only what the card
+  // and the role allow).
   useEffect(() => {
     const wanted = searchParams?.get("log")
     if (!wanted || !isV2 || !stages.length || panel) return
-    if (wanted === "output") setPanel({ kind: "output", stage: searchParams?.get("stage") || defaultOutputStage(stages) })
+    if (wanted === "output" && cardOpen && canDraft) setPanel({ kind: "output", stage: searchParams?.get("stage") || defaultOutputStage(stages) })
     // QC needs the runs first, so the waiting run (or ?entry=) is preselected.
-    if (wanted === "qc" && !all.isLoading) setPanel({ kind: "qc", ...defaultQcStage(card, stages, all.entries), ...(searchParams?.get("stage") ? { stage: String(searchParams.get("stage")) } : {}), ...(searchParams?.get("entry") ? { entryId: String(searchParams.get("entry")) } : {}) })
+    if (wanted === "qc" && !cancelled && canQc && !all.isLoading) setPanel({ kind: "qc", ...defaultQcStage(card, stages, all.entries), ...(searchParams?.get("stage") ? { stage: String(searchParams.get("stage")) } : {}), ...(searchParams?.get("entry") ? { entryId: String(searchParams.get("entry")) } : {}) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isV2, stages.length, all.isLoading])
   // An old-form card has no floor forms: ?log=output|qc lands on its Old form tab instead.
@@ -186,15 +191,15 @@ export function JobCardPage({ jobCardId }: { jobCardId: string }) {
   const steps: StepInfo[] = useMemo(() => (isV2 ? stepsFromFlow(flow.data) : stepsFromOldCard(card, lifecycle.data)), [isV2, flow.data, card, lifecycle.data])
   const entries = all.entries
   const live = entries.filter((e) => e.status !== "VOID")
-  const waitingQc = live.filter((e) => e.status === "SUBMITTED" && e.kind !== "QC_ONLY" && stageParameters(card, e.stage).length && !runQcState(card, e).accepted)
+  const waitingQc = cancelled ? [] : live.filter((e) => e.status === "SUBMITTED" && e.kind !== "QC_ONLY" && stageParameters(card, e.stage).length && !runQcState(card, e).accepted)
   const drafts = live.filter((e) => e.status === "DRAFT")
   const flagCount = live.reduce((n, e) => n + (Array.isArray(e.qc_flags) ? e.qc_flags.length : 0), 0)
   const current = currentFloorStage(stages)
   const closeTarget = current && (isLoggable(current) || current.stage === "QC") ? current : null
   const closeBlocked = closeTarget ? closeBlockedReason(closeTarget, card) : "No open stage"
   const closeTitle = !canSubmit ? "A supervisor closes the stage — open to see what is still needed" : closeBlocked ? `${closeBlocked} — open for details` : closeTarget ? `Confirms ${stageLabel(closeTarget.stage)} totals and moves the card on` : ""
-  const outputBlocked = !facts.open ? "Card is closed" : !isV2 ? "Old entry form — use the Old form tab" : !stages.some((s: any) => isLoggable(s)) ? "No open stage takes runs" : !canDraft ? "Your role cannot log runs" : ""
-  const qcBlocked = !isV2 ? "Old entry form — QC is on the Old form tab" : !stages.some((s: any) => stageParameters(card, s.stage).length) ? "No QC checks on this card" : !canQc ? "Your role cannot record QC" : ""
+  const outputBlocked = !cardOpen ? "Card is closed" : !isV2 ? "Old entry form — use the Old form tab" : !stages.some((s: any) => isLoggable(s)) ? "No open stage takes runs" : !canDraft ? "Your role cannot log runs" : ""
+  const qcBlocked = cancelled ? "Card is cancelled" : !isV2 ? "Old entry form — QC is on the Old form tab" : !stages.some((s: any) => stageParameters(card, s.stage).length) ? "No QC checks on this card" : !canQc ? "Your role cannot record QC" : ""
   const lastRun = live.find((e) => e.kind !== "QC_ONLY")
   const lastEvent = history.data?.events?.[0]
   const dueDays = facts.due ? Math.round((new Date(`${String(facts.due).slice(0, 10)}T00:00:00`).getTime() - new Date(new Date().toLocaleDateString("en-CA") + "T00:00:00").getTime()) / 86400000) : null
@@ -205,6 +210,12 @@ export function JobCardPage({ jobCardId }: { jobCardId: string }) {
   const nextSteps: NextStep[] = useMemo(() => {
     const out: NextStep[] = []
     if (!card) return out
+    // A closed card offers no entry: one closed step (plus late QC on a completed card, which is allowed).
+    if (!cardOpen) {
+      out.push({ title: `This card is closed (${cancelled ? "cancelled" : "completed"})`, detail: cancelled ? "Nothing more can be logged on it." : "No more runs can be logged on it.", done: true })
+      if (isV2 && waitingQc.length) out.push({ title: `Log QC on ${waitingQc.length} run${waitingQc.length === 1 ? "" : "s"}`, detail: `${waitingQc.map((e) => `${runNo(e)} (${stageLabel(e.stage)})`).slice(0, 4).join(", ")} · late QC readings can still be added`, action: canQc ? { label: "Log QC", onClick: () => openQc(waitingQc[0]) } : undefined })
+      return out
+    }
     if (!isV2) {
       out.push({ title: "This card is on the old entry form", detail: "Enter stage output and QC on the Old form tab; a supervisor or planner can move it to batch entry.", action: { label: "Old form", onClick: () => setTab("oldform") } })
       return out
@@ -226,7 +237,7 @@ export function JobCardPage({ jobCardId }: { jobCardId: string }) {
     if (!out.length) out.push({ title: dispatch?.status === "COMPLETED" ? "Nothing pending — dispatched" : "Nothing pending", done: true })
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [card, isV2, drafts.length, waitingQc.length, current, stages, canSubmit, canQc, canDraft])
+  }, [card, isV2, cardOpen, cancelled, drafts.length, waitingQc.length, current, stages, canSubmit, canQc, canDraft])
 
   const reopen = (stage: string) => {
     const state = stages.find((s: any) => s.stage === stage)
@@ -378,7 +389,7 @@ export function JobCardPage({ jobCardId }: { jobCardId: string }) {
             <ClipboardCheck className="h-4 w-4" /> Log QC
             {waitingQc.length ? <span className={cn("rounded-full border px-1.5 text-[11px] font-bold", toneClass("amber"))}>{waitingQc.length} waiting</span> : null}
           </button>
-          {isV2 && closeTarget && facts.open ? (
+          {isV2 && closeTarget && cardOpen ? (
             <button type="button" className={cn(actionButton, closeBlocked || !canSubmit ? "!text-muted-foreground" : "")} title={closeTitle} onClick={() => setClosing(closeTarget.stage)} data-testid="action-close-stage" data-blocked={closeBlocked ? "true" : undefined}>
               {closeBlocked || !canSubmit ? <Lock className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />} Close {stageLabel(closeTarget.stage)}
               {!canSubmit ? <span className="rounded-full border border-border bg-muted px-1.5 text-[10.5px] font-semibold">supervisor</span> : closeBlocked && !closeTarget.qc?.ready ? <span className={cn("rounded-full border px-1.5 text-[10.5px] font-semibold", toneClass("amber"))}>QC short</span> : null}
@@ -446,7 +457,7 @@ export function JobCardPage({ jobCardId }: { jobCardId: string }) {
         </TabsList>
 
         <TabsContent value="overview">
-          <OverviewTab card={card} steps={steps} entries={entries} lifecycle={lifecycle.data} machineName={machineName} nextSteps={nextSteps} onLogQc={(entry) => openQc(entry)} />
+          <OverviewTab card={card} steps={steps} entries={entries} lifecycle={lifecycle.data} machineName={machineName} nextSteps={nextSteps} onLogQc={!cancelled ? (entry) => openQc(entry) : undefined} />
         </TabsContent>
 
         {isV2 ? (
@@ -459,12 +470,12 @@ export function JobCardPage({ jobCardId }: { jobCardId: string }) {
                   <Button size="sm" variant="outline" disabled={!logEntries.length} onClick={() => void exportRuns()}>
                     <Download className="h-3.5 w-3.5" /> Export
                   </Button>
-                  {canSubmit && stages.some((s: any) => isLoggable(s)) ? (
+                  {canSubmit && cardOpen && stages.some((s: any) => isLoggable(s)) ? (
                     <Button size="sm" variant="outline" onClick={() => setWholeCard(true)} title="Type a whole printed card at once: the running totals of every stage" data-testid="action-whole-card">
                       <ClipboardList className="h-3.5 w-3.5" /> Whole printed card
                     </Button>
                   ) : null}
-                  {logStageState?.status === "COMPLETED" && canReopen && !["SLITTING", "DISPATCH"].includes(logStage) ? (
+                  {logStageState?.status === "COMPLETED" && canReopen && !cancelled && !["SLITTING", "DISPATCH"].includes(logStage) ? (
                     <Button size="sm" variant="outline" disabled={mutation.isPending} onClick={() => reopen(logStage)} data-testid="action-reopen">
                       Reopen stage…
                     </Button>
@@ -483,7 +494,7 @@ export function JobCardPage({ jobCardId }: { jobCardId: string }) {
                 ))}
                 {drafts.length ? <span className="ml-auto self-center text-[12px] text-muted-foreground">Drafts do not count until submitted</span> : null}
               </div>
-              {all.isLoading ? <p className="px-4 py-8 text-center text-[13px] text-muted-foreground">Loading runs…</p> : <RunRows card={card} flow={flow.data} entries={logEntries} planRuns={plan.data?.runs} showStage={logStage === "ALL"} onEdit={(entry) => openOutput(entry.stage, entry)} onQc={(entry) => openQc(entry)} emptyText={logStage === "ALL" ? "No runs logged on this card yet." : `No runs on ${stageLabel(logStage)} yet.`} />}
+              {all.isLoading ? <p className="px-4 py-8 text-center text-[13px] text-muted-foreground">Loading runs…</p> : <RunRows card={card} flow={flow.data} entries={logEntries} planRuns={plan.data?.runs} showStage={logStage === "ALL"} onEdit={cardOpen ? (entry) => openOutput(entry.stage, entry) : undefined} onQc={!cancelled ? (entry) => openQc(entry) : undefined} readOnly={!cardOpen} emptyText={logStage === "ALL" ? "No runs logged on this card yet." : `No runs on ${stageLabel(logStage)} yet.`} />}
               <div className="flex flex-wrap justify-between gap-2 border-t border-border px-4 py-2 text-[12px] text-muted-foreground">
                 <span>Rejection codes: WL Winding loose · PG Pasting/glue · ID I.D. out · OD O.D. out · LN Length · WT Weight · CS C.S. · DM Damage · MS Moisture · NT Notch · OT Other</span>
                 <span>Edits and voids need a reason and are kept in History &amp; audit</span>
@@ -499,17 +510,26 @@ export function JobCardPage({ jobCardId }: { jobCardId: string }) {
           <TabsContent value="oldform">
             <div className="space-y-4" data-testid="tab-oldform">
               <p className="rounded-xl border border-border bg-muted/60 px-4 py-3 text-[13px]">
-                <b>Old entry form.</b> This card was released before batch entry. Enter stage output and QC below as before; the move to batch entry (if still possible) is offered at the top of the form.
+                {cardOpen ? (
+                  <>
+                    <b>Old entry form.</b> This card was released before batch entry. Enter stage output and QC below as before; the move to batch entry (if still possible) is offered at the top of the form.
+                  </>
+                ) : (
+                  <>
+                    <b>This card is closed ({cancelled ? "cancelled" : "completed"}).</b> The old form below is read-only.
+                  </>
+                )}
               </p>
-              <LiveFloorLog jobCardId={String(card.id)} />
-              <JobCardDocument jobCardId={String(card.id)} mode="supervisor" />
+              {/* Its "put the card on the schedule" hint does not apply to a cancelled card. */}
+              {!cancelled ? <LiveFloorLog jobCardId={String(card.id)} /> : null}
+              <JobCardDocument jobCardId={String(card.id)} mode={cardOpen ? "supervisor" : "view"} />
             </div>
           </TabsContent>
         )}
 
         {isV2 ? (
           <TabsContent value="qc">
-            {all.isLoading ? <p className="px-4 py-8 text-center text-[13px] text-muted-foreground">Loading QC…</p> : <QcTab card={card} flow={flow.data} stages={stages} entries={entries} machineName={machineName} onLogQc={(entry, stage) => openQc(entry, stage)} />}
+            {all.isLoading ? <p className="px-4 py-8 text-center text-[13px] text-muted-foreground">Loading QC…</p> : <QcTab card={card} flow={flow.data} stages={stages} entries={entries} machineName={machineName} onLogQc={!cancelled ? (entry, stage) => openQc(entry, stage) : undefined} />}
           </TabsContent>
         ) : null}
 

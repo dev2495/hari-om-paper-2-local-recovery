@@ -8,6 +8,7 @@ const guideContentPath = path.join(webRoot, "lib", "guide-content.ts")
 const routePatterns = [
   { pattern: /^\/settings\/production-season(?:\/.*)?$/, guideId: "specifications" },
   { pattern: /^\/(?:dashboard|control-tower|landing|help|inbox)(?:\/.*)?$/, guideId: "dashboard" },
+  { pattern: /^\/scan(?:\/.*)?$/, guideId: "scan" },
   { pattern: /^\/sales-orders(?:\/.*)?$/, guideId: "sales" },
   { pattern: /^\/(?:specs|specifications)(?:\/.*)?$/, guideId: "specifications" },
   { pattern: /^\/purchase\/scheduler(?:\/.*)?$/, guideId: "purchase-scheduler" },

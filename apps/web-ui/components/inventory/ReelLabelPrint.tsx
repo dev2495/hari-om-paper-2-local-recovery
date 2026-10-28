@@ -3,6 +3,8 @@
 import { Printer } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 
+import { buildScanUrl } from "@/lib/app-url"
+
 type ReelLabelPrintProps = {
   reelCode: string
   qrValue?: string
@@ -60,7 +62,8 @@ export function ReelLabelPrint({
           </dl>
         </div>
         <div className="flex items-center justify-center border border-border p-2">
-          <QRCodeSVG value={qrValue || reelCode} size={128} level="M" includeMargin />
+          {/* The QR is a link the phone camera opens (/scan); the code text above stays for people. */}
+          <QRCodeSVG value={buildScanUrl(qrValue || reelCode)} size={128} level="M" includeMargin />
         </div>
       </div>
     </section>

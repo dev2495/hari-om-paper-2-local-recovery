@@ -922,6 +922,37 @@ const guides: GuideContent[] = [
   }
 ,
 
+  {
+    id: "scan",
+    route: "/scan",
+    title: "QR Scan Guide",
+    eyebrow: "One scan, the right page for your role",
+    summary: "Every new job card and label QR is a link. The phone's own Camera app (iPhone too) opens it; after sign-in you land on the page your role works on for that card, lot or tool.",
+    flowTitle: "What a scan opens",
+    steps: [
+      { label: "Job card", detail: "Opens the card's floor entry: Log output and Log QC." },
+      { label: "Lot waiting for QC", detail: "QC, inward QC, store and the plant head land on incoming QC for that lot." },
+      { label: "Cleared reel or coil", detail: "Store and raw-material issue staff land on Reel & coil issue with the reel already picked." },
+      { label: "Cleared adhesive, parchment or packing lot", detail: "Store and raw-material issue staff land on Material issue with the lot already picked." },
+      { label: "Everyone else", detail: "Sees the lot card: item, plant, status in words, quantity left, received date, inward number, last QC and the next step." },
+    ],
+    fieldRules: [
+      "Signed out or idle for 15 minutes: sign in and the same page opens.",
+      "A label from another plant switches to that plant when your login has it, and says so; otherwise the page tells you the plant your login cannot open.",
+      "In-app scan boxes and handheld scanners read new links and older labels alike.",
+      "Labels printed before this change still work inside the app; reprint them for the phone camera.",
+    ],
+    primaryActions: [
+      "Point the phone camera at the QR and tap the link.",
+      "If the label cannot be read, type the AT, lot or card number into the box on this page.",
+    ],
+    controlChecks: [
+      "The issue desks still refuse lots that are not cleared by incoming QC.",
+      "Each page keeps its own role check; a scan never opens a page your role cannot use.",
+    ],
+    outputs: ["The right page for the scanned card, lot or tool"],
+    relatedRoutes: ["/production/entry", "/inventory/reels/issue", "/inventory/production-issue", "/quality/incoming"],
+  },
 ]
 
 const routeGuideMap: Array<{ pattern: RegExp; guideId: string }> = [
@@ -933,6 +964,7 @@ const routeGuideMap: Array<{ pattern: RegExp; guideId: string }> = [
   { pattern: /^\/control-tower(?:\/.*)?$/, guideId: "dashboard" },
   { pattern: /^\/landing(?:\/.*)?$/, guideId: "dashboard" },
   { pattern: /^\/help(?:\/.*)?$/, guideId: "dashboard" },
+  { pattern: /^\/scan(?:\/.*)?$/, guideId: "scan" },
   { pattern: /^\/sales-orders(?:\/.*)?$/, guideId: "sales" },
   { pattern: /^\/(?:specs|specifications)(?:\/.*)?$/, guideId: "specifications" },
   { pattern: /^\/purchase\/scheduler(?:\/.*)?$/, guideId: "purchase-scheduler" },

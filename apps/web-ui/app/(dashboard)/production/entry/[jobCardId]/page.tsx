@@ -34,7 +34,7 @@ function MobileEntry() {
         <p className="text-[12px] font-semibold text-signal-rose-ink">Access denied</p>
         <h1 className="mt-2 text-xl font-semibold">This account cannot open floor entry.</h1>
         <p className="mt-2 text-sm text-muted-foreground">Operator, plant-manager, QC, planner, owner or admin access is required for QR entry.</p>
-        <Link href="/dashboard" className="erp-btn-secondary mt-4 !h-9">
+        <Link href="/dashboard" className="erp-btn-secondary mt-4 !h-11">
           Back to dashboard
         </Link>
       </div>

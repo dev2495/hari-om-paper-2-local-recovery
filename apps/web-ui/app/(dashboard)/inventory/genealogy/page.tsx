@@ -35,6 +35,16 @@ import {
   useReelScans,
 } from "@/hooks/use-inventory"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
+import { parseScanCode } from "@/lib/scan-code"
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** Reel id in a scanned label, its /scan link, or a bare id (?reel=<id> from /scan). */
+function reelIdOf(value: string) {
+  const parsed = parseScanCode(value)
+  if (parsed.kind === "REEL" && UUID.test(parsed.id)) return parsed.id
+  return parsed.kind === "CODE" && UUID.test(parsed.code) ? parsed.code : ""
+}
 
 function asArray(value: any) {
   if (Array.isArray(value)) return value
@@ -76,6 +86,7 @@ function metadataText(value: any) {
 export default function InventoryGenealogyPage() {
   const searchParams = useSearchParams()
   const urlJobCardId = searchParams.get("job_card_id") || ""
+  const urlReelId = reelIdOf(searchParams.get("reel") || "")
   const [jobSearch, setJobSearch] = useState("")
   const [selectedJobCardId, setSelectedJobCardId] = useState("")
   const [search, setSearch] = useState("")
@@ -85,7 +96,11 @@ export default function InventoryGenealogyPage() {
 
   const jobCardsQuery = usePlanningJobCards({ limit: 120 }, true)
   const genealogyQuery = useJobCardGenealogy(selectedJobCardId)
-  const reelsQuery = useReels({ search: deferredSearch || undefined, limit: 101 })
+  // A scanned label (or ?reel=) finds that one reel by id; typed text searches reel codes.
+  const scannedSearch = parseScanCode(deferredSearch)
+  const reelFilterId = deferredSearch ? reelIdOf(deferredSearch) : urlReelId
+  const reelSearch = scannedSearch.kind === "REEL" || scannedSearch.kind === "BATCH" ? scannedSearch.code : deferredSearch
+  const reelsQuery = useReels(reelFilterId ? { reel_ids: reelFilterId, limit: 101 } : { search: reelSearch || undefined, limit: 101 })
   const issuesQuery = useReelIssues(
     selectedReelId ? { reel_id: selectedReelId, limit: 120 } : { limit: 20 },
     Boolean(selectedReelId),
@@ -140,16 +155,29 @@ export default function InventoryGenealogyPage() {
   }, [selectedJobCardId, urlJobCardId])
 
   useEffect(() => {
-    if (!urlJobCardId && !selectedJobCardId && jobCards.length > 0) {
+    // A scanned reel (?reel=) is traced on its own; picking the newest job card beside it would mislead.
+    if (!urlJobCardId && !urlReelId && !selectedJobCardId && jobCards.length > 0) {
       setSelectedJobCardId(String(jobCards[0].id))
     }
-  }, [jobCards, selectedJobCardId, urlJobCardId])
+  }, [jobCards, selectedJobCardId, urlJobCardId, urlReelId])
 
   useEffect(() => {
     if (!selectedReelId && reels.length > 0) {
       setSelectedReelId(String(reels[0].id))
     }
   }, [reels, selectedReelId])
+
+  useEffect(() => {
+    if (reelFilterId && reels.some((row: any) => String(row.id) === reelFilterId)) setSelectedReelId(reelFilterId)
+  }, [reelFilterId, reels])
+
+  // A scanned reel opens at its trace, once the job card list above it has loaded and taken its height.
+  const [reelShown, setReelShown] = useState(false)
+  useEffect(() => {
+    if (reelShown || !urlReelId || selectedReelId !== urlReelId || jobCardsQuery.isLoading) return
+    setReelShown(true)
+    window.setTimeout(() => document.getElementById("reel-trace")?.scrollIntoView({ block: "start" }), 150)
+  }, [reelShown, selectedReelId, urlReelId, jobCardsQuery.isLoading])
 
   const childScanCount = scans.filter((event: any) => String(event.event_type || "").toUpperCase() === "SLIT_SCAN").length
   const issuedKg = linkedIssues.reduce((sum: number, issue: any) => sum + Number(issue.issued_weight_kg || 0), 0)
@@ -418,6 +446,8 @@ export default function InventoryGenealogyPage() {
       </Panel>
 
       <Panel
+        id="reel-trace"
+        className="scroll-mt-24"
         title="Reel selector"
         subtitle="Search is backend bounded. Large reel histories load as pages/windows instead of flooding the browser."
         actions={
@@ -426,7 +456,7 @@ export default function InventoryGenealogyPage() {
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search reel code..."
+              placeholder="Scan the label or search reel code..."
               className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
             />
           </div>

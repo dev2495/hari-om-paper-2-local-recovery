@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { CalendarRange, ClipboardPen, Scissors, LockKeyhole, AlertTriangle, BarChart3, Boxes, CheckCircle2, Inbox, TrendingUp, Users, Wrench, ChevronRight, ClipboardList, Factory, FileText, Gauge, Info, Layers, LineChart, LogOut, Menu, Package, PanelLeftClose, PanelLeftOpen, BookOpen, ScrollText, Search, ShieldCheck, Sparkles, Truck, X, CircleDot, CornerDownLeft, Undo2, CalendarCheck2 } from "lucide-react"
-import { Suspense, useEffect, useMemo, useState } from "react"
+import { Suspense, useEffect, useMemo, useRef, useState } from "react"
 import { PlantSwitcher } from "@/components/PlantSwitcher"
 import { BooksLockedChip } from "@/components/workspace/books-locked-chip"
 import { SeasonChip } from "@/components/workspace/SeasonChip"
@@ -297,6 +297,10 @@ function canSeeLink(item: NavLink, roles: Set<string>) {
   return item.roles.some(role => roles.has(role))
 }
 
+// production-service serves the job-card counts (overdue cards, QC holds) to these roles only; asking for
+// anyone else (QC, Operator) only fails with 403 on every page, so their badge simply does not show.
+const JOB_CARD_AGGREGATE_ROLES = ["Owner", "Admin", "PlantManager", "Planner", "Store", "Sales", "Dispatch"]
+
 function EntryModeWatcher({ onChange }: { onChange: (mode: string | null) => void }) {
   const params = useSearchParams()
   const mode = params?.get("mode") || null
@@ -327,7 +331,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const visibleHrefs = useMemo(() => new Set(flatLinks.map(link => link.href)), [flatLinks])
   const inboxSummary = useNotificationSummary(Boolean(user))
   const salesBadge = useSalesOrderAggregates(Boolean(user) && visibleHrefs.has("/sales-orders"))
-  const jobsBadge = useJobCardAggregates(Boolean(user) && (visibleHrefs.has("/production/job-cards") || visibleHrefs.has("/quality")))
+  const jobsBadge = useJobCardAggregates(Boolean(user) && JOB_CARD_AGGREGATE_ROLES.some(role => userRoles.has(role)) && (visibleHrefs.has("/production/job-cards") || visibleHrefs.has("/quality")))
   const navBadges = useMemo(() => ({
     "/inbox": inboxSummary.data?.unread ? { count: Number(inboxSummary.data.unread), tone: inboxSummary.data.by_priority?.critical ? "rose" as const : "primary" as const } : undefined,
     "/sales-orders": salesBadge.data?.draft_count ? { count: Number(salesBadge.data.draft_count), tone: "amber" as const } : undefined,
@@ -379,13 +383,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
   }, [])
-  useEffect(() => { if (!isLoading && !user) router.replace("/login?reason=session") }, [isLoading, user, router])
+  // Signed out on a deep link (a scanned job card or label, an idle phone): login comes back to the
+  // same page and query (client 2026-10-27). A deliberate Logout goes to a plain login page.
+  const signingOut = useRef(false)
+  useEffect(() => {
+    if (isLoading || user) return
+    if (signingOut.current) { router.replace("/login"); return }
+    router.replace(`/login?reason=session&next=${encodeURIComponent(window.location.pathname + window.location.search)}`)
+  }, [isLoading, user, router])
   useEffect(() => { setMobileNavOpen(false); setSearchOpen(false) }, [pathname])
   const toggleSidebar = () => {
     setSidebarPinned(!sidebarPinned)
     try { localStorage.setItem(SIDEBAR_STORAGE_KEY, String(!sidebarPinned)) } catch { /* Session-only layout. */ }
   }
-  const signOut = async () => { await logout(); router.push("/login") }
+  const signOut = async () => { signingOut.current = true; await logout(); router.push("/login") }
   const navigate = (href: string) => { setSearchOpen(false); setSearchQuery(""); setMobileNavOpen(false); router.push(href) }
   const initials = (user?.name || "Hari Om").split(/\s+/).slice(0,2).map(word => word[0]).join("")
   const isGroupOpen = (title: string, mobile: boolean) => (mobile || !sidebarPinned) ? true : openGroups.has(title) || title === groupName

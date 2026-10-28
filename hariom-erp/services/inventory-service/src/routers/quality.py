@@ -674,7 +674,8 @@ def _incoming_deadline(created_at):
 def list_pending_quality(
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "Store", "Production", "InwardQC"])),
+    # RMIssue reads only, so the issue desk can say why a reel is held (failed or rejected, not just waiting).
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "Store", "Production", "InwardQC", "RMIssue"])),
 ):
     plant_filter = authorized_plant_ids(plant_scope)
     rows: list[PendingQualityItem] = []

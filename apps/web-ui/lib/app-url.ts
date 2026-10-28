@@ -25,3 +25,8 @@ export function buildProductionEntryUrl(jobCardId?: string | null) {
   const encodedId = encodeURIComponent(String(jobCardId || ""))
   return `${baseUrl}/production/entry/${encodedId}`
 }
+
+/** Link printed in a material-lot or tool QR: the phone camera opens /scan, which routes by role. */
+export function buildScanUrl(qrValue?: string | null) {
+  return `${resolveAppBaseUrl()}/scan?c=${encodeURIComponent(String(qrValue || ""))}`
+}

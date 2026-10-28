@@ -37,6 +37,7 @@ import {
   useReturnRejectedLotToSupplier,
 } from "@/hooks/use-inventory"
 import { applicableRules, groupIncomingQueue, lotItemName, lotKey, lotName, materialLabel, type IncomingQueueGroup } from "@/lib/incoming-qc"
+import { parseScanCode } from "@/lib/scan-code"
 import { cn } from "@/lib/utils"
 
 const asArray = (value: any) => (Array.isArray(value) ? value : [])
@@ -58,6 +59,11 @@ function errorText(error: any, fallback: string) {
   if (detail?.message) return detail.message
   return error?.message || fallback
 }
+
+const RECENT_WORD: Record<string, string> = { PASS: "Passed", FAIL: "Failed", INVALID: "Readings not valid", INCOMPLETE: "Readings incomplete", SKIPPED: "Skipped" }
+const humanize = (value: any) => String(value || "").replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase())
+/** A failed check is saved as an object; show what it says, never "[object Object]". */
+const failureText = (failure: any) => typeof failure === "string" ? failure : String(failure?.message || failure?.label || failure?.detail || failure?.code || "Check failed")
 
 function when(value?: string | null) {
   if (!value) return "—"
@@ -143,19 +149,37 @@ export default function IncomingQualityPage() {
   }, [inward])
   const overdue = inward.filter((row: any) => queueOf(row) === "AWAITING_INSPECTION" && row.overdue).length
   const materials = useMemo(() => Array.from(new Set(inward.map((row: any) => String(row.material_type || "OTHER")))).sort(), [inward])
-  const query = search.trim().toLowerCase()
-  const visible = inward.filter((row: any) => {
-    if (queueOf(row) !== tab) return false
-    if (material !== "ALL" && String(row.material_type || "OTHER") !== material) return false
+  // A scanned label (QR text or its /scan link) is matched by the lot's id; typed text by number, supplier, PO…
+  const scanned = parseScanCode(search)
+  const scannedLot = (scanned.kind === "REEL" || scanned.kind === "BATCH") && scanned.id ? `${scanned.kind}:${scanned.id.toLowerCase()}` : ""
+  const query = (scanned.kind === "REEL" || scanned.kind === "BATCH" ? scanned.code : search).trim().toLowerCase()
+  const matchesSearch = (row: any) => {
+    if (scannedLot) return `${String(row.entity_type || "").toUpperCase()}:${String(row.entity_id || "").toLowerCase()}` === scannedLot
     if (!query) return true
     return [row.label, row.grn_no, row.supplier_or_customer, row.unit_ref, row.po_no, row.invoice_no, row.challan_no].some((value) => String(value || "").toLowerCase().includes(query))
-  })
+  }
+  const inMaterial = (row: any) => material === "ALL" || String(row.material_type || "OTHER") === material
+  const visible = inward.filter((row: any) => queueOf(row) === tab && inMaterial(row) && matchesSearch(row))
   const groups = useMemo(() => groupIncomingQueue(visible), [visible])
 
   function openGroup(group: IncomingQueueGroup) {
     setSelection({ key: group.key, lots: group.lots })
     setResolveKey("")
   }
+
+  // Search looks in every list: when the lot sits in another one (say Failed), show that list, and open a scanned lot.
+  useEffect(() => {
+    if (!scannedLot && !query) return
+    const hits = inward.filter(matchesSearch)
+    if (!hits.length) return
+    if (!scannedLot && hits.some((row: any) => queueOf(row) === tab && inMaterial(row))) return
+    const row = hits[0]
+    setTab(queueOf(row))
+    if (!inMaterial(row)) setMaterial("ALL")
+    if (!scannedLot) return
+    const group = groupIncomingQueue(inward.filter((item: any) => queueOf(item) === queueOf(row))).find((item) => item.lots.some((lot) => lotKey(lot) === lotKey(row)))
+    if (group) openGroup(group)
+  }, [search, inward.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // A link such as /quality/incoming?lot=REEL:<id> (from the issue desk) opens that lot's inward line.
   useEffect(() => {
@@ -274,7 +298,7 @@ export default function IncomingQualityPage() {
               </div>
               <label className="relative block">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search reel, inward no., supplier, PO…" aria-label="Search queue" className="h-9 w-full rounded-lg border border-input bg-card pl-9 pr-3 text-[13px]" />
+                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Scan the label, or search reel, inward no., supplier, PO…" aria-label="Search queue" className="h-9 w-full rounded-lg border border-input bg-card pl-9 pr-3 text-[13px]" />
               </label>
               {materials.length > 1 ? (
                 <div className="flex flex-wrap gap-1.5">
@@ -515,7 +539,7 @@ export default function IncomingQualityPage() {
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-[13px] font-semibold">{row.entity_label || `${row.entity_type} ${String(row.entity_id).slice(0, 8)}`}</p>
                             <p className="truncate text-[11.5px] text-muted-foreground">
-                              {row.status}{row.disposition ? ` · ${row.disposition}` : ""}{row.failures?.length ? ` · ${row.failures.join(", ")}` : ""} · {row.created_by || "—"}
+                              {RECENT_WORD[String(row.status).toUpperCase()] || row.status}{row.disposition ? ` · ${humanize(row.disposition)}` : ""}{row.failures?.length ? ` · ${row.failures.map(failureText).join(", ")}` : ""} · {row.created_by || "—"}
                             </p>
                           </div>
                           <span className="shrink-0 text-[11.5px] tabular-nums text-muted-foreground">{when(row.created_at)}</span>

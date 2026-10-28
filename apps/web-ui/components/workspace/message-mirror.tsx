@@ -22,7 +22,10 @@ export function MessageMirror() {
       if (!el || el.closest(".tube-toast") || el.closest("[data-no-mirror]")) return
       if (!(el instanceof HTMLElement) || !el.getClientRects().length || el.classList.contains("sr-only")) return
       const role = el.getAttribute("role")
-      const text = (el.innerText || el.textContent || "").replace(/\s+/g, " ").replace(/\bRetry\b/g, "").trim()
+      // Parts marked data-no-mirror (an action button under the message) stay on the page only.
+      let raw = el.innerText || el.textContent || ""
+      el.querySelectorAll<HTMLElement>("[data-no-mirror]").forEach((part) => { if (part.innerText) raw = raw.replace(part.innerText, " ") })
+      const text = raw.replace(/\s+/g, " ").replace(/\bRetry\b/g, "").trim()
       if (text.length < 4 || /^loading\b/i.test(text) || /…$/.test(text)) return
       const error = role === "alert"
       if (!error && Date.now() - lastInteraction > 8000) return

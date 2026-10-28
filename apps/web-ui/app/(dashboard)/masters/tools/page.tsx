@@ -1,8 +1,9 @@
 "use client"
 
 import { MastersNav } from "@/components/master/masters-nav"
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react"
+import { FormEvent, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import { Activity, AlertTriangle, ClipboardList, Eye, MapPin, Plus, Printer, Recycle, ScanLine, Search, PackagePlus } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 
@@ -47,6 +48,8 @@ import {
 } from "@/hooks/use-inventory"
 import { usePlanningJobCards } from "@/hooks/use-production"
 import { TOOL_CATEGORY_LABELS, formatToolMasterSpecText } from "@/lib/spec-sheet"
+import { buildScanUrl } from "@/lib/app-url"
+import { parseScanCode } from "@/lib/scan-code"
 
 const CATEGORY_LABELS = TOOL_CATEGORY_LABELS
 const CATEGORY_ORDER = Object.keys(TOOL_CATEGORY_LABELS)
@@ -71,6 +74,19 @@ function formatDate(value: any) {
   return date.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })
 }
 
+/** A scanned or pasted tool label (/scan link, hariom://tool/<no> or the bare asset number) searches by asset number. */
+function toolSearchText(value: string) {
+  const parsed = parseScanCode(value)
+  return parsed.kind === "TOOL" ? parsed.code : value.trim()
+}
+
+/** The tool label's QR (hariom://tool/<no>) opened from /scan lands here as ?asset=<no>. */
+function AssetFromLink({ onAsset }: { onAsset: (assetNo: string) => void }) {
+  const asset = useSearchParams()?.get("asset") || ""
+  useEffect(() => { if (asset) onAsset(asset) }, [asset, onAsset])
+  return null
+}
+
 function toolDetailText(row: any) {
   const formatted = formatToolMasterSpecText(row?.category, row?.spec_text)
   return [formatted].map((value) => String(value || "").trim()).filter(Boolean).join(" · ") || "-"
@@ -91,7 +107,9 @@ export default function ToolsPage() {
   const [isScanOpen, setIsScanOpen] = useState(false)
   const [selectedAssetId, setSelectedAssetId] = useState("")
   const [scanError, setScanError] = useState("")
-  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const [linkedAsset, setLinkedAsset] = useState("")
+  // The scan dialog mounts its <video> after it opens, so it arrives through a callback ref (a plain ref read too early stopped the camera).
+  const [scanVideo, setScanVideo] = useState<HTMLVideoElement | null>(null)
   const scanStreamRef = useRef<MediaStream | null>(null)
   const writeBlocked = activePlant === "ALL"
 
@@ -99,7 +117,8 @@ export default function ToolsPage() {
   const { data: logs = [] } = useToolLogs({ limit: 30 })
   const { data: options = [] } = useToolOptions({ include_inactive: true })
   const { data: locations = [] } = useInventoryLocations()
-  const { data: assets = [] } = useToolAssets({ search: assetSearch.trim() || undefined })
+  const assetsQuery = useToolAssets({ search: toolSearchText(assetSearch) || undefined })
+  const assets = useMemo(() => (Array.isArray(assetsQuery.data) ? assetsQuery.data : []), [assetsQuery.data])
   const selectedAssetQuery = useToolAsset(selectedAssetId)
   const jobCardsQuery = usePlanningJobCards({ limit: 200 })
   const { data: assetReport = { summary: {} } } = useToolAssetReport()
@@ -119,6 +138,14 @@ export default function ToolsPage() {
   const maintenanceCompleteMutation = useCompleteToolMaintenance()
   const scrapMutation = useScrapToolAsset()
   const jobCards = Array.isArray(jobCardsQuery.data) ? jobCardsQuery.data : []
+  const openLinkedAsset = useCallback((assetNo: string) => { setAssetSearch(assetNo); setLinkedAsset(assetNo.toUpperCase()) }, [])
+  // A scanned tool label opens that tool's details and label once the ledger search finds it.
+  const linkedMissing = Boolean(linkedAsset) && assetsQuery.isSuccess && toolSearchText(assetSearch).toUpperCase() === linkedAsset && !(assets as any[]).some((asset) => String(asset.asset_no || "").toUpperCase() === linkedAsset)
+  useEffect(() => {
+    if (!linkedAsset || !assetsQuery.isSuccess) return
+    const match = (assets as any[]).find((asset) => String(asset.asset_no || "").toUpperCase() === linkedAsset)
+    if (match) { setSelectedAssetId(String(match.id)); setLinkedAsset("") }
+  }, [assets, assetsQuery.isSuccess, linkedAsset])
 
   const canonicalData = useMemo(
     () => (data as any[]).filter((row) => CATEGORY_ORDER.includes(String(row?.category || "").toUpperCase())),
@@ -238,14 +265,14 @@ export default function ToolsPage() {
   }
 
   useEffect(() => {
-    if (!isScanOpen) return
+    if (!isScanOpen || !scanVideo) return
     let cancelled = false
-    const video = videoRef.current
+    const video = scanVideo
     const startScan = async () => {
       setScanError("")
       const BarcodeDetectorCtor = (window as any).BarcodeDetector
       if (!BarcodeDetectorCtor) {
-        setScanError("Camera QR scanning is not available in this browser. Type or paste the QR value in the search box.")
+        setScanError("This phone's browser cannot read QR codes here. Open the phone's Camera app and point it at the label — it opens the right page. Or type or paste the code into the search box.")
         return
       }
       if (!navigator.mediaDevices?.getUserMedia) {
@@ -259,10 +286,6 @@ export default function ToolsPage() {
           return
         }
         scanStreamRef.current = stream
-        if (!video) {
-          stream.getTracks().forEach((track) => track.stop())
-          return
-        }
         video.srcObject = stream
         await video.play()
         const detector = new BarcodeDetectorCtor({ formats: ["qr_code"] })
@@ -272,7 +295,7 @@ export default function ToolsPage() {
             const detected = await detector.detect(video)
             const value = String(detected?.[0]?.rawValue || "").trim()
             if (value) {
-              setAssetSearch(value)
+              setAssetSearch(toolSearchText(value))
               setIsScanOpen(false)
               return
             }
@@ -283,6 +306,7 @@ export default function ToolsPage() {
         }
         window.requestAnimationFrame(poll)
       } catch (error: any) {
+        if (cancelled) return
         setScanError(error?.message || "Camera permission was not granted. Type or paste the QR value in the search box.")
       }
     }
@@ -291,21 +315,24 @@ export default function ToolsPage() {
       cancelled = true
       scanStreamRef.current?.getTracks().forEach((track) => track.stop())
       scanStreamRef.current = null
-      if (video) video.srcObject = null
+      video.srcObject = null
     }
-  }, [isScanOpen])
+  }, [isScanOpen, scanVideo])
 
   const printAssetLabel = (asset: any) => {
+    // Names and places are typed by people; never let them become markup in the print window.
+    const html = (value: unknown) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string)
     const svg = document.querySelector("[data-tool-label-qr] svg")?.outerHTML || ""
     const popup = window.open("", "_blank", "width=520,height=620")
     if (!popup) return
-    popup.document.write(`<!doctype html><html><head><title>${asset.asset_no}</title><style>body{font-family:Arial,sans-serif;margin:0;padding:24px;color:#0f172a}.label{width:320px;border:2px solid #0f172a;padding:20px;text-align:center}.asset{font-size:24px;font-weight:700;margin:12px 0 4px}.meta{font-size:13px;margin:5px 0;color:#334155}.qr{display:flex;justify-content:center;margin:16px 0}@media print{body{padding:0}.label{page-break-inside:avoid}}</style></head><body><div class="label"><div class="meta">HARI OM PAPER PRODUCTS</div><div class="asset">${asset.asset_no}</div><div class="meta">${asset.definition_name}</div><div class="meta">${CATEGORY_LABELS[asset.category] || asset.category} · ${asset.location_label || "Unlocated"}</div><div class="qr">${svg}</div><div class="meta">${asset.qr_value}</div></div><script>window.onload=()=>window.print()</script></body></html>`)
+    popup.document.write(`<!doctype html><html><head><title>${html(asset.asset_no)}</title><style>body{font-family:Arial,sans-serif;margin:0;padding:24px;color:#0f172a}.label{width:320px;border:2px solid #0f172a;padding:20px;text-align:center}.asset{font-size:24px;font-weight:700;margin:12px 0 4px}.meta{font-size:13px;margin:5px 0;color:#334155}.qr{display:flex;justify-content:center;margin:16px 0}@media print{body{padding:0}.label{page-break-inside:avoid}}</style></head><body><div class="label"><div class="meta">HARI OM PAPER PRODUCTS</div><div class="asset">${html(asset.asset_no)}</div><div class="meta">${html(asset.definition_name)}</div><div class="meta">${html(CATEGORY_LABELS[asset.category] || asset.category)} · ${html(asset.location_label || "Unlocated")}</div><div class="qr">${svg}</div></div><script>window.onload=()=>window.print()</script></body></html>`)
     popup.document.close()
   }
 
   return (
     <div className="min-w-0 space-y-4 pb-10">
       <MastersNav />
+      <Suspense fallback={null}><AssetFromLink onAsset={openLinkedAsset} /></Suspense>
       <section className="overflow-hidden rounded-xl border border-border bg-card">
         <div className="grid gap-4 px-4 py-4 sm:px-5 lg:grid-cols-[minmax(0,1.4fr)_360px]">
           <div>
@@ -514,7 +541,7 @@ export default function ToolsPage() {
           <div className="flex flex-wrap items-center gap-3">
             <label className="relative flex-1 sm:flex-none">
               <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input value={assetSearch} onChange={(event) => setAssetSearch(event.target.value)} placeholder="Search QR / asset no." className="h-9 w-64 pl-9" />
+              <Input value={assetSearch} onChange={(event) => { setAssetSearch(event.target.value); setLinkedAsset("") }} placeholder="Search QR / asset no." className="h-9 w-64 pl-9" />
             </label>
             <Button type="button" variant="outline" size="sm" onClick={() => setIsScanOpen(true)} title="Scan a physical tool QR code">
               <ScanLine className="mr-1.5 h-4 w-4" /> Scan QR
@@ -522,6 +549,7 @@ export default function ToolsPage() {
             <Link href="/reports/tooling" className="text-sm font-semibold text-signal-cyan-ink hover:underline">Open tooling report</Link>
           </div>
         </div>
+        {linkedMissing ? <p role="status" className="mt-3 rounded-xl border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-sm text-signal-amber-ink"><AlertTriangle className="mr-1.5 inline h-4 w-4 align-[-3px]" aria-hidden="true" />No tool {linkedAsset} in this plant. Check the plant at the top, or the number on the label.</p> : null}
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[920px] text-sm">
             <thead><tr className="border-b border-border text-left text-[12px] font-semibold text-muted-foreground"><th className="py-2 pr-3">Asset / QR</th><th className="py-2 pr-3">Definition</th><th className="py-2 pr-3">Status</th><th className="py-2 pr-3">Location</th><th className="py-2 pr-3">Grinding</th><th className="py-2 pr-3">Produced</th><th className="py-2">Action</th></tr></thead>
@@ -569,9 +597,9 @@ export default function ToolsPage() {
         <DialogContent className="max-w-3xl">
           <DialogHeader><DialogTitle>Physical tool trace</DialogTitle><DialogDescription>Print the permanent QR label and review every inward, movement, issue, use, return, grinding, maintenance, and scrap event.</DialogDescription></DialogHeader>
           {selectedAssetQuery.isLoading ? <p className="py-8 text-sm text-muted-foreground">Loading tool history...</p> : selectedAssetQuery.data?.asset ? <div className="grid gap-5 md:grid-cols-[260px_minmax(0,1fr)]">
-            <div className="rounded-xl border border-border p-4 text-center" data-tool-label-qr><p className="text-[12px] font-semibold text-muted-foreground">Physical tool</p><p className="mt-2 text-xl font-bold text-foreground">{selectedAssetQuery.data.asset.asset_no}</p><p className="mt-1 text-sm text-muted-foreground">{selectedAssetQuery.data.asset.definition_name}</p><div className="my-4 flex justify-center"><QRCodeSVG value={selectedAssetQuery.data.asset.qr_value} size={164} level="M" /></div><p className="break-all text-[11px] text-muted-foreground">{selectedAssetQuery.data.asset.qr_value}</p><Button className="mt-4 w-full" type="button" onClick={() => printAssetLabel(selectedAssetQuery.data.asset)}><Printer className="mr-2 h-4 w-4" />Print QR label</Button></div>
+            <div className="rounded-xl border border-border p-4 text-center" data-tool-label-qr><p className="text-[12px] font-semibold text-muted-foreground">Physical tool</p><p className="mt-2 text-xl font-bold text-foreground">{selectedAssetQuery.data.asset.asset_no}</p><p className="mt-1 text-sm text-muted-foreground">{selectedAssetQuery.data.asset.definition_name}</p><div className="my-4 flex justify-center"><QRCodeSVG value={buildScanUrl(selectedAssetQuery.data.asset.qr_value || `hariom://tool/${selectedAssetQuery.data.asset.asset_no}`)} size={164} level="M" /></div><Button className="mt-4 w-full" type="button" onClick={() => printAssetLabel(selectedAssetQuery.data.asset)}><Printer className="mr-2 h-4 w-4" />Print QR label</Button></div>
             <div className="max-h-[460px] overflow-y-auto pr-1"><div className="mb-3 grid grid-cols-2 gap-2 text-sm"><div className="rounded-lg bg-muted p-3"><p className="text-xs text-muted-foreground">Status</p><p className="font-semibold">{selectedAssetQuery.data.asset.status}</p></div><div className="rounded-lg bg-muted p-3"><p className="text-xs text-muted-foreground">Location</p><p className="font-semibold">{selectedAssetQuery.data.asset.location_label || "-"}</p></div></div><div className="space-y-2">{(selectedAssetQuery.data.events || []).map((event: any) => <div key={event.id} className="rounded-lg border border-border px-3 py-2"><div className="flex justify-between gap-3"><p className="text-sm font-semibold text-foreground">{event.event_type}</p><p className="text-xs text-muted-foreground">{formatDate(event.event_at)}</p></div><p className="mt-1 text-xs text-muted-foreground">{[event.job_card_id, event.stage_type, event.grind_version !== null ? `V${event.grind_version}` : "", event.actor].filter(Boolean).join(" · ") || "System lifecycle event"}</p>{event.good_qty || event.scrap_qty ? <p className="mt-1 text-xs text-muted-foreground">Good {Number(event.good_qty || 0).toLocaleString("en-IN")} · Scrap {Number(event.scrap_qty || 0).toLocaleString("en-IN")}</p> : null}</div>)}</div></div>
-          </div> : <p className="py-8 text-sm text-signal-rose-ink">Tool details could not be loaded.</p>}
+          </div> : writeBlocked ? <p role="status" className="py-8 text-sm text-muted-foreground">A tool&apos;s history and label open for one plant at a time. Pick the tool&apos;s plant at the top.</p> : <p className="py-8 text-sm text-signal-rose-ink">Tool details could not be loaded.</p>}
         </DialogContent>
       </Dialog>
 
@@ -582,7 +610,7 @@ export default function ToolsPage() {
             <DialogDescription>Point the camera at the label. The matching asset will be loaded into the ledger search.</DialogDescription>
           </DialogHeader>
           <div className="overflow-hidden rounded-2xl border border-border bg-foreground">
-            <video ref={videoRef} muted playsInline className="aspect-square w-full object-cover" />
+            <video ref={setScanVideo} muted playsInline className="aspect-square w-full object-cover" />
           </div>
           {scanError ? <p className="rounded-xl border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-sm text-signal-amber-ink">{scanError}</p> : null}
           <p className="text-xs leading-5 text-muted-foreground">You can also close this window and paste the QR value into the search field. QR values are searchable even when the printed label is scanned from a different device.</p>
