@@ -53,7 +53,10 @@ test("core operational routes wrap RoleGate", () => {
   assert.match(files.landingOwner, /allow=\{\["Owner"\]\}/)
   assert.match(files.audit, /role-gate-denied|RoleGate/)
   assert.match(read("components/workspace/role-gate.tsx"), /data-testid="role-gate-denied"/)
-  assert.match(read("components/workspace/role-gate.tsx"), /Your role doesn't include this view/)
+  // Plain words, each role once (client 2026-10-28): "This page is for the Owner, Admin and Plant Manager."
+  assert.match(read("components/workspace/role-gate.tsx"), /This page is for \$\{who\}\. Ask the Owner for access/)
+  assert.match(read("components/workspace/role-gate.tsx"), /rolesSentence\(/)
+  assert.doesNotMatch(read("components/workspace/role-gate.tsx"), /font-mono|Required roles/)
 })
 
 test("quality RoleGate was not regressed to PlantManager-only alias", () => {

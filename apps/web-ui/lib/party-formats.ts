@@ -144,9 +144,14 @@ export function vendorAddress(vendor?: VendorDetails | null) {
 
 /** Field → error for the vendor form; empty object when everything filled is well formed. */
 export function vendorFormErrors(form: Record<string, any>) {
+  // The PAN and the state print beside the GSTIN on the PO, so they must be the GSTIN's (the server refuses a mismatch too).
+  const tax = fromGstin(form.gst_no)
+  const pan = squeeze(form.pan_no)
+  const stateCode = String(form.state_code ?? "").trim()
   const checks: [string, string][] = [
     ["gst_no", gstinError(form.gst_no)],
-    ["pan_no", panError(form.pan_no)],
+    ["pan_no", panError(form.pan_no) || (tax.pan && pan && pan !== tax.pan ? `PAN ${pan} does not match the GSTIN, which carries PAN ${tax.pan}` : "")],
+    ["state_code", tax.stateCode && stateCode && stateCode !== tax.stateCode ? `The GSTIN is registered in ${tax.state} (${tax.stateCode}), not ${stateName(stateCode) || stateCode} (${stateCode})` : ""],
     ["pin_code", pinError(form.pin_code)],
     ["contact_phone", phoneError(form.contact_phone)],
     ["alt_phone", phoneError(form.alt_phone)],

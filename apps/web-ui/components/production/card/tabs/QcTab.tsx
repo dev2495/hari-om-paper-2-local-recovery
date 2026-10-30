@@ -40,7 +40,7 @@ export function QcTab({ card, flow, stages, entries, machineName, onLogQc }: { c
               <h3 className="text-[14px] font-semibold">{stageLabel(s.stage)} samples</h3>
               <span className="text-[12px] text-muted-foreground">{rows.length} reading row{rows.length === 1 ? "" : "s"} · green in band · amber flagged</span>
               {canQc && onLogQc && s.status !== "COMPLETED" ? (
-                <Button size="sm" className="ml-auto" onClick={() => onLogQc(null, s.stage)} data-testid={`qc-add-${s.stage.toLowerCase()}`}>
+                <Button size="sm" className="ml-auto min-h-11 sm:min-h-0" onClick={() => onLogQc(null, s.stage)} data-testid={`qc-add-${s.stage.toLowerCase()}`}>
                   <Plus className="h-3.5 w-3.5" /> Add QC
                 </Button>
               ) : null}
@@ -138,7 +138,7 @@ export function QcTab({ card, flow, stages, entries, machineName, onLogQc }: { c
                     {runDay(e)} · {shiftLabel(e.shift_code)} · {fmt(e.accepted)} good{qc.key === "short" ? ` · ${qc.label.replace("Needs more readings: ", "needs ")}` : ""}
                   </span>
                   {canQc && onLogQc ? (
-                    <Button size="sm" onClick={() => onLogQc(e, e.stage)} data-testid={`qc-waiting-${e.entry_no}`}>
+                    <Button size="sm" className="min-h-11 sm:min-h-0" onClick={() => onLogQc(e, e.stage)} data-testid={`qc-waiting-${e.entry_no}`}>
                       <CheckCircle2 className="h-3.5 w-3.5" /> Log QC
                     </Button>
                   ) : null}

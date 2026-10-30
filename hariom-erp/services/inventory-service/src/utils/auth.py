@@ -121,7 +121,9 @@ def _resolve_scope(
     if not requested:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User has no assigned plant context")
 
-    if not is_owner and token_plant_id and requested != token_plant_id:
+    # One plant-scope rule with production: a non-owner may use any plant listed in their token's allowed
+    # plants (a multi-plant plant head reads and counts each of them), never one outside it.
+    if not is_owner and (token_plant_id or allowed_plants) and requested != token_plant_id and requested not in allowed_plants:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cross-plant access is not permitted")
 
     if is_owner and allowed_plants and requested not in allowed_plants:
@@ -217,6 +219,24 @@ def require_actual_owner(current_user: dict = Depends(get_current_user)):
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only an actual Owner operating in the Owner role can change RM costing",
         )
+    return current_user
+
+
+def is_actual_owner(current_user: dict) -> bool:
+    """A login that really holds the Owner role and has it in effect now (same rule as PO approval).
+
+    Admin alone is not the Owner, and a role switch to another desk drops Owner from the effective
+    roles, so switching cannot make or keep an Owner."""
+    actual_roles = set(current_user.get("actual_roles") or current_user.get("roles") or [])
+    effective_roles = set(current_user.get("roles") or [])
+    return "Owner" in actual_roles and "Owner" in effective_roles
+
+
+def require_owner(current_user: dict = Depends(get_current_user)):
+    """Owner-only decisions (client 2026-10-28): approve a count or correction, close / re-open a
+    month, approve RM arrivals."""
+    if not is_actual_owner(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the Owner can do this.")
     return current_user
 
 

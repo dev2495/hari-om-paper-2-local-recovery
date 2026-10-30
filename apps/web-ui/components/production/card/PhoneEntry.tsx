@@ -21,7 +21,7 @@ import { useCardFlow, useCardMasters, useStageEntries } from "./data"
 import { FormStageTabs, type StageTab } from "./EntrySheet"
 import { CardEntrySheets, defaultOutputStage, defaultQcStage, type EntryPanel } from "./JobCardPage"
 import { RunRows } from "./RunList"
-import { cardFacts, currentFloorStage, fmt, isLoggable, previousStage, runNo, runQcState, stageLabel, stageParameters, toneClass, useCardRoles, visibleStages } from "./model"
+import { cardFacts, currentFloorStage, fmt, isLoggable, previousStage, runNo, runQcState, stageLabel, stageParameters, toneClass, useCardRoles, visibleStages, waitingRunsBadge, waitingRunsTitle } from "./model"
 
 export function PhoneEntry({ jobCardId, mode, stage: wantedStage, entryId }: { jobCardId: string; mode?: string | null; stage?: string | null; entryId?: string | null }) {
   const { canDraft, canQc, canSubmit } = useCardRoles()
@@ -96,7 +96,7 @@ export function PhoneEntry({ jobCardId, mode, stage: wantedStage, entryId }: { j
   }
   if (cardQuery.isError || plant.failed || !card) return <ErrorState title="This job card could not be opened" message="Check the connection and try again, or scan another card." onRetry={() => (plant.failed ? plant.retry() : void cardQuery.refetch())} />
 
-  const tabs: StageTab[] = stages.map((s: any) => ({ stage: s.stage, status: s.status, good: s.accepted_total, target: s.target, unit: s.unit, badge: s.draft_count ? `${s.draft_count} draft` : s.qc_flagged_runs ? `${s.qc_flagged_runs} flagged` : undefined }))
+  const tabs: StageTab[] = stages.map((s: any) => ({ stage: s.stage, status: s.status, good: s.accepted_total, target: s.target, unit: s.unit, badge: waitingRunsBadge(Number(s.draft_count || 0)) || (s.qc_flagged_runs ? `${s.qc_flagged_runs} flagged` : undefined), badgeTitle: waitingRunsTitle(Number(s.draft_count || 0)) }))
   const pct = state && Number(state.target) ? Math.min(100, (Number(state.accepted_total) / Number(state.target)) * 100) : 0
 
   return (
@@ -167,7 +167,7 @@ export function PhoneEntry({ jobCardId, mode, stage: wantedStage, entryId }: { j
               </div>
               <p className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[12px] text-muted-foreground">
                 {state.rejected_total ? <span className="text-signal-rose-ink">{fmt(state.rejected_total)} rejected</span> : null}
-                {state.draft_count ? <span className="text-signal-amber-ink">{state.draft_count} draft waiting</span> : null}
+                {state.draft_count ? <span className="text-signal-amber-ink" title={waitingRunsTitle(Number(state.draft_count))}>{waitingRunsBadge(Number(state.draft_count))}</span> : null}
                 {state.available_from_upstream != null && prev && state.status !== "COMPLETED" ? (
                   <span>
                     {fmt(state.available_from_upstream)} {state.input_unit} ready from {stageLabel(prev)}

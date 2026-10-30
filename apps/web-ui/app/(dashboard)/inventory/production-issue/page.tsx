@@ -2,21 +2,23 @@
 
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react"
+import { FormEvent, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { ArrowUpRight, Barcode, PackageCheck, Search } from "lucide-react"
+import { ArrowUpRight, Barcode, MapPin, PackageCheck, Search } from "lucide-react"
 
 import { QrScanner } from "@/components/common/qr-scanner"
 import { IssueDeskTabs } from "@/components/procurement/issue-desk-tabs"
 import { Field, MessageBar, ProcurementShell, WorkPanel, fieldClass, primaryButton, secondaryButton } from "@/components/procurement/procurement-shell"
 import { RoleGate } from "@/components/workspace/role-gate"
 import { useAuth } from "@/context/AuthContext"
-import { useCreateTransaction, useInventoryBalances, useInventoryItemBalance, useInventoryItems, useInventoryTransactions, useIssueParchmentByWeight, useReelIssues } from "@/hooks/use-inventory"
+import { useParchmentCoils } from "@/hooks/use-stock"
+import { useCreateTransaction, useInventoryBalances, useInventoryItemBalance, useInventoryItems, useInventoryLocations, useInventoryTransactions, useIssueParchmentByWeight, useReelIssues } from "@/hooks/use-inventory"
 import { usePlants } from "@/hooks/use-system"
 import { inventoryApi } from "@/lib/api"
 import { businessDate } from "@/lib/business-date"
 import { canonicalPlantScopeValue, displayPlantScope } from "@/lib/plant-scope"
 import { parseScanCode } from "@/lib/scan-code"
+import { pickFromText } from "@/lib/stock-format"
 import { cn } from "@/lib/utils"
 
 const SHIFTS = [{ value: "A", label: "Shift A" }, { value: "B", label: "Shift B" }, { value: "GENERAL", label: "General" }]
@@ -62,7 +64,7 @@ type Notice = { tone: "success" | "error" | "info"; text: string; action?: { lab
  * Units follow the item master (client 2026-10-26): parchment by colour and kg (no coil number),
  * plastic in kg, boxes in pieces. Stock on hand shows next to every material and lot.
  */
-export default function MaterialFloorIssuePage() {
+function MaterialFloorIssuePage() {
   const { user, activePlant, activeRole, setActivePlant } = useAuth()
   const queryClient = useQueryClient()
   const router = useRouter()
@@ -112,6 +114,14 @@ export default function MaterialFloorIssuePage() {
   const allBatches: any[] = useMemo(() => (Array.isArray(balance.data?.batches) ? balance.data.batches : []), [balance.data])
   const batches = useMemo(() => allBatches.filter((batch: any) => lotQty(batch) > 0 && USABLE.includes(String(batch.stock_status || "").toUpperCase())), [allBatches])
   const selectedBatch = batches.find((batch: any) => String(batch.batch_id) === form.batch_id)
+  // "Pick from <rack>" (client 2026-10-28): where the chosen lot, or the oldest lot issue takes first, sits.
+  const locationsQuery = useInventoryLocations()
+  const pickFrom = useMemo(() => {
+    const map = new Map((Array.isArray(locationsQuery.data) ? locationsQuery.data : []).map((row: any) => [String(row.id), row]))
+    // The rack's plain name, its label code in brackets (the same words as the reel desk); "No rack yet" when unplaced.
+    return (batch: any) => pickFromText(batch?.location_id ? map.get(String(batch.location_id)) : null)
+  }, [locationsQuery.data])
+  const pickBatch = selectedBatch || [...batches].sort((a: any, b: any) => String(a.created_at || "").localeCompare(String(b.created_at || "")))[0]
   const itemOnHand = selectedItem ? (parchment ? Number(onHand[String(selectedItem.id)] || 0) : batches.reduce((sum: number, batch: any) => sum + Number(batch.available_qty ?? batch.current_balance ?? 0), 0)) : 0
   const available = selectedBatch ? Number(selectedBatch.available_qty ?? selectedBatch.current_balance ?? 0) : itemOnHand
   const issuedToday = useMemo(() => {
@@ -246,6 +256,7 @@ export default function MaterialFloorIssuePage() {
     const parsed = parseScanCode(raw)
     if (!parsed.raw) return setNotice({ tone: "error", text: "Scan the lot label, or type its Amigo inward number." })
     if (parsed.kind === "JOB_CARD" || parsed.kind === "TOOL") return setNotice({ tone: "error", text: `That is a ${parsed.kind === "TOOL" ? "tool" : "job card"} label. Scan the material lot label.` })
+    if (parsed.kind === "LOCATION") return setNotice({ tone: "error", text: `That is a rack label (${parsed.code || "location"}). Scan the material lot label.`, action: { label: `See what is on ${parsed.code || "the rack"}`, href: `/inventory/locations/${parsed.id}` } })
     // A new label replaces the lot picked before, so a refused scan never leaves the old lot ready to issue.
     setPendingBatch(null)
     setForm((current) => ({ ...current, batch_id: "", qty: "" }))
@@ -374,13 +385,13 @@ export default function MaterialFloorIssuePage() {
             <div className="flex flex-wrap gap-2">
               <label className="flex min-w-[220px] flex-1 items-center gap-2 rounded-lg border border-input px-3"><Barcode className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" /><input aria-label="Scan lot label" className="h-11 w-full bg-transparent text-[13px] outline-none" value={scan} placeholder="Scan lot QR or type Amigo inward number" onChange={(e) => setScan(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void resolveScan() } }} /></label>
               <button type="button" className={secondaryButton} onClick={() => void resolveScan()}><PackageCheck className="h-4 w-4" />Find lot</button>
-              <QrScanner onScan={(value) => { setScan(parseScanCode(value).code || value); void resolveScan(value) }} label="Camera" title="Scan lot label" hint="Point the camera at the QR on the lot label." />
+              <QrScanner className={secondaryButton} onScan={(value) => { setScan(parseScanCode(value).code || value); void resolveScan(value) }} label="Camera" title="Scan lot label" hint="Point the camera at the QR on the lot label." />
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <label className="flex h-9 min-w-[200px] flex-1 items-center gap-2 rounded-lg border border-input px-3"><Search className="h-4 w-4 text-muted-foreground" aria-hidden="true" /><input className="w-full bg-transparent text-[13px] outline-none" aria-label="Find material" placeholder="Find adhesive, parchment colour, plastic, box…" value={itemSearch} onChange={(e) => setItemSearch(e.target.value)} /></label>
+              <label className="flex h-11 min-w-[200px] flex-1 items-center gap-2 rounded-lg border border-input px-3 sm:h-9"><Search className="h-4 w-4 text-muted-foreground" aria-hidden="true" /><input className="h-full w-full bg-transparent text-[13px] outline-none" aria-label="Find material" placeholder="Find adhesive, parchment colour, plastic, box…" value={itemSearch} onChange={(e) => setItemSearch(e.target.value)} /></label>
               <div role="radiogroup" aria-label="Kind" className="flex flex-wrap gap-1 rounded-lg bg-muted p-1">
                 {(["ALL", ...KIND_ORDER] as string[]).filter((key) => key === "ALL" || kindCounts[key]).map((key) => (
-                  <button key={key} type="button" role="radio" aria-checked={kind === key} onClick={() => setKind(key)} className={cn("h-7 rounded-md px-2.5 text-[12.5px] font-semibold", kind === key ? "bg-card shadow-sm ring-1 ring-border" : "text-muted-foreground hover:text-foreground")}>
+                  <button key={key} type="button" role="radio" aria-checked={kind === key} onClick={() => setKind(key)} className={cn("h-11 rounded-md px-2.5 text-[12.5px] font-semibold sm:h-8", kind === key ? "bg-card shadow-sm ring-1 ring-border" : "text-muted-foreground hover:text-foreground")}>
                     {key === "ALL" ? "All" : KIND_LABEL[key]} <span className="tabular-nums text-muted-foreground">{key === "ALL" ? materials.length : kindCounts[key]}</span>
                   </button>
                 ))}
@@ -432,26 +443,36 @@ export default function MaterialFloorIssuePage() {
                     <p className="text-[12.5px] text-muted-foreground">{selectedItem.item_code}{manyPlants ? ` · ${displayPlantScope(selectedItem.plant_id)}` : ""}</p>
                     <p className="mt-1.5 text-[13px]">Cleared for issue: <strong className="tabular-nums">{qtyText(itemOnHand, selectedItem.uom)}</strong>{parchment ? " · all coils of this colour, oldest first" : batches.length ? ` in ${batches.length} lot${batches.length === 1 ? "" : "s"}` : ""}</p>
                   </div>
-                  {parchment ? null : (
-                    <Field label="Lot (Amigo inward no.)" hint="optional">
-                      <select aria-label="Lot" className={fieldClass} value={form.batch_id} onChange={(e) => setForm({ ...form, batch_id: e.target.value })}>
-                        <option value="">Oldest lot first</option>
-                        {batches.map((batch: any) => <option key={batch.batch_id} value={batch.batch_id}>{batch.inward_no || batch.grn_no || batch.batch_no} · {qtyText(batch.available_qty ?? batch.current_balance, selectedItem?.uom)} on hand</option>)}
-                      </select>
-                    </Field>
+                  {parchment ? (
+                    <ParchmentPickFrom itemId={String(selectedItem.id)} qtyKg={Number(form.qty) || undefined} />
+                  ) : (
+                    <div className="grid gap-1.5">
+                      <Field label="Lot (Amigo inward no.)" hint="optional">
+                        <select aria-label="Lot" className={fieldClass} value={form.batch_id} onChange={(e) => setForm({ ...form, batch_id: e.target.value })}>
+                          <option value="">Oldest lot first</option>
+                          {batches.map((batch: any) => <option key={batch.batch_id} value={batch.batch_id}>{batch.inward_no || batch.grn_no || batch.batch_no} · {qtyText(batch.available_qty ?? batch.current_balance, selectedItem?.uom)} · {pickFrom(batch).replace(/^Pick from /, "")}</option>)}
+                        </select>
+                      </Field>
+                      {pickBatch ? (
+                        <p className={cn("flex items-start gap-2 rounded-xl border px-3 py-2 text-[13px] leading-5", pickBatch.location_id ? "border-border bg-muted/50 text-foreground" : "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink")} data-testid="floor-issue-pick-from">
+                          <MapPin className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                          <span className="min-w-0"><b className="font-semibold">{pickFrom(pickBatch)}</b><span className="block text-[12px] text-muted-foreground">{pickBatch.inward_no || pickBatch.grn_no || pickBatch.batch_no}{selectedBatch ? "" : " · oldest lot, issued first"}{pickBatch.location_id ? "" : " · ask the store where it is kept"}</span></span>
+                        </p>
+                      ) : null}
+                    </div>
                   )}
                   <Field label={`Quantity · ${isPieces(selectedItem) ? "pieces" : unitText(selectedItem.uom)}`} hint={`${qtyText(available, selectedItem.uom)} available`}>
                     <input aria-label="Quantity" data-testid="floor-issue-qty" className={cn(fieldClass, "h-11 text-[16px] font-semibold tabular-nums")} type="number" min={isPieces(selectedItem) ? "1" : "0.001"} step={isPieces(selectedItem) ? "1" : "0.001"} inputMode={isPieces(selectedItem) ? "numeric" : "decimal"} value={form.qty} placeholder="0" onChange={(e) => setForm({ ...form, qty: e.target.value })} />
                   </Field>
                   {quick.length ? (
                     <div className="-mt-1 flex flex-wrap gap-1.5" aria-label="Quick quantity">
-                      {quick.map((value) => <button key={value} type="button" onClick={() => setForm({ ...form, qty: String(value) })} className={cn("h-7 rounded-full border px-3 text-[12px] font-semibold tabular-nums", qtyNumber === value ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground")}>{qtyText(value, selectedItem.uom)}</button>)}
+                      {quick.map((value) => <button key={value} type="button" onClick={() => setForm({ ...form, qty: String(value) })} className={cn("h-11 rounded-full border px-3 text-[12px] font-semibold tabular-nums sm:h-8", qtyNumber === value ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground")}>{qtyText(value, selectedItem.uom)}</button>)}
                     </div>
                   ) : null}
                   <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
                     <Field label="Shift">
                       <div role="radiogroup" aria-label="Shift" className="flex gap-1 rounded-lg bg-muted p-1">
-                        {SHIFTS.map((item) => <button key={item.value} type="button" role="radio" aria-checked={form.shift === item.value} onClick={() => setForm({ ...form, shift: item.value })} className={cn("min-h-8 flex-1 rounded-md text-[13px] font-semibold", form.shift === item.value ? "bg-card shadow-sm ring-1 ring-border" : "text-muted-foreground")}>{item.label}</button>)}
+                        {SHIFTS.map((item) => <button key={item.value} type="button" role="radio" aria-checked={form.shift === item.value} onClick={() => setForm({ ...form, shift: item.value })} className={cn("min-h-11 flex-1 rounded-md text-[13px] font-semibold sm:min-h-9", form.shift === item.value ? "bg-card shadow-sm ring-1 ring-border" : "text-muted-foreground")}>{item.label}</button>)}
                       </div>
                     </Field>
                     <Field label="Issue date"><input className={fieldClass} type="date" value={form.effective_date} max={businessDate()} onChange={(e) => setForm({ ...form, effective_date: e.target.value })} /></Field>
@@ -487,7 +508,7 @@ export default function MaterialFloorIssuePage() {
                   ))}
                 </tbody>
               </table>
-              <button type="button" className="mt-2 text-[12.5px] font-semibold text-primary hover:underline" onClick={() => setShowEach((value) => !value)}>{showEach ? "Hide each issue" : `Show each issue (${issuedToday.length})`}</button>
+              <button type="button" className="mt-2 inline-flex min-h-11 items-center text-[12.5px] font-semibold text-primary hover:underline sm:min-h-0" onClick={() => setShowEach((value) => !value)}>{showEach ? "Hide each issue" : `Show each issue (${issuedToday.length})`}</button>
               {showEach ? (
                 <ul className="mt-1 divide-y divide-border">
                   {issuedToday.map((row) => (
@@ -513,5 +534,41 @@ function StatTile({ label, value, hint, tone }: { label: string; value: string; 
       <p className={cn("text-[22px] font-semibold tabular-nums", tone === "amber" ? "text-signal-amber-ink" : "text-foreground")}>{value}</p>
       <p className="truncate text-[11.5px] text-muted-foreground">{hint}</p>
     </div>
+  )
+}
+
+/** Parchment goes by colour and kg, so the desk shows the coils that weight takes, oldest cleared first,
+ * each with "Pick from <rack>" (spec 2.7), the same words as the lot desks. */
+function ParchmentPickFrom({ itemId, qtyKg }: { itemId: string; qtyKg?: number }) {
+  const qty = useDeferredValue(qtyKg)
+  const query = useParchmentCoils(itemId, qty)
+  const coils = query.data?.coils || []
+  if (query.isLoading || !coils.length) return null
+  const shown = coils.slice(0, 4)
+  return (
+    <div className="grid gap-1.5" data-testid="floor-issue-pick-from">
+      <p className="text-[12.5px] font-semibold text-foreground">{qty ? `Coils this issue takes (${coils.length})` : "Next coils, oldest first"}</p>
+      <ul className="grid gap-1.5">
+        {shown.map((coil) => (
+          <li key={coil.reel_id} className={cn("flex items-start gap-2 rounded-xl border px-3 py-2 text-[13px] leading-5", coil.location ? "border-border bg-muted/50 text-foreground" : "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink")}>
+            <MapPin className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            <span className="min-w-0">
+              <b className="font-semibold">{pickFromText(coil.location)}</b>
+              <span className="block text-[12px] text-muted-foreground">{coil.reel_code} · {coil.take_kg != null && coil.take_kg < coil.kg ? `${qtyText(coil.take_kg, "KG")} of ${qtyText(coil.kg, "KG")}` : qtyText(coil.kg, "KG")}{coil.location ? "" : " · ask the store where it is kept"}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+      {coils.length > shown.length ? <p className="text-[12px] text-muted-foreground">and {coils.length - shown.length} more coil{coils.length - shown.length === 1 ? "" : "s"}</p> : null}
+    </div>
+  )
+}
+
+// useSearchParams needs a Suspense boundary in Next 15 (SPEC section 6), or the build bails out.
+export default function MaterialFloorIssuePageWithSearch() {
+  return (
+    <Suspense fallback={null}>
+      <MaterialFloorIssuePage />
+    </Suspense>
   )
 }

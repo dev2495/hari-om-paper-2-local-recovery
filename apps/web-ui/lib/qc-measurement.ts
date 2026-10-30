@@ -483,7 +483,8 @@ export function collectStageQualityChecks(stage: QcStageKey, entry: any) {
     const measurements = { ...(entry?.final_measurements || {}), ...(entry?.qc_readings || {}) }
     const readings: Record<string, any> = {}
     const sampleInvalid: Record<string, any> = {}
-    for (const code of ["height", "weight", "cs", "notch_distance", "notch_depth", "moisture"]) {
+    // I.D. and O.D. are Process checks too (the card's frozen Process QC carries them).
+    for (const code of ["id", "od", "height", "weight", "cs", "notch_distance", "notch_depth", "moisture"]) {
       const raw = code === "height" ? (measurements.height ?? measurements.length) : measurements[code]
       absorb(code, raw, readings, sampleInvalid)
     }

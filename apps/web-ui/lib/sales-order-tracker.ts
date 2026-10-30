@@ -216,8 +216,14 @@ export type NextActionKey = "submit" | "approve" | "waiting" | "release" | "plan
 
 export type NextAction = { key: NextActionKey; label: string; tone: "primary" | "secondary" | "ghost"; hint?: string; href?: string }
 
+/** Who can make (seal) a delivery challan: the same roles as the challan page (Sales only views challans). */
+export function canMakeChallan(user?: { role?: string | null; roles?: Array<string | null> | null } | null): boolean {
+  const roles = [user?.role, ...(user?.roles || [])]
+  return roles.some((role) => ["Owner", "Admin", "Dispatch"].includes(String(role || "")))
+}
+
 /** The one thing to do next on this order, for the row button and the page's action bar. */
-export function nextAction(order: any, cards: CardSummary, meEmail?: string | null): NextAction {
+export function nextAction(order: any, cards: CardSummary, meEmail?: string | null, canChallan = true): NextAction {
   const status = String(order?.status || "").toLowerCase()
   const totals = orderTotals(order)
   const mine = Boolean(meEmail) && String(order?.created_by || "").trim().toLowerCase() === String(meEmail || "").trim().toLowerCase()
@@ -232,6 +238,7 @@ export function nextAction(order: any, cards: CardSummary, meEmail?: string | nu
     return { key: "approve", label: "Approve", tone: "primary" }
   }
   if (totals.unreleased > 0) return { key: "release", label: status === "approved" ? "Release" : `Release ${totals.unreleased.toLocaleString("en-IN")}`, tone: "primary", hint: "Make job cards for the lines (one colour per card, with a winder queue)" }
+  if (cards.ready > 0 && !canChallan) return { key: "waiting", label: "Waiting for dispatch", tone: "ghost", hint: `${cards.readyQty.toLocaleString("en-IN")} pcs are packed; Dispatch makes the delivery challan` }
   if (cards.ready > 0) return { key: "dispatch", label: `Dispatch ${cards.readyQty.toLocaleString("en-IN")}`, tone: "primary", hint: "Packed pieces are waiting for a delivery challan", href: cards.firstReadyId ? `/logistics/dispatch/new?job_card_id=${cards.firstReadyId}` : "/logistics/dispatch" }
   if (cards.unplanned > 0) return { key: "plan", label: "Plan", tone: "secondary", hint: "A job card of this order has no planner slot yet", href: `/planning/board?section=winder&order_id=${order?.id}&view=calendar` }
   return { key: "open", label: "Open", tone: "ghost" }
@@ -292,7 +299,7 @@ export function formatShortDate(value?: string | null, today = plantToday()) {
 }
 
 /** Plain words for what to do next on an order, in order of urgency (Order page › What is next). */
-export function whatIsNext(order: any, totals: OrderTotals, cards: CardSummary, jobs: any[], callOffs: any[]): Array<{ title: string; detail: string }> {
+export function whatIsNext(order: any, totals: OrderTotals, cards: CardSummary, jobs: any[], callOffs: any[], canChallan = true): Array<{ title: string; detail: string }> {
   const fmt = (value: number) => value.toLocaleString("en-IN", { maximumFractionDigits: 0 })
   const status = String(order?.status || "")
   const items: Array<{ title: string; detail: string }> = []
@@ -304,7 +311,7 @@ export function whatIsNext(order: any, totals: OrderTotals, cards: CardSummary, 
   if (["approved", "released", "partially_released", "partially_dispatched"].includes(status) && totals.unreleased > 0 && !order?.is_held) {
     items.push({ title: `Release ${fmt(totals.unreleased)} pcs`, detail: "Release makes one job card per line and colour and puts it in the winder queue." })
   }
-  if (cards.ready > 0) items.push({ title: `Make a DC for ${fmt(cards.readyQty)} pcs`, detail: `${cards.ready} card${cards.ready === 1 ? " has" : "s have"} closed Process: packed, with both QC readings in.` })
+  if (cards.ready > 0) items.push({ title: canChallan ? `Make a DC for ${fmt(cards.readyQty)} pcs` : `Waiting for Dispatch to make the challan · ${fmt(cards.readyQty)} pcs`, detail: `${cards.ready} card${cards.ready === 1 ? " has" : "s have"} closed Process: packed, with both QC readings in.` })
   const unplanned = jobs.filter((job) => cardState(job) !== "COMPLETED" && cardState(job) !== "FORCE_CLOSED" && cardState(job) !== "CANCELLED" && cardUnplanned(job))
   if (unplanned.length) items.push({ title: `Plan ${unplanned.length} card${unplanned.length === 1 ? "" : "s"}`, detail: unplanned.slice(0, 3).map((job) => `${job.job_card_no || "card"} · ${String(job.plan_status_label || "not planned")}`).join(" · ") })
   const flagged = jobs.filter((job) => num(job.qc_flagged_runs) > 0)

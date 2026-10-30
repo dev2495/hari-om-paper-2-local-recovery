@@ -4,9 +4,10 @@
 // At least 2 readings per required check (moisture optional); a reading outside the band is allowed
 // and FLAGGED — it never holds the run (client 2026-10-27). Changing readings already recorded needs
 // a reason; adding more does not. Instrument evidence is asked for where the check requires it.
+// Readings typed are kept on the device per card, stage and run until saved (client 2026-10-28).
 
 import { CheckCircle2, Clock3, Flag, Plus } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -14,6 +15,7 @@ import { cn } from "@/lib/utils"
 import { InstrumentFields } from "../InstrumentFields"
 import { SeasonQcMatrix, readingVerdict, sampleBand } from "../SeasonQcMatrix"
 import { useCardMasters, useCardMutation, useEntryApi, useStableCommand, useStageEntries } from "./data"
+import { DraftRestoredBar, draftKey, useFormDraft } from "./draft"
 import { FormStageTabs, fieldLabel, type StageTab } from "./EntrySheet"
 import { bandText, dayLabel, filledSamples, flagText, fmt, neededText, padSamples, runNo, runQcState, shiftLabel, shortChecks, stageLabel, stageParameters, toneClass, useCardRoles } from "./model"
 
@@ -74,6 +76,16 @@ export function LogQcForm({
   const [saved, setSaved] = useState<SavedQc | null>(null)
   const run = runId && runId !== "none" ? runs.find((e: any) => e.id === runId) : null
   const picked = runId === "none" || Boolean(run)
+  // Device draft for this run (or "QC without a run"): readings, instrument, reason and remark.
+  const baseline = useRef("[]")
+  const typedJson = JSON.stringify(filledSamples(samples))
+  const draft = useFormDraft(picked ? draftKey("qc", card.id, stage, runId) : null, { samples, instrument, correction, remark }, !saved && (typedJson !== baseline.current || Boolean(correction.trim() || remark.trim())))
+  const startValues = () => {
+    setSamples(padSamples(run?.samples || [], parameters))
+    setInstrument(run?.details?.instrument || {})
+    setCorrection("")
+    setRemark("")
+  }
 
   useEffect(() => {
     setRunId(entryId || "")
@@ -90,10 +102,15 @@ export function LogQcForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listing.data, stage])
   useEffect(() => {
-    setSamples(padSamples(run?.samples || [], parameters))
-    setInstrument(run?.details?.instrument || {})
-    setCorrection("")
-    setRemark("")
+    baseline.current = JSON.stringify(filledSamples(run?.samples || []))
+    startValues()
+    const typed: any = picked ? draft.restore() : null
+    if (typed) {
+      if (Array.isArray(typed.samples)) setSamples(padSamples(typed.samples, parameters))
+      setInstrument(typed.instrument || {})
+      setCorrection(typed.correction || "")
+      setRemark(typed.remark || "")
+    }
     reset()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run?.id, runId, stage])
@@ -138,6 +155,7 @@ export function LogQcForm({
         : await entryApi.create(card.id, stableCommand({ stage, kind: "QC_ONLY", quantity_mode: "DELTA", expected_version: state?.row_version, samples: filled, details: { instrument, qc_remark: remark.trim() || undefined }, reason, submit: true }))
       const savedEntry = result?.data?.entry
       const done = { entry: savedEntry, stage, flagged: Boolean(savedEntry?.qc_flagged || savedEntry?.evaluation?.verdict === "FAIL") }
+      draft.clear()
       setSaved(done)
       onSaved?.(done)
       return result
@@ -239,7 +257,7 @@ export function LogQcForm({
                     <span className="min-w-0 flex-1">
                       <span className="block text-[14px] font-semibold">
                         Run {runNo(e)}
-                        {e.status === "DRAFT" ? <span className={cn("ml-1.5 rounded-full border px-1.5 text-[10.5px] font-semibold", toneClass("amber"))}>draft</span> : null}
+                        {e.status === "DRAFT" ? <span className={cn("ml-1.5 rounded-full border px-1.5 text-[10.5px] font-semibold", toneClass("amber"))} title="Saved by the operator; waiting for the supervisor to submit">with supervisor</span> : null}
                         {e.operator_name ? <span className="font-normal text-muted-foreground"> · {e.operator_name}</span> : null}
                       </span>
                       <span className="block truncate text-[12px] text-muted-foreground">{runLine(e)}</span>
@@ -273,6 +291,14 @@ export function LogQcForm({
             </div>
           </div>
 
+          <DraftRestoredBar
+            savedAt={draft.restoredAt}
+            onDiscard={() => {
+              draft.discard()
+              startValues()
+            }}
+            testId="log-qc-draft"
+          />
           {picked ? (
             <fieldset className="space-y-3 rounded-xl border border-border bg-muted/30 p-3" data-testid="log-qc-readings">
               <legend className="px-1 text-[12.5px] font-semibold text-muted-foreground">
@@ -292,7 +318,7 @@ export function LogQcForm({
               {priorSamples.length && !onlyAdded ? (
                 <label className="block text-sm">
                   Why are recorded readings changed? <span className="text-muted-foreground">(required — adding new readings needs no reason)</span>
-                  <Input aria-label="Entry reason" className="mt-1 h-11" value={correction} onChange={(e) => setCorrection(e.target.value)} data-testid="log-qc-correction" />
+                  <Input aria-label="Entry reason" className="mt-1 h-11 min-h-11" value={correction} onChange={(e) => setCorrection(e.target.value)} data-testid="log-qc-correction" />
                 </label>
               ) : null}
               <label className="block">

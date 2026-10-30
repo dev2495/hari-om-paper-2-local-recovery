@@ -1,4 +1,4 @@
-import { ROLE_BY_KEY } from "./role-matrix"
+import { ROLE_BY_KEY, canOpenScreen } from "./role-matrix"
 
 export type LandingRole =
   | "Owner"
@@ -84,11 +84,11 @@ export const LANDING_QUICK_ACTIONS: Record<LandingRole, QuickAction[]> = {
     { href: "/sales-orders?due=week", label: "Due this week", detail: "Open orders with lines due in the next 7 days." },
     { href: "/planning/board?section=winder", label: "Planning Board", detail: "Check route loading and bottlenecks." },
     { href: "/production/job-cards", label: "Job Cards", detail: "Validate active cards and stage completion." },
-    { href: "/production/reconciliation", label: "Reconciliation", detail: "Close cost and material variances." },
+    { href: "/production/reconciliation", label: "Month-end close", detail: "Approve the month-end count, read the gaps, close the month." },
   ],
   Admin: [
     { href: "/system/users", label: "Role Matrix", detail: "Manage users, roles, and governance." },
-    { href: "/system/tolerances", label: "Stock variance limits", detail: "Per-plant kg variance allowed in reconciliation and consumption (not QC tolerances)." },
+    { href: "/production/reconciliation/limits", label: "Usage limits", detail: "Normal wastage %, allowed gap % and minimum gap per material type (not QC tolerances)." },
     { href: "/quality", label: "Quality Lifecycle", detail: "Review holds, inspections, and release decisions." },
     { href: "/reports/owner", label: "Owner Pack", detail: "Monitor cross-plant operations." },
   ],
@@ -113,7 +113,7 @@ export const LANDING_QUICK_ACTIONS: Record<LandingRole, QuickAction[]> = {
   Store: [
     { href: "/inventory", label: "Inventory Actions", detail: "Run inward, issue, and reservations." },
     { href: "/inventory/genealogy", label: "Genealogy", detail: "Trace reel lineage, issues, and scan events." },
-    { href: "/inventory/valuation", label: "Valuation", detail: "Audit stock value and risk items." },
+    { href: "/inventory/stock-control", label: "Stock counts & book", detail: "Count racks, raise corrections and read the stock book." },
     { href: "/purchase/inward", label: "PO-linked Inward", detail: "Receive approved PO lines in kg with one AT label per reel or coil." },
   ],
   Dispatch: [
@@ -143,19 +143,46 @@ export const LANDING_QUICK_ACTIONS: Record<LandingRole, QuickAction[]> = {
   GRN: [
     { href: "/purchase/inward", label: "Goods inward", detail: "Receive against an approved PO and weigh each reel or coil." },
     { href: "/purchase/receipts", label: "GRN register & labels", detail: "Saved receipts, pending invoices and label reprints." },
-    { href: "/purchase/supplier-deliveries", label: "Supplier deliveries", detail: "What is expected to arrive and when." },
+    { href: "/purchase/supplier-deliveries", label: "Expected arrivals", detail: "What vendors should deliver today and this week, with Make GRN." },
     { href: "/inventory", label: "Stock overview", detail: "Received stock by material and location." },
   ],
   RMIssue: [
-    { href: "/inventory/reels/issue", label: "Reel issue", detail: "Scan and issue reels to a winder and shift; close with returned weight." },
-    { href: "/inventory/production-issue", label: "Material issue", detail: "Issue adhesive, parchment and packing to a job card." },
+    { href: "/inventory/reels/issue", label: "Reel issue", detail: "Scan and issue reels and coils to the floor by shift." },
+    { href: "/inventory/production-issue", label: "Material issue", detail: "Issue adhesive, parchment and packing to the floor by shift." },
     { href: "/inventory/genealogy", label: "Genealogy", detail: "Trace where every issued reel went." },
     { href: "/inventory", label: "Stock overview", detail: "What is available to issue." },
   ],
   Operator: [
     { href: "/production/entry", label: "Log output", detail: "Scan or pick a job card and log the run of your stage." },
-    { href: "/production/job-cards", label: "Assigned Job Cards", detail: "Open printable job-card details." },
+    { href: "/production/job-cards", label: "Job cards", detail: "Find a card and open its runs, QC and printable details." },
     { href: "/production/entry?mode=qc", label: "Log QC", detail: "Enter the QC readings of a run (at least 2 per check)." },
-    { href: "/dashboard", label: "My Work", detail: "Return to the operator landing." },
+    { href: "/scan", label: "Scan a label", detail: "Point the phone camera at a job card or reel label to open it." },
   ],
+}
+
+/** Quick actions a role can really open (no shortcut that ends at "not open to your role"). */
+export function quickActionsFor(role: LandingRole, roles: Array<string | null | undefined>): QuickAction[] {
+  return (LANDING_QUICK_ACTIONS[role] || []).filter((action) => canOpenScreen(action.href, roles))
+}
+
+// Where a notification's button takes the user: "Schedule" is planning work even when the link is a job card.
+const ACTION_SCREEN: Record<string, string> = {
+  schedule: "/planning/board",
+  reschedule: "/planning/board",
+  dispatch: "/logistics/dispatch",
+  inspect: "/quality/incoming",
+  decide_lot: "/quality/incoming",
+  decide_hold: "/quality/results",
+  review_hold: "/quality/results",
+}
+
+/**
+ * A notification as one role may use it: its link when the role can open that page (else the inbox),
+ * and its action word only when the role can do that action. The server routes some events to every
+ * floor role ("Reel / coil issued to the floor" links the issue desk), so the landing filters here.
+ */
+export function inboxTargetFor(item: { href?: string | null; action?: string | null }, roles: Array<string | null | undefined>) {
+  const href = item.href && canOpenScreen(item.href, roles) ? item.href : "/inbox"
+  const action = item.action && href !== "/inbox" && canOpenScreen(ACTION_SCREEN[item.action] || href, roles) ? item.action : null
+  return { href, action }
 }

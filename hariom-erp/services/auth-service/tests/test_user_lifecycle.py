@@ -108,3 +108,30 @@ def test_internal_audit_ingest_is_idempotent_and_public_spoofing_rejected(worksp
     assert client.post('/audit-events/ingest',json=body,headers=internal).status_code==200
     assert client.post('/audit-events/ingest',json=body,headers=internal).status_code==200
     assert db.query(models.AuditEvent).filter_by(id=uuid.UUID(body['id'])).count()==1
+
+
+def test_people_directory_gives_every_role_names_but_nothing_else(workspace):
+    """Pages show who did something by name ("Owner Test"), so every signed-in role reads the
+    directory: login and name only, for the people of its own plants and the all-plant owners."""
+    client, db, admin, plant, headers = workspace
+    other_plant = models.Plant(id=uuid.uuid4(), code='TEST-'+uuid.uuid4().hex[:8], name='Other Plant', is_active=True)
+    db.add(other_plant); db.flush()
+    operator_role = db.query(models.Role).filter_by(name='Operator').one()
+    operator = models.User(name='Ramesh Floor', email='ramesh-floor@example.com', hashed_password=get_password_hash('LocalOnlyTest1!'), is_active=True, plant=plant, allowed_plants=[plant], roles=[operator_role])
+    stranger = models.User(name='Other Plant Store', email='other-store@example.com', hashed_password=get_password_hash('LocalOnlyTest1!'), is_active=True, plant=other_plant, allowed_plants=[other_plant], roles=[operator_role])
+    gone = models.User(name='Left Last Year', email='left@example.com', hashed_password=get_password_hash('LocalOnlyTest1!'), is_active=False, plant=plant, allowed_plants=[plant], roles=[operator_role])
+    db.add_all([operator, stranger, gone]); db.commit()
+    operator_headers = {'Authorization': 'Bearer '+create_access_token(build_user_claims(operator))}
+
+    result = client.get('/users/directory', headers=operator_headers)
+    assert result.status_code == 200, result.text
+    people = {row['email']: row for row in result.json()['items']}
+    assert people['ramesh-floor@example.com'] == {'email': 'ramesh-floor@example.com', 'name': 'Ramesh Floor'}
+    assert people['owner-test@example.com']['name'] == 'Owner Test'  # all-plant owner acts everywhere
+    assert people['left@example.com']['name'] == 'Left Last Year'  # past actors keep their names
+    assert 'other-store@example.com' not in people  # another plant's people stay out
+    # The all-plant owner sees everyone.
+    everyone = {row['email'] for row in client.get('/users/directory', headers=headers).json()['items']}
+    assert {'other-store@example.com', 'ramesh-floor@example.com'} <= everyone
+    # Signed out: nothing.
+    assert client.get('/users/directory').status_code == 401

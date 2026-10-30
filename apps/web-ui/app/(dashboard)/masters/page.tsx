@@ -34,6 +34,7 @@ const workspaceGroups = [
       { href: "/masters/shifts", title: "Shifts", description: "Named work windows per plant. Sets the OEE Availability denominator and night-premium attribution." },
       { href: "/masters/holidays", title: "Plant Calendar", description: "Public holidays, plant shutdowns, maintenance days. OTIF math respects this calendar." },
       { href: "/masters/reason-codes", title: "Reason Codes", description: "Normalized reasons for downtime, scrap, QC reject, short-close, RM issues, returns." },
+      { href: "/masters/order-close-reasons", title: "Order close reasons", description: "Reasons for cancelling, short-closing or holding a sales order. Owner and Admin add, rename and deactivate them." },
     ],
   },
   {
@@ -45,8 +46,8 @@ const workspaceGroups = [
       { href: "/system/users", title: "Users", description: "Role, plant, and permissions management for the recovered operator model." },
       { href: "/system/plants", title: "Plants", description: "Plant code, name, and activation state that feeds the top scope switcher." },
       { href: "/system/machines", title: "Machines", description: "Machine registry and capacity fields used by the planner and production handoff." },
-      { href: "/system/tolerances", title: "Stock variance limits", description: "Per-plant kg variance allowed in reconciliation and period close. QC tolerances live in Quality → Material / Process standards." },
-      { href: "/system/scheduler", title: "Scheduler", description: "Health of the daily owner-pack cron and the hourly heartbeat. Surfaces last-run / next-run / errors." },
+      { href: "/production/reconciliation/limits", title: "Usage limits", description: "Normal wastage %, allowed gap % and minimum gap per material type, used by Month-end close. QC tolerances live in Quality → Material / Process standards." },
+      { href: "/system/scheduler", title: "Background jobs", description: "Health of the daily owner pack and the hourly checks: last run, next run and errors." },
     ],
   },
   {

@@ -1623,7 +1623,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
               <span className="font-semibold text-foreground">Bamboo:</span>{" "}
               {formatWhole(hoverDetail.job.selected_bamboo_length_mm)} mm · usable {formatWhole(hoverDetail.job.usable_length_mm)} mm
             </p>
-            <p><span className="font-semibold text-foreground">Due:</span> {formatDate(hoverDetail.job.due_date)}</p>
+            <p><span className="font-semibold text-foreground">Due:</span> {hoverDetail.job.due_date ? formatDate(hoverDetail.job.due_date) : "No date"}</p>
             <p><span className="font-semibold text-foreground">Status:</span> {hoverDetail.job.segment_status || hoverDetail.job.status || "PLANNED"}</p>
           </div>
         </div>

@@ -163,11 +163,11 @@ const Q = {
   approve: { id: "approve", label: "Orders to approve", hint: "Draft and submitted customer POs", href: "/sales-orders?status=draft", source: "sales", field: "draft_count", tone: "amber", icon: ClipboardList },
   release: { id: "release", label: "Ready to release", hint: "Approved lines waiting for a winder", href: "/sales-orders", source: "sales", field: "ready_count", tone: "cyan", icon: ShoppingCart },
   overdue: { id: "overdue", label: "Overdue job cards", hint: "Past the promised date", href: "/production/job-cards?due=overdue", source: "jobs", field: "due_overdue", tone: "rose", icon: Factory },
-  priority: { id: "priority", label: "Due this window", hint: "Job cards due in the priority window", href: "/production/job-cards?due=priority", source: "jobs", field: "due_priority", tone: "violet", icon: Sparkles },
+  priority: { id: "priority", label: "Due in the next 3 days", hint: "Job cards due today, tomorrow or the day after", href: "/production/job-cards?due=priority", source: "jobs", field: "due_priority", tone: "violet", icon: Sparkles },
   blocked: { id: "blocked", label: "Blocked cards", hint: "Waiting on material, machine or decision", href: "/planning/board", source: "jobs", field: "blocked", tone: "rose", icon: Factory },
   holds: { id: "holds", label: "Open QC holds", hint: "Need a quality decision", href: "/quality", source: "jobs", field: "qc_holds", tone: "amber", icon: ShieldCheck },
   dispatch: { id: "dispatch", label: "Ready to dispatch", hint: "Finished and cleared for shipping", href: "/logistics/dispatch", source: "jobs", field: "dispatch_ready", tone: "emerald", icon: Truck },
-  open: { id: "open", label: "Open job cards", hint: "Released work in progress", href: "/production/job-cards", source: "jobs", field: "open_cards", tone: "blue", icon: Factory },
+  open: { id: "open", label: "Open job cards", hint: "Released and not finished yet", href: "/production/job-cards", source: "jobs", field: "open_cards", tone: "blue", icon: Factory },
 } satisfies Record<string, QueueItem>
 
 export const ROLE_WORK_QUEUES: Record<string, QueueItem[]> = {

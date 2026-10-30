@@ -67,7 +67,7 @@ export function ContinuousJobCard({ card, initialStage, embedded = false }: { ca
           <p className="text-[14px]">
             <b>{stageLabel(stage)}</b> · {fmt(state.accepted_total)} of {fmt(state.target)} {state.unit} good
             {state.rejected_total ? <span className="text-signal-rose-ink"> · {fmt(state.rejected_total)} rejected</span> : null}
-            {state.draft_count ? <span className="text-signal-amber-ink"> · {state.draft_count} draft waiting</span> : null}
+            {state.draft_count ? <span className="text-signal-amber-ink"> · {state.draft_count} with supervisor</span> : null}
           </p>
           {waiting.length ? <span className={cn("rounded-full border px-2 py-0.5 text-[11.5px] font-semibold", toneClass("amber"))}>{waiting.length} run{waiting.length === 1 ? "" : "s"} waiting for QC</span> : null}
           <div className="ml-auto flex flex-wrap gap-2">

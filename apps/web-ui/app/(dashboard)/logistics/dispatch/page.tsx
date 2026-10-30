@@ -13,11 +13,18 @@ import { usePlants } from "@/hooks/use-system"
 import { errorText } from "@/lib/season-api"
 import { RetainSurplusButton } from "@/components/production/RetainSurplusButton"
 
-const handoffLabels: Record<string, string> = { AWAITING_PACKING: "Awaiting Process close", AWAITING_QC: "Awaiting Process close", AWAITING_FG: "Awaiting FG posting", QC_HOLD: "QC hold", REJECTED_QC: "No accepted FG (QC closed)", RETAINED_FG: "Surplus retained in FG", UNSEALED: "Unsealed", SEALED: "Sealed" }
+const handoffLabels: Record<string, string> = { AWAITING_PACKING: "Waiting for Process to close", AWAITING_QC: "Waiting for Process to close", AWAITING_FG: "Waiting for the stock posting", QC_HOLD: "On QC hold", REJECTED_QC: "Nothing accepted at final QC", RETAINED_FG: "Extra pieces kept in stock", UNSEALED: "Ready for a challan", SEALED: "Challan sealed" }
+const STAGE_WORDS: Record<string, string> = { SLITTING: "Slitting", WINDER: "Winding", OVEN: "Oven", PROCESS: "Process", PACKING: "Packing", QC: "Final QC", DISPATCH: "Dispatch", DONE: "Done" }
+const PAGE_SIZE = 25
+const pcs = (value: unknown) => Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })
+// Only a card whose stock is posted can get a new challan; the server refuses the seal otherwise.
+const canStartChallan = (job: any) => job.dispatch_status === "DRAFT" || job.handoff_state === "UNSEALED"
 
 export default function DispatchSelectionPage() {
     const { activePlant, user } = useAuth()
     const canRetain = (user?.roles || []).some(role => ["Owner", "Admin", "Dispatch"].includes(role))
+    // Sales sees the register and prints sealed challans; making a challan is for the dispatch desk.
+    const canPrepare = [user?.role, ...(user?.roles || [])].some(role => ["Owner", "Admin", "Dispatch", "Store", "PlantManager", "Supervisor", "Logistics"].includes(role || ""))
     const jobsQuery = useReadyJobs(activePlant)
     const customersQuery = useCustomers()
     const { data: plants = [] } = usePlants()
@@ -27,11 +34,20 @@ export default function DispatchSelectionPage() {
     const [filterCustomer, setFilterCustomer] = useState("")
     const [filterJobNo, setFilterJobNo] = useState("")
     const [filterStatus, setFilterStatus] = useState("")
+    const [shown, setShown] = useState(PAGE_SIZE)
 
     if (!activePlant || isLoading || customersQuery.isLoading) {
         return <div className="p-6 text-muted-foreground">Loading ready dispatches...</div>
     }
-    if (jobsQuery.isError || customersQuery.isError) return <div className="space-y-3 rounded-xl border border-border bg-card p-6"><p role="alert" className="text-destructive">Could not load dispatch handoffs: {errorText(jobsQuery.error || customersQuery.error)}</p><Button variant="outline" onClick={() => { jobsQuery.refetch(); customersQuery.refetch() }}>Retry</Button></div>
+    if (jobsQuery.isError || customersQuery.isError) {
+        const denied = ((jobsQuery.error || customersQuery.error) as any)?.response?.status === 403
+        return (
+            <div className="space-y-3 rounded-xl border border-border bg-card p-4 sm:p-6">
+                <p role="alert" className={denied ? "text-foreground" : "text-destructive"}>{denied ? "The dispatch register is not open to your role for this plant. Ask the Owner for access if your work needs it." : `Could not load dispatch handoffs: ${errorText(jobsQuery.error || customersQuery.error)}`}</p>
+                {!denied && <Button variant="outline" className="min-h-11" onClick={() => { jobsQuery.refetch(); customersQuery.refetch() }}>Retry</Button>}
+            </div>
+        )
+    }
 
     const jobs = readyJobs || []
 
@@ -62,12 +78,12 @@ export default function DispatchSelectionPage() {
                 variant="hero"
                 appearance={MODULE_APPEARANCES.dispatch}
                 badge="Finished-goods handoff"
-                title="Dispatch Selection"
-                description="Create, resume, or review challans for packed jobs. Sealing records stock outward and Sales fulfillment."
+                title="Dispatch register"
+                description="Make, continue or view the delivery challans of packed job cards. Sealing a challan takes the pieces out of stock and counts them as dispatched on the order."
                 aside={
                     <div>
                         <p className="text-2xl font-semibold text-foreground">{filteredJobs.length}</p>
-                        <p className="text-[12px] font-medium text-muted-foreground">handoffs visible</p>
+                        <p className="text-[12px] font-medium text-muted-foreground">job card{filteredJobs.length === 1 ? "" : "s"}</p>
                     </div>
                 }
             />
@@ -77,68 +93,91 @@ export default function DispatchSelectionPage() {
                     <label className="text-xs font-semibold text-muted-foreground">Customer</label>
                     <input
                         type="text"
-                        className="w-full h-9 rounded-md border border-border px-3 text-sm focus:border-signal-amber-ink/40 focus:ring-1 focus:ring-amber-500"
-                        placeholder="Filter by customer..."
+                        className="w-full min-h-11 sm:min-h-0 sm:h-9 rounded-md border border-border bg-card px-3 text-sm focus:border-signal-amber-ink/40 focus:ring-1 focus:ring-amber-500"
+                        placeholder="Customer name"
                         value={filterCustomer}
                         onChange={(e) => setFilterCustomer(e.target.value)}
                     />
                 </div>
                 <div className="flex-1 space-y-1">
-                    <label className="text-xs font-semibold text-muted-foreground">Job Card No / ID</label>
+                    <label className="text-xs font-semibold text-muted-foreground">Job card</label>
                     <input
                         type="text"
-                        className="w-full h-9 rounded-md border border-border px-3 text-sm focus:border-signal-amber-ink/40 focus:ring-1 focus:ring-amber-500"
-                        placeholder="Search Job Card..."
+                        className="w-full min-h-11 sm:min-h-0 sm:h-9 rounded-md border border-border bg-card px-3 text-sm focus:border-signal-amber-ink/40 focus:ring-1 focus:ring-amber-500"
+                        placeholder="Job card number"
                         value={filterJobNo}
                         onChange={(e) => setFilterJobNo(e.target.value)}
                     />
                 </div>
                 <div className="flex-1 space-y-1">
-                    <label className="text-xs font-semibold text-muted-foreground">Dispatch Status</label>
+                    <label className="text-xs font-semibold text-muted-foreground">Challan</label>
                     <select
-                        className="w-full h-9 rounded-md border border-border px-3 text-sm focus:border-signal-amber-ink/40 focus:ring-1 focus:ring-amber-500 bg-card"
+                        className="w-full min-h-11 sm:min-h-0 sm:h-9 rounded-md border border-border bg-card px-3 text-sm focus:border-signal-amber-ink/40 focus:ring-1 focus:ring-amber-500 bg-card"
                         value={filterStatus}
                         onChange={(e) => setFilterStatus(e.target.value)}
                     >
-                        <option value="">All Statuses</option>
-                        <option value="READY">Unsealed (No Draft)</option>
-                        <option value="DRAFT">Draft Dispatch</option>
+                        <option value="">All</option>
+                        <option value="READY">No challan yet</option>
+                        <option value="DRAFT">Draft challan</option>
                         <option value="SEALED">Sealed</option>
                     </select>
                 </div>
-                <Button variant="outline" className="h-9" onClick={() => { setFilterCustomer(""); setFilterJobNo(""); setFilterStatus(""); }}>Clear</Button>
+                <Button variant="outline" className="min-h-11 sm:min-h-0" onClick={() => { setFilterCustomer(""); setFilterJobNo(""); setFilterStatus(""); }}>Clear</Button>
             </div>
 
-            <div className="erp-panel bg-card rounded-lg border border-border shadow-sm overflow-hidden">
+            {/* Phone: one card per handoff with the action as a full-size button. */}
+            <ul className="space-y-2 md:hidden" data-testid="dispatch-cards">
+                {filteredJobs.slice(0, shown).map((job: any) => {
+                    const maxShipQty = Number(job.max_ship_qty || 0)
+                    const latestShipment = job.shipments?.[0]
+                    const status = job.dispatch_status === "SEALED" ? "Sealed" : job.dispatch_status === "DRAFT" ? "Draft challan" : handoffLabels[job.handoff_state] || "Ready for a challan"
+                    return (
+                        <li key={job.id} className="rounded-xl border border-border bg-card p-3">
+                            <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                    <p className="font-semibold text-foreground">{jobCardRef(job)}</p>
+                                    <p className="break-words text-xs text-muted-foreground">{customerMap[job.customer_id] || "Unknown customer"}</p>
+                                </div>
+                                <span className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold ${job.dispatch_status === "SEALED" ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink" : job.dispatch_status === "DRAFT" ? "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink" : "border-border bg-muted text-muted-foreground"}`}>{status}</span>
+                            </div>
+                            <p className="mt-1.5 text-xs text-muted-foreground">{pcs(job.dispatchable_qty)} accepted · {pcs(job.dispatched_qty)} shipped · {pcs(maxShipQty)} pcs can ship now</p>
+                            {(job.shipments || []).map((shipment: any, index: number) => <Link key={shipment.id} href={`/logistics/dispatch/${job.id}/print?dispatch_id=${shipment.id}`} className="mt-1 flex min-h-11 items-center text-sm text-signal-teal-ink underline">Challan {job.shipments.length - index}: {pcs(shipment.qty)} pcs</Link>)}
+                            {canPrepare && maxShipQty > 0 && canStartChallan(job) ? <Button asChild className="mt-2 min-h-11 w-full"><Link href={`/logistics/dispatch/new?job_card_id=${job.id}`}>{job.dispatch_status === "DRAFT" ? "Edit draft challan" : "Make challan"}</Link></Button> : !latestShipment ? <p className="mt-2 text-xs text-muted-foreground">{handoffLabels[job.handoff_state] || "Not ready to ship"}</p> : null}
+                        </li>
+                    )
+                })}
+                {!filteredJobs.length ? <li className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">{jobs.length === 0 ? "No packed job cards are waiting." : "No job cards match these filters."}</li> : null}
+            </ul>
+
+            <div className="erp-panel hidden bg-card rounded-lg border border-border shadow-sm overflow-hidden md:block">
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left">
                         <thead className="bg-muted text-muted-foreground border-b border-border">
                             <tr>
-                                <th className="px-4 py-3 font-semibold">Job Card No</th>
-                                <th className="px-4 py-3 font-semibold">Plant</th>
-                                <th className="px-4 py-3 font-semibold">Customer</th>
-                                <th className="px-4 py-3 font-semibold">Size / Specs</th>
-                                <th className="px-4 py-3 font-semibold">Accepted FG / Balance</th>
-                                <th className="px-4 py-3 font-semibold">Stage</th>
-                                <th className="px-4 py-3 font-semibold">Dispatch Status</th>
+                                {/* Five columns so the register fits beside the sidebar without scrolling sideways:
+                                    plant sits under the card, size under the customer, stage under the status. */}
+                                <th className="px-4 py-3 font-semibold">Job card · plant</th>
+                                <th className="px-4 py-3 font-semibold">Customer · size</th>
+                                <th className="px-4 py-3 font-semibold">Pieces</th>
+                                <th className="px-4 py-3 font-semibold">Challan · stage</th>
                                 <th className="px-4 py-3 font-semibold text-right">Action</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-border">
                             {filteredJobs.length === 0 ? (
                                 <tr>
-                                    <td colSpan={8} className="p-0">
+                                    <td colSpan={5} className="p-0">
                                         <div className="flex min-h-[260px] flex-col items-center justify-center bg-gradient-to-b from-card to-muted/80 px-6 py-10 text-center">
                                             <span className="grid h-14 w-14 place-items-center rounded-2xl border border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink shadow-sm">
                                                 {jobs.length === 0 ? <ClipboardCheck className="h-7 w-7" /> : <Truck className="h-7 w-7" />}
                                             </span>
                                             <h2 className="mt-4 text-lg font-semibold text-foreground">
-                                                {jobs.length === 0 ? "No packed handoffs are waiting" : "No dispatches match these filters"}
+                                                {jobs.length === 0 ? "No packed job cards are waiting" : "No job cards match these filters"}
                                             </h2>
                                             <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
                                                 {jobs.length === 0
-                                                    ? "Jobs appear here after packing posts finished-goods inventory. Sealed challans remain visible for review and printing."
-                                                    : "Clear or adjust the customer, job-card, and status filters to restore the matching handoffs."}
+                                                    ? "A job card shows here once its packed pieces are in stock. Sealed challans stay here to view and print."
+                                                    : "Clear or change the customer, job card and challan filters."}
                                             </p>
                                             <div className="mt-5 flex flex-wrap justify-center gap-2">
                                                 {jobs.length === 0 ? (
@@ -153,7 +192,7 @@ export default function DispatchSelectionPage() {
                                     </td>
                                 </tr>
                             ) : (
-                                filteredJobs.map((job: any) => {
+                                filteredJobs.slice(0, shown).map((job: any) => {
                                     const customerName = customerMap[job.customer_id] || "Unknown Customer"
                                     const spec = job.spec_snapshot || {}
                                     const specDisplay = spec.name || `${spec.od_mm ?? spec.od_min_mm ?? spec.dimensions?.tube_od_mm ?? '?'} OD × ${spec.id_mm ?? spec.id_min_mm ?? '?'} ID × ${spec.length_mm ?? spec.length_min_mm ?? '?'} mm`
@@ -163,31 +202,32 @@ export default function DispatchSelectionPage() {
 
                                     return (
                                         <tr key={job.id} className="hover:bg-muted transition-colors">
-                                            <td className="px-4 py-3 font-medium text-foreground border-l-[3px] border-l-transparent hover:border-l-amber-500">
-                                                {jobCardRef(job)}
+                                            <td className="px-4 py-3 align-top border-l-[3px] border-l-transparent hover:border-l-amber-500">
+                                                <p className="whitespace-nowrap font-medium text-foreground">{jobCardRef(job)}</p>
+                                                <p className="text-xs text-muted-foreground">{plant?.name || plant?.code || "Plant unavailable"}</p>
                                             </td>
-                                            <td className="px-4 py-3 text-muted-foreground">{plant?.name || plant?.code || "Plant unavailable"}</td>
-                                            <td className="px-4 py-3 text-muted-foreground">{customerName}</td>
-                                            <td className="px-4 py-3 text-muted-foreground">{specDisplay}</td>
-                                            <td className="px-4 py-3 text-muted-foreground"><p className="whitespace-nowrap">Accepted {job.dispatchable_qty ?? 0} · remaining {job.remaining_qty ?? 0} pcs</p><p className="text-xs">Packed {job.packed_qty ?? 0} · QC rejected {job.qc_rejected_qty ?? 0} pcs</p><p className="text-xs">Unused / uninspected at final QC {job.qc_uninspected_qty ?? 0} pcs</p><p className="text-xs">Shipped {job.dispatched_qty ?? 0} · can ship {maxShipQty} pcs</p><p className="text-xs">Released {job.released_qty ?? job.planned_qty} · shipment allowance {job.shipping_allowance ?? 0} pcs</p>{job.retained_qty > 0 && <p className="text-xs">Retained FG {job.retained_qty} pcs</p>}</td>
-                                            <td className="px-4 py-3">
-                                                <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs transition-colors bg-muted text-muted-foreground font-normal">
-                                                    {job.current_stage}
-                                                </span>
+                                            <td className="min-w-0 px-4 py-3 align-top">
+                                                <p className="break-words text-foreground">{customerName}</p>
+                                                <p className="break-words text-xs text-muted-foreground">{specDisplay}</p>
                                             </td>
-                                            <td className="px-4 py-3">
+                                            <td className="px-4 py-3 align-top text-muted-foreground" title={`Released ${pcs(job.released_qty ?? job.planned_qty)} pcs · up to ${pcs(job.shipping_allowance)} pcs may ship (with the allowed extra)`}>
+                                                <p className="tabular-nums text-foreground">{pcs(job.dispatchable_qty)} accepted · {pcs(job.remaining_qty)} left to ship</p>
+                                                <p className="text-xs tabular-nums">{pcs(job.dispatched_qty)} shipped · {pcs(maxShipQty)} can ship now{Number(job.qc_rejected_qty || 0) > 0 ? ` · ${pcs(job.qc_rejected_qty)} rejected at QC` : ""}{Number(job.qc_uninspected_qty || 0) > 0 ? ` · ${pcs(job.qc_uninspected_qty)} not inspected` : ""}{job.retained_qty > 0 ? ` · ${pcs(job.retained_qty)} kept in stock` : ""}</p>
+                                            </td>
+                                            <td className="px-4 py-3 align-top">
                                                 {job.dispatch_status === "SEALED" ? (
-                                                    <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors border-none bg-signal-emerald-soft text-signal-emerald-ink hover:bg-signal-emerald-line">SEALED</span>
+                                                    <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors border-none bg-signal-emerald-soft text-signal-emerald-ink hover:bg-signal-emerald-line">Sealed</span>
                                                 ) : job.dispatch_status === "DRAFT" ? (
-                                                    <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors text-signal-amber-ink border-signal-amber-line bg-signal-amber-soft">DRAFT</span>
+                                                    <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors text-signal-amber-ink border-signal-amber-line bg-signal-amber-soft">Draft challan</span>
                                                 ) : (
-                                                    <span className="text-muted-foreground text-xs">{handoffLabels[job.handoff_state] || "Unsealed"}</span>
+                                                    <span className="text-muted-foreground text-xs">{handoffLabels[job.handoff_state] || "Ready for a challan"}</span>
                                                 )}
                                                 {job.dispatch_status === "DRAFT" && job.handoff_state !== "UNSEALED" && <p className="mt-1 text-xs text-muted-foreground">{handoffLabels[job.handoff_state]}</p>}
+                                                {job.current_stage && !["DISPATCH", "DONE"].includes(String(job.current_stage).toUpperCase()) ? <p className="mt-1 text-xs text-muted-foreground">Now at {STAGE_WORDS[String(job.current_stage).toUpperCase()] || String(job.current_stage).toLowerCase()}</p> : null}
                                             </td>
-                                            <td className="px-4 py-3 text-right">
-                                                {(job.shipments || []).map((shipment: any, index: number) => <Link key={shipment.id} href={`/logistics/dispatch/${job.id}/print?dispatch_id=${shipment.id}`} className="mr-3 block text-xs text-signal-teal-ink underline">Shipment {job.shipments.length - index}: {shipment.qty} pcs</Link>)}
-                                                {maxShipQty > 0 && job.handoff_state !== "REJECTED_QC" ? <Button asChild size="sm"><Link href={`/logistics/dispatch/new?job_card_id=${job.id}`}>{job.dispatch_status === "DRAFT" ? "Edit Draft" : "Create Dispatch"}</Link></Button> : latestShipment ? <Button asChild size="sm" variant="outline"><Link href={`/logistics/dispatch/${job.id}/print?dispatch_id=${latestShipment.id}`}>View Challan</Link></Button> : null}
+                                            <td className="px-4 py-3 align-top text-right">
+                                                {(job.shipments || []).map((shipment: any, index: number) => <Link key={shipment.id} href={`/logistics/dispatch/${job.id}/print?dispatch_id=${shipment.id}`} className="mr-3 block text-xs text-signal-teal-ink underline">Challan {job.shipments.length - index}: {pcs(shipment.qty)} pcs</Link>)}
+                                                {canPrepare && maxShipQty > 0 && canStartChallan(job) ? <Button asChild size="sm"><Link href={`/logistics/dispatch/new?job_card_id=${job.id}`}>{job.dispatch_status === "DRAFT" ? "Edit draft challan" : "Make challan"}</Link></Button> : latestShipment ? <Button asChild size="sm" variant="outline"><Link href={`/logistics/dispatch/${job.id}/print?dispatch_id=${latestShipment.id}`}>View challan</Link></Button> : null}
                                                 {canRetain && job.entry_model === "V2" && job.remaining_qty > 0 && job.dispatched_qty >= job.shipping_allowance && job.handoff_state === "UNSEALED" && <RetainSurplusButton job={job} />}
                                             </td>
                                         </tr>
@@ -198,6 +238,12 @@ export default function DispatchSelectionPage() {
                     </table>
                 </div>
             </div>
+            {filteredJobs.length > shown ? (
+                <div className="flex flex-wrap items-center justify-center gap-3 text-sm text-muted-foreground">
+                    <span>Showing {shown} of {filteredJobs.length}</span>
+                    <Button variant="outline" className="min-h-11 sm:min-h-0" onClick={() => setShown((value) => value + PAGE_SIZE)} data-testid="dispatch-show-more">Show {Math.min(PAGE_SIZE, filteredJobs.length - shown)} more</Button>
+                </div>
+            ) : null}
         </div>
     )
 }

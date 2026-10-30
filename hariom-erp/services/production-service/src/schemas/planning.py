@@ -782,10 +782,8 @@ class StageOutputPayload(BaseModel):
 
     @model_validator(mode="after")
     def validate_card_window(self):
-        if self.start_time and self.end_time:
-            start, end = self.start_time, self.end_time
-            if (start.tzinfo is None) == (end.tzinfo is None) and end < start:
-                raise ValueError("end_time must be greater than or equal to start_time")
+        # Card times never block a save (client decision 2026-10-11): an end time (B) before the start
+        # time (A) is kept as typed and returned as a warning by planning._reconcile_card_times.
         return self
 
     @field_validator("stage")

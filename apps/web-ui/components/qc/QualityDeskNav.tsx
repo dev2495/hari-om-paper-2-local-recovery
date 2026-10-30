@@ -33,7 +33,7 @@ export function QualityDeskNav() {
             key={link.href}
             href={link.href}
             aria-current={active ? "page" : undefined}
-            className={`inline-flex min-h-9 items-center rounded-lg px-3 text-[13px] font-semibold transition-colors duration-150 ${
+            className={`inline-flex min-h-11 items-center rounded-lg px-3 sm:min-h-9 text-[13px] font-semibold transition-colors duration-150 ${
               active ? "bg-primary text-primary-foreground" : "text-foreground/75 hover:bg-muted hover:text-foreground"
             }`}
           >

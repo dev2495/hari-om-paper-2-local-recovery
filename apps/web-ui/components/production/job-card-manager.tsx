@@ -409,7 +409,7 @@ function ListRow({ job, track, selected, checked, hold, machineLabel, showOrder,
         </span>
         <span className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
           <span className="min-w-0 truncate">{where}</span>
-          {job.due_date ? <span className={cn("shrink-0", days !== null && days < 0 ? "font-semibold text-signal-rose-ink" : days !== null && days <= 3 ? "font-semibold text-signal-amber-ink" : "")}>· due {dayText(job.due_date)}</span> : null}
+          {job.due_date ? <span className={cn("shrink-0", days !== null && days < 0 ? "font-semibold text-signal-rose-ink" : days !== null && days <= 3 ? "font-semibold text-signal-amber-ink" : "")}>· due {dayText(job.due_date)}</span> : <span className="shrink-0" data-testid="manager-no-date">· No date</span>}
         </span>
         {hold || flagged > 0 ? (
           <span className="mt-0.5 flex flex-wrap gap-1">
@@ -540,7 +540,7 @@ function CardSummary({ data, row, hold, machineLabel, parent, onOpen }: { data: 
             {row?.customer_name ? <> · {row.customer_name}</> : null}
             {row?.product_size_label || row?.product_code ? <> · {row.product_size_label || row.product_code}</> : null}
             {" · "}<ColorChip color={data.parchment_color} empty="plain" className="!text-[13px]" />
-            {row?.due_date ? <> · due <span className={cn(days !== null && days < 0 ? "font-semibold text-signal-rose-ink" : days !== null && days <= 3 ? "font-semibold text-signal-amber-ink" : "")}>{dayText(row.due_date)} ({dueText(days)})</span></> : null}
+            {row?.due_date ? <> · due <span className={cn(days !== null && days < 0 ? "font-semibold text-signal-rose-ink" : days !== null && days <= 3 ? "font-semibold text-signal-amber-ink" : "")}>{dayText(row.due_date)} ({dueText(days)})</span></> : row ? <> · No date</> : null}
           </p>
           {parent ? (
             <p className="mt-0.5 text-[12px] text-muted-foreground">

@@ -6,6 +6,7 @@
 // and location, Winding may link reel issues. QC must be ready (at least 2 readings per required check on the
 // stage — the same rule for a short close) and drafts must be submitted or voided first; the server refuses
 // otherwise and its words are shown. Anyone may open this to see what is missing; only those logins confirm.
+// The reason and choices typed here are kept on the device until the close goes through (client 2026-10-28).
 
 import { AlertTriangle, CheckCircle2, ClipboardCheck, Clock3, Lock } from "lucide-react"
 import { useEffect, useState } from "react"
@@ -16,14 +17,15 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { useCardMutation, useEntryApi, useStableCommand } from "./data"
+import { DraftRestoredBar, draftKey, useFormDraft } from "./draft"
 import { fieldLabel, selectClass } from "./EntrySheet"
-import { fmt, runNo, runsWithoutQc, stageLabel, stageParameters, toneClass, useCardRoles } from "./model"
+import { fmt, runNo, runsWithoutQc, runsWord, stageLabel, stageParameters, toneClass, useCardRoles } from "./model"
 
 export function closeBlockedReason(state: any, card?: any): string {
   if (!state) return "No stage to close"
   if (state.status === "COMPLETED") return `${stageLabel(state.stage)} is closed`
   if (!["WINDER", "OVEN", "PROCESS", "PACKING", "QC"].includes(state.stage)) return `${stageLabel(state.stage)} closes by itself`
-  if (state.draft_count) return `${state.draft_count} draft${state.draft_count === 1 ? "" : "s"} must be submitted or voided first`
+  if (state.draft_count) return `${runsWord(state.draft_count)} still with the supervisor must be submitted or voided first`
   if (!state.qc?.ready) {
     const words = Object.fromEntries(stageParameters(card, state.stage).map((p: any) => [p.code, p.label]))
     return `QC readings missing: ${(state.qc?.missing || []).map((r: any) => `${words[r.parameter] || r.label} ${r.have}/${r.need}`).join(", ") || "see QC tab"}`
@@ -70,6 +72,7 @@ export function CloseStageDialog({
   const [reelLinks, setReelLinks] = useState<string[]>([])
   const [residual, setResidual] = useState("HOLD")
   const winderMachine = card.stages?.find((s: any) => s.stage_type === "WINDER")?.machine_id
+  const draft = useFormDraft(open ? draftKey("close", card.id, stage) : null, { closeReason, fgItem, location, reelLinks, residual }, Boolean(closeReason.trim() || fgItem || location || reelLinks.length || residual !== "HOLD"))
   const items = useQuery({
     queryKey: ["continuous-items", card.plant_id],
     queryFn: async () => (await entryApi.items()).data,
@@ -91,6 +94,16 @@ export function CloseStageDialog({
       setCloseReason("")
       setReelLinks([])
       setResidual("HOLD")
+      setFgItem("")
+      setLocation("")
+      const typed: any = draft.restore()
+      if (typed) {
+        setCloseReason(typed.closeReason || "")
+        setFgItem(typed.fgItem || "")
+        setLocation(typed.location || "")
+        setReelLinks(Array.isArray(typed.reelLinks) ? typed.reelLinks : [])
+        setResidual(typed.residual === "SCRAP" ? "SCRAP" : "HOLD")
+      }
       reset()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -128,6 +141,7 @@ export function CloseStageDialog({
           reason: closeReason,
         }),
       )
+      draft.clear()
       onOpenChange(false)
       onClosed?.(completes ? `Job card complete: ${fmt(state.accepted_total)} pcs go to finished goods and are ready for dispatch.` : `${stageLabel(stage)} closed${short ? " short" : ""}.`, Boolean(completes))
       return result
@@ -144,6 +158,20 @@ export function CloseStageDialog({
           </DialogDescription>
         </DialogHeader>
 
+        {canSubmit && !blocked ? (
+          <DraftRestoredBar
+            savedAt={draft.restoredAt}
+            onDiscard={() => {
+              draft.discard()
+              setCloseReason("")
+              setFgItem("")
+              setLocation("")
+              setReelLinks([])
+              setResidual("HOLD")
+            }}
+            testId="close-stage-draft"
+          />
+        ) : null}
         {!canSubmit ? (
           <p className={cn("flex items-start gap-2 rounded-lg border px-3 py-2 text-[13px]", toneClass("blue"))} data-testid="close-stage-role">
             <Lock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
@@ -159,7 +187,7 @@ export function CloseStageDialog({
               <span>
                 <b>Cannot close yet.</b>{" "}
                 {[
-                  state.draft_count ? `${state.draft_count} draft${state.draft_count === 1 ? "" : "s"} must be submitted or voided first (Output log).` : "",
+                  state.draft_count ? `${runsWord(state.draft_count)} still with the supervisor must be submitted or voided first (Output log).` : "",
                   !state.qc?.ready ? `${stageLabel(stage)} needs at least 2 readings per required check before it can close — a short close too.` : "",
                   !state.draft_count && state.qc?.ready ? `${blocked}.` : "",
                 ]
@@ -179,7 +207,7 @@ export function CloseStageDialog({
             {!state.qc?.ready && onLogQc ? (
               <Button
                 size="sm"
-                className="mt-2"
+                className="mt-2 min-h-11"
                 onClick={() => {
                   onOpenChange(false)
                   onLogQc(stage)
@@ -256,8 +284,8 @@ export function CloseStageDialog({
                   (reelIssues.data || [])
                     .filter((i: any) => !i.sales_order_id || i.sales_order_id === card.sales_order_id)
                     .map((i: any) => (
-                      <label key={i.id} className="mt-2 block text-sm">
-                        <input type="checkbox" checked={reelLinks.includes(i.id)} onChange={(e) => setReelLinks((current) => (e.target.checked ? [...current, i.id] : current.filter((id) => id !== i.id)))} />{" "}
+                      <label key={i.id} className="mt-2 flex min-h-11 items-center gap-2 text-sm">
+                        <input type="checkbox" className="h-5 w-5 shrink-0" checked={reelLinks.includes(i.id)} onChange={(e) => setReelLinks((current) => (e.target.checked ? [...current, i.id] : current.filter((id) => id !== i.id)))} />{" "}
                         {i.reel_code || i.amigo_no || i.id.slice(0, 8)} · {i.consumed_weight_kg} kg · {i.issue_date}
                       </label>
                     ))
@@ -301,7 +329,6 @@ export function CloseStageDialog({
                 </span>
                 <select className={selectClass} value={residual} onChange={(e) => setResidual(e.target.value)} data-testid="close-stage-residual">
                   <option value="HOLD">Hold for follow-up</option>
-                  <option value="RETURN">Return unused input</option>
                   <option value="SCRAP">Scrap with reason</option>
                 </select>
               </label>
@@ -309,7 +336,7 @@ export function CloseStageDialog({
             <label className="block text-sm">
               <span className={fieldLabel}>Reason {needsReason ? "(required — short close or unused input)" : "(optional)"}</span>
               <Input
-                className="h-11"
+                className="h-11 min-h-11"
                 value={closeReason}
                 onChange={(e) => setCloseReason(e.target.value)}
                 placeholder={short ? "Why the stage closes short of target" : "Material exception, unused input…"}
@@ -330,11 +357,11 @@ export function CloseStageDialog({
               {confirmHint}
             </span>
           ) : null}
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+          <Button variant="ghost" className="min-h-11" onClick={() => onOpenChange(false)}>
             {canSubmit && !blocked ? "Cancel" : "Close"}
           </Button>
           {canSubmit && !blocked ? (
-            <Button disabled={!canConfirm} onClick={confirm} data-testid="close-stage-confirm">
+            <Button className="min-h-11" disabled={!canConfirm} onClick={confirm} data-testid="close-stage-confirm">
               <CheckCircle2 className="h-4 w-4" />
               {mutation.isPending ? "Closing…" : short ? "Confirm short close" : "Confirm close"}
             </Button>

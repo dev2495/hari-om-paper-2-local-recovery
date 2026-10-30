@@ -236,6 +236,46 @@ class VendorApiTests(unittest.TestCase):
         self.assertEqual(bad_update.status_code, 422)
         self.assertIn("GSTIN", bad_update.json()["detail"])
 
+    def test_new_gstin_brings_its_pan_and_state_and_mismatches_are_refused(self):
+        created = self.client.post("/master/suppliers/", json={"supplier_code": "V-GSTCHG", "name": "Gst Change Vendor", "gst_no": "24AABCS9999C1Z1"}).json()
+        self.assertEqual((created["pan_no"], created["state_code"], created["state"]), ("AABCS9999C", "24", "Gujarat"))
+        # The form sends the old PAN and state back unchanged with the new GSTIN: they follow the new GSTIN.
+        changed = self.client.put(
+            f"/master/suppliers/{created['id']}",
+            json={"gst_no": "27AAACR5055K1Z7", "pan_no": "AABCS9999C", "state": "Gujarat", "state_code": "24"},
+        )
+        self.assertEqual(changed.status_code, 200, changed.text)
+        body = changed.json()
+        self.assertEqual((body["pan_no"], body["state_code"], body["state"]), ("AAACR5055K", "27", "Maharashtra"))
+        # A state name and code that disagree are refused.
+        pair = self.client.put(f"/master/suppliers/{created['id']}", json={"state": "Karnataka", "state_code": "27"})
+        self.assertEqual(pair.status_code, 422, pair.text)
+        self.assertIn("Karnataka has GST state code 29, not 27", pair.json()["detail"])
+        # A state that is not the GSTIN's is refused.
+        moved = self.client.put(f"/master/suppliers/{created['id']}", json={"state": "Karnataka", "state_code": "29"})
+        self.assertEqual(moved.status_code, 422, moved.text)
+        self.assertIn("registered in Maharashtra (27), but the state is Karnataka (29)", moved.json()["detail"])
+        by_name = self.client.put(f"/master/suppliers/{created['id']}", json={"state": "Karnataka"})
+        self.assertEqual(by_name.status_code, 422, by_name.text)
+        # A PAN that is not the GSTIN's is refused.
+        pan = self.client.put(f"/master/suppliers/{created['id']}", json={"pan_no": "ZZZZZ9999Z"})
+        self.assertEqual(pan.status_code, 422, pan.text)
+        self.assertIn("does not match GSTIN 27AAACR5055K1Z7", pan.json()["detail"])
+        refused = self.client.post("/master/suppliers/", json={"supplier_code": "V-GSTCLASH", "name": "Clash Vendor", "gst_no": "24AABCS9999C1Z1", "state_code": "27"})
+        self.assertEqual(refused.status_code, 422, refused.text)
+        # A typed state that differs from the old GSTIN's is kept and checked against the new GSTIN.
+        typed = self.client.put(f"/master/suppliers/{created['id']}", json={"gst_no": "24AABCS9999C1Z1", "state": "Maharashtra", "state_code": "27"})
+        self.assertEqual(typed.status_code, 200, typed.text)  # unchanged state is the old GSTIN's, so it follows
+        self.assertEqual((typed.json()["state_code"], typed.json()["pan_no"]), ("24", "AABCS9999C"))
+        # Other details still save, and clearing the GSTIN keeps the PAN and state.
+        renamed = self.client.put(f"/master/suppliers/{created['id']}", json={"name": "Renamed Vendor", "gst_no": "", "pan_no": "AABCS9999C"})
+        self.assertEqual(renamed.status_code, 200, renamed.text)
+        self.assertEqual((renamed.json()["gst_no"], renamed.json()["state_code"]), (None, "24"))
+        # With no GSTIN, adding one whose state disagrees with a typed state is refused (the form shows it first).
+        clash = self.client.put(f"/master/suppliers/{created['id']}", json={"gst_no": "27AAACR5055K1Z7", "pan_no": "AAACR5055K"})
+        self.assertEqual(clash.status_code, 422, clash.text)
+        self.assertIn("but the state is Gujarat (24)", clash.json()["detail"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -22,3 +22,29 @@ def test_master_lines_cover_every_master_with_its_qc_values():
     assert by_code["PS-1"]["type"] == "PACKAGING" and by_code["PS-1"]["uom"] == "KG"
     assert by_code["FD-3"]["uom"] == "PCS"
     assert parchment_item_code("Red") == "PARCHMENT-RED"
+
+
+def test_roles_that_do_not_keep_the_material_list_skip_the_sync_quietly():
+    """Operators, QC and sales open rack and count pages too: the catch-up sync is skipped for them
+    (no master reads, no inventory 403 turned into a 502 on every visit)."""
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    import jwt
+
+    from src.services import master_items
+
+    def token(**claims):
+        return jwt.encode({"sub": "someone@hariom.com", **claims}, "test-secret-for-the-master-item-sync-roles", algorithm="HS256")
+
+    assert master_items.can_sync(token(roles=["Store"]))
+    assert master_items.can_sync(token(roles=["Operator"], acting_role="Owner"))
+    assert master_items.can_sync(token(effective_roles=["RMIssue"]))
+    assert not master_items.can_sync(token(roles=["Operator"]))
+    assert not master_items.can_sync(token(roles=["QC", "Sales"]))
+
+    with patch.object(master_items.http_client, "get", new=AsyncMock()) as reads, patch.object(master_items.http_client, "post", new=AsyncMock()) as writes:
+        result = asyncio.run(master_items.sync_master_items(token(roles=["Operator"], plant_id="plant-a"), "plant-a"))
+    assert result == {"plants": [], "created": [], "conflicts": [], "skipped": "ROLE"}
+    reads.assert_not_called()
+    writes.assert_not_called()

@@ -223,6 +223,72 @@ def _fill_from_gstin(model: models.Supplier) -> None:
         model.state_code = next((code for code, name in formats.GST_STATE_CODES.items() if name.lower() == wanted), None)
 
 
+def _state_code_for(name: Optional[str]) -> Optional[str]:
+    wanted = str(name or "").strip().lower()
+    if not wanted:
+        return None
+    return next((code for code, state in formats.GST_STATE_CODES.items() if state.lower() == wanted), None)
+
+
+def _check_state_pair(values: dict) -> None:
+    """A state name and a state code sent together must be the same state (e.g. Karnataka is 29)."""
+    state = values.get("state")
+    code = values.get("state_code")
+    expected = _state_code_for(state)
+    if state and code and expected and expected != code:
+        raise HTTPException(status_code=422, detail=f"State {state} has GST state code {expected}, not {code}. Pick the state again.")
+
+
+def _follow_new_gstin(model: models.Supplier, before: dict, updates: dict) -> None:
+    """When the GSTIN changes, the PAN and state that came from the old GSTIN follow the new one.
+
+    A PAN or state that is still the old GSTIN's (or empty) is replaced, also when the form sends it back
+    unchanged; a value typed in the same request is kept and then checked below.
+    """
+    new_gstin = model.gst_no or ""
+    old_gstin = before.get("gst_no") or ""
+    if new_gstin == old_gstin or len(new_gstin) != 15:
+        return
+    pan_sent = "pan_no" in updates and updates.get("pan_no") != before.get("pan_no")
+    old_pan = before.get("pan_no")
+    if not pan_sent and (not old_pan or (len(old_gstin) == 15 and old_pan == old_gstin[2:12])):
+        model.pan_no = new_gstin[2:12]
+    state_sent = any(key in updates and updates.get(key) != before.get(key) for key in ("state", "state_code"))
+    old_code = before.get("state_code")
+    if not state_sent and (not old_code or (len(old_gstin) == 15 and old_code == old_gstin[:2])):
+        model.state_code = new_gstin[:2]
+        model.state = formats.state_for_code(new_gstin[:2])
+
+
+def _check_gstin_matches(model: models.Supplier, before: dict, updates: dict) -> None:
+    """The PAN and the state must be the GSTIN's (both print beside it on the PO); refused in plain words.
+
+    Checked only when the GSTIN, PAN or state changes, so an old row that already disagrees can still be
+    edited for other details.
+    """
+    gstin = model.gst_no or ""
+    if len(gstin) != 15:
+        return
+    def changed(*keys: str) -> bool:
+        return any(key in updates and updates.get(key) != before.get(key) for key in keys)
+    gstin_changed = gstin != (before.get("gst_no") or "")
+    if (gstin_changed or changed("pan_no")) and model.pan_no and model.pan_no != gstin[2:12]:
+        raise HTTPException(
+            status_code=422,
+            detail=f"PAN {model.pan_no} does not match GSTIN {gstin}, which carries PAN {gstin[2:12]}. Correct the PAN or the GSTIN.",
+        )
+    code = model.state_code or ""
+    if (gstin_changed or changed("state", "state_code")) and code and code != gstin[:2]:
+        state = model.state or formats.state_for_code(code) or code
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"GSTIN {gstin} is registered in {formats.state_for_code(gstin[:2]) or gstin[:2]} ({gstin[:2]}), "
+                f"but the state is {state} ({code}). Correct the state or the GSTIN."
+            ),
+        )
+
+
 def _for_response(model: models.Supplier) -> models.Supplier:
     setattr(model, "is_active", bool(model.active))
     setattr(model, "full_address", formats.full_address(model))
@@ -284,6 +350,7 @@ def create_supplier(
         "alt_phone", "address_line2", "city", "state", "state_code", "pin_code", "payment_terms_days", "credit_days",
         "credit_limit", "bank_name", "bank_account_no", "bank_ifsc", "msme_no", "notes",
     )
+    _check_state_pair(details)
     model = models.Supplier(
         supplier_code=code,
         name=name,
@@ -294,6 +361,7 @@ def create_supplier(
         **{key: details.get(key) for key in detail_keys},
     )
     _fill_from_gstin(model)
+    _check_gstin_matches(model, {}, details)
     db.add(model)
     db.commit()
     db.refresh(model)
@@ -349,6 +417,8 @@ def update_supplier(
     if duplicate:
         raise HTTPException(status_code=409, detail="Supplier code or name already exists in this plant")
 
+    _check_state_pair(updates)
+    before = {key: getattr(model, key, None) for key in ("gst_no", "pan_no", "state", "state_code")}
     for key, value in updates.items():
         if key == "supplier_code" and value is not None:
             setattr(model, key, _clean_code(value))
@@ -378,7 +448,14 @@ def update_supplier(
             continue
         else:
             setattr(model, key, value)
+    # A state name sent alone takes its own code (and a code alone its name), instead of keeping the old pair.
+    if "state" in updates and "state_code" not in updates:
+        model.state_code = _state_code_for(model.state)
+    if "state_code" in updates and "state" not in updates:
+        model.state = formats.state_for_code(model.state_code) if model.state_code else None
+    _follow_new_gstin(model, before, updates)
     _fill_from_gstin(model)
+    _check_gstin_matches(model, before, updates)
     db.commit()
     db.refresh(model)
     _for_response(model)

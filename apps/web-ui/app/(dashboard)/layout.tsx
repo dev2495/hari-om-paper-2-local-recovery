@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { CalendarRange, ClipboardPen, Scissors, LockKeyhole, AlertTriangle, BarChart3, Boxes, CheckCircle2, Inbox, TrendingUp, Users, Wrench, ChevronRight, ClipboardList, Factory, FileText, Gauge, Info, Layers, LineChart, LogOut, Menu, Package, PanelLeftClose, PanelLeftOpen, BookOpen, ScrollText, Search, ShieldCheck, Sparkles, Truck, X, CircleDot, CornerDownLeft, Undo2, CalendarCheck2 } from "lucide-react"
+import { CalendarRange, ClipboardPen, Scissors, LockKeyhole, AlertTriangle, BarChart3, Boxes, CheckCircle2, Inbox, TrendingUp, Users, Wrench, ChevronRight, ClipboardList, Factory, FileText, Gauge, Info, Layers, LineChart, LogOut, Menu, Package, PanelLeftClose, PanelLeftOpen, BookOpen, ScrollText, Search, ShieldCheck, Sparkles, Truck, X, CircleDot, CornerDownLeft, Undo2, CalendarCheck2, ClipboardCheck, CalendarClock, BookCheck } from "lucide-react"
 import { Suspense, useEffect, useMemo, useRef, useState } from "react"
 import { PlantSwitcher } from "@/components/PlantSwitcher"
 import { BooksLockedChip } from "@/components/workspace/books-locked-chip"
@@ -14,15 +14,18 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogTrigger } 
 import { Input } from "@/components/ui/input"
 import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
-import { MODULE_NAVIGATION } from "@/lib/module-navigation"
-import { roleLabel } from "@/lib/role-matrix"
+import { MODULE_NAVIGATION, activeModuleLink, moduleLinkBase, moduleLinkCovers } from "@/lib/module-navigation"
+import { canReadJobCardAggregates, roleLabel } from "@/lib/role-matrix"
 import { searchWorkspaceJumps } from "@/lib/workspace-jump"
 import { RouteProgress } from "@/components/workspace/route-progress"
 import { SidebarNav } from "@/components/workspace/sidebar-nav"
 import { BreadcrumbCapsule } from "@/components/workspace/breadcrumb-capsule"
+import { BreadcrumbLabelProvider, useBreadcrumbLabelFor } from "@/components/workspace/breadcrumb-label"
 import { useNotificationSummary } from "@/hooks/use-workspace"
 import { useSalesOrderAggregates } from "@/hooks/use-sales"
 import { useJobCardAggregates } from "@/hooks/use-production"
+import { usePeopleDirectory, usePeopleReady } from "@/hooks/use-people"
+import { forgetPeople } from "@/lib/people"
 import { MessageMirror } from "@/components/workspace/message-mirror"
 
 type NavLink = {
@@ -112,10 +115,10 @@ const navigationUnits: NavGroup[] = [
         roles: ["Owner", "Admin", "PlantManager", "Operator", "QC", "InProcessQC"],
       },
       {
-        name: "Reconciliation",
+        name: "Month-end close",
         href: "/production/reconciliation",
-        icon: FileText,
-        description: "Material retally, close posture, and monthly actuals.",
+        icon: BookCheck,
+        description: "Count the store, check material use against spec, close the month. Usage limits live here too.",
         roles: ["Owner", "Admin", "PlantManager"],
       },
     ],
@@ -146,20 +149,21 @@ const navigationUnits: NavGroup[] = [
         name: "Purchase orders",
         href: "/purchase",
         icon: FileText,
-        description: "PO revisions, inward, invoice differences, claims, scheduling, and exports.",
+        description: "Scheduled drafts to send, POs waiting approval, sent and waiting delivery, and every PO.",
         roles: ["Owner", "Admin", "Store", "Planner", "PlantManager"],
       },
       {
-        name: "RM & PM Schedule",
+        name: "RM inward calendar",
         href: "/purchase/scheduler",
-        icon: ClipboardList,
-        description: "Monthly paper, chemical and packing schedule: op stk, arrivals, BOM requirement, cl stk and vendor PO position.",
-        roles: ["Owner", "Admin", "Store", "Planner", "PlantManager"],
+        icon: CalendarClock,
+        description: "Forward RM demand against stock and arrivals, day by day. Propose arrivals; the Owner approves them into draft POs.",
+        roles: ["Owner", "Admin", "Store", "Planner", "PlantManager", "GRN"],
       },
-      { name: "Supplier deliveries", href: "/purchase/supplier-deliveries", icon: Truck, description: "Confirmed arrivals, changed promises and partial receipts.", roles: ["Owner", "Admin", "Store", "Planner", "PlantManager", "GRN"] },
+      { name: "Expected arrivals", href: "/purchase/supplier-deliveries", icon: Truck, description: "What vendors should deliver: overdue, today, this week and later, each with Make GRN.", roles: ["Owner", "Admin", "Store", "Planner", "PlantManager", "GRN"] },
       { name: "Create purchase order", href: "/purchase/new", icon: FileText, description: "Multi-item PO with automatic numbering and vendor terms.", roles: ["Owner", "Admin", "Store", "Planner", "PlantManager"] },
       { name: "Purchase requisitions", href: "/purchase/requisitions", icon: FileText, description: "Request a tool or material for Owner approval." },
-      { name: "PO approvals", href: "/purchase/approvals", icon: ShieldCheck, description: "Review submitted PO revisions before goods receipt.", roles: ["Owner", "Admin", "PlantManager"] },
+      // The page is the Owner's decision desk (RoleGate Owner, Admin not included), so only a real Owner sees the link.
+      { name: "PO approvals", href: "/purchase/approvals", icon: ShieldCheck, description: "Approve RM arrivals, requisitions and submitted PO revisions.", ownerOnly: true },
       { name: "Invoice differences", href: "/purchase/discrepancies", icon: ScrollText, description: "Review rates, quantities and specifications.", roles: ["Owner", "Admin", "Store", "Accounts", "PlantManager"] },
       { name: "Debit notes", href: "/purchase/debit-notes", icon: FileText, description: "Vendor claims, approvals and settlements.", roles: ["Owner", "Admin", "Accounts", "PlantManager"] },
       { name: "Purchase reports", href: "/purchase/registers", icon: LineChart, description: "Excel exports and printable commercial registers.", roles: ["Owner", "Admin", "Store", "Accounts", "Planner", "PlantManager"] },
@@ -173,12 +177,14 @@ const navigationUnits: NavGroup[] = [
       { name: "Reel & coil issue", href: "/inventory/reels/issue", icon: Layers, description: "Issue reels and coils to the floor by shift; each reel gets a slitting card.", roles: ["Owner", "Admin", "Store", "PlantManager", "RMIssue"] },
       { name: "Material issue", href: "/inventory/production-issue", icon: Boxes, description: "Issue adhesive, parchment and packing to the floor by shift.", roles: ["Owner", "Admin", "Store", "PlantManager", "RMIssue"] },
       {
-        name: "Stock Lifecycle",
-        href: "/inventory/lifecycle",
-        icon: Layers,
-        description: "Opening → daily → cert → carry-forward → reco → lock. The flow hub.",
-        roles: ["Owner", "Admin", "Store", "Planner", "PlantManager"],
+        // Every logged-in role may start a count and count (client 2026-10-28); only the Owner approves.
+        name: "Stock counts & book",
+        href: "/inventory/stock-control",
+        icon: ClipboardCheck,
+        description: "Spot and month-end counts, corrections, the stock book and locations with rack labels.",
       },
+      // Go-live opening stock (client 2026-10-30): Owner and Admin enter it; the page is open to view for others.
+      { name: "Opening stock", href: "/inventory/opening-stock", icon: Package, description: "Go-live stock already in the plant: reels and lots with new labels, in batches on the go-live date.", roles: ["Owner", "Admin"] },
       {
         name: "Inventory",
         href: "/inventory",
@@ -199,13 +205,6 @@ const navigationUnits: NavGroup[] = [
         icon: Package,
         description: "Rework yield, returns, and adjustments — manual FG inward outside the job-close flow.",
         roles: ["Owner", "Admin", "Store", "PlantManager"],
-      },
-      {
-        name: "MRP",
-        href: "/analytics/mrp",
-        icon: LineChart,
-        description: "Reorder-policy review and demand/BOM coverage. Two separate measures.",
-        roles: ["Owner", "Admin", "Store", "Planner"],
       },
       { name: "Stock alert policies", href: "/inventory/stock-alert-policies", icon: ShieldCheck, description: "Set material stock thresholds, lead times and replenishment rules.", roles: ["Owner", "Admin", "PlantManager"] },
       {
@@ -276,7 +275,7 @@ const navigationUnits: NavGroup[] = [
         name: "System",
         href: "/system/users",
         icon: ShieldCheck,
-        description: "Users, plants, machine setup, tolerance bands, and platform governance.",
+        description: "Users, roles, plants, machine setup and background jobs.",
         roles: ["Owner", "Admin"],
       },
 
@@ -299,20 +298,43 @@ function canSeeLink(item: NavLink, roles: Set<string>) {
 
 // production-service serves the job-card counts (overdue cards, QC holds) to these roles only; asking for
 // anyone else (QC, Operator) only fails with 403 on every page, so their badge simply does not show.
-const JOB_CARD_AGGREGATE_ROLES = ["Owner", "Admin", "PlantManager", "Planner", "Store", "Sales", "Dispatch"]
 
-function EntryModeWatcher({ onChange }: { onChange: (mode: string | null) => void }) {
+// The address query (?mode= for Log QC, ?tab= for the stock hub's tabs) marks the right menu entry.
+function SearchWatcher({ onChange }: { onChange: (search: string) => void }) {
   const params = useSearchParams()
-  const mode = params?.get("mode") || null
-  useEffect(() => { onChange(mode) }, [mode, onChange])
+  const search = params?.toString() || ""
+  useEffect(() => { onChange(search) }, [search, onChange])
   return null
 }
 
+// Pages may name their own last breadcrumb (useBreadcrumbLabel), so the provider wraps the whole shell.
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  return <BreadcrumbLabelProvider><DashboardShell>{children}</DashboardShell></BreadcrumbLabelProvider>
+}
+
+// The last crumb for a record page (".../counts/<id>") when the page does not name itself.
+const RECORD_CRUMB: Record<string, string> = {
+  "/inventory/counts": "Count",
+  "/inventory/locations": "Location",
+  "/production/job-cards": "Job card",
+  "/sales-orders": "Order",
+  "/purchase": "Purchase order",
+  "/logistics/dispatch": "Dispatch",
+}
+// Fixed sub-pages whose URL word is not the name people use.
+const PAGE_CRUMB: Record<string, string> = {
+  "/inventory/locations/labels": "Rack labels",
+}
+
+function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "/dashboard"
   const router = useRouter()
   const { toast, clearToast } = useApp()
   const { user, isLoading, logout, activeRole } = useAuth()
+  // Names, not logins, wherever pages say who did something (client 2026-10-28).
+  const peopleQuery = usePeopleDirectory(user)
+  // Pages show people by name while they render, so a page waits (briefly) for the directory's first load.
+  const namesReady = usePeopleReady(peopleQuery, Boolean(user?.email))
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [sidebarPinned, setSidebarPinned] = useState(true)
   // Only the current module's group opens by default, so a module's sub-pages fit on screen.
@@ -331,7 +353,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const visibleHrefs = useMemo(() => new Set(flatLinks.map(link => link.href)), [flatLinks])
   const inboxSummary = useNotificationSummary(Boolean(user))
   const salesBadge = useSalesOrderAggregates(Boolean(user) && visibleHrefs.has("/sales-orders"))
-  const jobsBadge = useJobCardAggregates(Boolean(user) && JOB_CARD_AGGREGATE_ROLES.some(role => userRoles.has(role)) && (visibleHrefs.has("/production/job-cards") || visibleHrefs.has("/quality")))
+  const jobsBadge = useJobCardAggregates(Boolean(user) && canReadJobCardAggregates(Array.from(userRoles)) && (visibleHrefs.has("/production/job-cards") || visibleHrefs.has("/quality")))
   const navBadges = useMemo(() => ({
     "/inbox": inboxSummary.data?.unread ? { count: Number(inboxSummary.data.unread), tone: inboxSummary.data.by_priority?.critical ? "rose" as const : "primary" as const } : undefined,
     "/sales-orders": salesBadge.data?.draft_count ? { count: Number(salesBadge.data.draft_count), tone: "amber" as const } : undefined,
@@ -339,7 +361,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     "/quality": jobsBadge.data?.qc_holds ? { count: Number(jobsBadge.data.qc_holds), tone: "amber" as const } : undefined,
   }), [inboxSummary.data, salesBadge.data, jobsBadge.data])
   const navigationPath = pathname.startsWith("/landing/") ? "/dashboard" : pathname
-  const [entryMode, setEntryMode] = useState<string | null>(null)
+  const [navSearch, setNavSearch] = useState("")
+  const entryMode = useMemo(() => new URLSearchParams(navSearch).get("mode"), [navSearch])
   const current = useMemo(() => {
     // Log output and Log QC share /production/entry; the ?mode= query says which one is open.
     if (navigationPath === "/production/entry" || navigationPath.startsWith("/production/entry/")) {
@@ -347,26 +370,49 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       const match = flatLinks.find(item => item.href === wanted)
       if (match) return match
     }
-    return flatLinks.filter(item => navigationPath === item.href || navigationPath.startsWith(item.href + "/") || MODULE_NAVIGATION[item.href]?.some(child => pathname === child.href || pathname.startsWith(child.href + "/")))
+    return flatLinks.filter(item => navigationPath === item.href || navigationPath.startsWith(item.href + "/") || MODULE_NAVIGATION[item.href]?.some(child => moduleLinkCovers(child, pathname)))
       .sort((a,b) => b.href.length - a.href.length)[0]
   }, [pathname, navigationPath, flatLinks, entryMode])
   const groupName = groups.find(group => group.items.some(item => item.href === current?.href))?.title
+  const pageCrumb = useBreadcrumbLabelFor(pathname)
   const crumbs = useMemo(() => {
     const list: Array<{ label: string; href?: string; icon?: any }> = []
     const group = groups.find(entry => entry.title === groupName)
     if (group) list.push({ label: group.title, href: group.items[0]?.href, icon: current?.icon })
     if (current) list.push({ label: current.name, href: current.href })
-    const child = MODULE_NAVIGATION[current?.href || ""]?.find(item => pathname === item.href || pathname.startsWith(item.href + "/"))
+    const child = activeModuleLink(MODULE_NAVIGATION[current?.href || ""], pathname, navSearch)
     if (child && child.name !== current?.name) list.push({ label: child.name, href: child.href })
-    const base = child?.href || current?.href || ""
+    const base = (child && moduleLinkBase(child, pathname)) || current?.href || ""
     const deeper = base && pathname.startsWith(base + "/") ? pathname.slice(base.length).split("/").filter(Boolean) : []
     if (current && deeper.length) {
-      const last = deeper[deeper.length - 1]
-      const label = /^[0-9a-f-]{20,}$/i.test(last) ? "Detail" : last.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase())
-      list.push({ label: deeper.length > 1 && /^[0-9a-f-]{20,}$/i.test(deeper[0]) ? `Detail · ${label}` : label })
+      // One crumb per level below the module page: "<id>" is the record ("Count"), "rack/<id>" is a
+      // "Rack", a plain word is its own page. Every level but the last links back to itself.
+      const isId = (part: string) => /^[0-9a-f-]{20,}$/i.test(part) || part === "unassigned"
+      const words = (part: string) => part.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase())
+      let path = base
+      for (let index = 0; index < deeper.length; index += 1) {
+        const part = deeper[index]
+        const next = deeper[index + 1]
+        if (isId(part)) {
+          path += `/${part}`
+          // /logistics/dispatch/<job card>/print has no page at /logistics/dispatch/<job card>: no crumb for it.
+          if (base === "/logistics/dispatch" && next) continue
+          list.push({ label: RECORD_CRUMB[base] || "Detail", href: path })
+        } else if (next && isId(next)) {
+          path += `/${part}/${next}`
+          index += 1
+          list.push({ label: words(part), href: path })
+        } else {
+          path += `/${part}`
+          list.push({ label: PAGE_CRUMB[path] || words(part), href: path })
+        }
+      }
+      const tail = list[list.length - 1]
+      list[list.length - 1] = { ...tail, href: undefined }
     }
+    if (pageCrumb && list.length) list[list.length - 1] = { ...list[list.length - 1], label: pageCrumb, href: undefined }
     return list.length ? list : [{ label: "Workspace" }]
-  }, [groups, groupName, current, pathname])
+  }, [groups, groupName, current, pathname, navSearch, pageCrumb])
   const matches = useMemo(() => searchWorkspaceJumps(searchQuery, 100).filter(item => {
     const parent = navigationUnits.flatMap(group => group.items).filter(link => item.href === link.href || item.href.startsWith(link.href + "/") || MODULE_NAVIGATION[link.href]?.some(child => item.href === child.href || item.href.startsWith(child.href + "/"))).sort((a,b) => b.href.length-a.href.length)[0]
     return parent ? canSeeLink(parent, userRoles) : userRoles.has("Owner") || userRoles.has("Admin")
@@ -388,6 +434,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const signingOut = useRef(false)
   useEffect(() => {
     if (isLoading || user) return
+    forgetPeople()
     if (signingOut.current) { router.replace("/login"); return }
     router.replace(`/login?reason=session&next=${encodeURIComponent(window.location.pathname + window.location.search)}`)
   }, [isLoading, user, router])
@@ -417,6 +464,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     onToggle={toggleGroup}
     onNavigate={() => setMobileNavOpen(false)}
     subnav={MODULE_NAVIGATION}
+    search={navSearch}
     badges={navBadges}
   />
   if (isLoading) return <div className="tube-shell" role="status" aria-label="Loading workspace">
@@ -425,7 +473,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   </div>
   if (!user) return null
   return <div className="tube-shell" data-rail={sidebarPinned ? "expanded" : "compact"}>
-    <Suspense fallback={null}><EntryModeWatcher onChange={setEntryMode} /></Suspense>
+    <Suspense fallback={null}><SearchWatcher onChange={setNavSearch} /></Suspense>
     <a href="#workspace-content" className="tube-skip">Skip to workspace</a>
     <aside className="tube-rail" aria-label="Workspace navigation">
       <Link href="/dashboard" className="tube-brand" aria-label="Hari Om TubeOS home"><span className="tube-mark"><CircleDot size={18} strokeWidth={1.75} /></span><span className="tube-brand-label"><strong>Hari Om <span className="text-primary">TubeOS</span></strong><small>Paper tube manufacturing</small></span></Link>
@@ -468,7 +516,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <Link href={`/help?route=${encodeURIComponent(pathname)}`} className="tube-icon-button max-[400px]:!hidden" aria-label="Open page guide" title="Open page guide"><BookOpen size={17} /></Link>
         </div>
       </header>
-      <main id="workspace-content" tabIndex={-1} className="tube-content focus:outline-none"><div key={pathname} className="tube-page">{children}</div></main>
+      <main id="workspace-content" tabIndex={-1} className="tube-content focus:outline-none"><div key={pathname} className="tube-page">{namesReady ? children : <div className="space-y-5" role="status" aria-label="Loading page"><div className="skeleton h-8 w-72 max-w-full" /><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[0, 1, 2, 3].map(n => <div key={n} className="skeleton h-28 rounded-xl" />)}</div><div className="skeleton h-80 rounded-xl" /></div>}</div></main>
     </div>
     <RouteProgress />
     <MessageMirror />

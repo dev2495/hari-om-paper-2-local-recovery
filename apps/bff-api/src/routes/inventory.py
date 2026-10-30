@@ -270,7 +270,7 @@ async def consume_reservation(reservation_id: str, request: Request, token: str 
         request,
         token,
     )
-    await invalidate_books_cache(token, request.headers.get("X-Plant-ID", ""))
+    await invalidate_books_cache(request.headers.get("X-Plant-ID", "") or None)
     return response
 
 
@@ -301,16 +301,13 @@ async def list_opening_loads(request: Request, token: str = Depends(get_token)):
 
 @router.post("/stock-control/opening-loads")
 async def create_opening_load(request: Request, token: str = Depends(get_token)):
-    plant_id = request.headers.get("X-Plant-ID", "")
     try:
         body = await request.json()
     except Exception:
         body = {}
-    await assert_not_backdated(
-        token,
-        plant_id,
-        effective_date=body.get("effective_date") if isinstance(body, dict) else None,
-    )
+    # No BFF books guard here: inventory checks the go-live rule first ("Opening stock is closed…" once the
+    # go-live month is closed) and then the books lock itself (409 BOOKS_LOCKED), in the posting transaction.
+    # The BFF guard would answer a closed go-live month with BOOKS_LOCKED before that plainer sentence.
     response = await proxy_to_service(
         INVENTORY_SERVICE_URL,
         "/inventory/stock-control/opening-loads",
@@ -319,17 +316,35 @@ async def create_opening_load(request: Request, token: str = Depends(get_token))
         json_body=body if body else None,
     )
     payload = response_body_json(response) or {}
+    if payload.get("idempotent"):
+        return response  # a repeated click: the first post already told everyone
     await emit_from_response(
         response,
         token=token,
         event_type="INVENTORY_OPENING_LOAD_POSTED",
         title=f"Opening stock posted: {payload.get('document_no') or payload.get('id') or 'document'}",
-        message="Stores posted auditable opening stock into the inventory ledger.",
-        href="/inventory/stock-control",
+        message=f"Go-live opening stock: {payload.get('reel_count', 0)} reel(s) and {payload.get('lot_count', 0)} lot(s) are in stock.",
+        href="/inventory/opening-stock",
         recipient_roles=["Owner", "Admin", "Store", "Planner"],
         payload={"opening_load_id": str(payload.get("id") or "")},
     )
     return response
+
+
+# Go-live opening stock page (client 2026-10-30): what is posted, a check before posting, and labels.
+@router.get("/stock-control/opening-stock")
+async def get_opening_stock(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/stock-control/opening-stock", request, token)
+
+
+@router.post("/stock-control/opening-loads/preview")
+async def preview_opening_load(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/stock-control/opening-loads/preview", request, token)
+
+
+@router.get("/stock-control/opening-loads/{load_id}/labels")
+async def opening_load_labels(load_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/stock-control/opening-loads/{load_id}/labels", request, token)
 
 
 @router.get("/stock-control/certifications")
@@ -487,9 +502,239 @@ async def create_carry_forward(certification_id: str, request: Request, token: s
     return response
 
 
+@router.get("/books/locks")
+async def list_books_locks(request: Request, token: str = Depends(get_token)):
+    """Closed months of the store books for the plant (month-end close, client 2026-10-28)."""
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/books/locks", request, token)
+
+
+async def _books_lock_call(action: str, request: Request, token: str):
+    """POST /inventory/books/lock|unlock (spec 5). Owner only, checked by inventory; both are idempotent.
+
+    The web closes and re-opens a month through production's month-end close, which locks both
+    services together. These proxies keep the spec contract for tools and a repair after a half-done
+    close; the dated-write guard cache is dropped so the next write sees the new state at once."""
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/books/{action}", request, token)
+    if response.status_code < 300:
+        await invalidate_books_cache(request.headers.get("X-Plant-ID", "") or None)
+    return response
+
+
+@router.post("/books/lock")
+async def lock_books_month(request: Request, token: str = Depends(get_token)):
+    return await _books_lock_call("lock", request, token)
+
+
+@router.post("/books/unlock")
+async def unlock_books_month(request: Request, token: str = Depends(get_token)):
+    return await _books_lock_call("unlock", request, token)
+
+
 @router.get("/locations")
 async def get_locations(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/locations", request, token)
+
+
+# --- Locations, moves, counts, corrections and the stock book (client 2026-10-28, spec 2.1-2.7). ---
+# Plain proxies: the inventory service enforces roles (Owner-only approvals) and closed months itself.
+
+
+@router.get("/locations/overview")
+async def get_locations_overview(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/locations/overview", request, token)
+
+
+@router.get("/locations/unassigned")
+async def get_unassigned_stock(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/locations/unassigned", request, token)
+
+
+@router.post("/locations/put-away-all")
+async def put_away_all_unassigned(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/locations/put-away-all", request, token)
+
+
+@router.get("/locations/lots")
+async def get_lots_for_labels(request: Request, token: str = Depends(get_token)):
+    """Reels and lots by id, for printing their labels (new lots made by a count)."""
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/locations/lots", request, token)
+
+
+@router.get("/locations/{location_id}")
+async def get_location(location_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/locations/{location_id}", request, token)
+
+
+@router.patch("/locations/{location_id}")
+async def update_location(location_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/locations/{location_id}", request, token)
+
+
+@router.post("/stock-moves")
+async def create_stock_move(request: Request, token: str = Depends(get_token)):
+    """One reel or lot to another place in the store (from, to and who are recorded).
+
+    From the browser a move changes only the place (spec 2.7: location never changes QC status). A stock
+    status, or the reference production uses for its server-to-server QC hold release, is refused here.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=422, detail="Send the reel or lot and the place to move it to.")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=422, detail="Send the reel or lot and the place to move it to.")
+    if body.get("stock_status") not in (None, ""):
+        raise HTTPException(status_code=422, detail="A move changes only the place. QC status changes only through QC.")
+    if str(body.get("external_ref") or "").upper().startswith("QC-REL-"):
+        raise HTTPException(status_code=422, detail="That reference is kept for QC hold releases.")
+    clean = {key: value for key, value in body.items() if key != "stock_status"}
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/stock-moves", request, token, json_body=clean)
+
+
+@router.post("/stock-moves/scan")
+async def scan_move_stock(request: Request, token: str = Depends(get_token)):
+    """Phone move / put-away: a scanned label to a scanned rack."""
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/stock-moves/scan", request, token)
+
+
+@router.post("/stock-moves/scan/undo")
+async def undo_scan_move(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/stock-moves/scan/undo", request, token)
+
+
+@router.get("/stock-control/month-figures")
+async def get_month_figures(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/stock-control/month-figures", request, token)
+
+
+@router.get("/stock-control/month-figures/{item_id}/sources")
+async def get_month_figure_sources(item_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/stock-control/month-figures/{item_id}/sources", request, token)
+
+
+@router.get("/stock-control/corrections/lookup")
+async def lookup_correction_lot(request: Request, token: str = Depends(get_token)):
+    """What a label is (material, place, book qty, QC state) before a correction is raised."""
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/stock-control/corrections/lookup", request, token)
+
+
+@router.get("/stock-control/corrections")
+async def list_corrections(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/stock-control/corrections", request, token)
+
+
+@router.post("/stock-control/corrections")
+async def raise_correction(request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/stock-control/corrections", request, token)
+    payload = response_body_json(response) or {}
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="INVENTORY_CORRECTION_RAISED",
+        title=f"Stock correction waiting for you: {payload.get('voucher_no') or 'correction'}",
+        message=f"{payload.get('reason_label') or 'A stock correction'} raised by {payload.get('created_by') or 'the store'}. Approve or reject it in Stock counts & book.",
+        href="/inventory/stock-control?tab=corrections",
+        recipient_roles=["Owner"],
+        payload={"adjustment_id": str(payload.get("id") or "")},
+    )
+    return response
+
+
+@router.post("/stock-control/corrections/{voucher_id}/approve")
+async def approve_correction(voucher_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/stock-control/corrections/{voucher_id}/approve", request, token)
+
+
+@router.post("/stock-control/corrections/{voucher_id}/cancel")
+async def reject_correction(voucher_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/stock-control/corrections/{voucher_id}/cancel", request, token)
+
+
+@router.get("/counts")
+async def list_counts(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/counts", request, token)
+
+
+@router.post("/counts")
+async def start_count(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/counts", request, token)
+
+
+@router.get("/counts/{count_id}")
+async def get_count(count_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/counts/{count_id}", request, token)
+
+
+@router.get("/counts/{count_id}/racks/{rack_key}")
+async def get_count_rack(count_id: str, rack_key: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/counts/{count_id}/racks/{rack_key}", request, token)
+
+
+@router.post("/counts/{count_id}/racks/{rack_key}/{action}")
+async def count_rack_action(count_id: str, rack_key: str, action: str, request: Request, token: str = Depends(get_token)):
+    if action not in {"start", "done", "reopen"}:
+        raise HTTPException(status_code=404, detail="Not found")
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/counts/{count_id}/racks/{rack_key}/{action}", request, token)
+
+
+@router.post("/counts/{count_id}/scan")
+async def scan_in_count(count_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/counts/{count_id}/scan", request, token)
+
+
+@router.post("/counts/{count_id}/loose")
+async def add_loose_stock(count_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/counts/{count_id}/loose", request, token)
+
+
+@router.patch("/counts/{count_id}/entries/{entry_id}")
+async def update_count_entry(count_id: str, entry_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/counts/{count_id}/entries/{entry_id}", request, token)
+
+
+@router.post("/counts/{count_id}/entries/{entry_id}/{action}")
+async def count_entry_action(count_id: str, entry_id: str, action: str, request: Request, token: str = Depends(get_token)):
+    if action not in {"undo", "decide"}:
+        raise HTTPException(status_code=404, detail="Not found")
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/counts/{count_id}/entries/{entry_id}/{action}", request, token)
+
+
+@router.post("/counts/{count_id}/submit")
+async def submit_count(count_id: str, request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/counts/{count_id}/submit", request, token)
+    payload = response_body_json(response) or {}
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="INVENTORY_COUNT_SUBMITTED",
+        title=f"Stock count waiting for your approval: {payload.get('count_no') or count_id}",
+        message=f"{payload.get('kind_word') or 'A stock count'} was sent by {payload.get('submitted_by') or 'the store'}. Review and approve it.",
+        href=f"/inventory/counts/{count_id}",
+        recipient_roles=["Owner"],
+        payload={"count_id": count_id},
+    )
+    return response
+
+
+@router.post("/counts/{count_id}/{action}")
+async def count_action(count_id: str, action: str, request: Request, token: str = Depends(get_token)):
+    """Owner decisions (approve, send back) and cancel; the service checks who may do each."""
+    if action not in {"approve", "send-back", "cancel"}:
+        raise HTTPException(status_code=404, detail="Not found")
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/counts/{count_id}/{action}", request, token)
+    if action == "send-back":
+        payload = response_body_json(response) or {}
+        await emit_from_response(
+            response,
+            token=token,
+            event_type="INVENTORY_COUNT_SENT_BACK",
+            title=f"Recount asked: {payload.get('count_no') or count_id}",
+            message=str(payload.get("sent_back_note") or "The Owner sent the count back for a recount."),
+            href=f"/inventory/counts/{count_id}",
+            recipient_roles=["Store", "PlantManager"],
+            payload={"count_id": count_id},
+        )
+    return response
 
 
 @router.post("/locations")
@@ -502,7 +747,7 @@ async def create_location(request: Request, token: str = Depends(get_token)):
         event_type="INVENTORY_LOCATION_CREATED",
         title=f"Inventory location created: {payload.get('code') or payload.get('id') or 'new location'}",
         message="Stores can now use this location for reel and batch placement.",
-        href="/system/locations",
+        href="/inventory/locations",
         recipient_roles=["Owner", "Admin", "Store"],
         payload={"location_id": str(payload.get("id") or "")},
     )
@@ -783,6 +1028,12 @@ async def issue_parchment_by_weight(request: Request, token: str = Depends(get_t
 @router.get("/reel-issues")
 async def list_reel_issues(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(INVENTORY_SERVICE_URL, "/reel-issues", request, token)
+
+
+@router.get("/reel-issues/by-weight/coils")
+async def parchment_coils_to_pick(request: Request, token: str = Depends(get_token)):
+    """Which parchment coils a by-weight issue takes and where each sits ("Pick from <rack>")."""
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/reel-issues/by-weight/coils", request, token)
 
 
 @router.get("/reel-issues/slitting-report")

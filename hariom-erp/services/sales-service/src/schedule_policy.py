@@ -302,10 +302,18 @@ def propose_entire_po_rows(
                     line_id=line_id,
                 )
             for item in custom:
+                when = item.get("delivery_date") or default_date or getattr(line, "due_date", None)
+                if not when:
+                    raise SchedulePolicyError(
+                        f"Line {int(getattr(line, 'line_no', 0) or 0)} has no delivery date. Pick a date for its call-off.",
+                        code="MISSING_DATE",
+                        field="delivery_date",
+                        line_id=line_id,
+                    )
                 proposed.append(
                     {
                         "line_id": line_id,
-                        "delivery_date": item.get("delivery_date") or default_date or getattr(line, "due_date", None),
+                        "delivery_date": when,
                         "quantity": _qty(item.get("quantity")),
                         "status": _status(item.get("status") or "committed"),
                     }
@@ -313,10 +321,19 @@ def propose_entire_po_rows(
             continue
         if remaining <= 0:
             continue
+        when = default_date or getattr(line, "due_date", None)
+        if not when:
+            # Delivery dates are optional (client 2026-10-28): a line without one needs a date here.
+            raise SchedulePolicyError(
+                f"Line {int(getattr(line, 'line_no', 0) or 0)} has no delivery date. Pick a date for the call-offs.",
+                code="MISSING_DATE",
+                field="delivery_date",
+                line_id=line_id,
+            )
         proposed.append(
             {
                 "line_id": line_id,
-                "delivery_date": default_date or getattr(line, "due_date", None),
+                "delivery_date": when,
                 "quantity": remaining,
                 "status": "committed",
             }

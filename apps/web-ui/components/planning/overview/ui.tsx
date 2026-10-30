@@ -41,7 +41,8 @@ export function ResultChip({ result, short, className }: { result?: string | nul
 }
 
 export function DueChip({ due, today, className }: { due?: string | null; today?: string; className?: string }) {
-  if (!due) return <span className={cn("text-muted-foreground", className)}>—</span>
+  // Delivery date is optional on orders (client 2026-10-28): say so, never count it as late.
+  if (!due) return <span className={cn("whitespace-nowrap text-muted-foreground", className)}>No date</span>
   const tone = dueTone(due, today)
   return (
     <span className={cn("inline-flex items-center gap-1 whitespace-nowrap tabular-nums", tone === "neutral" ? "text-foreground" : cn("font-semibold", TONE[tone].ink), className)}>

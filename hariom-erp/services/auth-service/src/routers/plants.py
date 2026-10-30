@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -60,6 +61,34 @@ def _plant_lookup(db: Session, plant_id: str) -> models.Plant | None:
         return None
 
 
+# GST state / union-territory codes (first two digits of a GSTIN), same list as the party masters.
+_GST_STATE_CODES = {
+    "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18",
+    "19", "20", "21", "22", "23", "24", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37",
+    "38", "97", "99",
+}
+_GSTIN_PATTERN = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z][0-9A-Z][0-9A-Z]$")
+
+
+def _validated_gstin(value: str | None) -> str | None:
+    """The plant GSTIN prints on the delivery challan (client 2026-10-28). Blank clears it."""
+    gstin = re.sub(r"\s+", "", str(value or "")).upper()
+    if not gstin:
+        return None
+    if len(gstin) != 15:
+        raise HTTPException(status_code=422, detail=f"GSTIN must be 15 characters (got {len(gstin)})")
+    if not _GSTIN_PATTERN.match(gstin):
+        raise HTTPException(status_code=422, detail="GSTIN must be 2-digit state code + 10-character PAN + 3 characters, e.g. 24ABCDE1234F1Z5")
+    if gstin[:2] not in _GST_STATE_CODES:
+        raise HTTPException(status_code=422, detail=f"GSTIN starts with {gstin[:2]}, which is not a GST state code")
+    return gstin
+
+
+def _blank_to_none(value: str | None) -> str | None:
+    cleaned = str(value or "").strip()
+    return cleaned or None
+
+
 def _validated_code(value: str) -> str:
     code = str(value or "").strip().upper()
     if not code or code == "ALL":
@@ -92,15 +121,19 @@ def create_plant(
     _: models.User = Depends(require_role(["Owner", "Admin"])),
 ):
     code = _validated_code(payload.code)
+    # A name made only of spaces passes min_length but is empty once trimmed; refuse it like PATCH does.
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Plant name is required")
     if db.query(models.Plant).filter(models.Plant.code == code).first():
         raise HTTPException(status_code=409, detail="Plant code already exists")
     plant = models.Plant(
         id=uuid.uuid4(),
         code=code,
-        name=payload.name.strip(),
-        address=payload.address.strip() if payload.address else None,
-        legal_name=payload.legal_name.strip() if payload.legal_name else None,
-        gstin=payload.gstin.strip().upper() if payload.gstin else None,
+        name=name,
+        address=_blank_to_none(payload.address),
+        legal_name=_blank_to_none(payload.legal_name),
+        gstin=_validated_gstin(payload.gstin),
         is_active=payload.is_active,
     )
     db.add(plant)
@@ -120,17 +153,25 @@ def update_plant(
     if not plant:
         raise HTTPException(status_code=404, detail="Plant not found")
     updates = payload.model_dump(exclude_unset=True)
+    # These columns can never be empty; null is refused in plain words instead of failing on save.
+    for key, label in (("code", "Plant code"), ("name", "Plant name"), ("is_active", "Active / inactive")):
+        if key in updates and updates[key] is None:
+            raise HTTPException(status_code=422, detail=f"{label} is required")
     if "code" in updates and updates["code"] is not None:
         code = _validated_code(updates["code"])
         duplicate = db.query(models.Plant).filter(models.Plant.code == code).first()
         if duplicate and duplicate.id != plant.id:
             raise HTTPException(status_code=409, detail="Plant code already exists")
         updates["code"] = code
-    for key in ("name", "address", "legal_name"):
-        if isinstance(updates.get(key), str):
-            updates[key] = updates[key].strip()
-    if isinstance(updates.get("gstin"), str):
-        updates["gstin"] = updates["gstin"].strip().upper()
+    if isinstance(updates.get("name"), str):
+        updates["name"] = updates["name"].strip()
+        if not updates["name"]:
+            raise HTTPException(status_code=422, detail="Plant name is required")
+    for key in ("address", "legal_name"):
+        if key in updates:
+            updates[key] = _blank_to_none(updates[key])
+    if "gstin" in updates:
+        updates["gstin"] = _validated_gstin(updates["gstin"])
     for key, value in updates.items():
         setattr(plant, key, value)
     db.commit()

@@ -30,6 +30,7 @@ def test_mrp_recomputes_rows_and_rejects_stale_or_unreconciled_demand():
         body['demand_source_version']='old'
         with pytest.raises(HTTPException) as stale:asyncio.run(procurement_v2_proxy('mrp-runs',request(body),'token'))
         assert stale.value.status_code==409
+        # Demand problems are warnings now, never a 409 (client 2026-10-28).
         body['demand_source_version']='version-a';fresh['blocked']=[{'reason':'shared consumption'}]
-        with pytest.raises(HTTPException):asyncio.run(procurement_v2_proxy('mrp-runs',request(body),'token'))
-        assert proxy.await_count==1
+        asyncio.run(procurement_v2_proxy('mrp-runs',request(body),'token'))
+        assert proxy.await_count==2

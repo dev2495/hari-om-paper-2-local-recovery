@@ -36,6 +36,7 @@ import {
 } from "@/hooks/use-inventory"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
 import { parseScanCode } from "@/lib/scan-code"
+import { RackLabelHint } from "@/components/inventory/rack-label-hint"
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -55,7 +56,17 @@ function asArray(value: any) {
 }
 
 function kg(value: any) {
-  return `${Number(value || 0).toFixed(2)} kg`
+  // Indian grouping, as on the opening page and the labels: "1,250.5 kg".
+  return `${Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })} kg`
+}
+
+/** Where a reel came from: go-live opening stock says so with its date (client 2026-10-30), else the vendor. */
+function reelSource(reel: any, fallback: string) {
+  const genealogy = reel?.genealogy_metadata || {}
+  if (String(genealogy.source_document_type || "").toUpperCase() === "OPENING_LOAD") {
+    return genealogy.source_label || `Opening stock (${dayjs(reel.inward_date).isValid() ? dayjs(reel.inward_date).format("D MMM YYYY") : "go-live"})`
+  }
+  return reel?.supplier_name || fallback
 }
 
 function readableDate(value?: string | null) {
@@ -99,7 +110,8 @@ export default function InventoryGenealogyPage() {
   // A scanned label (or ?reel=) finds that one reel by id; typed text searches reel codes.
   const scannedSearch = parseScanCode(deferredSearch)
   const reelFilterId = deferredSearch ? reelIdOf(deferredSearch) : urlReelId
-  const reelSearch = scannedSearch.kind === "REEL" || scannedSearch.kind === "BATCH" ? scannedSearch.code : deferredSearch
+  // A rack label is not a reel: it searches nothing and the box says so (RackLabelHint).
+  const reelSearch = scannedSearch.kind === "REEL" || scannedSearch.kind === "BATCH" ? scannedSearch.code : scannedSearch.kind === "LOCATION" ? "" : deferredSearch
   const reelsQuery = useReels(reelFilterId ? { reel_ids: reelFilterId, limit: 101 } : { search: reelSearch || undefined, limit: 101 })
   const issuesQuery = useReelIssues(
     selectedReelId ? { reel_id: selectedReelId, limit: 120 } : { limit: 20 },
@@ -187,7 +199,7 @@ export default function InventoryGenealogyPage() {
     {
       label: "Inward reel",
       value: selectedReel?.reel_code || "No reel selected",
-      detail: selectedReel ? `${kg(selectedReel.inward_weight_kg)} received from ${selectedReel.supplier_name || "vendor not captured"}` : "Select a reel to load lineage.",
+      detail: selectedReel ? `${kg(selectedReel.inward_weight_kg)} received from ${reelSource(selectedReel, "vendor not captured")}` : "Select a reel to load lineage.",
       icon: Boxes,
     },
     {
@@ -462,6 +474,7 @@ export default function InventoryGenealogyPage() {
           </div>
         }
       >
+        <RackLabelHint value={search} expected="reel or coil label" className="mb-3" />
         {reelsQuery.isLoading ? (
           <EmptyState label="Loading reel genealogy window..." />
         ) : reels.length === 0 ? (
@@ -491,7 +504,7 @@ export default function InventoryGenealogyPage() {
                   <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
                     <span>Inward {kg(reel.inward_weight_kg)}</span>
                     <span>Current {kg(reel.current_weight_kg)}</span>
-                    <span>{reel.supplier_name || "Vendor -"}</span>
+                    <span>{reelSource(reel, "Vendor -")}</span>
                     <span>{reel.stock_status || "UNRESTRICTED"}</span>
                   </div>
                 </button>

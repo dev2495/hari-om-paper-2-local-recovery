@@ -716,13 +716,14 @@ export function useInventoryQualityInspections(params?: any, enabled = true) {
   })
 }
 
-export function useInventoryQualityConcessions(params?: any) {
+export function useInventoryQualityConcessions(params?: any, enabled = true) {
   return useQuery({
     queryKey: ["inventory-quality-concessions", params || {}],
     queryFn: async () => {
       const { data } = await inventoryApi.getInventoryQualityConcessions(params)
       return Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []
     },
+    enabled,
   })
 }
 

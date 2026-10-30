@@ -145,7 +145,7 @@ function PhoneCard({ job, track, hold, machineLabel }: { job: any; track: TrackS
           </span>
           <span className="shrink-0 text-right">
             <span className="block text-[15px] font-semibold tabular-nums">{Number(job.planned_qty || 0).toLocaleString("en-IN")}<span className="ml-0.5 text-[11px] font-normal text-muted-foreground">pcs</span></span>
-            {job.due_date ? <span className={cn("block text-[11.5px]", days !== null && days < 0 ? "font-semibold text-signal-rose-ink" : days !== null && days <= 3 ? "font-semibold text-signal-amber-ink" : "text-muted-foreground")}>due {dayText(job.due_date)} · {dueText(days)}</span> : null}
+            {job.due_date ? <span className={cn("block text-[11.5px]", days !== null && days < 0 ? "font-semibold text-signal-rose-ink" : days !== null && days <= 3 ? "font-semibold text-signal-amber-ink" : "text-muted-foreground")}>due {dayText(job.due_date)} · {dueText(days)}</span> : <span className="block text-[11.5px] text-muted-foreground">No date</span>}
           </span>
         </span>
         <StageBar job={job} />
@@ -550,7 +550,7 @@ export default function JobCardsPage() {
                           <span className="mt-0.5 block text-[11px] text-muted-foreground">released {dayText(job.created_at)}</span>
                         </td>
                         <td className="whitespace-nowrap">
-                          <span className="block tabular-nums text-foreground/90">{job.due_date ? dayText(job.due_date) : "—"}</span>
+                          <span className="block tabular-nums text-foreground/90">{job.due_date ? dayText(job.due_date) : <span className="text-muted-foreground">No date</span>}</span>
                           {days !== null ? <span className={cn("text-[11.5px] font-medium", days < 0 ? "text-signal-rose-ink" : days <= 3 ? "text-signal-amber-ink" : "text-muted-foreground")}>{dueText(days)}</span> : null}
                         </td>
                         <td className="hidden whitespace-nowrap xl:table-cell">

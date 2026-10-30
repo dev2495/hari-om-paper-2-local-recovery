@@ -8,6 +8,7 @@ from .database import Base, engine
 from .quality_templates import QC_TEMPLATE_PRESETS
 from .routers import (
     balance,
+    books,
     dispatch,
     fg_inward,
     health,
@@ -26,6 +27,7 @@ from .routers import (
     reels,
     reservations,
     stock_control,
+    stock_count,
     tool_assets,
     stock_moves,
     valuation,
@@ -644,6 +646,161 @@ def ensure_runtime_schema() -> None:
 ensure_runtime_schema()
 
 
+# Stock counts, locations, books lock and the RM inward calendar (client 2026-10-28). New tables come
+# from create_all; these add the columns on existing tables and backfill old rows once (columns are
+# added without a default first, filled, then given their default and NOT NULL), so a restart is a no-op.
+STOCK_COUNT_SCHEMA_STATEMENTS = (
+  # Locations: plain name, one receiving default per plant, who changed it last.
+  "ALTER TABLE inventory_locations ADD COLUMN IF NOT EXISTS name VARCHAR(120)",
+  "ALTER TABLE inventory_locations ADD COLUMN IF NOT EXISTS is_receiving_default BOOLEAN NOT NULL DEFAULT FALSE",
+  "ALTER TABLE inventory_locations ADD COLUMN IF NOT EXISTS updated_by VARCHAR(200)",
+  "ALTER TABLE inventory_locations ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
+  "CREATE UNIQUE INDEX IF NOT EXISTS uq_inventory_locations_receiving_default "
+  "ON inventory_locations (plant_id) WHERE is_receiving_default",
+  # Counts: kind / month / scope and the who-when-note of every step.
+  "ALTER TABLE inventory_certifications ADD COLUMN IF NOT EXISTS kind VARCHAR(20)",
+  "ALTER TABLE inventory_certifications ADD COLUMN IF NOT EXISTS month DATE",
+  "ALTER TABLE inventory_certifications ADD COLUMN IF NOT EXISTS scope_location_ids JSONB NOT NULL DEFAULT '[]'::jsonb",
+  "ALTER TABLE inventory_certifications ADD COLUMN IF NOT EXISTS scope_item_ids JSONB NOT NULL DEFAULT '[]'::jsonb",
+  *(
+    f"ALTER TABLE inventory_certifications ADD COLUMN IF NOT EXISTS {column} {kind}"
+    for column, kind in (
+      ("submitted_by", "VARCHAR(200)"), ("submitted_at", "TIMESTAMP"), ("submit_note", "VARCHAR(500)"),
+      ("approved_by", "VARCHAR(200)"), ("approved_at", "TIMESTAMP"), ("approve_note", "VARCHAR(500)"),
+      ("sent_back_by", "VARCHAR(200)"), ("sent_back_at", "TIMESTAMP"), ("sent_back_note", "VARCHAR(500)"),
+      ("cancelled_by", "VARCHAR(200)"), ("cancelled_at", "TIMESTAMP"), ("cancel_note", "VARCHAR(500)"),
+      ("updated_at", "TIMESTAMP"),
+    )
+  ),
+  # Old CERTIFIED (or carried-forward) certificates that cover exactly one calendar month become that
+  # month's MONTH_END count (one per plant and month, the newest); every other one is a SPOT count. An
+  # old DRAFT or SUBMITTED sheet stays SPOT: as a MONTH_END count it could never be approved or cancelled
+  # (it has no racks), so the month could never be counted or closed.
+  "WITH whole_month AS ("
+  " SELECT id, period_start, row_number() OVER ("
+  "  PARTITION BY plant_id, period_start"
+  "  ORDER BY created_at DESC NULLS LAST, id"
+  " ) AS rn"
+  " FROM inventory_certifications"
+  " WHERE kind IS NULL AND status IN ('CERTIFIED','CARRIED_FORWARD')"
+  "  AND period_start = date_trunc('month', period_start)::date"
+  "  AND period_end = (date_trunc('month', period_start) + interval '1 month - 1 day')::date"
+  ") "
+  "UPDATE inventory_certifications c SET kind = 'MONTH_END', month = w.period_start "
+  "FROM whole_month w WHERE c.id = w.id AND w.rn = 1 AND NOT EXISTS ("
+  " SELECT 1 FROM inventory_certifications x WHERE x.plant_id = c.plant_id AND x.month = w.period_start"
+  " AND x.kind = 'MONTH_END' AND x.status <> 'CANCELLED')",
+  "UPDATE inventory_certifications SET kind = 'SPOT' WHERE kind IS NULL",
+  # Repair for databases where the first version of this backfill made an uncertified old sheet the
+  # month's MONTH_END count. Rack counts always have rack rows, so only old sheets match.
+  "UPDATE inventory_certifications c SET kind = 'SPOT', month = NULL "
+  "WHERE c.kind = 'MONTH_END' AND c.status NOT IN ('CERTIFIED','CARRIED_FORWARD','APPROVED','CANCELLED') "
+  "AND NOT EXISTS (SELECT 1 FROM stock_count_locations l WHERE l.count_id = c.id)",
+  "UPDATE inventory_certifications SET approved_by = certified_by, approved_at = certified_at "
+  "WHERE approved_by IS NULL AND certified_by IS NOT NULL",
+  "ALTER TABLE inventory_certifications ALTER COLUMN kind SET DEFAULT 'SPOT'",
+  "ALTER TABLE inventory_certifications ALTER COLUMN kind SET NOT NULL",
+  # Many SPOT counts may share dates; only one live MONTH_END per plant and month.
+  "ALTER TABLE inventory_certifications DROP CONSTRAINT IF EXISTS uq_inventory_certifications_period",
+  "DROP INDEX IF EXISTS uq_inventory_certifications_period",
+  "CREATE UNIQUE INDEX IF NOT EXISTS uq_inventory_certifications_month_end "
+  "ON inventory_certifications (plant_id, month) WHERE kind = 'MONTH_END' AND status <> 'CANCELLED'",
+  "CREATE INDEX IF NOT EXISTS ix_inventory_certifications_plant_kind_status ON inventory_certifications (plant_id, kind, status)",
+  "ALTER TABLE inventory_certifications DROP CONSTRAINT IF EXISTS ck_inventory_certifications_kind",
+  "ALTER TABLE inventory_certifications ADD CONSTRAINT ck_inventory_certifications_kind CHECK (kind IN ('SPOT','MONTH_END'))",
+  "ALTER TABLE inventory_certifications DROP CONSTRAINT IF EXISTS ck_inventory_certifications_month_end_month",
+  "ALTER TABLE inventory_certifications ADD CONSTRAINT ck_inventory_certifications_month_end_month "
+  "CHECK (kind <> 'MONTH_END' OR month IS NOT NULL)",
+  # Corrections: the count that posted a voucher, and the Owner's reject note.
+  "ALTER TABLE stock_adjustment_vouchers ADD COLUMN IF NOT EXISTS count_id UUID REFERENCES inventory_certifications(id)",
+  "ALTER TABLE stock_adjustment_vouchers ADD COLUMN IF NOT EXISTS cancelled_by VARCHAR(200)",
+  "ALTER TABLE stock_adjustment_vouchers ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP",
+  "ALTER TABLE stock_adjustment_vouchers ADD COLUMN IF NOT EXISTS cancel_note VARCHAR(500)",
+  "CREATE INDEX IF NOT EXISTS ix_stock_adjustment_vouchers_count_id ON stock_adjustment_vouchers (count_id)",
+  "UPDATE stock_adjustment_vouchers v SET count_id = v.source_id "
+  "WHERE v.count_id IS NULL AND v.source_type = 'CERTIFICATION_VARIANCE' "
+  "AND EXISTS (SELECT 1 FROM inventory_certifications c WHERE c.id = v.source_id)",
+  # Purchase orders: source, Owner's schedule approval, sending and the vendor's confirmation.
+  "ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS source VARCHAR(20)",
+  "UPDATE purchase_orders SET source = CASE "
+  "WHEN NULLIF(metadata_json->>'source_plan_id', '') IS NOT NULL THEN 'PLAN' "
+  "WHEN NULLIF(metadata_json->>'requisition_id', '') IS NOT NULL THEN 'REQUISITION' "
+  "WHEN NULLIF(metadata_json->>'workbook_source', '') IS NOT NULL THEN 'WORKBOOK' "
+  "ELSE 'MANUAL' END WHERE source IS NULL",
+  "ALTER TABLE purchase_orders ALTER COLUMN source SET DEFAULT 'MANUAL'",
+  "ALTER TABLE purchase_orders ALTER COLUMN source SET NOT NULL",
+  *(
+    f"ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS {column} {kind}"
+    for column, kind in (
+      ("scheduled_by", "VARCHAR(200)"), ("scheduled_at", "TIMESTAMP"), ("approved_schedule_hash", "VARCHAR(64)"),
+      ("approval_source", "VARCHAR(20)"), ("sent_at", "TIMESTAMP"), ("sent_by", "VARCHAR(200)"),
+      ("sent_channel", "VARCHAR(20)"), ("vendor_confirmed_at", "TIMESTAMP"), ("vendor_confirmed_by", "VARCHAR(200)"),
+    )
+  ),
+  "UPDATE purchase_orders SET approval_source = 'OWNER' WHERE approval_source IS NULL AND approved_by IS NOT NULL",
+  "ALTER TABLE purchase_orders DROP CONSTRAINT IF EXISTS ck_purchase_orders_source",
+  "ALTER TABLE purchase_orders ADD CONSTRAINT ck_purchase_orders_source "
+  "CHECK (source IN ('MANUAL','SCHEDULE','REQUISITION','PLAN','WORKBOOK'))",
+  "ALTER TABLE purchase_orders DROP CONSTRAINT IF EXISTS ck_purchase_orders_sent_channel",
+  "ALTER TABLE purchase_orders ADD CONSTRAINT ck_purchase_orders_sent_channel "
+  "CHECK (sent_channel IS NULL OR sent_channel IN ('WHATSAPP','EMAIL','PDF','PRINT'))",
+  "ALTER TABLE purchase_orders DROP CONSTRAINT IF EXISTS ck_purchase_orders_approval_source",
+  "ALTER TABLE purchase_orders ADD CONSTRAINT ck_purchase_orders_approval_source "
+  "CHECK (approval_source IS NULL OR approval_source IN ('OWNER','SCHEDULE'))",
+  "CREATE INDEX IF NOT EXISTS ix_purchase_orders_plant_source_status ON purchase_orders (plant_id, source, status)",
+  # RM arrivals: approval status, source, who proposed / approved and the PO they became.
+  "ALTER TABLE procurement_plan_entries ADD COLUMN IF NOT EXISTS approval_status VARCHAR(20)",
+  "ALTER TABLE procurement_plan_entries ADD COLUMN IF NOT EXISTS source VARCHAR(20)",
+  *(
+    f"ALTER TABLE procurement_plan_entries ADD COLUMN IF NOT EXISTS {column} {kind}"
+    for column, kind in (
+      ("proposed_by", "VARCHAR(200)"), ("proposed_at", "TIMESTAMP"), ("approved_by", "VARCHAR(200)"),
+      ("approved_at", "TIMESTAMP"), ("cancelled_by", "VARCHAR(200)"), ("cancelled_at", "TIMESTAMP"),
+      ("updated_by", "VARCHAR(200)"), ("updated_at", "TIMESTAMP"),
+      ("po_id", "UUID REFERENCES purchase_orders(id)"),
+      ("po_line_id", "UUID REFERENCES purchase_order_lines(id)"),
+      ("schedule_row_id", "UUID REFERENCES purchase_line_schedules(id)"),
+    )
+  ),
+  # Entries already converted by the retired month plan are ON_PO with their PO links; the rest are
+  # proposals the Owner has not approved under the new rule.
+  "UPDATE procurement_plan_entries e SET approval_status = 'ON_PO', schedule_row_id = s.id, "
+  "po_line_id = s.purchase_order_line_id, po_id = l.purchase_order_id "
+  "FROM (SELECT DISTINCT ON (source_plan_entry_id) id, source_plan_entry_id, purchase_order_line_id "
+  "      FROM purchase_line_schedules WHERE source_plan_entry_id IS NOT NULL "
+  "      ORDER BY source_plan_entry_id, created_at NULLS LAST, id) s "
+  "JOIN purchase_order_lines l ON l.id = s.purchase_order_line_id "
+  "WHERE e.id = s.source_plan_entry_id AND e.approval_status IS NULL",
+  "UPDATE procurement_plan_entries SET approval_status = CASE WHEN COALESCE(converted_qty_kg, 0) > 0 "
+  "THEN 'ON_PO' ELSE 'PROPOSED' END WHERE approval_status IS NULL",
+  "UPDATE procurement_plan_entries SET source = 'MANUAL' WHERE source IS NULL",
+  "UPDATE procurement_plan_entries e SET proposed_by = p.created_by, proposed_at = e.created_at "
+  "FROM procurement_plans p WHERE p.id = e.plan_id AND e.proposed_by IS NULL",
+  "ALTER TABLE procurement_plan_entries ALTER COLUMN approval_status SET DEFAULT 'PROPOSED'",
+  "ALTER TABLE procurement_plan_entries ALTER COLUMN approval_status SET NOT NULL",
+  "ALTER TABLE procurement_plan_entries ALTER COLUMN source SET DEFAULT 'MANUAL'",
+  "ALTER TABLE procurement_plan_entries ALTER COLUMN source SET NOT NULL",
+  "ALTER TABLE procurement_plan_entries DROP CONSTRAINT IF EXISTS ck_procurement_plan_entry_approval_status",
+  "ALTER TABLE procurement_plan_entries ADD CONSTRAINT ck_procurement_plan_entry_approval_status "
+  "CHECK (approval_status IN ('PROPOSED','APPROVED','ON_PO','CANCELLED'))",
+  "ALTER TABLE procurement_plan_entries DROP CONSTRAINT IF EXISTS ck_procurement_plan_entry_source",
+  "ALTER TABLE procurement_plan_entries ADD CONSTRAINT ck_procurement_plan_entry_source CHECK (source IN ('MANUAL','SUGGESTED'))",
+  "CREATE INDEX IF NOT EXISTS ix_procurement_plan_entries_po_id ON procurement_plan_entries (po_id)",
+  "CREATE INDEX IF NOT EXISTS ix_procurement_plan_entries_item_date ON procurement_plan_entries (item_id, entry_date)",
+)
+
+
+def ensure_stock_count_and_schedule_schema() -> None:
+  """Runs STOCK_COUNT_SCHEMA_STATEMENTS in one transaction: a failure stops the start instead of
+  leaving half a schema."""
+  with engine.begin() as connection:
+    for statement in STOCK_COUNT_SCHEMA_STATEMENTS:
+      connection.execute(text(statement))
+
+
+ensure_stock_count_and_schedule_schema()
+
+
 def backfill_fail_accept_concession_eligibility() -> dict[str, int]:
     """Classify pre-existing FAIL+ACCEPT inspections that never got a concession.
 
@@ -738,7 +895,10 @@ backfill_fail_accept_concession_eligibility()
 
 
 def seed_default_locations() -> None:
-  """Seed practical store locations so inward screens never start with blank selects."""
+  """Seed practical store locations so inward screens never start with blank selects.
+
+  Only missing rows are added: a location the store edited or switched off stays as the store left it
+  (locations are managed on Stores → Locations, client 2026-10-28)."""
   default_locations = (
     {
       "id": "00000000-0000-0000-0000-00000000aa01",
@@ -803,12 +963,7 @@ def seed_default_locations() -> None:
     VALUES (
       :id, :plant_id, :code, :warehouse, :zone, :bin, :purpose, 'true', NOW()
     )
-    ON CONFLICT (plant_id, code) DO UPDATE SET
-      warehouse = EXCLUDED.warehouse,
-      zone = EXCLUDED.zone,
-      bin = EXCLUDED.bin,
-      purpose = EXCLUDED.purpose,
-      active = 'true'
+    ON CONFLICT (plant_id, code) DO NOTHING
     """
   )
   with engine.begin() as connection:
@@ -817,6 +972,35 @@ def seed_default_locations() -> None:
 
 
 seed_default_locations()
+
+
+def seed_receiving_default_locations() -> None:
+  """Every plant gets an "RM store" receiving default (spec 2.7) and every location a plain name.
+
+  Idempotent: names are only filled where empty; RM-STORE is created (or flagged) only for a plant
+  that has no receiving default yet.
+  """
+  with engine.begin() as connection:
+    connection.execute(text(
+      "UPDATE inventory_locations SET name = CASE "
+      "WHEN bin IS NOT NULL AND UPPER(bin) NOT IN ('WIP', 'FG') "
+      "THEN upper(left(warehouse, 1)) || lower(substr(warehouse, 2)) || ' · ' || bin "
+      "ELSE upper(left(warehouse, 1)) || lower(substr(warehouse, 2)) END "
+      "WHERE name IS NULL OR btrim(name) = ''"
+    ))
+    connection.execute(text(
+      "INSERT INTO inventory_locations "
+      "(id, plant_id, code, warehouse, zone, bin, purpose, active, name, is_receiving_default, updated_by, updated_at, created_at) "
+      "SELECT gen_random_uuid(), plants.plant_id, 'RM-STORE', 'RAW MATERIAL STORE', NULL, NULL, 'STORAGE', 'true', "
+      "'RM store', TRUE, 'system', NOW(), NOW() "
+      "FROM (SELECT DISTINCT plant_id FROM inventory_locations) AS plants "
+      "WHERE NOT EXISTS (SELECT 1 FROM inventory_locations l WHERE l.plant_id = plants.plant_id AND l.is_receiving_default) "
+      "ON CONFLICT (plant_id, code) DO UPDATE SET is_receiving_default = TRUE, active = 'true', "
+      "name = COALESCE(NULLIF(btrim(inventory_locations.name), ''), 'RM store'), updated_by = 'system', updated_at = NOW()"
+    ))
+
+
+seed_receiving_default_locations()
 
 
 def seed_default_quality_templates() -> None:
@@ -943,6 +1127,9 @@ app.include_router(stock_moves.router)
 app.include_router(health.router)
 app.include_router(valuation.router)
 app.include_router(stock_control.router)
+app.include_router(stock_count.router)
+from .routers import opening_stock; app.include_router(opening_stock.router)  # noqa: E402,E702 go-live opening stock page
+app.include_router(books.router)
 app.include_router(tool_assets.router)
 
 

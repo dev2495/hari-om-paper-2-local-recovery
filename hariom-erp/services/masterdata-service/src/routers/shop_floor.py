@@ -712,6 +712,18 @@ reason_router = APIRouter(prefix="/master/reason-codes", tags=["Master · Reason
 # SO_CLOSE: reasons for cancelling or short-closing a sales order (2026-10-20, seeded by reason_seed.py).
 REASON_CATEGORIES = {"DOWNTIME", "SCRAP", "QC_REJECT", "SHORT_CLOSE", "RM_ISSUE", "RETURN", "CUSTOMER_COMPLAINT", "SO_CLOSE", "OTHER"}
 REASON_SEVERITIES = {"OK", "WATCH", "CRITICAL"}
+# Order close reasons are the Owner's list (client 2026-10-28): a Plant Manager may keep the
+# floor reason lists, but only the Owner or an Admin adds, renames or deactivates SO_CLOSE rows.
+OWNER_ONLY_REASON_CATEGORIES = {"SO_CLOSE"}
+
+
+def _require_reason_category_writer(current_user: dict, *categories: Optional[str]) -> None:
+    touched = {str(c or "").strip().upper() for c in categories} & OWNER_ONLY_REASON_CATEGORIES
+    if not touched:
+        return
+    roles = {str(role) for role in (current_user.get("roles") or [])} if isinstance(current_user, dict) else set()
+    if not roles & {"Owner", "Admin"}:
+        raise HTTPException(status_code=403, detail="Only the Owner or an Admin can change order close reasons.")
 
 
 class ReasonCreate(BaseModel):
@@ -785,6 +797,7 @@ def create_reason(
         raise HTTPException(status_code=422, detail="code and label are required")
     if cat not in REASON_CATEGORIES:
         raise HTTPException(status_code=422, detail=f"category must be one of {sorted(REASON_CATEGORIES)}")
+    _require_reason_category_writer(current_user, cat)
     if sev not in REASON_SEVERITIES:
         raise HTTPException(status_code=422, detail=f"severity must be one of {sorted(REASON_SEVERITIES)}")
     exists = (
@@ -845,9 +858,38 @@ def update_reason(
     if not model:
         raise HTTPException(status_code=404, detail="Reason code not found")
     updates = payload.model_dump(exclude_unset=True)
+    _require_reason_category_writer(current_user, model.category, updates.get("category"))
+    new_category = str(updates.get("category") or "").strip().upper()
+    current_category = str(model.category or "").strip().upper()
+    if new_category and new_category != current_category and (
+        current_category in OWNER_ONLY_REASON_CATEGORIES or new_category in OWNER_ONLY_REASON_CATEGORIES
+    ):
+        # An order close reason stays an order close reason: moving it out (and back) would let its code change
+        # and leave closed orders pointing to a reason that is no longer in the close list (final check, 30 Oct).
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "An order close reason stays in its own list, because closed orders still point to it. "
+                "Manage it on Masters › Order close reasons: change its name, or deactivate it and add a new one."
+            ),
+        )
+    new_code = str(updates.get("code") or "").strip().upper()
+    if new_code and new_code != model.code:
+        # Closed orders keep the code they were closed with, so an order close reason keeps its code for good
+        # (checker round 4, 28 Oct): only its label can change.
+        if model.category in OWNER_ONLY_REASON_CATEGORIES:
+            raise HTTPException(status_code=409, detail="An order close reason keeps its code, because closed orders still point to it. Change its name instead, or deactivate it and add a new one.")
+        taken = (
+            db.query(models.ReasonCode)
+            .filter(models.ReasonCode.plant_id.in_(plant_values), models.ReasonCode.code == new_code, models.ReasonCode.id != model.id)
+            .first()
+        )
+        if taken:
+            raise HTTPException(status_code=409, detail=f"Reason code {new_code} is already used in this plant. Choose another code.")
     for key, value in updates.items():
         if key == "code" and value is not None:
-            model.code = str(value).strip().upper()
+            if str(value).strip():
+                model.code = str(value).strip().upper()
         elif key == "label" and value is not None:
             model.label = str(value).strip()
         elif key == "category" and value is not None:
@@ -900,6 +942,7 @@ def deactivate_reason(
     )
     if not model:
         raise HTTPException(status_code=404, detail="Reason code not found")
+    _require_reason_category_writer(current_user, model.category)
     model.active = False
     db.commit()
     try:

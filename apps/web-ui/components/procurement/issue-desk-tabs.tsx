@@ -17,7 +17,7 @@ export function IssueDeskTabs() {
       {tabs.map((tab) => {
         const active = pathname.startsWith(tab.href)
         return (
-          <Link key={tab.href} href={tab.href} aria-current={active ? "page" : undefined} title={tab.hint} className={cn("rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition", active ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground hover:text-foreground")}>
+          <Link key={tab.href} href={tab.href} aria-current={active ? "page" : undefined} title={tab.hint} className={cn("inline-flex min-h-11 items-center rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition sm:min-h-9", active ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground hover:text-foreground")}>
             {tab.label}
           </Link>
         )

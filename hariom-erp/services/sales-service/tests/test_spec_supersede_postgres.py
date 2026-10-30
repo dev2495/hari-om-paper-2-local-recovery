@@ -53,7 +53,7 @@ def test_unreleased_lines_move_to_the_approved_revision_and_repeat_is_a_noop(db)
 def test_a_lot_production_never_picked_up_follows_the_line(db):
     old, new = uuid.uuid4(), uuid.uuid4()
     line = _line(db, old)
-    so.bulk_release_sales_order_lines([so.BulkReleaseLinePayload(line_id=line, release_qty=400, winder_machine_id=uuid.uuid4())], db=db, plant_id=PLANT, current_user=USER)
+    so.bulk_release_sales_order_lines([so.BulkReleaseLinePayload(line_id=line, release_qty=400, winder_machine_id=uuid.uuid4(), parchment_color="Natural")], db=db, plant_id=PLANT, current_user=USER)
     moved = so.supersede_spec_on_open_lines(so.SpecSupersedePayload(from_spec_id=old, to_spec_id=new), db=db, plant_id=PLANT, current_user=USER)
     assert moved['moved'] == 1
     db.expire_all()
@@ -64,7 +64,7 @@ def test_a_line_already_released_to_production_blocks_the_revision(db):
     from src.models import SalesOrderReleaseLot
     old, new = uuid.uuid4(), uuid.uuid4()
     line = _line(db, old)
-    so.bulk_release_sales_order_lines([so.BulkReleaseLinePayload(line_id=line, release_qty=400, winder_machine_id=uuid.uuid4())], db=db, plant_id=PLANT, current_user=USER)
+    so.bulk_release_sales_order_lines([so.BulkReleaseLinePayload(line_id=line, release_qty=400, winder_machine_id=uuid.uuid4(), parchment_color="Natural")], db=db, plant_id=PLANT, current_user=USER)
     lot = db.query(SalesOrderReleaseLot).filter(SalesOrderReleaseLot.sales_order_line_id == line).one()
     lot.job_card_id = uuid.uuid4()  # production built a job card from the current version
     db.commit()
@@ -110,7 +110,7 @@ def test_orders_production_built_job_cards_from_stay_and_stop_the_move(db):
     from src.models import SalesOrderReleaseLot
     line = _line(db, uuid.uuid4())
     duplicate = _order(db, line).customer_id
-    so.bulk_release_sales_order_lines([so.BulkReleaseLinePayload(line_id=line, release_qty=400, winder_machine_id=uuid.uuid4())], db=db, plant_id=PLANT, current_user=USER)
+    so.bulk_release_sales_order_lines([so.BulkReleaseLinePayload(line_id=line, release_qty=400, winder_machine_id=uuid.uuid4(), parchment_color="Natural")], db=db, plant_id=PLANT, current_user=USER)
     payload = so.CustomerReassignPayload(from_customer_id=duplicate, to_customer_id=uuid.uuid4())
     # A lot production never picked up does not stop the move.
     assert so.reassign_customer_orders(payload.model_copy(update={'dry_run': True}), db=db, plant_id=PLANT, current_user=USER)['moved'] == 1

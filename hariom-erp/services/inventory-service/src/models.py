@@ -9,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -16,6 +17,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     JSON,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship, synonym
@@ -127,10 +129,20 @@ class InventoryLocation(Base):
     bin = Column(String(120), nullable=True)
     purpose = Column(String(120), nullable=True)
     active = Column(SQLEnum("true", "false", name="boolean_enum"), default="true")
+    # Plain name shown with the code ("RM store", "Paper rack A1"); the receiving default is where a
+    # GRN puts stock when no rack is chosen, one per plant (client 2026-10-28).
+    name = Column(String(120), nullable=True)
+    is_receiving_default = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    updated_by = Column(String(200), nullable=True)
+    updated_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (
         UniqueConstraint("plant_id", "code", name="uq_inventory_locations_plant_code"),
+        Index(
+            "uq_inventory_locations_receiving_default", "plant_id", unique=True,
+            postgresql_where=text("is_receiving_default"),
+        ),
     )
 
 
@@ -753,11 +765,39 @@ class InventoryCertification(Base):
     certified_at = Column(DateTime, nullable=True)
     carried_forward_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # A certification is also a stock count (client 2026-10-28): SPOT counts any time (a few racks or
+    # items), one MONTH_END count per plant and month (``month`` = its 1st). Scope lists are empty for a
+    # whole-store count. Status flow DRAFT (counting) -> SUBMITTED -> CERTIFIED (Owner approval), or
+    # back to DRAFT ("send back for recount"), or CANCELLED; each step keeps who, when and a note.
+    kind = Column(String(20), nullable=False, default="SPOT", server_default="SPOT")
+    month = Column(Date, nullable=True)
+    scope_location_ids = Column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    scope_item_ids = Column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    submitted_by = Column(String(200), nullable=True)
+    submitted_at = Column(DateTime, nullable=True)
+    submit_note = Column(String(500), nullable=True)
+    approved_by = Column(String(200), nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+    approve_note = Column(String(500), nullable=True)
+    sent_back_by = Column(String(200), nullable=True)
+    sent_back_at = Column(DateTime, nullable=True)
+    sent_back_note = Column(String(500), nullable=True)
+    cancelled_by = Column(String(200), nullable=True)
+    cancelled_at = Column(DateTime, nullable=True)
+    cancel_note = Column(String(500), nullable=True)
+    updated_at = Column(DateTime, nullable=True)
 
     lines = relationship("InventoryCertificationLine", back_populates="header", cascade="all, delete-orphan")
 
     __table_args__ = (
-        UniqueConstraint("plant_id", "period_start", "period_end", name="uq_inventory_certifications_period"),
+        # Many SPOT counts may share dates; only one live MONTH_END count per plant and month.
+        Index(
+            "uq_inventory_certifications_month_end", "plant_id", "month", unique=True,
+            postgresql_where=text("kind = 'MONTH_END' AND status <> 'CANCELLED'"),
+        ),
+        Index("ix_inventory_certifications_plant_kind_status", "plant_id", "kind", "status"),
+        CheckConstraint("kind IN ('SPOT','MONTH_END')", name="ck_inventory_certifications_kind"),
+        CheckConstraint("kind <> 'MONTH_END' OR month IS NOT NULL", name="ck_inventory_certifications_month_end_month"),
     )
 
 
@@ -807,6 +847,105 @@ class InventoryCertificationLine(Base):
     batch = relationship("StockBatch")
     reel = relationship("PaperReel")
     inventory_location = relationship("InventoryLocation")
+
+
+class StockCountLocation(Base):
+    """One rack (or the "Unassigned" bucket) inside a stock count, with who counts it and its progress.
+
+    ``bucket`` LOCATION has a ``location_id``; UNASSIGNED collects stock that has no location yet.
+    Status TODO -> COUNTING -> DONE, or RECOUNT when the Owner sends the count back.
+    """
+
+    __tablename__ = "stock_count_locations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    count_id = Column(UUID(as_uuid=True), ForeignKey("inventory_certifications.id"), nullable=False, index=True)
+    plant_id = Column(String(50), nullable=False, index=True)
+    bucket = Column(String(20), nullable=False, default="LOCATION", server_default="LOCATION")
+    location_id = Column(UUID(as_uuid=True), ForeignKey("inventory_locations.id"), nullable=True, index=True)
+    status = Column(String(20), nullable=False, default="TODO", server_default="TODO")
+    counted_by = Column(String(200), nullable=True)
+    started_by = Column(String(200), nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    done_by = Column(String(200), nullable=True)
+    done_at = Column(DateTime, nullable=True)
+    recount_note = Column(String(500), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=True)
+
+    count = relationship("InventoryCertification")
+    inventory_location = relationship("InventoryLocation")
+
+    __table_args__ = (
+        UniqueConstraint("count_id", "location_id", name="uq_stock_count_locations_rack"),
+        Index(
+            "uq_stock_count_locations_unassigned", "count_id", unique=True,
+            postgresql_where=text("bucket = 'UNASSIGNED'"),
+        ),
+        CheckConstraint("bucket IN ('LOCATION','UNASSIGNED')", name="ck_stock_count_locations_bucket"),
+        CheckConstraint("bucket <> 'LOCATION' OR location_id IS NOT NULL", name="ck_stock_count_locations_location"),
+        CheckConstraint("status IN ('TODO','COUNTING','DONE','RECOUNT')", name="ck_stock_count_locations_status"),
+    )
+
+
+class StockCountEntry(Base):
+    """One counted thing in a stock count (spec 2.3): a reel/coil, a lot, or loose stock of an item.
+
+    ``expected_qty`` is the live book quantity at the moment it was counted (or the rack was closed);
+    ``variance_qty`` = counted - expected. ``movement_flag`` labels stock that moved during the count
+    (ISSUED_AFTER_COUNT, RECEIVED_AFTER_COUNT, ISSUED_DURING_COUNT, RECEIVED_DURING_COUNT). ``decision``
+    holds the Owner's choice where one is needed (LEAVE_AS_USED / ADD_ON_QC_HOLD for a reel the system
+    says was issued). ``adjustment_line_id`` links the posted correction line after approval.
+    """
+
+    __tablename__ = "stock_count_entries"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    count_id = Column(UUID(as_uuid=True), ForeignKey("inventory_certifications.id"), nullable=False, index=True)
+    count_location_id = Column(UUID(as_uuid=True), ForeignKey("stock_count_locations.id"), nullable=True, index=True)
+    plant_id = Column(String(50), nullable=False, index=True)
+    entity_type = Column(String(20), nullable=False)
+    reel_id = Column(UUID(as_uuid=True), ForeignKey("paper_reels.id"), nullable=True, index=True)
+    batch_id = Column(UUID(as_uuid=True), ForeignKey("stock_batch.id"), nullable=True, index=True)
+    item_id = Column(UUID(as_uuid=True), ForeignKey("item_master.id"), nullable=False, index=True)
+    uom = Column(String(20), nullable=True)
+    location_id = Column(UUID(as_uuid=True), ForeignKey("inventory_locations.id"), nullable=True, index=True)
+    expected_location_id = Column(UUID(as_uuid=True), ForeignKey("inventory_locations.id"), nullable=True)
+    expected_qty = Column(Float, nullable=False, default=0.0)
+    counted_qty = Column(Float, nullable=True)
+    variance_qty = Column(Float, nullable=False, default=0.0)
+    unit_cost = Column(Float, nullable=True)
+    status = Column(String(30), nullable=False, default="FOUND")
+    movement_flag = Column(String(40), nullable=True)
+    decision = Column(String(30), nullable=True)
+    decided_by = Column(String(200), nullable=True)
+    decided_at = Column(DateTime, nullable=True)
+    scan_code = Column(String(300), nullable=True)
+    client_ref = Column(String(120), nullable=True)
+    note = Column(String(500), nullable=True)
+    counted_by = Column(String(200), nullable=True)
+    counted_at = Column(DateTime, nullable=True)
+    adjustment_line_id = Column(UUID(as_uuid=True), ForeignKey("stock_adjustment_lines.id"), nullable=True)
+    created_reel_id = Column(UUID(as_uuid=True), ForeignKey("paper_reels.id"), nullable=True)
+    created_batch_id = Column(UUID(as_uuid=True), ForeignKey("stock_batch.id"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=True)
+
+    count = relationship("InventoryCertification")
+    count_location = relationship("StockCountLocation")
+    item = relationship("ItemMaster")
+    reel = relationship("PaperReel", foreign_keys=[reel_id])
+    batch = relationship("StockBatch", foreign_keys=[batch_id])
+    inventory_location = relationship("InventoryLocation", foreign_keys=[location_id])
+    expected_location = relationship("InventoryLocation", foreign_keys=[expected_location_id])
+
+    __table_args__ = (
+        UniqueConstraint("count_id", "client_ref", name="uq_stock_count_entries_client_ref"),
+        Index("ix_stock_count_entries_count_status", "count_id", "status"),
+        CheckConstraint("entity_type IN ('REEL','BATCH','LOOSE')", name="ck_stock_count_entries_entity"),
+        CheckConstraint("entity_type <> 'REEL' OR reel_id IS NOT NULL", name="ck_stock_count_entries_reel"),
+        CheckConstraint("entity_type <> 'BATCH' OR batch_id IS NOT NULL", name="ck_stock_count_entries_batch"),
+    )
 
 
 class InventoryCarryForward(Base):
@@ -871,6 +1010,12 @@ class StockAdjustmentVoucher(Base):
     approved_by = Column(String(200), nullable=True)
     posted_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # The stock count whose approval posted this voucher (spec 2.3), and the Owner's reason when a
+    # raised correction is rejected (CANCELLED, spec 2.4).
+    count_id = Column(UUID(as_uuid=True), ForeignKey("inventory_certifications.id"), nullable=True, index=True)
+    cancelled_by = Column(String(200), nullable=True)
+    cancelled_at = Column(DateTime, nullable=True)
+    cancel_note = Column(String(500), nullable=True)
 
     lines = relationship("StockAdjustmentLine", back_populates="header", cascade="all, delete-orphan")
 
@@ -920,6 +1065,40 @@ class StockAdjustmentLine(Base):
     )
 
 
+class InventoryBooksLock(Base):
+    """A closed month in the store books, per plant (spec 2.5).
+
+    Production's month-end close locks the month here and re-open unlocks it; store movements dated
+    inside a LOCKED month are refused (services/books.py ``assert_books_open``). One row per plant and
+    month; ``history`` keeps every lock / unlock with who, when and the reason.
+    """
+
+    __tablename__ = "inventory_books_locks"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True)
+    month = Column(Date, nullable=False)
+    status = Column(String(20), nullable=False, default="LOCKED", server_default="LOCKED")
+    locked_by = Column(String(200), nullable=True)
+    locked_at = Column(DateTime, nullable=True)
+    lock_note = Column(String(500), nullable=True)
+    unlocked_by = Column(String(200), nullable=True)
+    unlocked_at = Column(DateTime, nullable=True)
+    unlock_reason = Column(String(500), nullable=True)
+    history = Column(JSON, nullable=False, default=list)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("plant_id", "month", name="uq_inventory_books_locks_month"),
+        CheckConstraint("status IN ('LOCKED','UNLOCKED')", name="ck_inventory_books_locks_status"),
+    )
+
+
+PURCHASE_ORDER_SOURCES = ("MANUAL", "SCHEDULE", "REQUISITION", "PLAN", "WORKBOOK")
+PURCHASE_ORDER_SEND_CHANNELS = ("WHATSAPP", "EMAIL", "PDF", "PRINT")
+
+
 class PurchaseOrder(Base):
     __tablename__ = "purchase_orders"
 
@@ -944,6 +1123,20 @@ class PurchaseOrder(Base):
     submitted_at = Column(DateTime, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Where the PO came from (RM inward calendar, spec 3): SCHEDULE drafts are made from Owner-approved
+    # arrivals and carry the hash of what he approved; approval_source says whether the PO approval was
+    # the Owner's normal approval (OWNER) or his schedule approval (SCHEDULE). Sending and the vendor's
+    # confirmation are stamped here.
+    source = Column(String(20), nullable=False, default="MANUAL", server_default="MANUAL")
+    scheduled_by = Column(String(200), nullable=True)
+    scheduled_at = Column(DateTime, nullable=True)
+    approved_schedule_hash = Column(String(64), nullable=True)
+    approval_source = Column(String(20), nullable=True)
+    sent_at = Column(DateTime, nullable=True)
+    sent_by = Column(String(200), nullable=True)
+    sent_channel = Column(String(20), nullable=True)
+    vendor_confirmed_at = Column(DateTime, nullable=True)
+    vendor_confirmed_by = Column(String(200), nullable=True)
 
     lines = relationship("PurchaseOrderLine", back_populates="order", cascade="all, delete-orphan")
     receipts = relationship("PurchaseReceipt", back_populates="order", cascade="all, delete-orphan")
@@ -955,6 +1148,19 @@ class PurchaseOrder(Base):
             "status IN ('DRAFT','SUBMITTED','APPROVED','REJECTED','REVISION_REQUIRED','PARTIALLY_RECEIVED','RECEIVED','SHORT_CLOSED','CANCELLED')",
             name="ck_purchase_orders_status",
         ),
+        CheckConstraint(
+            "source IN ('MANUAL','SCHEDULE','REQUISITION','PLAN','WORKBOOK')",
+            name="ck_purchase_orders_source",
+        ),
+        CheckConstraint(
+            "sent_channel IS NULL OR sent_channel IN ('WHATSAPP','EMAIL','PDF','PRINT')",
+            name="ck_purchase_orders_sent_channel",
+        ),
+        CheckConstraint(
+            "approval_source IS NULL OR approval_source IN ('OWNER','SCHEDULE')",
+            name="ck_purchase_orders_approval_source",
+        ),
+        Index("ix_purchase_orders_plant_source_status", "plant_id", "source", "status"),
     )
 
 
@@ -1486,8 +1692,27 @@ class ProcurementPlanEntry(Base):
     expected_unit_count = Column(Integer, nullable=True)
     status = Column(String(20), nullable=False, default="PLANNED")
     notes = Column(Text, nullable=True)
+    # The spec's "note" on an arrival is this same column.
+    note = synonym("notes")
     converted_qty_kg = Column(Numeric(18, 3), nullable=False, default=0)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    # An entry is one RM arrival on the inward calendar (spec 3): PROPOSED by Planner / Store / plant
+    # head (MANUAL) or by "Suggest arrivals" (SUGGESTED), APPROVED by the Owner, ON_PO once it is a
+    # dated line on a draft PO (po_id / po_line_id / schedule_row_id), or CANCELLED. ``status`` and
+    # ``converted_qty_kg`` stay for the retired month plans.
+    approval_status = Column(String(20), nullable=False, default="PROPOSED", server_default="PROPOSED")
+    source = Column(String(20), nullable=False, default="MANUAL", server_default="MANUAL")
+    proposed_by = Column(String(200), nullable=True)
+    proposed_at = Column(DateTime, nullable=True)
+    approved_by = Column(String(200), nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+    cancelled_by = Column(String(200), nullable=True)
+    cancelled_at = Column(DateTime, nullable=True)
+    updated_by = Column(String(200), nullable=True)
+    updated_at = Column(DateTime, nullable=True)
+    po_id = Column(UUID(as_uuid=True), ForeignKey("purchase_orders.id"), nullable=True, index=True)
+    po_line_id = Column(UUID(as_uuid=True), ForeignKey("purchase_order_lines.id"), nullable=True)
+    schedule_row_id = Column(UUID(as_uuid=True), ForeignKey("purchase_line_schedules.id"), nullable=True)
 
     plan = relationship("ProcurementPlan", back_populates="entries")
     item = relationship("ItemMaster")
@@ -1495,6 +1720,12 @@ class ProcurementPlanEntry(Base):
     __table_args__ = (
         CheckConstraint("qty_kg >= 0", name="ck_procurement_plan_entry_qty"),
         CheckConstraint("expected_unit_count IS NULL OR expected_unit_count > 0", name="ck_procurement_plan_entry_count"),
+        CheckConstraint(
+            "approval_status IN ('PROPOSED','APPROVED','ON_PO','CANCELLED')",
+            name="ck_procurement_plan_entry_approval_status",
+        ),
+        CheckConstraint("source IN ('MANUAL','SUGGESTED')", name="ck_procurement_plan_entry_source"),
+        Index("ix_procurement_plan_entries_item_date", "item_id", "entry_date"),
     )
 
 

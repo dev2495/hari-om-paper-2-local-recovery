@@ -485,6 +485,60 @@ class MonthlyMaterialClose(Base):
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # Month-end close (client 2026-10-28): the figures are frozen at close (every number, status, the
+    # limits used, notes and the spec rows with no stock item) and shown for a closed month; re-open
+    # is Owner only with a reason. Every close / re-open is also a row in monthly_close_events.
+    closed_by = Column(String(200), nullable=True)
+    closed_at = Column(DateTime, nullable=True)
+    close_note = Column(Text, nullable=True)
+    snapshot = Column(JSONB, nullable=True)
+    snapshot_at = Column(DateTime, nullable=True)
+    reopened_by = Column(String(200), nullable=True)
+    reopened_at = Column(DateTime, nullable=True)
+    reopen_reason = Column(Text, nullable=True)
+    version = Column(Integer, nullable=False, default=1, server_default="1")
+
+
+class MonthlyCloseEvent(Base):
+    """History of month-end close: one row per CLOSED / REOPENED event (never edited or deleted)."""
+
+    __tablename__ = "monthly_close_events"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    month_start = Column(Date, nullable=False, index=True)
+    event = Column(String(20), nullable=False)
+    actor = Column(String(200), nullable=True)
+    reason = Column(Text, nullable=True)
+    snapshot_hash = Column(String(64), nullable=True)
+    details = Column(JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        CheckConstraint("event IN ('CLOSED','REOPENED')", name="ck_monthly_close_events_event"),
+    )
+
+
+class MonthlyMaterialNote(Base):
+    """The month-end note on one material (plant + month + item), saved on its own (client 2026-10-28)."""
+
+    __tablename__ = "monthly_material_notes"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    month_start = Column(Date, nullable=False, index=True)
+    item_id = Column(UUID(as_uuid=True), nullable=True)
+    item_code = Column(String(120), nullable=False)
+    item_name = Column(String(255), nullable=True)
+    note = Column(Text, nullable=False)
+    noted_by = Column(String(200), nullable=True)
+    noted_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("plant_id", "month_start", "item_code", name="uq_monthly_material_notes_item"),
+    )
 
 
 class ShiftMaterialLedger(Base):
@@ -581,6 +635,43 @@ class PlantToleranceSetting(Base):
     updated_by = Column(String(200), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+USAGE_LIMIT_MATERIAL_TYPES = ("RAW_PAPER", "ADHESIVE", "PARCHMENT", "PACKAGING", "OTHER")
+
+
+class PlantUsageLimit(Base):
+    """Usage limits per plant and material type (client 2026-10-28, "normal wastage 7%, gap %").
+
+    expected use = spec x (1 + normal_wastage_pct / 100);
+    allowed gap  = max(allowed_gap_pct x expected / 100, min_gap) in the item's own unit.
+    A missing row means the spec defaults (services/usage_limits.py). ``plant_tolerance_setting``
+    stays readable for old screens; closed months keep the limits frozen in their snapshot.
+    """
+
+    __tablename__ = "plant_usage_limits"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    material_type = Column(String(30), nullable=False)
+    normal_wastage_pct = Column(Float, nullable=False, default=0.0)
+    allowed_gap_pct = Column(Float, nullable=False, default=7.0)
+    min_gap = Column(Float, nullable=False, default=5.0)
+    updated_by = Column(String(200), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("plant_id", "material_type", name="uq_plant_usage_limits_type"),
+        CheckConstraint(
+            "material_type IN ('RAW_PAPER','ADHESIVE','PARCHMENT','PACKAGING','OTHER')",
+            name="ck_plant_usage_limits_type",
+        ),
+        CheckConstraint(
+            "normal_wastage_pct >= 0 AND allowed_gap_pct >= 0 AND min_gap >= 0",
+            name="ck_plant_usage_limits_non_negative",
+        ),
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────

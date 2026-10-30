@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { QcChip } from "../RunList"
 import type { StepInfo } from "../StageStepper"
-import { cardFacts, dayLabel, flagText, fmt, runNo, runQcState, shiftLabel, stageLabel, stampLabel, today, toneClass, useCardRoles } from "../model"
+import { cardFacts, dayLabel, flagText, fmt, oldFormFlags, runNo, runQcState, shiftLabel, stageLabel, stampLabel, today, toneClass, useCardRoles } from "../model"
 
 const STATE_WORD: Record<StepInfo["state"], { label: string; tone: "emerald" | "blue" | "violet" | "muted" }> = {
   done: { label: "Done", tone: "emerald" },
@@ -61,6 +61,8 @@ export function OverviewTab({
     return Object.entries(by).map(([unit, value]) => `${fmt(value)} ${unit}`).join(" · ") || "0"
   }
   const flags = live.flatMap((e) => (Array.isArray(e.qc_flags) ? e.qc_flags.map((f: any) => ({ ...f, entry: e })) : []))
+  // Old-form cards keep their flags on the stage (Process count gap, Final QC out of band, other machine).
+  const oldFlags = oldFormFlags(card)
   const drafts = live.filter((e) => e.status === "DRAFT")
   const waitingQc = live.filter((e) => e.status === "SUBMITTED" && e.kind !== "QC_ONLY" && !runQcState(card, e).accepted)
   const holds = (card?.quality_holds || []).filter((h: any) => String(h.status || "").toUpperCase() === "HOLD")
@@ -70,8 +72,12 @@ export function OverviewTab({
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Tile label="Runs today" value={todayRuns.length} sub={todayRuns.length ? Array.from(new Set(todayRuns.map((e) => runNo(e)))).slice(0, 4).join(" · ") : "nothing logged today"} testId="tile-runs-today" />
         <Tile label="Made today" value={unitTotals(todayRuns, "produced")} sub={todayRuns.length ? `${unitTotals(todayRuns, "accepted")} good · ${unitTotals(todayRuns, "rejected")} rejected` : "—"} />
-        <Tile label="Flagged readings" value={flags.length} tone={flags.length ? "amber" : undefined} sub={flags.length ? "outside the band · accepted, not held" : "all readings in band"} testId="tile-flags" />
-        <Tile label="Waiting" value={drafts.length + waitingQc.length} tone={drafts.length + waitingQc.length ? "amber" : undefined} sub={[drafts.length ? `${drafts.length} draft${drafts.length === 1 ? "" : "s"} to submit` : "", waitingQc.length ? `${waitingQc.length} run${waitingQc.length === 1 ? "" : "s"} need QC` : ""].filter(Boolean).join(" · ") || "nothing waiting"} testId="tile-waiting" />
+        {oldFlags.length ? (
+          <Tile label="Flags" value={oldFlags.length} tone="amber" sub={`${Array.from(new Set(oldFlags.map((f) => (f.kind === "COUNT_GAP" ? "count gap" : f.kind === "QC_OUT_OF_BAND" ? "Final QC out of band" : "other machine")))).join(" · ")} · saved, not held`} testId="tile-flags" />
+        ) : (
+          <Tile label="Flagged readings" value={flags.length} tone={flags.length ? "amber" : undefined} sub={flags.length ? "outside the band · accepted, not held" : "all readings in band"} testId="tile-flags" />
+        )}
+        <Tile label="Waiting" value={drafts.length + waitingQc.length} tone={drafts.length + waitingQc.length ? "amber" : undefined} sub={[drafts.length ? `${drafts.length} run${drafts.length === 1 ? "" : "s"} with supervisor to submit` : "", waitingQc.length ? `${waitingQc.length} run${waitingQc.length === 1 ? "" : "s"} need QC` : ""].filter(Boolean).join(" · ") || "nothing waiting"} testId="tile-waiting" />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
@@ -81,7 +87,35 @@ export function OverviewTab({
               <h3 className="text-[14px] font-semibold">Numbers per stage</h3>
               <span className="text-[12px] text-muted-foreground">target · made · good · rejected</span>
             </div>
-            <div className="overflow-x-auto">
+            {/* Phone: one card per stage (no sideways scroll); the table from sm up. */}
+            <ul className="divide-y divide-border sm:hidden" data-testid="numbers-phone">
+              {steps.map((s) => {
+                const started = s.state === "done" || s.state === "running"
+                const word = STATE_WORD[s.state]
+                return (
+                  <li key={s.stage} className="px-4 py-3 text-[13px]" data-testid={`numbers-phone-${s.stage.toLowerCase()}`}>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <b className="text-[14px]">{s.label}</b>
+                      <span className={cn("inline-flex items-center gap-1 rounded-full border px-1.5 py-px text-[11px] font-semibold", toneClass(word.tone))}>{word.label}</span>
+                      {s.flagged ? (
+                        <span className={cn("inline-flex items-center gap-0.5 rounded-full border px-1.5 py-px text-[11px] font-semibold", toneClass("amber"))}>
+                          <Flag className="h-2.5 w-2.5" aria-hidden="true" /> {s.flagged} flagged
+                        </span>
+                      ) : null}
+                      <span className="ml-auto tabular-nums text-muted-foreground">{started && s.target ? `${Math.round((s.good / s.target) * 100)}%` : ""}</span>
+                    </div>
+                    <p className="mt-1 tabular-nums">
+                      <b>{started ? fmt(s.good) : "—"}</b> good of {fmt(s.target)} {s.unit}
+                      {started ? ` · ${fmt(s.made ?? s.good)} made` : ""}
+                      {started && s.rejected ? <span className="text-signal-rose-ink"> · {fmt(s.rejected)} rejected</span> : null}
+                    </p>
+                    {s.flagged && s.flagNote ? <p className="mt-1 text-[12px] text-signal-amber-ink">{s.flagNote}</p> : null}
+                    {s.state === "done" ? <p className="mt-0.5 text-[12px] text-muted-foreground">Closed {[s.closedAt ? stampLabel(s.closedAt) : "", s.closedBy].filter(Boolean).join(" · ") || "yes"}</p> : null}
+                  </li>
+                )
+              })}
+            </ul>
+            <div className="hidden overflow-x-auto sm:block">
               <table className="w-full text-[13px]">
                 <thead className="bg-[hsl(var(--surface-2))] text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                   <tr>
@@ -115,7 +149,7 @@ export function OverviewTab({
                         <td className="px-2 py-2">
                           <span className={cn("inline-flex items-center gap-1 rounded-full border px-1.5 py-px text-[11px] font-semibold", toneClass(word.tone))}>{word.label}</span>
                           {s.flagged ? (
-                            <span className={cn("ml-1 inline-flex items-center gap-0.5 rounded-full border px-1.5 py-px text-[11px] font-semibold", toneClass("amber"))}>
+                            <span className={cn("ml-1 inline-flex items-center gap-0.5 rounded-full border px-1.5 py-px text-[11px] font-semibold", toneClass("amber"))} title={s.flagNote || "Readings outside the band — flagged, not held"}>
                               <Flag className="h-2.5 w-2.5" aria-hidden="true" /> {s.flagged}
                             </span>
                           ) : null}
@@ -148,7 +182,7 @@ export function OverviewTab({
                       </span>
                       <QcChip qc={qc} compact />
                       {!qc.accepted && e.status === "SUBMITTED" && canQc && onLogQc ? (
-                        <Button size="sm" variant="outline" onClick={() => onLogQc(e)}>
+                        <Button size="sm" variant="outline" className="min-h-11 sm:min-h-0" onClick={() => onLogQc(e)}>
                           <CheckCircle2 className="h-3.5 w-3.5" /> Log QC
                         </Button>
                       ) : null}
@@ -179,6 +213,18 @@ export function OverviewTab({
                 <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> No open holds on this card
               </p>
             )}
+            {oldFlags.length ? (
+              <ul className="mt-2 space-y-1" data-testid="overview-old-flags">
+                {oldFlags.map((f, i) => (
+                  <li key={`${f.stage}-${f.kind}-${i}`} className={cn("flex items-start gap-2 rounded-lg border px-3 py-1.5 text-[12.5px]", toneClass("amber"))}>
+                    <Flag className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    <span>
+                      <b>{stageLabel(f.stage)}</b> · Flagged · {f.message}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
             {flags.length ? (
               <ul className="mt-2 space-y-1">
                 {flags.slice(0, 6).map((f: any, i: number) => (
@@ -194,7 +240,7 @@ export function OverviewTab({
                 ))}
                 {flags.length > 6 ? <li className="text-[12px] text-muted-foreground">+{flags.length - 6} more on the QC tab</li> : null}
               </ul>
-            ) : (
+            ) : oldFlags.length ? null : (
               <p className="mt-1 text-[12.5px] text-muted-foreground">No readings outside the band.</p>
             )}
           </section>
@@ -210,7 +256,7 @@ export function OverviewTab({
                     {step.detail ? <span className="block text-[12px] text-muted-foreground">{step.detail}</span> : null}
                   </span>
                   {step.action ? (
-                    <Button size="sm" variant="outline" onClick={step.action.onClick}>
+                    <Button size="sm" variant="outline" className="min-h-11 shrink-0 sm:min-h-0" onClick={step.action.onClick}>
                       {step.action.label}
                     </Button>
                   ) : null}
@@ -226,7 +272,7 @@ export function OverviewTab({
               <dt className="text-muted-foreground">Order</dt>
               <dd>
                 {facts.orderId ? (
-                  <Link href={`/sales-orders/${facts.orderId}`} className="font-semibold text-primary underline-offset-2 hover:underline">
+                  <Link href={`/sales-orders/${facts.orderId}`} className="inline-flex min-h-11 items-center font-semibold text-primary underline-offset-2 hover:underline sm:inline sm:min-h-0">
                     {facts.orderNo || "Open order"}
                   </Link>
                 ) : (
@@ -259,7 +305,7 @@ export function OverviewTab({
               <dt className="text-muted-foreground">Released</dt>
               <dd>{facts.releasedAt ? stampLabel(facts.releasedAt) : "—"}</dd>
               <dt className="text-muted-foreground">Due</dt>
-              <dd>{facts.due ? dayLabel(facts.due) : "—"}</dd>
+              <dd>{facts.due ? dayLabel(facts.due) : <span className="text-muted-foreground" data-testid="job-card:no-date">No date</span>}</dd>
               <dt className="text-muted-foreground">Priority</dt>
               <dd>{card?.is_emergency ? "Emergency" : facts.priority || "Normal"}</dd>
               <dt className="text-muted-foreground">Lot</dt>

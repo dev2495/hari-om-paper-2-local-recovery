@@ -128,8 +128,7 @@ export default function UsersPage() {
           { href: "/system/roles", label: "Roles & access", icon: Shield, active: false },
           { href: "/system/plants", label: "Plants", icon: Building2, active: false },
           { href: "/system/machines", label: "Machines", icon: Factory, active: false },
-          { href: "/system/locations", label: "Locations", icon: Building2, active: false },
-          { href: "/system/tolerances", label: "Tolerances", icon: Wrench, active: false },
+          { href: "/system/scheduler", label: "Background jobs", icon: Wrench, active: false },
         ].map((item) => (
           <Link
             key={item.href}

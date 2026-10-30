@@ -8,6 +8,8 @@ import { Chip } from "@/components/sales/order-chips"
 import type { OrderHistory, OrderHistoryEvent } from "@/hooks/use-sales"
 import { eventDay, formatDateTime, formatShortDate, serverTime } from "@/lib/sales-order-tracker"
 import { plantToday } from "@/lib/due-risk"
+import { usePeopleVersion } from "@/hooks/use-people"
+import { peopleInText, personLabel } from "@/lib/people"
 import { cn } from "@/lib/utils"
 
 export const HISTORY_KIND: Record<string, { label: string; icon: any; tone: string }> = {
@@ -32,11 +34,23 @@ export const HISTORY_KIND: Record<string, { label: string; icon: any; tone: stri
 
 const KIND_ORDER = Object.keys(HISTORY_KIND)
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+/** Indian date for an ISO day ("2026-10-30" → "30 Oct 2026"); a timestamp keeps its time. */
+function indianDate(value: string): string | null {
+  const day = value.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (day) return new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3])).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) return formatDateTime(value, true)
+  return null
+}
+
 function plain(value: unknown): string {
   if (value == null || value === "") return "—"
   if (typeof value === "number") return value.toLocaleString("en-IN")
   if (typeof value === "boolean") return value ? "yes" : "no"
-  if (typeof value === "string") return value.replace("SHIFT_", "Shift ")
+  if (typeof value === "string") {
+    if (EMAIL_RE.test(value.trim())) return personLabel(value)
+    return indianDate(value.trim()) || peopleInText(value).replace("SHIFT_", "Shift ")
+  }
   if (Array.isArray(value)) return value.map(plain).join(", ")
   return JSON.stringify(value)
 }
@@ -82,6 +96,8 @@ export function OrderHistoryTimeline({ history, loading, error, onRetry, orderNo
   onOpenCard?: (jobCardId: string) => void
   pageSize?: number
 }) {
+  // Names (not logins) on every event; re-render when the people directory arrives.
+  usePeopleVersion()
   const [kind, setKind] = useState<string>("all")
   const [source, setSource] = useState<"all" | "SALES" | "PRODUCTION">("all")
   const [flaggedOnly, setFlaggedOnly] = useState(false)
@@ -144,12 +160,12 @@ export function OrderHistoryTimeline({ history, loading, error, onRetry, orderNo
           <h2 className="flex items-center gap-2 text-[14px] font-semibold"><History className="h-4 w-4 text-primary" />History</h2>
           <p className="text-[12px] text-muted-foreground">One timeline: order, release, plan, runs, QC, holds, closes, dispatch — who, when, before → after.</p>
         </div>
-        <label className="ml-auto flex h-8 min-w-[180px] items-center gap-1.5 rounded-lg border border-border bg-card px-2 text-[12.5px] focus-within:border-ring/70">
+        <label className="ml-auto flex h-11 min-w-[180px] flex-1 items-center sm:h-8 sm:flex-none gap-1.5 rounded-lg border border-border bg-card px-2 text-[12.5px] focus-within:border-ring/70">
           <Search className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
           <span className="sr-only">Search history</span>
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search history" className="h-full min-w-0 flex-1 bg-transparent outline-none" data-testid="order-history:search" />
         </label>
-        <button type="button" className="erp-btn-secondary !h-8" onClick={() => void exportRows()} disabled={!filtered.length || exporting} data-testid="order-history:export"><Download className="h-3.5 w-3.5" />{exporting ? "Exporting…" : "Export"}</button>
+        <button type="button" className="erp-btn-secondary !h-11 sm:!h-8" onClick={() => void exportRows()} disabled={!filtered.length || exporting} data-testid="order-history:export"><Download className="h-3.5 w-3.5" />{exporting ? "Exporting…" : "Export"}</button>
       </div>
       <div className="flex flex-wrap items-center gap-1.5 border-b border-border bg-[hsl(var(--surface-2))] px-3 py-2 sm:px-4" role="group" aria-label="History filters">
         <FilterChip active={kind === "all"} onClick={() => setKind("all")}>All <b>{events.length}</b></FilterChip>
@@ -159,7 +175,7 @@ export function OrderHistoryTimeline({ history, loading, error, onRetry, orderNo
           return <FilterChip key={key} active={kind === key} onClick={() => setKind(kind === key ? "all" : key)} flagged={key === "QC_FLAG"}><Icon className="h-3 w-3" aria-hidden="true" />{meta.label} <b>{counts[key]}</b></FilterChip>
         })}
         <span className="mx-1 hidden h-4 w-px bg-border sm:block" aria-hidden="true" />
-        <div className="tube-segment !h-7" role="group" aria-label="Source">
+        <div className="tube-segment sm:!h-7 max-sm:[&>button]:!h-11" role="group" aria-label="Source">
           <button type="button" aria-pressed={source === "all"} onClick={() => setSource("all")}>Both</button>
           <button type="button" aria-pressed={source === "SALES"} onClick={() => setSource("SALES")}>Sales {sales}</button>
           <button type="button" aria-pressed={source === "PRODUCTION"} onClick={() => setSource("PRODUCTION")}>Production {production}</button>
@@ -195,16 +211,16 @@ export function OrderHistoryTimeline({ history, loading, error, onRetry, orderNo
                         <Chip tone={event.source === "SALES" ? "violet" : "blue"} size="xs">{event.source === "SALES" ? "Sales" : "Production"}</Chip>
                         {event.stage_label ? <Chip size="xs">{event.stage_label}</Chip> : null}
                         {event.job_card_id ? (
-                          onOpenCard ? <button type="button" onClick={() => onOpenCard(String(event.job_card_id))} className="font-mono text-[12px] font-semibold text-primary hover:underline">{event.job_card_no || "job card"}</button>
-                            : <Link href={cardHref(String(event.job_card_id))} className="font-mono text-[12px] font-semibold text-primary hover:underline">{event.job_card_no || "job card"}</Link>
+                          onOpenCard ? <button type="button" onClick={() => onOpenCard(String(event.job_card_id))} className="inline-flex min-h-11 items-center font-mono text-[12px] font-semibold text-primary hover:underline sm:min-h-0">{event.job_card_no || "job card"}</button>
+                            : <Link href={cardHref(String(event.job_card_id))} className="inline-flex min-h-11 items-center font-mono text-[12px] font-semibold text-primary hover:underline sm:min-h-0">{event.job_card_no || "job card"}</Link>
                         ) : null}
                       </p>
-                      {event.detail ? <p className="text-[12.5px] text-muted-foreground">{event.detail}</p> : null}
+                      {event.detail ? <p className="text-[12.5px] text-muted-foreground">{peopleInText(event.detail)}</p> : null}
                       {diff.length ? (
                         <dl className="mt-1 grid gap-0.5 text-[12px]">
                           {diff.map((row) => (
                             <div key={row.key} className="flex flex-wrap items-center gap-1.5">
-                              <dt className="text-muted-foreground">{row.key.replaceAll("_", " ")}</dt>
+                              <dt className="text-muted-foreground">{row.key.replaceAll("_", " ").replace(/^po /, "PO ")}</dt>
                               <dd className="flex items-center gap-1 tabular-nums">
                                 {event.before ? <><span className="rounded bg-muted px-1 line-through decoration-muted-foreground/60">{plain(row.before)}</span><ArrowRight className="h-3 w-3 text-muted-foreground" aria-hidden="true" /></> : null}
                                 <span className="rounded bg-signal-emerald-soft px-1 font-medium text-signal-emerald-ink">{plain(row.after)}</span>
@@ -213,7 +229,7 @@ export function OrderHistoryTimeline({ history, loading, error, onRetry, orderNo
                           ))}
                         </dl>
                       ) : null}
-                      <p className="text-[11.5px] text-muted-foreground">{event.actor || "system"}{event.role ? ` · ${event.role}` : ""}</p>
+                      <p className="text-[11.5px] text-muted-foreground">{event.actor ? personLabel(event.actor) : "System"}{event.role ? ` · ${event.role}` : ""}</p>
                     </div>
                   </div>
                 </li>
@@ -221,7 +237,7 @@ export function OrderHistoryTimeline({ history, loading, error, onRetry, orderNo
             })}
           </ol>
         )}
-        {filtered.length > limit ? <button type="button" onClick={() => setLimit((value) => value + pageSize)} className="mt-2 text-[12.5px] font-semibold text-primary hover:underline">Show {Math.min(pageSize, filtered.length - limit)} more</button> : null}
+        {filtered.length > limit ? <button type="button" onClick={() => setLimit((value) => value + pageSize)} className="mt-2 inline-flex min-h-11 items-center text-[12.5px] font-semibold text-primary hover:underline sm:min-h-0">Show {Math.min(pageSize, filtered.length - limit)} more</button> : null}
       </div>
     </section>
   )
@@ -234,7 +250,7 @@ function FilterChip({ active, onClick, children, flagged }: { active: boolean; o
       aria-pressed={active}
       onClick={onClick}
       className={cn(
-        "inline-flex h-7 items-center gap-1 rounded-full border px-2.5 text-[12px] font-medium transition-colors [&_b]:rounded [&_b]:bg-foreground/[.07] [&_b]:px-1 [&_b]:text-[11px] [&_b]:font-semibold",
+        "inline-flex h-11 items-center gap-1 rounded-full border px-3 sm:h-7 sm:px-2.5 text-[12px] font-medium transition-colors [&_b]:rounded [&_b]:bg-foreground/[.07] [&_b]:px-1 [&_b]:text-[11px] [&_b]:font-semibold",
         active ? (flagged ? "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink" : "border-primary bg-primary text-primary-foreground [&_b]:bg-primary-foreground/20") : "border-border bg-card text-muted-foreground hover:text-foreground",
       )}
     >

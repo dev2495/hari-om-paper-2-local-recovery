@@ -180,6 +180,10 @@ def plan_vs_actual(
         if not actual_day or actual_day < start or actual_day > end:
             continue
         actuals, snapshot = row.actuals_snapshot or {}, row.entry_snapshot or {}
+        # Old form run on another machine: its slot follows the machine used, so keep the planned one (as for runs).
+        changed = actuals.get("machine_changed") or {}
+        if changed.get("from") and changed.get("segment_id"):
+            planned_machine.setdefault(str(changed["segment_id"]), str(changed["from"]))
         raw.append({
             "key": f"c:{row.id}", "job": job, "stage": row.stage_type, "unscheduled": actuals.get("unscheduled_entry"),
             "actual": {"date": actual_day, "shift_code": snapshot.get("shift_code") or row.shift_code, "machine_id": str(row.machine_id) if row.machine_id else None,

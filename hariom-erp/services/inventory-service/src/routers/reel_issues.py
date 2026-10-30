@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, joinedload
 from ..concession_use import guard_concession_stock
 from ..database import get_db
 from ..models import (
+    InventoryLocation,
     ItemMaster,
     PaperReel,
     ReelIssue,
@@ -19,6 +20,7 @@ from ..models import (
     ReelScanSource,
     ReelStatus,
 )
+from ..services.books import assert_books_open
 from ..utils.audit_client import emit_audit_event
 from ..utils.auth import get_current_plant, get_current_plant_scope, get_current_user, require_role
 
@@ -260,6 +262,7 @@ def create_reel_issue(
         raise HTTPException(status_code=404, detail="Reel not found in this plant")
     if reel.status in {ReelStatus.CONSUMED, ReelStatus.SCRAP} or float(reel.current_weight_kg or 0.0) <= 0:
         raise HTTPException(status_code=400, detail="Reel is not issuable")
+    assert_books_open(db, plant_id, payload.issue_date)
     if _item_type(reel.paper) in WEIGHT_ISSUE_TYPES:
         raise HTTPException(
             status_code=400,
@@ -377,6 +380,7 @@ def issue_parchment_by_weight(
         raise HTTPException(status_code=404, detail="Material not found in this plant")
     if _item_type(item) not in WEIGHT_ISSUE_TYPES:
         raise HTTPException(status_code=400, detail=f"{item.name} is not issued by weight. Reels and coils of paper are issued by their AT label.")
+    assert_books_open(db, plant_id, payload.issue_date)
     coils = (
         db.query(PaperReel)
         .filter(
@@ -444,6 +448,62 @@ def issue_parchment_by_weight(
         "issue_date": payload.issue_date.isoformat(), "coils": touched,
         "message": f"{issued:g} kg of {item.name} issued to the floor for shift {payload.shift}. {available_after:g} kg left in stock.",
     }
+
+
+@router.get("/by-weight/coils")
+def parchment_coils_to_pick(
+    item_id: uuid.UUID = Query(...),
+    qty_kg: Optional[float] = Query(default=None, gt=0, le=100000),
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(get_current_user),
+):
+    """The coils a by-weight parchment issue takes, in the same order (oldest QC-cleared coil first, coils
+    already out on an open issue left out), with where each one sits: the desk shows "Pick from <rack>"
+    beside each coil (spec 2.7). With ``qty_kg``: only the coils that weight uses, and how much of each."""
+    item = db.query(ItemMaster).filter(ItemMaster.id == item_id, ItemMaster.plant_id == str(plant_id)).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Material not found in this plant")
+    coils = (
+        db.query(PaperReel)
+        .filter(
+            PaperReel.plant_id == _to_uuid(plant_id),
+            PaperReel.paper_id == item.id,
+            PaperReel.status == ReelStatus.IN_STOCK,
+            PaperReel.stock_status.in_(sorted(ISSUABLE_STOCK_STATUSES)),
+            PaperReel.current_weight_kg > 0,
+        )
+        .order_by(PaperReel.inward_date.asc(), PaperReel.created_at.asc(), PaperReel.reel_code.asc())
+        .all()
+    )
+    busy = {
+        row[0] for row in db.query(ReelIssue.reel_id).filter(
+            ReelIssue.reel_id.in_([coil.id for coil in coils]), ReelIssue.status == ReelIssueStatus.OPEN,
+        ).all()
+    } if coils else set()
+    coils = [coil for coil in coils if coil.id not in busy]
+    takes: dict[str, float] = {}
+    if qty_kg:
+        try:
+            takes = dict(plan_weight_issue([(str(coil.id), float(coil.current_weight_kg or 0.0)) for coil in coils], qty_kg))
+        except ValueError:
+            takes = {}  # more than is cleared: the issue itself refuses in plain words; show every coil
+    places = {
+        str(row.id): row for row in db.query(InventoryLocation).filter(
+            InventoryLocation.id.in_([coil.location_id for coil in coils if coil.location_id]),
+        ).all()
+    } if coils else {}
+    rows = []
+    for coil in coils:
+        if takes and str(coil.id) not in takes:
+            continue
+        place = places.get(str(coil.location_id)) if coil.location_id else None
+        rows.append({
+            "reel_id": str(coil.id), "reel_code": coil.reel_code, "kg": round(float(coil.current_weight_kg or 0.0), 3),
+            "take_kg": takes.get(str(coil.id)), "inward_date": coil.inward_date.isoformat() if coil.inward_date else None,
+            "location": {"id": str(place.id), "code": place.code, "name": str(place.name or "").strip() or place.code} if place is not None else None,
+        })
+    return {"item_id": str(item.id), "item_name": item.name, "uom": "KG", "coils": rows}
 
 
 @router.get("", response_model=List[ReelIssueResponse])
@@ -527,6 +587,8 @@ def close_reel_issue(
         raise HTTPException(status_code=409, detail="Reel issue is already closed")
     if str(getattr(issue, "issue_mode", "") or "") == "FLOOR":
         raise HTTPException(status_code=409, detail="Material issued to the floor is consumed in full; nothing comes back. Record the slitting card instead.")
+    # An old (LEGACY) issue closes today and takes the consumed kg off the reel now.
+    assert_books_open(db, plant_id, None)
 
     consumed = float(payload.consumed_weight_kg)
     if str(issue.issue_section or "") == "SLITTING_SECTION" and consumed > 0:

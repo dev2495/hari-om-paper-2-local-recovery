@@ -83,6 +83,7 @@ function EntryPicker() {
     setMiss(null)
     const scanned = parseScanCode(candidate)
     if (scanned.kind === "JOB_CARD") return router.push(target(scanned.id))
+    if (scanned.kind === "LOCATION") return setMiss({ text: `That is a rack label (${scanned.code || "location"}), not a job card. Scan the QR on the printed job card.` })
     if (scanned.kind !== "CODE") return setMiss({ text: "That QR is on a material or tool label, not a job card. Scan the QR on the printed job card." })
     if (UUID.test(candidate)) return router.push(target(candidate.toLowerCase()))
     // A typed card number: the open list first, then the server (the list may still be loading or cut short).

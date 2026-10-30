@@ -190,6 +190,39 @@ test("sales release explains missing and unavailable winder master states", () =
   assert.match(describeWinderAvailability([]), /No active WINDER master/i)
 })
 
+test("sales order round 28: last rate is a suggestion, delivery date optional, PO once after release, close reasons master", () => {
+  const form = readFileSync(resolve(process.cwd(), "components/sales/sales-order-create-form.tsx"), "utf8")
+  const detailPage = readFileSync(resolve(process.cwd(), "app/(dashboard)/sales-orders/[orderId]/page.tsx"), "utf8")
+  const poDialog = readFileSync(resolve(process.cwd(), "components/sales/customer-po-dialog.tsx"), "utf8")
+  const dialog = readFileSync(resolve(process.cwd(), "components/sales/release-to-queue-dialog.tsx"), "utf8")
+  const reasons = readFileSync(resolve(process.cwd(), "app/(dashboard)/masters/order-close-reasons/page.tsx"), "utf8")
+  // Last rate: shown with a one-click Use, never written into the rate by itself.
+  assert.match(form, /\/api\/sales\/orders\/last-rate/)
+  assert.match(form, /onUse=\{\(rate\) => updateLine\(line\.localId, "rate_per_pc", String\(rate\)\)\}/)
+  assert.doesNotMatch(form, /useEffect\([^)]*last-?rate/i)
+  // Delivery date optional: no required attribute, blank is sent as null, a given date still follows the PO date.
+  assert.match(form, /due_date: line\.due_date \|\| null/)
+  assert.match(form, /line\.due_date \? deliveryDateMustFollowCustomerPoDate/)
+  assert.doesNotMatch(form, /sales-orders:due-date[^>]*\n\s*required/)
+  // Internal order waits for the customer PO; the one-time change after release needs an explicit tick.
+  assert.match(detailPage, /Internal order · waiting for customer PO/)
+  assert.match(poDialog, /\/customer-po`/)
+  assert.match(poDialog, /\(once && !confirmOnce\)/)
+  // Every release row carries a colour; plain lines pick one too.
+  assert.match(dialog, /parchment_required: true,\n\s*plain_line: !parchment/)
+  // A pending lot saved before 28 Oct with no colour: the dialog asks for the colour (the server refuses
+  // release-sync without a colour recorded in sales); a colour already recorded on the lot stays locked.
+  assert.match(dialog, /color_locked: Boolean\(String\(lot\.parchment_color \|\| ""\)\.trim\(\)\)/)
+  assert.match(dialog, /disabled=\{row\.color_locked\}/)
+  assert.match(dialog, /Saved before the colour became compulsory — pick the colour now/)
+  // Sales releases fully (user answer 30 Oct); the Retry button keeps a 44 px target on every screen.
+  assert.match(dialog, /className="erp-btn-secondary mt-2 !h-11 min-w-11" data-testid=\{tid\("release-sync-retry"\)\}/)
+  assert.doesNotMatch(dialog, /Ask the Owner, a Planner or the Plant Manager/)
+  // Close reasons: Owner/Admin only, read by the cancel / short close / hold dialogs (category SO_CLOSE).
+  assert.match(reasons, /roles\.has\("Owner"\) \|\| roles\.has\("Admin"\)/)
+  assert.match(reasons, /\/api\/sales\/order-close-reasons/)
+})
+
 test("sales release resolves winders through the order plant; every page uses the one color-aware release dialog", () => {
   const salesPage = readFileSync(resolve(process.cwd(), "app/(dashboard)/sales-orders/page.tsx"), "utf8")
   const detailPage = readFileSync(resolve(process.cwd(), "app/(dashboard)/sales-orders/[orderId]/page.tsx"), "utf8")
@@ -200,9 +233,10 @@ test("sales release resolves winders through the order plant; every page uses th
   assert.match(salesPage, /const releasedPlantId = orderPlantId\(releaseOrder\)[\s\S]*?setActivePlant\(releasedPlantId\.toLowerCase\(\)\)/)
   assert.match(dialog, /releasePreflight\.mutateAsync\(\{[\s\S]*?plantId: orderPlantId\(order\),/)
   assert.match(dialog, /compatible_winders/)
-  assert.match(dialog, /Pick the parchment color — one job card is one color/)
+  // Parchment colour is compulsory at release (client 2026-10-28): every row, plain lines too.
+  assert.match(dialog, /Pick the parchment colour to release this card — every job card needs one/)
   assert.match(dialog, /Pick a winder queue/)
-  assert.match(dialog, /parchment_color: row\.parchment_required \? row\.color/)
+  assert.match(dialog, /parchment_color: row\.color \|\| null/)
   assert.doesNotMatch(salesPage, /machineBelongsToPlant/)
   assert.doesNotMatch(salesPage, /releaseOrderLine\.mutateAsync/)
   // one all-or-nothing request, never a per-row loop that can half-release

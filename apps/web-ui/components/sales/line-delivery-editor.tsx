@@ -106,12 +106,12 @@ export function LineDeliveryEditor({ orderId, line, schedule, revision, disabled
                   <tr key={row.key} className="border-t border-border">
                     <td className="px-2 py-1">
                       {row.immutable ? <span className="px-1">{dayjs(row.delivery_date).format("ddd DD MMM YYYY")}</span> : (
-                        <input type="date" aria-label={`Line ${line.line_no} call-off date`} disabled={disabled || busy} value={row.delivery_date} onChange={(event) => update(row.key, { delivery_date: event.target.value })} className={cn("h-8 rounded-md border border-input bg-card px-2 text-[13px]", late && "border-signal-rose-line text-signal-rose-ink")} />
+                        <input type="date" aria-label={`Line ${line.line_no} call-off date`} disabled={disabled || busy} value={row.delivery_date} onChange={(event) => update(row.key, { delivery_date: event.target.value })} className={cn("h-11 w-full min-w-0 rounded-md border border-input bg-card px-2 text-[13px] sm:h-8 sm:w-auto", late && "border-signal-rose-line text-signal-rose-ink")} />
                       )}
                     </td>
                     <td className="px-2 py-1 text-right">
                       {row.immutable ? <span className="px-1 tabular-nums">{fmt(row.quantity)}</span> : (
-                        <input type="number" min="1" aria-label={`Line ${line.line_no} call-off pcs`} disabled={disabled || busy} value={row.quantity} onChange={(event) => update(row.key, { quantity: event.target.value })} className="h-8 w-28 rounded-md border border-input bg-card px-2 text-right text-[13px] tabular-nums" />
+                        <input type="number" min="1" aria-label={`Line ${line.line_no} call-off pcs`} disabled={disabled || busy} value={row.quantity} onChange={(event) => update(row.key, { quantity: event.target.value })} className="h-11 w-20 rounded-md border border-input bg-card px-2 text-right text-[13px] tabular-nums sm:h-8 sm:w-28" />
                       )}
                     </td>
                     <td className="px-3 py-1 text-[12px]">
@@ -121,7 +121,7 @@ export function LineDeliveryEditor({ orderId, line, schedule, revision, disabled
                         : <span className="text-muted-foreground">{row.status}</span>}
                     </td>
                     <td className="px-1 py-1 text-right">
-                      {!row.immutable ? <button type="button" aria-label="Remove call-off" disabled={disabled || busy} onClick={() => setRows((current) => current.filter((entry) => entry.key !== row.key))} className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-signal-rose-soft hover:text-signal-rose-ink"><Trash2 className="h-3.5 w-3.5" /></button> : null}
+                      {!row.immutable ? <button type="button" aria-label="Remove call-off" disabled={disabled || busy} onClick={() => setRows((current) => current.filter((entry) => entry.key !== row.key))} className="grid h-11 w-11 place-items-center rounded-md text-muted-foreground hover:bg-signal-rose-soft hover:text-signal-rose-ink sm:h-7 sm:w-7"><Trash2 className="h-3.5 w-3.5" /></button> : null}
                     </td>
                   </tr>
                 )
@@ -135,27 +135,27 @@ export function LineDeliveryEditor({ orderId, line, schedule, revision, disabled
 
       {!disabled ? (
         <div className="flex flex-wrap items-end gap-2 rounded-lg border border-dashed border-border p-2">
-          <button type="button" onClick={() => addRow()} disabled={busy} className="erp-btn-secondary !h-8"><Plus className="h-3.5 w-3.5" />Add call-off</button>
+          <button type="button" onClick={() => addRow()} disabled={busy} className="erp-btn-secondary !h-11 sm:!h-8"><Plus className="h-3.5 w-3.5" />Add call-off</button>
           <span className="mx-1 h-6 w-px bg-border" />
           <label className="grid gap-0.5 text-[11px] text-muted-foreground">Spread what&apos;s left
-            <select value={spread.mode} onChange={(event) => setSpread((current) => ({ ...current, mode: event.target.value as any }))} className="h-8 rounded-md border border-input bg-card px-2 text-[12.5px] text-foreground">
+            <select value={spread.mode} onChange={(event) => setSpread((current) => ({ ...current, mode: event.target.value as any }))} className="h-11 sm:h-8 rounded-md border border-input bg-card px-2 text-[12.5px] text-foreground">
               <option value="once">all on one date</option>
               <option value="weekly">weekly</option>
               <option value="monthly">monthly</option>
             </select>
           </label>
           <label className="grid gap-0.5 text-[11px] text-muted-foreground">{spread.mode === "once" ? "on" : "from"}
-            <input type="date" value={spread.start} onChange={(event) => setSpread((current) => ({ ...current, start: event.target.value }))} className="h-8 rounded-md border border-input bg-card px-2 text-[12.5px] text-foreground" />
+            <input type="date" value={spread.start} onChange={(event) => setSpread((current) => ({ ...current, start: event.target.value }))} className="h-11 sm:h-8 rounded-md border border-input bg-card px-2 text-[12.5px] text-foreground" />
           </label>
           {spread.mode !== "once" ? (
             <label className="grid gap-0.5 text-[11px] text-muted-foreground">deliveries
-              <input type="number" min="1" max="52" value={spread.count} onChange={(event) => setSpread((current) => ({ ...current, count: event.target.value }))} className="h-8 w-16 rounded-md border border-input bg-card px-2 text-right text-[12.5px] text-foreground" />
+              <input type="number" min="1" max="52" value={spread.count} onChange={(event) => setSpread((current) => ({ ...current, count: event.target.value }))} className="h-11 sm:h-8 w-16 rounded-md border border-input bg-card px-2 text-right text-[12.5px] text-foreground" />
             </label>
           ) : null}
-          <button type="button" onClick={spreadRemaining} disabled={busy || openToSchedule <= 0} className="erp-btn-secondary !h-8"><Wand2 className="h-3.5 w-3.5" />Spread {fmt(openToSchedule)} pcs</button>
+          <button type="button" onClick={spreadRemaining} disabled={busy || openToSchedule <= 0} className="erp-btn-secondary !h-11 sm:!h-8"><Wand2 className="h-3.5 w-3.5" />Spread {fmt(openToSchedule)} pcs</button>
           <div className="ml-auto flex items-center gap-2">
             {dirty ? <button type="button" onClick={() => { setRows(initial); setError("") }} disabled={busy} className="text-[12.5px] font-semibold text-muted-foreground hover:text-foreground">Undo changes</button> : null}
-            <button type="button" onClick={() => void save()} disabled={!dirty || busy || over} className="erp-btn-primary !h-8" data-testid={`line-delivery-save:${line.id}`}>
+            <button type="button" onClick={() => void save()} disabled={!dirty || busy || over} className="erp-btn-primary !h-11 sm:!h-8" data-testid={`line-delivery-save:${line.id}`}>
               <CalendarPlus className="h-3.5 w-3.5" />{busy ? "Saving…" : "Save schedule"}
             </button>
           </div>

@@ -4,7 +4,7 @@
 // https://<site>/scan?c=<payload>, so the phone's own Camera app (iPhone too) lands on this page and,
 // after sign-in, on the page the person's role works on. Job card → floor entry; lot waiting for or
 // failed incoming QC → incoming QC; cleared reel or coil → Reel & coil issue; cleared batch → Material
-// issue; tool → tools register. Anyone else, and lots used up or finished goods, get a lot card with the
+// issue; tool → tools register; rack label → its location page for every role (2026-10-28). Anyone else, and lots used up or finished goods, get a lot card with the
 // next step in plain words. Older plain labels (HARIOM|…, hariom://tool/…) and typed codes read the same.
 
 import Link from "next/link"
@@ -219,10 +219,29 @@ async function resolveTool(code: string, who: Who): Promise<Outcome> {
   return { type: "missing", code, detail: "No tool has this number in the plants your login can open." }
 }
 
+/** A rack label (client 2026-10-28): every role opens the location page, which shows the actions its role may use.
+ * The label's plant is checked first, as for lots, and the app switches to it when the login may open it. */
+async function resolveLocation(id: string, code: string, plantId: string, who: Who): Promise<Outcome> {
+  const current = canonicalPlantScopeValue(who.activePlant)
+  const labelPlant = canonicalPlantScopeValue(plantId)
+  const otherPlant = Boolean(labelPlant && current && labelPlant !== current)
+  if (otherPlant && !(who.allowedPlants.has(labelPlant) || who.allPlants)) return { type: "plant", plantId: labelPlant }
+  const href = `/inventory/locations/${encodeURIComponent(id)}`
+  try {
+    await read(href.replace("/inventory/", "/api/inventory/"), labelPlant || undefined)
+    return { type: "redirect", href, page: "the rack", code, ...(otherPlant || current === "ALL" ? { switchedTo: labelPlant } : {}) }
+  } catch (error) {
+    if (httpStatus(error) === 403 && labelPlant) return { type: "plant", plantId: labelPlant }
+    if (httpStatus(error) === 404 || httpStatus(error) === 422) return { type: "missing", code, detail: "This rack label is not in the system. It may have been reprinted with a new code; ask the store for a fresh label." }
+    return { type: "missing", code, detail: "The rack could not be checked just now. Check the connection and scan again." }
+  }
+}
+
 async function resolveScan(value: string, outer: URLSearchParams | null, who: Who): Promise<Outcome> {
   const parsed = parseScanCode(value)
   if (!parsed.raw) return { type: "empty" }
   if (parsed.kind === "JOB_CARD") return { type: "redirect", href: entryHref(parsed.id, value, outer), page: "the job card" }
+  if (parsed.kind === "LOCATION") return resolveLocation(parsed.id, parsed.code, parsed.plantId, who)
   if (parsed.kind === "TOOL") {
     if (!can(who)) return { type: "tool", code: parsed.code }
     return resolveTool(parsed.code, who)
@@ -258,7 +277,15 @@ async function resolveScan(value: string, outer: URLSearchParams | null, who: Wh
         const card = (Array.isArray(data) ? data : data?.items || []).find((row: any) => [row.job_card_no, row.job_card_ref].some((no: any) => upper(no) === upper(code)))
         if (card) return { type: "redirect", href: entryHref(String(card.id), value, outer), page: "the job card", code: String(card.job_card_no || card.job_card_ref || "") }
       } catch { /* not a job card this login can read */ }
-      return { type: "missing", code, detail: "No reel, coil, lot or job card has this number in your plant." }
+      // A rack code typed by hand (RM-A-01) opens the rack.
+      for (const plant of plantsToTry(who)) {
+        try {
+          const { data } = await read("/api/inventory/locations", plant, { code, include_inactive: true })
+          const rack = (Array.isArray(data) ? data : []).find((row: any) => upper(row.code) === upper(code))
+          if (rack) return resolveLocation(String(rack.id), String(rack.code), String(rack.plant_id || plant || ""), who)
+        } catch { /* not readable in this plant; try the next */ }
+      }
+      return { type: "missing", code, detail: "No reel, coil, lot, rack or job card has this number in your plant." }
     }
   }
 
@@ -299,12 +326,12 @@ function ScanAgain({ title = "Scan another label", autoFocus = false, current = 
   return (
     <section className="rounded-2xl border border-border bg-card p-4" aria-label={title}>
       <h2 className="text-[13px] font-semibold text-foreground">{title}</h2>
-      <QrScanner onScan={go} label="Scan with the camera" title="Scan a label" hint="Point the camera at the QR on the job card, lot label or tool." className="erp-btn-primary mt-3 !h-12 w-full !rounded-xl !text-[15px]" />
+      <QrScanner onScan={go} label="Scan with the camera" title="Scan a label" hint="Point the camera at the QR on the job card, lot label, rack or tool." className="erp-btn-primary mt-3 !h-12 w-full !rounded-xl !text-[15px]" />
       <form onSubmit={submit} className="mt-3 flex items-center gap-2">
         <label className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-xl border border-input bg-card px-3 focus-within:border-ring/70 focus-within:ring-[3px] focus-within:ring-ring/15">
           <ScanLine className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-          <span className="sr-only">AT, lot or job card number</span>
-          <input value={typed} onChange={(event) => setTyped(event.target.value)} placeholder="AT, lot or card number" autoFocus={autoFocus} className="h-full min-w-0 flex-1 border-0 bg-transparent text-[15px] outline-none focus:shadow-none" data-testid="scan-manual-input" />
+          <span className="sr-only">AT, lot, rack or job card number</span>
+          <input value={typed} onChange={(event) => setTyped(event.target.value)} placeholder="AT, lot, rack or card number" autoFocus={autoFocus} className="h-full min-w-0 flex-1 border-0 bg-transparent text-[15px] outline-none focus:shadow-none" data-testid="scan-manual-input" />
         </label>
         <button type="submit" className="erp-btn-secondary !h-11 shrink-0"><Search className="h-4 w-4" aria-hidden="true" />Find</button>
       </form>

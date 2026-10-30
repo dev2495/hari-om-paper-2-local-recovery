@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 import httpx
 import os
 
 from src.middleware.auth import get_token
 from src.services.http_client import http_client, proxy_to_service
-from src.services.workspace import emit_from_response, response_body_json
+from src.services.workspace import current_user_claims, emit_from_response, response_body_json
 
 router = APIRouter()
 SALES_SERVICE_URL = os.getenv("SALES_SERVICE_URL", "http://127.0.0.1:18008")
@@ -64,6 +65,12 @@ async def import_orders(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(SALES_SERVICE_URL, "/sales-orders/import", request, token)
 
 
+@router.get("/orders/last-rate")
+async def get_last_rate(request: Request, token: str = Depends(get_token)):
+    """Last rate of the same customer and product, shown as a suggestion beside Rate / Pc (2026-10-28)."""
+    return await proxy_to_service(SALES_SERVICE_URL, "/sales-orders/last-rate", request, token)
+
+
 @router.get("/orders/{order_id}")
 async def get_order(order_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(SALES_SERVICE_URL, f"/sales-orders/{order_id}", request, token)
@@ -95,6 +102,8 @@ async def get_order_history(order_id: str, request: Request, token: str = Depend
     kind_of = {
         "SALES_ORDER_CREATED": "ORDER", "SALES_ORDER_LINE_CREATED": "ORDER", "SALES_ORDER_APPROVED": "ORDER", "SALES_ORDER_RELEASED": "RELEASE",
         "SALES_ORDER_CANCELLED": "CLOSE", "SALES_ORDER_SHORT_CLOSED": "CLOSE",
+        # Customer PO (2026-10-28): an internal order confirmed by its PO, or the PO number changed.
+        "SALES_ORDER_PO_CONFIRMED": "ORDER", "SALES_ORDER_PO_CHANGED": "EDIT",
     }
     events = [{
         "id": f"s:{row.get('id')}", "at": row.get("created_at"), "actor": row.get("actor"), "role": None,
@@ -175,6 +184,87 @@ async def update_order(order_id: str, request: Request, token: str = Depends(get
     return response
 
 
+@router.post("/orders/{order_id}/customer-po")
+async def set_customer_po(order_id: str, request: Request, token: str = Depends(get_token)):
+    """Add or change the customer PO: free before release, once after release, then locked."""
+    response = await proxy_to_service(SALES_SERVICE_URL, f"/sales-orders/{order_id}/customer-po", request, token)
+    payload = response_body_json(response) or {}
+    changes = payload.get("po_changes") or []
+    last = changes[-1] if changes and isinstance(changes[-1], dict) else {}
+    confirmed = last.get("kind") == "CONFIRMED"
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="SALES_ORDER_PO_CONFIRMED" if confirmed else "SALES_ORDER_PO_CHANGED",
+        title=(f"Order confirmed by customer PO {payload.get('po_number')}" if confirmed else f"Customer PO changed: {payload.get('po_number')}")
+        + f" ({payload.get('order_no') or order_id})",
+        message=(
+            "The internal order is now a confirmed customer order."
+            if confirmed
+            else f"PO {last.get('old_po_number') or '-'} → {payload.get('po_number')}."
+        )
+        + (" Changed after release — the PO number is now locked." if last.get("after_release") else ""),
+        href=f"/sales-orders/{order_id}",
+        recipient_roles=["Owner", "Admin", "Sales", "Planner"],
+        payload={"order_id": order_id},
+    )
+    if response.status_code != 200 or not isinstance(payload, dict):
+        return response
+    # Released job cards keep a copy of the PO; bring them up to date so the card, its print and
+    # the planning overview show the confirmed / changed PO (client 2026-10-28).
+    payload["job_card_po_sync"] = await _sync_job_card_po(order_id, request, token)
+    return JSONResponse(content=payload, status_code=200)
+
+
+@router.post("/orders/{order_id}/job-card-po-sync")
+async def sync_job_card_po(order_id: str, request: Request, token: str = Depends(get_token)):
+    """Retry copying the order's customer PO onto its job cards (after a failed try)."""
+    result = await _sync_job_card_po(order_id, request, token)
+    if not result.get("ok"):
+        # A refusal (role, order not found, bad id) keeps its own status; only an outage is a 502.
+        status = int(result.get("status") or 502)
+        raise HTTPException(
+            status_code=status if 400 <= status < 500 else 502,
+            detail=result.get("detail") or "The job cards could not be updated with the new PO.",
+        )
+    return result
+
+
+async def _sync_job_card_po(order_id: str, request: Request, token: str) -> dict:
+    headers = {"Authorization": f"Bearer {token}"}
+    if request.headers.get("X-Plant-ID"):
+        headers["X-Plant-ID"] = request.headers["X-Plant-ID"]
+    production_url = os.getenv("PRODUCTION_SERVICE_URL", "http://127.0.0.1:18004")
+    try:
+        result = await http_client.post(f"{production_url}/sales-orders/{order_id}/customer-po-sync", headers=headers)
+    except httpx.RequestError:
+        return {"ok": False, "detail": "Production could not be reached, so the job cards still show the old PO."}
+    if result.status_code != 200:
+        return {"ok": False, "status": result.status_code, "detail": _job_card_po_sync_refusal(result)}
+    body = result.json() if result.headers.get("content-type", "").startswith("application/json") else {}
+    return {"ok": True, "job_cards": body.get("job_cards", 0), "updated": body.get("updated", [])}
+
+
+def _job_card_po_sync_refusal(result: httpx.Response) -> str:
+    """Plain words for a production refusal of the job-card PO copy (never raw JSON)."""
+    if result.status_code in (401, 403):
+        return (
+            "Your role cannot update the job cards, so they still show the old PO. "
+            "Ask an Owner, Planner or Plant Manager to press Retry on this order."
+        )
+    if result.status_code == 404:
+        return "The order or its job cards were not found, so the job cards still show the old PO."
+    detail = None
+    try:
+        body = result.json()
+        detail = body.get("detail") if isinstance(body, dict) else None
+    except Exception:
+        detail = None
+    if isinstance(detail, str) and detail.strip() and 400 <= result.status_code < 500:
+        return f"The job cards still show the old PO: {detail.strip()}"
+    return "The job cards could not be updated with the new PO."
+
+
 @router.post("/orders/{order_id}/hold")
 async def hold_order(order_id: str, request: Request, token: str = Depends(get_token)):
     # Customer hold closes the PO: same reason code list as cancel / short close (client 2026-10-26).
@@ -237,7 +327,7 @@ async def _order_close_body(request: Request, token: str) -> dict:
     rows = data if isinstance(data, list) else []
     match = next((row for row in rows if str(row.get("code") or "").upper() == code and row.get("category") == ORDER_CLOSE_CATEGORY), None)
     if not match:
-        raise HTTPException(status_code=422, detail=f"{code} is not an active order cancel / short close reason in Masters › Reason codes.")
+        raise HTTPException(status_code=422, detail=f"{code} is not an active order close reason. Pick one from the list, or ask the Owner or an Admin to add it on Masters › Order close reasons.")
     return {"reason_code": code, "reason_label": match.get("label") or code, "note": str(body.get("note") or "").strip() or None}
 
 
@@ -335,3 +425,118 @@ async def release_order_line(line_id: str, request: Request, token: str = Depend
         plant_id=(request.headers.get("X-Plant-ID") or "").strip() if (request.headers.get("X-Plant-ID") or "").strip().upper() not in {"", "ALL"} else None,
     )
     return response
+
+
+# ── Order close reasons master (client 2026-10-28) ──────────────────────────────────────────────
+# The SO_CLOSE reason codes (Masters › Reason codes) behind cancel, short close and customer hold.
+# Everyone may read them; only Owner and Admin add, rename, deactivate or reactivate them.
+ORDER_CLOSE_WRITERS = {"Owner", "Admin"}
+
+
+def _close_reason_headers(request: Request, token: str) -> dict:
+    headers = {"Authorization": f"Bearer {token}"}
+    if request.headers.get("X-Plant-ID"):
+        headers["X-Plant-ID"] = request.headers["X-Plant-ID"]
+    return headers
+
+
+def _require_close_reason_writer(token: str) -> None:
+    roles = {str(role) for role in (current_user_claims(token).get("roles") or [])}
+    if not roles.intersection(ORDER_CLOSE_WRITERS):
+        raise HTTPException(status_code=403, detail="Only the Owner or an Admin can change order close reasons.")
+
+
+async def _master_call(method: str, path: str, request: Request, token: str, **kwargs):
+    try:
+        response = await http_client.request(method, f"{MASTER_SERVICE_URL}{path}", headers=_close_reason_headers(request, token), **kwargs)
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=503, detail="Masters could not be reached right now. Try again.") from exc
+    body = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
+    if response.status_code >= 400:
+        detail = body.get("detail") if isinstance(body, dict) else None
+        raise HTTPException(status_code=response.status_code, detail=detail or "Masters refused the change.")
+    return body
+
+
+async def _close_reason(reason_id: str, request: Request, token: str) -> dict:
+    rows = await _master_call("GET", "/master/reason-codes/", request, token, params={"category": ORDER_CLOSE_CATEGORY, "include_inactive": "true"})
+    match = next((row for row in (rows if isinstance(rows, list) else []) if str(row.get("id")) == str(reason_id)), None)
+    if not match or match.get("category") != ORDER_CLOSE_CATEGORY:
+        raise HTTPException(status_code=404, detail="This order close reason was not found.")
+    return match
+
+
+def _code_from_label(label: str) -> str:
+    slug = "".join(ch if ch.isalnum() else "-" for ch in label.upper()).strip("-")
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    return f"SO-{slug}"[:40].rstrip("-")
+
+
+@router.get("/order-close-reasons")
+async def list_order_close_reasons(request: Request, token: str = Depends(get_token)):
+    rows = await _master_call("GET", "/master/reason-codes/", request, token, params={"category": ORDER_CLOSE_CATEGORY, "include_inactive": "true"})
+    return [row for row in (rows if isinstance(rows, list) else []) if row.get("category") == ORDER_CLOSE_CATEGORY]
+
+
+@router.post("/order-close-reasons")
+async def create_order_close_reason(request: Request, token: str = Depends(get_token)):
+    _require_close_reason_writer(token)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    body = body if isinstance(body, dict) else {}
+    label = str(body.get("label") or "").strip()
+    if len(label) < 2:
+        raise HTTPException(status_code=422, detail="Enter the reason's name.")
+    code = str(body.get("code") or "").strip().upper() or _code_from_label(label)
+    if not all(ch.isalnum() or ch in "-_" for ch in code):
+        raise HTTPException(status_code=422, detail="The code may use letters, numbers, - and _ only.")
+    payload = {"code": code, "label": label[:200], "category": ORDER_CLOSE_CATEGORY, "severity": "WATCH",
+               "description": str(body.get("description") or "").strip() or None}
+    # A code is unique in the plant across every reason list (closed orders point to it): a duplicate is
+    # a plain 422, never a 409/500 from masters (checker 30 Oct).
+    duplicate = HTTPException(status_code=422, detail=f"The code {code} is already used by another reason (it may be deactivated). Choose another code.")
+    existing = await _master_call("GET", "/master/reason-codes/", request, token, params={"include_inactive": "true"})
+    if any(str(row.get("code") or "").strip().upper() == code for row in (existing if isinstance(existing, list) else [])):
+        raise duplicate
+    try:
+        return await _master_call("POST", "/master/reason-codes/", request, token, json=payload)
+    except HTTPException as exc:
+        if exc.status_code == 409:
+            raise duplicate from exc
+        raise
+
+
+@router.put("/order-close-reasons/{reason_id}")
+async def update_order_close_reason(reason_id: str, request: Request, token: str = Depends(get_token)):
+    """Rename (label / description) or reactivate. The code never changes: closed orders keep it."""
+    _require_close_reason_writer(token)
+    await _close_reason(reason_id, request, token)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    body = body if isinstance(body, dict) else {}
+    update: dict = {}
+    if "label" in body:
+        label = str(body.get("label") or "").strip()
+        if len(label) < 2:
+            raise HTTPException(status_code=422, detail="Enter the reason's name.")
+        update["label"] = label[:200]
+    if "description" in body:
+        update["description"] = str(body.get("description") or "").strip() or None
+    if "is_active" in body:
+        update["is_active"] = bool(body.get("is_active"))
+    if not update:
+        raise HTTPException(status_code=422, detail="Nothing to change.")
+    return await _master_call("PUT", f"/master/reason-codes/{reason_id}", request, token, json=update)
+
+
+@router.delete("/order-close-reasons/{reason_id}")
+async def deactivate_order_close_reason(reason_id: str, request: Request, token: str = Depends(get_token)):
+    """Deactivate: hidden from new cancels / short closes / holds; orders that used it keep it."""
+    _require_close_reason_writer(token)
+    await _close_reason(reason_id, request, token)
+    return await _master_call("DELETE", f"/master/reason-codes/{reason_id}", request, token)

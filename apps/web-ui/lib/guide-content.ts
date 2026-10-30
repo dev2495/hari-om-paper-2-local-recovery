@@ -47,7 +47,7 @@ const guides: GuideContent[] = [
       "Verify that books lock status is visible before editing historical stock.",
     ],
     outputs: ["Clean shift handoff", "Open exception list", "Confirmed plant scope"],
-    relatedRoutes: ["/sales-orders", "/planning/board", "/inventory/lifecycle", "/reports/owner"],
+    relatedRoutes: ["/sales-orders", "/planning/board", "/inventory/stock-control", "/reports/owner"],
   },
   {
     id: "sales",
@@ -199,28 +199,32 @@ const guides: GuideContent[] = [
   {
     id: "purchase-scheduler",
     route: "/purchase/scheduler",
-    title: "Monthly RM & PM Schedule Guide",
-    eyebrow: "Calendar planning",
-    summary: "The plant's monthly purchase workbook, live: for every paper, chemical and packing lane, op stk + scheduled arrivals − requirement = cl stk, with GSM variety totals and each vendor's pending PO against its schedule.",
-    flowTitle: "Requirement to PO draft",
+    title: "RM Inward Calendar Guide",
+    eyebrow: "Plan RM arrivals; the Owner approves them",
+    summary: "One calendar for paper, chemicals and packing: forward demand from orders and planned job cards against stock, QC-pending lots and dated arrivals, day by day. Arrivals the Owner approves become draft POs ready to send.",
+    flowTitle: "Demand to arrival",
     steps: [
-      { label: "Pick the material class", detail: "Paper (RM), chemicals & adhesive (RM) or packing (PM). Paper and chemicals show in kg or MT; packing in pcs. Requirement comes from open sales orders through each spec's BOM: paper and adhesive by weight per bamboo, parchment by the line's colour breakup, boxes by pcs per box with plastic and fadda per box." },
-      { label: "Fix missing stock items", detail: "A BOM material without an inventory identity remains visible in demand. Review and link an existing paper master; maintain adhesive, parchment and packing items in Masters. Linking never receives stock or creates a PO. Started jobs without attributed material issues stay a red blocker for net buying." },
-      { label: "Schedule arrivals", detail: "In the workbook grid, enter each day's arrival per lane and assign its vendor. Amber 'need' marks when orders need it; the footer shows scheduled, required (type a figure to override the BOM requirement) and cl stk, with '+ fill' for any shortfall. Vehicles per day count the deliveries." },
-      { label: "Check vendors, approve and convert", detail: "Vendor position compares what each vendor is scheduled to deliver with its pending PO balance; PO to raise = scheduled − pending. Submit and approve the plan, then generate traceable PO drafts." },
+      { label: "Read the shortages", detail: "Each material row shows stock now, QC pending, days of cover and the next shortage date. A rose cell is the first day the projected balance goes below zero (or below the minimum stock, when a policy has one). Late demand shows on today." },
+      { label: "Propose arrivals", detail: "Planner, Store or the plant head clicks a day and enters qty, vendor and a note, or presses Suggest arrivals: the day before each shortage, rounded up to MOQ, from the item's last vendor." },
+      { label: "Owner approves", detail: "The Owner approves one arrival, a week or every visible one. Approval makes or extends a draft PO per vendor per week, tagged Scheduled by Owner, with dated delivery rows." },
+      { label: "Send and receive", detail: "The purchase desk sends the draft (WhatsApp, email, PDF or print). If nothing changed since the Owner approved, no second approval is needed. Vendor confirms → arrival → GRN with location → incoming QC → stock." },
     ],
-    fieldRules: ["Choose the worksheet and KG or MT unit. Only the first daily RM block imports; lower finished-goods tables are excluded. Map each material header or explicitly exclude a helper column (vehicle counts never import). Duplicate material/date cells are summed before staging.", "Quantities are stored in kg (pcs for packing); MT is display only.", "Op stk is stock on hand today; requirement is every open order due by month end, overdue included.", "Only approved plan entries convert, and retries cannot duplicate POs."],
-    primaryActions: ["Import the supplied workbook or canonical template.", "Enter daily arrivals in the workbook grid or calendar.", "Run the paper shortage check.", "Generate PO drafts grouped by vendor."],
-    controlChecks: ["Do not double count opening stock and live stock.", "Every lane needs a vendor before conversion.", "Review PO to raise per vendor before conversion."],
-    outputs: ["Versioned month plan", "Variety and lane balance", "Vendor PO position", "Linked PO drafts"],
-    relatedRoutes: ["/analytics/mrp", "/purchase/new", "/purchase", "/inventory/stock-alert-policies"],
+    fieldRules: [
+      "Cover counts usable stock, QC-pending lots after a day, open PO delivery rows (remaining qty only) and Owner-approved arrivals not yet on a PO. Received quantity moves into stock and is never counted twice.",
+      "A missing rate never stops a draft: the vendor's last PO rate is used, else the RM costing rate, else the line says rate needed.",
+      "Floor problems in the demand are warnings, never blocks.",
+    ],
+    primaryActions: ["Pick 4, 8 or 12 weeks and the material class.", "Add or suggest arrivals.", "Owner: approve arrivals.", "Open the scheduled drafts in Purchase orders."],
+    controlChecks: ["Changing qty, date, vendor or rate after approval sends the PO back for the Owner's approval.", "Moving an arrival on a PO already sent asks before changing the PO.", "Every chip and colour also carries a word."],
+    outputs: ["Owner-approved arrivals", "Scheduled draft POs per vendor and week", "Dated delivery rows"],
+    relatedRoutes: ["/purchase", "/purchase/supplier-deliveries", "/purchase/inward", "/inventory/stock-alert-policies"],
   },
   {
     id: "stock-alerts",
     route: "/inventory/stock-alert-policies",
     title: "Stock Alert Policy Guide",
     eyebrow: "Versioned stock thresholds",
-    summary: "Define the single effective safety, reorder and target stock policy used by alerts, MRP and procurement planning for each material and plant.",
+    summary: "Define the single effective safety, reorder and target stock policy used by alerts and the RM inward calendar for each material and plant.",
     flowTitle: "Policy to alert episode",
     steps: [
       { label: "Create draft", detail: "Select a material and enter safety, reorder, target, recovery, lead time, MOQ and order multiple in kg." },
@@ -231,8 +235,8 @@ const guides: GuideContent[] = [
     fieldRules: ["Policies are plant and item scoped.", "QC-held, blocked and commercial-held stock is excluded from usable stock.", "Acknowledging an alert never changes stock.", "Recovery uses the saved recovery margin to prevent repeated alert noise."],
     primaryActions: ["Save policy draft.", "Activate a reviewed version.", "Evaluate alerts.", "Open the alert inbox."],
     controlChecks: ["Confirm units are kg.", "Confirm recipients and cooldown.", "Review existing open PO coverage before buying again."],
-    outputs: ["Effective policy version", "Deduplicated alert episode", "MRP threshold input"],
-    relatedRoutes: ["/inventory/stock-alerts", "/analytics/mrp", "/purchase/scheduler", "/purchase"],
+    outputs: ["Effective policy version", "Deduplicated alert episode", "Calendar minimum stock and MOQ"],
+    relatedRoutes: ["/inventory/stock-alerts", "/purchase/scheduler", "/purchase"],
   },
   {
     id: "rm-costing",
@@ -251,7 +255,7 @@ const guides: GuideContent[] = [
     primaryActions: ["Create a cost draft.", "Activate an effective version.", "Inspect complete history.", "Restore an old version as a new draft."],
     controlChecks: ["Record a clear change reason.", "Use a positive reference kg for fixed-per-lot charges.", "Verify the landed cost and effective date before activation."],
     outputs: ["Active RM cost version", "Component calculation", "Complete immutable history"],
-    relatedRoutes: ["/purchase/scheduler", "/analytics/mrp", "/purchase/new", "/system/audit"],
+    relatedRoutes: ["/purchase/scheduler", "/purchase/new", "/system/audit"],
   },
   {
     id: "inventory",
@@ -270,12 +274,12 @@ const guides: GuideContent[] = [
       "No master should carry a price column.",
       "Batch number is generated by the system during inward.",
       "Opening stock should be used only for first-time setup or approved migration.",
-      "Material issue is by the Amigo inward number printed on the label (GRN / AT number). Paper reels are issued by AT number to a winder and the unused kg returns on the same number; adhesive, parchment and packing are issued by quantity to a job card.",
-      "Inward is physical stock received against a PO. MRP is the plan: it compares open sales-order demand with stock and open POs to say what to buy and when. MRP never moves stock.",
+      "Material issue is by the Amigo inward number printed on the label (GRN / AT number). Reels and coils go to the floor whole by AT number and are used in full; adhesive, parchment and packing are issued by quantity for a shift. Nothing returns from the floor.",
+      "Inward is physical stock received against a PO and put in a location. The RM inward calendar is the plan: it compares forward demand with stock and arrivals to say what to buy and when. The calendar never moves stock.",
     ],
     primaryActions: [
       "Review inventory summary by material type.",
-      "Use stock lifecycle for close and carry-forward posture.",
+      "Use Stock counts & book for counts, corrections and the stock book.",
       "Open genealogy when a batch or finished product needs traceability.",
     ],
     controlChecks: [
@@ -284,7 +288,7 @@ const guides: GuideContent[] = [
       "Reconcile stock before books lock.",
     ],
     outputs: ["Current stock", "Batch ledger", "Reconciliation basis"],
-    relatedRoutes: ["/inventory/raw-material-inward", "/inventory/production-issue", "/inventory/lifecycle", "/inventory/genealogy"],
+    relatedRoutes: ["/purchase/inward", "/inventory/production-issue", "/inventory/stock-control", "/inventory/genealogy"],
   },
   {
     id: "raw-inward",
@@ -345,10 +349,10 @@ const guides: GuideContent[] = [
     controlChecks: [
       "Only QC-cleared stock can be issued.",
       "Every reel sent to the slitter needs its slitting card; pending cards are listed on the issue page and in the report.",
-      "Month-end reconciliation compares issued material with production and the physical count.",
+      "Month-end close compares what was issued with the spec and with the month-end count.",
     ],
-    outputs: ["Floor issue ledger (by shift)", "Slitting cards", "Slitting report", "Monthly reconciliation"],
-    relatedRoutes: ["/inventory/reels/issue", "/reports/slitting", "/production/reconciliation", "/inventory/lifecycle"],
+    outputs: ["Floor issue ledger (by shift)", "Slitting cards", "Slitting report", "Month-end close figures"],
+    relatedRoutes: ["/inventory/reels/issue", "/reports/slitting", "/production/reconciliation", "/inventory/stock-control"],
   },
   {
     id: "planning",
@@ -492,35 +496,51 @@ const guides: GuideContent[] = [
     relatedRoutes: ["/sales-orders", "/quality", "/reports/sales", "/inventory/genealogy"],
   },
   {
-    id: "stock-lifecycle",
-    route: "/inventory/lifecycle",
-    title: "Stock Lifecycle and Ledger Guide",
-    eyebrow: "Month-end discipline",
-    summary: "Manage opening stock, daily movement, certification, carry-forward, reconciliation, and lock without breaking the stock audit trail.",
-    flowTitle: "Ledger close flow",
+    id: "stock-counts",
+    route: "/inventory/stock-control",
+    title: "Stock Counts and Book Guide",
+    eyebrow: "Count, correct, read the book",
+    summary: "One Stock place: spot counts any time, the month-end count, corrections and the stock book. Anyone signed in may count; only the Owner approves, and approval changes the stock.",
+    flowTitle: "Count to stock",
     steps: [
-      { label: "Opening setup", detail: "Enter first-time balances once, with valuation and batch references." },
-      { label: "Daily movement", detail: "Inward, issue, WIP, FG, dispatch, and adjustment feed the ledger." },
-      { label: "Certify", detail: "Review physical and system balances." },
-      { label: "Lock", detail: "Carry forward approved balances and freeze closed period edits." },
+      { label: "Start a count", detail: "Spot count: pick racks or items, any day. Month-end count: one per plant per month, covering every location, the Unassigned bucket and items kept without labels." },
+      { label: "Count racks", detail: "Scan the rack label, then each reel or lot. Bulk lots take a counted qty; loose stock without a label is added by item and qty. Rack done marks what was not found as missing." },
+      { label: "Submit", detail: "Anyone may submit. Counting is then locked. The review labels stock issued or received during the count, so moving stock is not called missing." },
+      { label: "Owner approves", detail: "Approval posts one correction with exact reels and lots, moves wrong-place lots, and for the month-end count becomes the month's stock certificate, dated on the month's last day." },
     ],
     fieldRules: [
-      "Opening stock requires owner/admin control.",
-      "Ledger lock should happen after reconciliation and variance review.",
-      "Adjustments require a reason, date, and approver trail.",
+      "Nothing returns from the floor: whatever is issued counts as used on its issue date.",
+      "Stock found without a known lot is added on QC hold; incoming QC stays the only gate for issue.",
+      "A reel the system says was issued but is found in store is never un-issued: the Owner leaves it as used or adds it as new stock on QC hold.",
+      "Corrections outside a count are raised by Store, RM issue, GRN or the plant head with a reason, and posted only when the Owner approves.",
     ],
-    primaryActions: [
-      "Use lifecycle hub before and after month close.",
-      "Review consumption variance before locking.",
-      "Carry forward only approved balances.",
+    primaryActions: ["Start a spot or month-end count.", "Raise a correction.", "Read the stock book for a month.", "Open Locations to print rack labels."],
+    controlChecks: ["A closed month takes no stock movements; ask the Owner to re-open it.", "Totals are per unit: kilograms never include pieces.", "Opening loads are only for go-live (Owner or Admin)."],
+    outputs: ["Approved count with every line logged", "Posted corrections", "Month's stock certificate", "Stock book per item"],
+    relatedRoutes: ["/inventory/locations", "/production/reconciliation", "/inventory/ledger", "/inventory/reels/issue"],
+  },
+  {
+    id: "locations",
+    route: "/inventory/locations",
+    title: "Locations and Rack Labels Guide",
+    eyebrow: "Where stock sits",
+    summary: "Every rack, bay or store area is a location with a printed QR. Goods inward puts stock in the RM store unless another rack is chosen; moves and counts work by scanning the rack, then the lots.",
+    flowTitle: "Rack to stock",
+    steps: [
+      { label: "Set up racks", detail: "Store, the plant head, Owner or Admin create, rename or close locations. A location that holds stock cannot be removed." },
+      { label: "Print labels", detail: "Pick racks and print the label sheet: big code, plain name and the QR. The phone camera opens the rack page." },
+      { label: "Put away and move", detail: "Scan the rack, tap Move stock here and scan the lots. A held lot may move but stays held. Nothing moves to or from the floor." },
+      { label: "Count a rack", detail: "Count this rack starts or joins a spot count for it." },
     ],
-    controlChecks: [
-      "No negative stock after close.",
-      "No unreviewed WIP remains hidden.",
-      "Variance exceptions have explanation or correction.",
+    fieldRules: [
+      "Each plant has one receiving default, the RM store. A GRN line without a location goes there.",
+      "Location never changes QC status.",
+      "Stock with no location shows as Unassigned until it is put away.",
     ],
-    outputs: ["Locked ledger", "Carry-forward stock", "Close audit evidence"],
-    relatedRoutes: ["/inventory", "/reports/inventory", "/reports/production", "/system/audit"],
+    primaryActions: ["Create or edit a location.", "Print rack labels.", "Put away unassigned stock.", "Open a rack to see what is on it."],
+    controlChecks: ["A location of another plant or a closed location is refused at inward.", "Issue desks show Pick from <location> beside each lot."],
+    outputs: ["Rack list with stock", "QR label sheet", "Move history"],
+    relatedRoutes: ["/inventory/stock-control", "/purchase/inward", "/scan", "/inventory/production-issue"],
   },
   {
     id: "genealogy",
@@ -584,7 +604,7 @@ const guides: GuideContent[] = [
       "Confirm dispatch and sales numbers reconcile.",
     ],
     outputs: ["Management pack", "Variance list", "Exception follow-up"],
-    relatedRoutes: ["/reports/owner", "/reports/production", "/reports/planning", "/reports/plan-vs-actual", "/reports/inventory", "/inventory/lifecycle"],
+    relatedRoutes: ["/reports/owner", "/reports/production", "/reports/planning", "/reports/plan-vs-actual", "/reports/inventory", "/production/reconciliation"],
   },
   {
     id: "masters",
@@ -623,23 +643,23 @@ const guides: GuideContent[] = [
     route: "/system/users",
     title: "System, Users, and Audit Guide",
     eyebrow: "Governance",
-    summary: "Control user access, role separation, plant setup, machine setup, tolerance settings, and audit visibility from system screens.",
+    summary: "Control user access, role separation, plant setup, machine setup, background jobs and audit visibility from system screens.",
     flowTitle: "Governance flow",
     steps: [
       { label: "Set users", detail: "Create users with role and plant access matching real responsibility." },
       { label: "Set machines", detail: "Maintain machine and capacity settings for planner accuracy." },
-      { label: "Set tolerances", detail: "Maintain per-plant variance bands used by reconciliation and close." },
+      { label: "Watch background jobs", detail: "Check the daily owner pack and hourly checks ran; usage limits for month-end live under Month-end close." },
       { label: "Review audit", detail: "Use audit log to answer who changed what and when." },
     ],
     fieldRules: [
       "Only owner/admin should manage users and system setup.",
       "Machine capacity changes should be tested in planner before client use.",
-      "Tolerance changes should be reviewed before month close because they affect variance gates.",
+      "Locations are managed in Stores; usage limits in Month-end close.",
       "Audit trail should be reviewed after sensitive changes.",
     ],
     primaryActions: [
       "Manage users and roles.",
-      "Open tolerance editor for plant variance bands.",
+      "Open Background jobs to check scheduled runs.",
       "Review audit events.",
       "Maintain machine and plant setup.",
     ],
@@ -648,39 +668,8 @@ const guides: GuideContent[] = [
       "Do not expose credentials on the public login page.",
       "Confirm role guards block restricted reports.",
     ],
-    outputs: ["User access", "Machine setup", "Tolerance policy", "Audit evidence"],
-    relatedRoutes: ["/system/tolerances", "/system/audit", "/planning/board", "/reports/owner", "/dashboard"],
-  },
-  {
-    id: "mrp",
-    route: "/analytics/mrp",
-    title: "MRP and Shortage Guide",
-    eyebrow: "Material planning",
-    summary: "Convert released demand and current stock into shortage visibility before purchasing or urgent scheduling.",
-    flowTitle: "MRP signal flow",
-    steps: [
-      { label: "Read demand", detail: "Sales releases and planner jobs create material requirement." },
-      { label: "Read stock", detail: "Available and WIP balances reduce net shortage." },
-      { label: "Draft buy", detail: "Shortage items become purchase work." },
-      { label: "Receive", detail: "Inward closes the shortage only when posted." },
-    ],
-    fieldRules: [
-      "MRP is only as accurate as current stock and open job cards.",
-      "Vendor is selected during purchase and inward, not in parchment company masters.",
-      "Shortage should be reviewed before promising urgent due dates.",
-    ],
-    primaryActions: [
-      "Open shortage list before purchase.",
-      "Compare shortage against current production queue.",
-      "Move confirmed buys into inward once received.",
-    ],
-    controlChecks: [
-      "Check stale WIP before buying extra material.",
-      "Review alternate stock before creating urgent purchase.",
-      "Validate rate on inward after purchase.",
-    ],
-    outputs: ["Shortage signal", "Purchase action", "Material availability"],
-    relatedRoutes: ["/purchase", "/inventory/raw-material-inward", "/planning/board", "/reports/inventory"],
+    outputs: ["User access", "Machine setup", "Job health", "Audit evidence"],
+    relatedRoutes: ["/system/scheduler", "/system/audit", "/production/reconciliation/limits", "/inventory/locations", "/dashboard"],
   },
   {
     id: "manual-fg",
@@ -711,7 +700,7 @@ const guides: GuideContent[] = [
       "Review manual entries during stock reconciliation.",
     ],
     outputs: ["Exception FG balance", "Audit reason", "QC-aware dispatch stock"],
-    relatedRoutes: ["/inventory", "/quality", "/logistics/dispatch", "/inventory/lifecycle"],
+    relatedRoutes: ["/inventory", "/quality", "/logistics/dispatch", "/inventory/stock-control"],
   },
 
   {
@@ -820,107 +809,70 @@ const guides: GuideContent[] = [
   {
     id: "supplier-promises",
     route: "/purchase/supplier-deliveries",
-    title: "Supplier Delivery Schedule Guide",
-    eyebrow: "Track vendor promises, confirmed arrivals and partial receipt allocation against approved PO lines",
-    summary: "Track vendor promises, confirmed arrivals and partial receipt allocation against approved PO lines.",
-    flowTitle: "Working sequence",
+    title: "Expected Arrivals Guide",
+    eyebrow: "What vendors should deliver, and when",
+    summary: "Every open dated delivery row of an approved PO, grouped Overdue, Today, This week and Later, each with Make GRN prefilled for that PO line.",
+    flowTitle: "Arrival to stock",
     steps: [
-      {
-        label: "Select the order",
-        detail: "Open the supplier delivery workspace for one plant and select the approved PO line."
-      },
-      {
-        label: "Record the promise",
-        detail: "Record the promised arrival date, quantity and confirmation state. Keep original promises available in the history when the vendor revises a date."
-      },
-      {
-        label: "Review revisions",
-        detail: "Provide a reason for date or quantity changes. Refresh before retrying a stale version. Cancel only eligible unreceived commitments."
-      },
-      {
-        label: "Receive and reconcile",
-        detail: "Post physical receipts through Goods inward. Receipt allocations drive received quantities; partial GRNs leave a visible open balance on the schedule."
-      }
+      { label: "Check today", detail: "Overdue and Today come first. Each row shows vendor, PO, item, qty still open and whether the vendor confirmed the date." },
+      { label: "Confirm or move a date", detail: "When the vendor confirms, mark the row confirmed. A changed date needs a reason; the original promise stays in the history." },
+      { label: "Make GRN", detail: "Opens Goods inward for that PO line. The GRN fills the oldest delivery rows first and puts the stock in a location (the RM store by default)." },
     ],
     fieldRules: [
-      "Only confirmed future supply is counted on its arrival date in MRP.",
-      "Tentative, undated or overdue arrivals are not treated as guaranteed usable future stock.",
-      "Schedule received quantity comes from receipt allocations; do not enter it independently."
+      "Received quantity comes from GRNs; it is never typed here.",
+      "Hand-made POs get delivery rows from each line's expected date, else the PO date.",
     ],
-    primaryActions: [
-      "Confirm an arrival.",
-      "Revise a promise with a reason.",
-      "Open the linked receipt or PO history."
-    ],
-    controlChecks: [
-      "Avoid scheduling more than the open PO balance.",
-      "Keep late supply distinct from stock already on hand.",
-      "Do not clear commercial or QC holds through a delivery promise."
-    ],
-    outputs: [
-      "Canonical supply calendar",
-      "Original promise history",
-      "Partial receipt balances"
-    ],
-    relatedRoutes: [
-      "/purchase",
-      "/purchase/inward",
-      "/purchase/scheduler"
-    ]
+    primaryActions: ["Confirm an arrival.", "Change a date with a reason.", "Make the GRN."],
+    controlChecks: ["Do not schedule more than the PO line still has open.", "A delivery promise never clears a QC hold."],
+    outputs: ["Arrivals by day", "Promise history", "Partial receipt balances"],
+    relatedRoutes: ["/purchase", "/purchase/inward", "/purchase/scheduler"],
   },
   {
-    id: "reconciliation",
+    id: "month-end-close",
     route: "/production/reconciliation",
-    title: "Monthly Reconciliation Guide",
-    eyebrow: "Compare actual material consumption with the recorded production evidence before closing a period",
-    summary: "Compare actual material consumption with the recorded production evidence before closing a period.",
-    flowTitle: "Working sequence",
+    title: "Month-end Close Guide",
+    eyebrow: "Spec, issued and counted use, then close",
+    summary: "For each material: what the spec allows, what the store issued to the floor and what the month-end count says was used. The Owner closes the month once the count is approved and every item outside its limit has a note.",
+    flowTitle: "Close checklist",
     steps: [
-      {
-        label: "Review the month",
-        detail: "Select the plant and month on Monthly close. Review open issues and the period state before entering corrections."
-      },
-      {
-        label: "Enter actuals",
-        detail: "Open Actual entry from the sidebar under Reconciliation. Review material rows, enter supported actual quantities and costs, and explain differences."
-      },
-      {
-        label: "Investigate drift",
-        detail: "Open Weekly drift for the selected week. Use the source records to understand the variance instead of adjusting a number simply to eliminate it."
-      },
-      {
-        label: "Close and review",
-        detail: "Complete the established close checks using the authorized role. Use Close history to inspect earlier decisions; a closed period cannot be bypassed by changing the page."
-      }
+      { label: "Month has ended", detail: "The running month shows only the floor gap so far. A month can be closed from the 1st of the next month (IST)." },
+      { label: "Month-end count approved", detail: "Actual use = opening + received − sent back − closing, from the approved month-end count." },
+      { label: "Notes on items outside the limit", detail: "Expected = spec + normal wastage. Floor gap = issued − expected; store gap = what the count found short or extra. Each OVER or UNDER item needs a note from the plant head or Owner." },
+      { label: "Owner closes", detail: "Earlier months must be closed first. The figures are frozen, and floor and store entries dated in the month are refused. Re-open is Owner only, with a reason." },
     ],
     fieldRules: [
-      "Monthly close, Actual entry, Weekly drift and Close history are separate pages with their own URLs.",
-      "Actual consumption and theoretical recipe consumption remain separate measures.",
-      "Locked books constrain historical stock mutations."
+      "Every number is in the item's own unit; totals never add pieces into kilograms.",
+      "Spec rows whose material has no stock item are listed separately with a link to fix the master or recipe.",
+      "March closes the financial year; 1 April opens from the 31 March closing.",
     ],
-    primaryActions: [
-      "Open material actuals.",
-      "Record a reason and submit eligible corrections.",
-      "Review close history and lock posture."
-    ],
+    primaryActions: ["Pick the month (default: the oldest month not closed).", "Open an item's drawer to see the job cards, issues and count lines behind each number.", "Add a note.", "Close the month."],
     controlChecks: [
-      "Do not change a historical rate to hide a variance.",
-      "Resolve outstanding exceptions before requesting close.",
-      "Confirm the plant and period on each entry."
+      "Nothing returns from the floor: issued is used.",
+      "Changing usage limits never changes a closed month.",
+      "Every close and re-open is kept in the history.",
+      "Only closed months are locked. An earlier month left open still takes GRNs and issues; they move the later closed months' live figures (shown as \"Changed after close\") while the frozen figures stay. To count or close that earlier month, re-open the later months first.",
     ],
-    outputs: [
-      "Actual consumption evidence",
-      "Variance explanation",
-      "Audited close history"
+    outputs: ["Frozen month figures", "Notes per item", "Close history", "Financial year view"],
+    relatedRoutes: ["/production/reconciliation/limits", "/inventory/stock-control", "/inventory/ledger", "/reports/owner"],
+  },
+  {
+    id: "usage-limits",
+    route: "/production/reconciliation/limits",
+    title: "Usage Limits Guide",
+    eyebrow: "How far use may differ from spec",
+    summary: "Per plant and material type: normal wastage % added to the spec, the allowed gap % and a minimum gap in the item's unit so tiny quantities do not flag.",
+    flowTitle: "Limit to status",
+    steps: [
+      { label: "Expected use", detail: "Spec × (1 + normal wastage % ÷ 100). Paper starts at 7%, everything else at 0%." },
+      { label: "Allowed gap", detail: "The larger of allowed gap % of expected (7% to start) and the minimum gap: paper 5 kg, adhesive 0.5 kg, parchment 1 kg, packing 10 in its unit, other 5." },
+      { label: "Status", detail: "OK inside the allowed gap; OVER or UNDER outside it; not known until the month-end count is approved." },
     ],
-    relatedRoutes: [
-      "/production/reconciliation/actuals",
-      "/production/reconciliation/drift",
-      "/production/reconciliation/history",
-      "/inventory/lifecycle"
-    ]
-  }
-,
+    fieldRules: ["Owner and Admin edit; everyone else reads.", "Changes apply to open months only; closed months keep the limits they closed with."],
+    primaryActions: ["Pick the plant.", "Edit the three fields of a material type and read the example line."],
+    controlChecks: ["These are not QC tolerances; QC bands live in Quality."],
+    outputs: ["Usage limits per plant and material type"],
+    relatedRoutes: ["/production/reconciliation", "/quality/material-standards"],
+  },
 
   {
     id: "scan",
@@ -960,6 +912,7 @@ const routeGuideMap: Array<{ pattern: RegExp; guideId: string }> = [
   { pattern: /^\/help\/appearance(?:\/.*)?$/, guideId: "appearance" },
   { pattern: /^\/sales-orders\/pending(?:\/.*)?$/, guideId: "customer-calendar" },
   { pattern: /^\/purchase\/supplier-deliveries(?:\/.*)?$/, guideId: "supplier-promises" },
+  { pattern: /^\/production\/reconciliation\/limits(?:\/.*)?$/, guideId: "usage-limits" },
   { pattern: /^\/dashboard(?:\/.*)?$/, guideId: "dashboard" },
   { pattern: /^\/control-tower(?:\/.*)?$/, guideId: "dashboard" },
   { pattern: /^\/landing(?:\/.*)?$/, guideId: "dashboard" },
@@ -971,7 +924,7 @@ const routeGuideMap: Array<{ pattern: RegExp; guideId: string }> = [
   { pattern: /^\/purchase\/(?:inward|receipts)(?:\/.*)?$/, guideId: "purchase-inward" },
   { pattern: /^\/purchase\/(?:discrepancies|debit-notes)(?:\/.*)?$/, guideId: "purchase-commercial" },
   { pattern: /^\/purchase(?:\/.*)?$/, guideId: "purchase" },
-  { pattern: /^\/analytics\/mrp(?:\/.*)?$/, guideId: "mrp" },
+  { pattern: /^\/analytics\/mrp(?:\/.*)?$/, guideId: "purchase-scheduler" },
   { pattern: /^\/analytics(?:-|\/|$)/, guideId: "reports" },
   { pattern: /^\/inventory-rm-inward(?:\/.*)?$/, guideId: "raw-inward" },
   { pattern: /^\/inventory-reels-issue(?:\/.*)?$/, guideId: "production-issue" },
@@ -982,9 +935,11 @@ const routeGuideMap: Array<{ pattern: RegExp; guideId: string }> = [
   { pattern: /^\/inventory\/rm-costing(?:\/.*)?$/, guideId: "rm-costing" },
   { pattern: /^\/inventory\/reels\/issue(?:\/.*)?$/, guideId: "production-issue" },
   { pattern: /^\/inventory\/production-issue(?:\/.*)?$/, guideId: "production-issue" },
-  { pattern: /^\/inventory\/lifecycle(?:\/.*)?$/, guideId: "stock-lifecycle" },
-  { pattern: /^\/inventory\/ledger(?:\/.*)?$/, guideId: "stock-lifecycle" },
-  { pattern: /^\/inventory\/stock-control(?:\/.*)?$/, guideId: "stock-lifecycle" },
+  { pattern: /^\/inventory\/lifecycle(?:\/.*)?$/, guideId: "stock-counts" },
+  { pattern: /^\/inventory\/ledger(?:\/.*)?$/, guideId: "stock-counts" },
+  { pattern: /^\/inventory\/stock-control(?:\/.*)?$/, guideId: "stock-counts" },
+  { pattern: /^\/inventory\/counts(?:\/.*)?$/, guideId: "stock-counts" },
+  { pattern: /^\/inventory\/locations(?:\/.*)?$/, guideId: "locations" },
   { pattern: /^\/inventory\/genealogy(?:\/.*)?$/, guideId: "genealogy" },
   { pattern: /^\/inventory\/fg-inward(?:\/.*)?$/, guideId: "manual-fg" },
   { pattern: /^\/inventory(?:\/.*)?$/, guideId: "inventory" },
@@ -995,7 +950,7 @@ const routeGuideMap: Array<{ pattern: RegExp; guideId: string }> = [
   { pattern: /^\/production\/eod-entry(?:\/.*)?$/, guideId: "job-cards" },
   { pattern: /^\/production\/supervisor-entry(?:\/.*)?$/, guideId: "job-cards" },
   { pattern: /^\/operations(?:\/.*)?$/, guideId: "job-cards" },
-  { pattern: /^\/production\/reconciliation(?:\/.*)?$/, guideId: "reconciliation" },
+  { pattern: /^\/production\/reconciliation(?:\/.*)?$/, guideId: "month-end-close" },
   { pattern: /^\/quality(?:\/.*)?$/, guideId: "quality" },
   { pattern: /^\/(?:dispatch|logistics\/dispatch)(?:\/.*)?$/, guideId: "dispatch" },
   { pattern: /^\/reports(?:\/.*)?$/, guideId: "reports" },

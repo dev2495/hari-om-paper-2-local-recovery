@@ -7,6 +7,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -21,6 +22,7 @@ from ..models import (
     InventoryOpeningLoad,
     InventoryOpeningLoadLine,
     ItemMaster,
+    StockCountLocation,
     ItemType,
     PaperReel,
     ReelScanEvent,
@@ -35,10 +37,15 @@ from ..models import (
     TrackingMode,
     TransactionType,
 )
-from ..services.stock_control import compute_stock_statement
-from ..services.stock_calc import get_item_balance
+from ..services.books import (
+    assert_books_open, ist_today, is_month_locked, month_key, month_label, month_start, next_month, parse_month,
+)
+from ..services.stock_control import book_item_sources, book_items, book_period, changes_after_count, compute_stock_statement
+from ..services import opening_stock
+from ..services.stock_calc import get_batch_balance, get_item_balance
+from ..services.stock_lots import QC_WORDS, get_one_plant, entity_qty, in_store, location_brief, lot_code, lot_row, posted_since, resolve_lot
 from ..utils.audit_client import emit_audit_event
-from ..utils.auth import get_current_plant, get_current_plant_scope, get_current_user, require_role
+from ..utils.auth import get_current_plant, get_current_plant_scope, get_current_user, is_actual_owner, require_owner, require_role
 
 _audit_logger = logging.getLogger(__name__)
 
@@ -46,6 +53,38 @@ router = APIRouter(prefix="/inventory/stock-control", tags=["inventory-stock-con
 
 STOCK_STATUSES = {"UNRESTRICTED", "WIP", "QC_HOLD", "BLOCKED", "DISPATCH_STAGING", "SCRAP"}
 COUNT_STATES = {"DRAFT", "COUNTED", "RECOUNT_REQUIRED", "REVIEWED", "CERTIFIED"}
+
+
+def _enum(value: Any) -> str:
+    return str(getattr(value, "value", value) or "")
+
+
+# Who may raise a stock correction (spec 2.4); only the Owner approves it.
+CORRECTION_RAISE_ROLES = ["Store", "RMIssue", "GRN", "PlantManager"]
+LINE_STATUSES = {"UNRESTRICTED", "WIP", "QC_HOLD", "BLOCKED", "DISPATCH_STAGING", "SCRAP"}
+# A new lot from a voucher keeps these statuses; anything else (UNRESTRICTED …) goes on QC hold.
+NEW_LOT_KEEP_STATUSES = {"QC_HOLD", "BLOCKED", "SCRAP"}
+# Reasons only a stock count writes: a hand-made voucher never shows as a "count difference".
+COUNT_ONLY_REASONS = {"PHYSICAL_COUNT_VARIANCE"}
+CORRECTION_REASONS = {
+    "COUNT_SHORT": "Count short",
+    "COUNT_EXTRA": "Count extra",
+    "DAMAGED_IN_STORE": "Damaged in store",
+    "WRONG_GRN_WEIGHT": "Wrong GRN weight",
+    "LABEL_LOST_FOUND": "Label lost / found",
+    "OTHER": "Other",
+}
+
+
+def ist_day_end_utc(day: date) -> datetime:
+    """23:59:59 IST of a business day as a naive UTC timestamp (what the server stores)."""
+    return datetime.combine(day, time(23, 59, 59)) - timedelta(hours=5, minutes=30)
+
+
+def _refuse_rack_count(db: Session, header: Optional[InventoryCertification]) -> None:
+    """Counts made by rack (client 2026-10-28) are worked on their own count page, never by the old sheet."""
+    if header is not None and db.query(StockCountLocation.id).filter(StockCountLocation.count_id == header.id).first():
+        raise HTTPException(status_code=409, detail="This count is done rack by rack. Open it from Stock counts & book.")
 
 
 def _actor(current_user: dict) -> str:
@@ -200,6 +239,13 @@ def _serialize_certification(header: InventoryCertification, include_lines: bool
         "certified_at": header.certified_at.isoformat() if header.certified_at else None,
         "carried_forward_at": header.carried_forward_at.isoformat() if header.carried_forward_at else None,
         "created_at": header.created_at.isoformat() if header.created_at else None,
+        # Counts (client 2026-10-28): kind, month and who submitted / approved.
+        "kind": header.kind,
+        "month": header.month.isoformat() if header.month else None,
+        "submitted_by": header.submitted_by,
+        "submitted_at": header.submitted_at.isoformat() if header.submitted_at else None,
+        "approved_by": header.approved_by,
+        "approved_at": header.approved_at.isoformat() if header.approved_at else None,
         "line_count": len(lines),
         "totals": {
             "closing_value": total_closing_value,
@@ -287,12 +333,24 @@ def _sync_draft_lines(db: Session, header: InventoryCertification, plant_id: str
 
 
 class OpeningLoadLinePayload(BaseModel):
+    """One reel / coil (qty = kg) or bulk lot (qty in the item's unit) of go-live opening stock.
+
+    Every reel or lot gets a new system number dated the go-live date; ``batch_no`` / ``reel_code`` are
+    still accepted from old callers but the old number is kept as ``old_mark`` instead.
+    """
     item_id: uuid.UUID
     qty: float = Field(gt=0)
+    kind: Optional[str] = Field(default=None, max_length=10)
     batch_no: Optional[str] = Field(default=None, max_length=100)
     reel_code: Optional[str] = Field(default=None, max_length=100)
+    old_mark: Optional[str] = Field(default=None, max_length=120)
+    vendor_name: Optional[str] = Field(default=None, max_length=200)
+    vendor_ref: Optional[str] = Field(default=None, max_length=120)
+    physical_form: Optional[str] = Field(default=None, max_length=10)
     location_id: Optional[uuid.UUID] = None
     stock_status: str = "UNRESTRICTED"
+    on_hold: bool = False
+    hold_reason: Optional[str] = Field(default=None, max_length=300)
     unit_cost: Optional[float] = Field(default=None, ge=0)
     cost_source: Optional[str] = None
     notes: Optional[str] = Field(default=None, max_length=500)
@@ -318,9 +376,11 @@ class OpeningLoadLinePayload(BaseModel):
 
 class OpeningLoadPayload(BaseModel):
     document_no: Optional[str] = Field(default=None, max_length=80)
+    # Idempotency key: the same key posts the batch once (a double click returns the first post).
+    request_id: Optional[uuid.UUID] = None
     effective_date: date
     notes: Optional[str] = Field(default=None, max_length=500)
-    lines: list[OpeningLoadLinePayload] = Field(min_length=1)
+    lines: list[OpeningLoadLinePayload] = Field(min_length=1, max_length=1000)
 
 
 class CertificationCreatePayload(BaseModel):
@@ -454,7 +514,22 @@ def _doc_token(value: str, fallback: str = "DOC") -> str:
     return (token or fallback)[:48]
 
 
+def _new_lot_prefix(voucher_no: str) -> str:
+    """Lot / reel code stem for stock a voucher creates: the voucher number itself (ADJ-…, VAR-…), never ADJ-ADJ-…."""
+    token = _doc_token(voucher_no, "ADJ")
+    return token if token.startswith(("ADJ-", "VAR-")) else f"ADJ-{token}"
+
+
+def lock_voucher_numbers(db: Session, plant_id: str, series: str = "stock-voucher") -> None:
+    """Serialize "first free number" per plant until this transaction ends, so two approvals or raises at
+    the same moment never pick the same ADJ- / VAR- / CNT- number (that was a unique-key 500)."""
+    bind = db.get_bind()
+    if getattr(getattr(bind, "dialect", None), "name", "") == "postgresql":
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": f"{series}:{plant_id}"})
+
+
 def _next_adjustment_no(db: Session, plant_id: str, effective_date: date) -> str:
+    lock_voucher_numbers(db, plant_id)
     prefix = f"ADJ-{effective_date.strftime('%Y%m%d')}"
     for sequence in range(1, 10000):
         candidate = f"{prefix}-{sequence:03d}"
@@ -468,6 +543,7 @@ def _next_adjustment_no(db: Session, plant_id: str, effective_date: date) -> str
 
 
 def _next_count_session_no(db: Session, plant_id: str, period_end: date) -> str:
+    lock_voucher_numbers(db, plant_id, "stock-count-no")
     prefix = f"CNT-{period_end.strftime('%Y%m%d')}"
     for sequence in range(1, 10000):
         candidate = f"{prefix}-{sequence:03d}"
@@ -541,6 +617,7 @@ def _add_reel_adjustment_event(
     header: StockAdjustmentVoucher,
     qty_delta: float,
     actor: str,
+    creates_reel: bool = False,
 ) -> None:
     db.add(
         ReelScanEvent(
@@ -559,6 +636,9 @@ def _add_reel_adjustment_event(
                 "effective_date": header.effective_date.isoformat(),
                 "effective_at": header.effective_at.isoformat() if header.effective_at else None,
                 "actor": actor,
+                "count_id": str(header.count_id) if header.count_id else None,
+                "creates_reel": creates_reel or None,
+                "location_id": str(line.location_id or reel.location_id) if (line.location_id or reel.location_id) else None,
             },
         )
     )
@@ -577,14 +657,25 @@ def _post_reel_adjustment_line(
     qty_delta = float(line.qty_delta or 0.0)
     unit_cost = _line_unit_cost(item, line)
     if qty_delta > 0 and line.reel_id:
-        raise HTTPException(
-            status_code=400,
-            detail="Positive reel adjustment creates a new adjustment reel; remove reel_id.",
-        )
+        # A count gain on a known reel (found again, or re-weighed heavier) adds to that same reel,
+        # which keeps its QC status; a reel never weighs more than it came in at (spec 2.3).
+        reel = db.query(PaperReel).filter(
+            PaperReel.id == line.reel_id, PaperReel.plant_id == plant_uuid, PaperReel.paper_id == item.id,
+        ).with_for_update().first()
+        if not reel:
+            raise HTTPException(status_code=404, detail="Adjustment reel not found")
+        new_weight = round(float(reel.current_weight_kg or 0.0) + qty_delta, 3)
+        if new_weight > float(reel.inward_weight_kg or 0.0) + 0.0005:
+            raise HTTPException(status_code=409, detail=f"{reel.reel_code} cannot weigh more than the {float(reel.inward_weight_kg or 0):g} kg it came in at.")
+        reel.current_weight_kg = min(new_weight, float(reel.inward_weight_kg or 0.0))
+        reel.status = ReelStatus.IN_STOCK
+        if line.location_id:
+            reel.location_id = line.location_id
+        _add_reel_adjustment_event(db, plant_uuid=plant_uuid, reel=reel, line=line, header=header, qty_delta=qty_delta, actor=actor)
+        return
 
     if qty_delta > 0:
-        doc_token = _doc_token(header.voucher_no, "ADJ")
-        reel_code = f"ADJ-{doc_token}-R{line_index:03d}"
+        reel_code = f"{_new_lot_prefix(header.voucher_no)}-R{line_index:03d}"
         if db.query(PaperReel.id).filter(PaperReel.plant_id == plant_uuid, PaperReel.reel_code == reel_code).first():
             reel_code = f"{reel_code}-{uuid.uuid4().hex[:4].upper()}"[:100]
         reel = PaperReel(
@@ -606,7 +697,10 @@ def _post_reel_adjustment_line(
                 "adjustment_line_id": str(line.id),
                 "voucher_no": header.voucher_no,
                 "reason_code": line.reason_code or header.reason_code,
+                "count_id": str(header.count_id) if header.count_id else None,
+                "notes": line.notes,
             },
+            inward_metadata={"amigo_no": reel_code, "source_document_type": "STOCK_ADJUSTMENT", "voucher_no": header.voucher_no},
             inward_date=header.effective_date,
         )
         db.add(reel)
@@ -620,6 +714,7 @@ def _post_reel_adjustment_line(
             header=header,
             qty_delta=qty_delta,
             actor=actor,
+            creates_reel=True,
         )
         return
 
@@ -630,17 +725,21 @@ def _post_reel_adjustment_line(
             PaperReel.id == line.reel_id,
             PaperReel.plant_id == plant_uuid,
             PaperReel.paper_id == item.id,
-        ).first()
+        ).with_for_update().first()
         if not reel:
             raise HTTPException(status_code=404, detail="Adjustment reel not found")
         reels = [reel]
     else:
+        # No reel named: oldest cleared reels in store only, never a held one (a count or correction
+        # names its reel; this is for old item-level vouchers).
         reels = (
             db.query(PaperReel)
             .filter(
                 PaperReel.plant_id == plant_uuid,
                 PaperReel.paper_id == item.id,
                 PaperReel.current_weight_kg > 0,
+                PaperReel.status == ReelStatus.IN_STOCK,
+                PaperReel.stock_status == "UNRESTRICTED",
             )
             .order_by(PaperReel.inward_date.asc(), PaperReel.created_at.asc())
             .all()
@@ -694,8 +793,15 @@ def _post_bulk_adjustment_line(
             raise HTTPException(status_code=404, detail="Adjustment batch not found")
         if line.unit_cost is None and batch.unit_cost is not None:
             line.unit_cost = float(batch.unit_cost or 0.0)
+        if qty_delta < 0:
+            balance = float(get_batch_balance(str(batch.id), db) or 0.0)
+            if balance + qty_delta < -0.0005:
+                raise HTTPException(status_code=409, detail=f"Lot {batch.batch_no} has only {round(balance, 3):g} {_enum(item.uom).lower()} left; it cannot go down by {abs(qty_delta):g}.")
+        # The ledger row carries the lot's own QC state: a correction never clears or holds a lot.
+        txn_status = batch.stock_status
+        txn_location = batch.location_id
     elif qty_delta > 0:
-        batch_no = f"ADJ-{_doc_token(header.voucher_no, 'ADJ')}-B{line_index:03d}"
+        batch_no = f"{_new_lot_prefix(header.voucher_no)}-B{line_index:03d}"
         if db.query(StockBatch.id).filter(StockBatch.plant_id == plant_id, StockBatch.batch_no == batch_no).first():
             batch_no = f"{batch_no}-{uuid.uuid4().hex[:4].upper()}"[:100]
         batch = StockBatch(
@@ -706,13 +812,22 @@ def _post_bulk_adjustment_line(
             cost_source="MANUAL" if unit_cost > 0 else None,
             supplier_name_snapshot="STOCK ADJUSTMENT",
             location_id=line.location_id,
+            location=(db.get(InventoryLocation, line.location_id).code if line.location_id else None),
             stock_status=line.stock_status,
             plant_id=plant_id,
+            # "In since" the voucher's own day (a back-dated month-end count's lot is in the book from then).
+            inward_metadata={"source_document_type": "STOCK_ADJUSTMENT", "voucher_no": header.voucher_no, "notes": line.notes,
+                             "received_date": header.effective_date.isoformat() if header.effective_date else None},
         )
         db.add(batch)
         db.flush()
         line.created_batch_id = batch.id
         batch_id = batch.id
+        txn_status = line.stock_status
+        txn_location = line.location_id
+    else:
+        txn_status = line.stock_status
+        txn_location = line.location_id
 
     txn = StockTransaction(
         item_id=item.id,
@@ -722,8 +837,8 @@ def _post_bulk_adjustment_line(
         reference_type=ReferenceType.ADJUSTMENT,
         reference_id=header.id,
         plant_id=plant_id,
-        location_id=line.location_id,
-        stock_status=line.stock_status,
+        location_id=line.location_id or txn_location,
+        stock_status=txn_status,
         movement_metadata={
             "source_document_type": "STOCK_ADJUSTMENT",
             "adjustment_id": str(header.id),
@@ -731,6 +846,7 @@ def _post_bulk_adjustment_line(
             "voucher_no": header.voucher_no,
             "reason_code": line.reason_code or header.reason_code,
             "notes": line.notes,
+            "count_id": str(header.count_id) if header.count_id else None,
         },
         external_ref=f"ADJ:{header.id}:{line.id}",
         effective_date=header.effective_date,
@@ -748,12 +864,16 @@ def _post_adjustment_voucher(
     plant_id: str,
     actor: str,
 ) -> None:
+    """Post a DRAFT voucher line by line (exact reel / lot when the line names one). Callers decide who
+    may approve: corrections and counts are Owner-only (spec 2.3, 2.4); system write-offs post directly."""
     if header.status == "POSTED":
         return
     if header.status != "DRAFT":
         raise HTTPException(status_code=400, detail="Only draft adjustment vouchers can be posted")
     if not (header.lines or []):
         raise HTTPException(status_code=400, detail="Adjustment voucher has no lines")
+    # Corrections and count postings dated in a closed month are refused (spec 2.5).
+    assert_books_open(db, plant_id, header.effective_date)
 
     plant_uuid = _to_uuid(plant_id)
     for index, line in enumerate(header.lines or [], start=1):
@@ -763,6 +883,15 @@ def _post_adjustment_voucher(
         if abs(float(line.qty_delta or 0.0)) <= 0.000001:
             raise HTTPException(status_code=400, detail=f"Adjustment qty cannot be zero on line {index}")
         line.stock_status = _validate_status(line.stock_status)
+        if not line.reel_id and not line.batch_id and float(line.qty_delta or 0.0) > 0:
+            # Stock gained without a known lot is a NEW lot on QC hold (incoming QC is the only gate for
+            # issue), kept in the RM store unless the line names a place.
+            if line.stock_status not in NEW_LOT_KEEP_STATUSES:
+                line.stock_status = "QC_HOLD"
+            if not line.location_id:
+                from ..services.locations import default_receiving_location
+
+                line.location_id = default_receiving_location(db, plant_id, actor=actor).id
         if line.location_id:
             location = db.query(InventoryLocation).filter(
                 InventoryLocation.id == line.location_id,
@@ -837,13 +966,46 @@ def list_adjustment_vouchers(
     return {"items": [_serialize_adjustment_voucher(row, include_lines=False) for row in rows]}
 
 
+def _check_adjustment_lines(db: Session, plant_id: str, lines: list[AdjustmentLinePayload]) -> None:
+    """Every material, reel, lot and location named on a voucher must exist in this plant (and belong
+    together), so a wrong id is refused in plain words instead of failing on save."""
+    plant = str(plant_id).lower()
+    for index, line in enumerate(lines, start=1):
+        item = db.get(ItemMaster, line.item_id)
+        if item is None or str(item.plant_id or "").lower() != plant:
+            raise HTTPException(status_code=404, detail=f"Line {index}: that material is not in this plant. Pick it again from the list.")
+        if line.reel_id:
+            reel = db.get(PaperReel, line.reel_id)
+            if reel is None or str(reel.plant_id or "").lower() != plant:
+                raise HTTPException(status_code=404, detail=f"Line {index}: that reel is not in this plant. Scan its label again.")
+            if str(reel.paper_id) != str(item.id):
+                raise HTTPException(status_code=422, detail=f"Line {index}: reel {reel.reel_code} is not {item.name}.")
+        if line.batch_id:
+            batch = db.get(StockBatch, line.batch_id)
+            if batch is None or str(batch.plant_id or "").lower() != plant:
+                raise HTTPException(status_code=404, detail=f"Line {index}: that lot is not in this plant. Scan its label again.")
+            if str(batch.item_id) != str(item.id):
+                raise HTTPException(status_code=422, detail=f"Line {index}: lot {batch.batch_no} is not {item.name}.")
+        if line.location_id:
+            location = db.get(InventoryLocation, line.location_id)
+            if location is None or str(location.plant_id or "").lower() != plant:
+                raise HTTPException(status_code=404, detail=f"Line {index}: that location is not in this plant.")
+            if str(location.active or "true") != "true":
+                raise HTTPException(status_code=422, detail=f"Line {index}: location {location.code} is switched off. Choose an active one.")
+
+
 @router.post("/adjustment-vouchers")
 def create_adjustment_voucher(
     payload: AdjustmentVoucherPayload,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Owner", "Admin", "Store"])),
+    current_user: dict = Depends(require_role(CORRECTION_RAISE_ROLES)),
 ):
+    """Raise a correction voucher. It is saved as a DRAFT for the Owner to approve (spec 2.4); only an
+    Owner's own ``post_now`` posts at once. System write-offs (customer complaint scrap) post elsewhere."""
+    if payload.post_now:
+        # Dated inside a closed month: refused before anything else (spec 2.5).
+        assert_books_open(db, plant_id, payload.effective_date)
     # Returned goods must enter under QC hold with a customer-return record, never as a
     # plain positive adjustment that lands sellable stock with no trace.
     if (payload.source_type or "").strip().upper() != "CUSTOMER_REJECTION" and any(
@@ -855,6 +1017,16 @@ def create_adjustment_voucher(
             status_code=400,
             detail="Customer returns are received in Quality → Results & holds → Inward rejected FG, so they are held for QC and linked to the customer and dispatch.",
         )
+    source_type = (payload.source_type or "").strip().upper() or "MANUAL"
+    if source_type in {"STOCK_COUNT", "CERTIFICATION_VARIANCE"} or payload.reason_code.strip().upper() in COUNT_ONLY_REASONS or any(
+        (line.reason_code or "").strip().upper() in COUNT_ONLY_REASONS for line in payload.lines
+    ):
+        raise HTTPException(status_code=422, detail="A count difference comes only from an approved stock count. Choose another reason, or start a count.")
+    for index, line in enumerate(payload.lines, start=1):
+        if float(line.qty_delta) < 0 and not line.reel_id and not line.batch_id:
+            # Taking stock off "the item" splits the item total from its lots; the reel or lot must be named.
+            raise HTTPException(status_code=422, detail=f"Line {index}: name the reel or lot to take stock off (scan its label). Use Stock counts & book → Raise a correction.")
+    _check_adjustment_lines(db, plant_id, payload.lines)
     effective_at = _effective_at_for_date(payload.effective_date, payload.effective_at)
     voucher_no = (payload.voucher_no or "").strip().upper() or _next_adjustment_no(db, plant_id, payload.effective_date)
     existing = db.query(StockAdjustmentVoucher).filter(
@@ -870,14 +1042,28 @@ def create_adjustment_voucher(
         effective_at=effective_at,
         reason_code=payload.reason_code.strip().upper(),
         reason_notes=payload.reason_notes,
-        source_type=payload.source_type.strip().upper() or "MANUAL",
+        source_type=source_type,
         source_id=payload.source_id,
         attachment_refs=list(payload.attachment_refs or []),
         created_by=_actor(current_user),
     )
     db.add(header)
     db.flush()
+    receiving_id = None
     for line_payload in payload.lines:
+        status_value = _validate_status(line_payload.stock_status)
+        location_id = line_payload.location_id
+        if not line_payload.reel_id and not line_payload.batch_id and float(line_payload.qty_delta) > 0:
+            # Stock gained without a known lot is a new lot ON QC HOLD in the RM store (rule 0.2): the draft
+            # shows the Owner exactly what approving it will post.
+            if status_value not in NEW_LOT_KEEP_STATUSES:
+                status_value = "QC_HOLD"
+            if not location_id:
+                if receiving_id is None:
+                    from ..services.locations import default_receiving_location
+
+                    receiving_id = default_receiving_location(db, plant_id, actor=_actor(current_user)).id
+                location_id = receiving_id
         db.add(
             StockAdjustmentLine(
                 adjustment_id=header.id,
@@ -886,14 +1072,14 @@ def create_adjustment_voucher(
                 reel_id=line_payload.reel_id,
                 qty_delta=float(line_payload.qty_delta),
                 unit_cost=line_payload.unit_cost,
-                location_id=line_payload.location_id,
-                stock_status=_validate_status(line_payload.stock_status),
+                location_id=location_id,
+                stock_status=status_value,
                 reason_code=(line_payload.reason_code or payload.reason_code).strip().upper(),
                 notes=line_payload.notes,
             )
         )
     db.flush()
-    if payload.post_now:
+    if payload.post_now and is_actual_owner(current_user):
         _post_adjustment_voucher(db, header=header, plant_id=plant_id, actor=_actor(current_user))
     try:
         db.commit()
@@ -923,15 +1109,19 @@ def post_adjustment_voucher(
     voucher_id: uuid.UUID,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Owner", "Admin", "Store"])),
+    current_user: dict = Depends(require_owner),
 ):
-    header = db.query(StockAdjustmentVoucher).filter(
-        StockAdjustmentVoucher.id == voucher_id,
-        StockAdjustmentVoucher.plant_id == plant_id,
-    ).first()
-    if not header:
-        raise HTTPException(status_code=404, detail="Adjustment voucher not found")
-    _post_adjustment_voucher(db, header=header, plant_id=plant_id, actor=_actor(current_user))
+    """Owner only: post a draft correction voucher (spec 2.4). The same path as Approve on Stock counts &
+    book: the voucher row is locked (a double submit posts once and returns the posted voucher), it is
+    dated today and re-based on the stock now. A count's posting is approved on its count."""
+    header = _draft_correction(db, plant_id, voucher_id)
+    if header.status == "POSTED":
+        return _serialize_adjustment_voucher(header, include_lines=True)
+    if header.status != "DRAFT":
+        raise HTTPException(status_code=409, detail="This correction was rejected. Raise a new one if needed.")
+    if _voucher_kind(header) == "COUNT":
+        raise HTTPException(status_code=409, detail="A stock count posts its own differences when the Owner approves the count. Open the count to approve it.")
+    _approve_waiting_voucher(db, header, str(plant_id), _actor(current_user))
     try:
         db.commit()
     except IntegrityError as exc:
@@ -993,171 +1183,16 @@ def create_opening_load(
     payload: OpeningLoadPayload,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Owner", "Admin", "Store"])),
+    # Go-live tool only (spec 2.3): Owner and Admin.
+    current_user: dict = Depends(require_role([])),
 ):
-    document_no = payload.document_no or f"OPEN-{payload.effective_date.strftime('%Y%m%d')}-{uuid.uuid4().hex[:5].upper()}"
-    existing = db.query(InventoryOpeningLoad).filter(
-        InventoryOpeningLoad.plant_id == plant_id,
-        InventoryOpeningLoad.document_no == document_no,
-    ).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Opening load document already exists")
-    initialized = db.query(InventoryOpeningLoad.id).filter(
-        InventoryOpeningLoad.plant_id == plant_id,
-    ).first()
-    if initialized:
-        raise HTTPException(
-            status_code=400,
-            detail="Opening stock is already initialized for this plant; use stock count carry-forward or adjustment voucher.",
-        )
-
-    effective_at = _day_end(payload.effective_date)
-    header = InventoryOpeningLoad(
-        plant_id=plant_id,
-        document_no=document_no,
-        effective_date=payload.effective_date,
-        notes=payload.notes,
-        created_by=_actor(current_user),
-    )
-    db.add(header)
-    db.flush()
-
-    plant_uuid = _to_uuid(plant_id)
-    response_lines: list[dict[str, Any]] = []
-    for index, line in enumerate(payload.lines, start=1):
-        item = db.query(ItemMaster).filter(ItemMaster.id == line.item_id, ItemMaster.plant_id == plant_id).first()
-        if not item:
-            raise HTTPException(status_code=404, detail=f"Item not found for opening line {index}")
-
-        location = None
-        if line.location_id:
-            location = db.query(InventoryLocation).filter(
-                InventoryLocation.id == line.location_id,
-                InventoryLocation.plant_id == plant_id,
-            ).first()
-            if not location:
-                raise HTTPException(status_code=404, detail=f"Location not found for opening line {index}")
-
-        unit_cost = float(line.unit_cost if line.unit_cost is not None else getattr(item, "unit_cost", 0.0) or 0.0)
-        stock_status = _validate_status(line.stock_status)
-        if item.tracking_mode == TrackingMode.REEL:
-            if item.type != ItemType.RAW_PAPER:
-                raise HTTPException(status_code=400, detail="Only raw paper can be reel-tracked")
-            reel_code = (line.reel_code or f"{document_no}-R{index:03d}").strip().upper()
-            duplicate_reel = db.query(PaperReel).filter(
-                PaperReel.plant_id == plant_uuid,
-                PaperReel.reel_code == reel_code,
-            ).first()
-            if duplicate_reel:
-                raise HTTPException(status_code=400, detail=f"Reel code already exists: {reel_code}")
-            reel = PaperReel(
-                plant_id=plant_uuid,
-                reel_code=reel_code,
-                paper_id=item.id,
-                supplier_name="OPENING STOCK",
-                supplier_name_snapshot="OPENING STOCK",
-                inward_weight_kg=line.qty,
-                current_weight_kg=line.qty,
-                unit_cost=unit_cost if unit_cost > 0 else None,
-                cost_source=CostSource(_normalize_cost_source(line.cost_source) or _item_cost_source(item) or CostSource.MANUAL.value),
-                status=ReelStatus.IN_STOCK,
-                stock_status=stock_status,
-                location_id=line.location_id,
-                genealogy_metadata={
-                    "source_document_type": "OPENING_LOAD",
-                    "opening_load_id": str(header.id),
-                    "document_no": document_no,
-                    "line_no": index,
-                },
-                inward_date=payload.effective_date,
-            )
-            db.add(reel)
-            db.flush()
-            db.add(
-                ReelScanEvent(
-                    plant_id=plant_uuid,
-                    reel_id=reel.id,
-                    event_type=ReelScanEventType.INWARD_SCAN,
-                    source=ReelScanSource.INVENTORY,
-                    operator_id=None,
-                    event_metadata={
-                        "source_document_type": "OPENING_LOAD",
-                        "document_no": document_no,
-                        "line_no": index,
-                        "effective_date": payload.effective_date.isoformat(),
-                        "effective_at": effective_at.isoformat(),
-                    },
-                )
-            )
-            line_row = InventoryOpeningLoadLine(
-                opening_load_id=header.id,
-                item_id=item.id,
-                reel_id=reel.id,
-                reel_code=reel_code,
-                qty=line.qty,
-                location_id=line.location_id,
-                stock_status=stock_status,
-                unit_cost=unit_cost if unit_cost > 0 else None,
-                notes=line.notes,
-            )
-            response_lines.append({"item_code": item.item_code, "reel_code": reel_code, "qty": line.qty})
-        else:
-            batch_no = (line.batch_no or f"{document_no}-B{index:03d}").strip().upper()
-            batch = StockBatch(
-                item_id=item.id,
-                batch_no=batch_no,
-                received_qty=line.qty,
-                unit_cost=unit_cost if unit_cost > 0 else None,
-                cost_source=_normalize_cost_source(line.cost_source) or "MANUAL",
-                supplier_name_snapshot="OPENING STOCK",
-                location=location.code if location else None,
-                location_id=line.location_id,
-                stock_status=stock_status,
-                plant_id=plant_id,
-            )
-            db.add(batch)
-            db.flush()
-            txn = StockTransaction(
-                item_id=item.id,
-                batch_id=batch.id,
-                transaction_type=TransactionType.OPENING,
-                qty_change=line.qty,
-                reference_type=ReferenceType.INTERNAL,
-                reference_id=header.id,
-                plant_id=plant_id,
-                location_id=line.location_id,
-                stock_status=stock_status,
-                movement_metadata={
-                    "source_document_type": "OPENING_LOAD",
-                    "document_no": document_no,
-                    "line_no": index,
-                    "notes": line.notes,
-                },
-                external_ref=f"OPENING:{document_no}:{index}",
-                effective_date=payload.effective_date,
-                effective_at=effective_at,
-            )
-            db.add(txn)
-            line_row = InventoryOpeningLoadLine(
-                opening_load_id=header.id,
-                item_id=item.id,
-                batch_id=batch.id,
-                batch_no=batch_no,
-                qty=line.qty,
-                location_id=line.location_id,
-                stock_status=stock_status,
-                unit_cost=unit_cost if unit_cost > 0 else None,
-                notes=line.notes,
-            )
-            response_lines.append({"item_code": item.item_code, "batch_no": batch_no, "qty": line.qty})
-        db.add(line_row)
-
-    try:
-        db.commit()
-    except IntegrityError as exc:
-        db.rollback()
-        raise HTTPException(status_code=400, detail="Opening load could not be posted; check duplicate refs") from exc
-    db.refresh(header)
+    # Go-live rule (client 2026-10-30): the first batch fixes the go-live date, later batches use the same
+    # date until that month is closed; each reel / lot gets a new system number, all or nothing, once per
+    # request key. The rules and the posting live in services/opening_stock.py.
+    result = opening_stock.post_batch(db, plant_id, payload, _actor(current_user))
+    if result.get("idempotent"):
+        return result
+    header = db.query(InventoryOpeningLoad).filter(InventoryOpeningLoad.id == uuid.UUID(result["id"])).one()
     try:
         emit_audit_event(
             token=current_user.get("token", ""),
@@ -1177,14 +1212,7 @@ def create_opening_load(
         )
     except Exception as exc:
         _audit_logger.warning("audit emit failed for stock_control_adjusted (opening_load) %s: %s", header.id, exc)
-    return {
-        "id": str(header.id),
-        "document_no": header.document_no,
-        "effective_date": header.effective_date.isoformat(),
-        "status": header.status,
-        "line_count": len(header.lines or []),
-        "lines": response_lines,
-    }
+    return result
 
 
 @router.get("/certifications")
@@ -1218,6 +1246,7 @@ def create_certification(
         InventoryCertification.plant_id == plant_id,
         InventoryCertification.period_start == payload.period_start,
         InventoryCertification.period_end == payload.period_end,
+        ~InventoryCertification.id.in_(db.query(StockCountLocation.count_id)),
     ).first()
     if existing and existing.status != "DRAFT":
         raise HTTPException(status_code=400, detail="Certified periods cannot be regenerated")
@@ -1316,6 +1345,7 @@ def refresh_certification(
     ).first()
     if not header:
         raise HTTPException(status_code=404, detail="Certification not found")
+    _refuse_rack_count(db, header)
     if header.status != "DRAFT":
         raise HTTPException(status_code=400, detail="Only a draft count sheet can be refreshed")
     stats = _sync_draft_lines(db, header, plant_id, datetime.utcnow())
@@ -1338,6 +1368,7 @@ def update_certification(
     ).first()
     if not header:
         raise HTTPException(status_code=404, detail="Certification not found")
+    _refuse_rack_count(db, header)
     if header.status != "DRAFT":
         raise HTTPException(status_code=400, detail="Only draft certifications can be edited")
     if payload.notes is not None:
@@ -1454,7 +1485,7 @@ def certify_stock(
     payload: CertificationActionPayload,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Owner", "Admin", "Store"])),
+    current_user: dict = Depends(require_owner),
 ):
     header = db.query(InventoryCertification).filter(
         InventoryCertification.id == certification_id,
@@ -1462,6 +1493,7 @@ def certify_stock(
     ).first()
     if not header:
         raise HTTPException(status_code=404, detail="Certification not found")
+    _refuse_rack_count(db, header)
     if header.status == "CARRIED_FORWARD":
         raise HTTPException(status_code=400, detail="Certification already carried forward")
     recount_lines = [
@@ -1519,7 +1551,7 @@ def post_certification_variance(
     certification_id: uuid.UUID,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Owner", "Admin", "Store"])),
+    current_user: dict = Depends(require_owner),
 ):
     certification = db.query(InventoryCertification).filter(
         InventoryCertification.id == certification_id,
@@ -1527,6 +1559,7 @@ def post_certification_variance(
     ).first()
     if not certification:
         raise HTTPException(status_code=404, detail="Certification not found")
+    _refuse_rack_count(db, certification)
     if certification.status not in {"CERTIFIED", "CARRIED_FORWARD"}:
         raise HTTPException(status_code=400, detail="Only certified stock counts can post variance")
 
@@ -1652,7 +1685,7 @@ def create_carry_forward(
     payload: CarryForwardPayload,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Owner", "Admin", "Store"])),
+    current_user: dict = Depends(require_owner),
 ):
     header = db.query(InventoryCertification).filter(
         InventoryCertification.id == certification_id,
@@ -1660,6 +1693,7 @@ def create_carry_forward(
     ).first()
     if not header:
         raise HTTPException(status_code=404, detail="Certification not found")
+    _refuse_rack_count(db, header)
     if header.status not in {"CERTIFIED", "CARRIED_FORWARD"}:
         raise HTTPException(status_code=400, detail="Only certified stock can be carried forward")
 
@@ -1775,7 +1809,7 @@ def post_opening_from_carry_forward(
     cf_id: uuid.UUID,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Store", "Owner"])),
+    current_user: dict = Depends(require_owner),
 ):
     cf = db.query(InventoryCarryForward).filter(
         InventoryCarryForward.id == cf_id,
@@ -1802,6 +1836,8 @@ def post_opening_from_carry_forward(
 
     if not (cf.lines or []):
         raise HTTPException(status_code=400, detail="Carry-forward has no lines to post")
+    # No ledger movement, but the opening document is dated, so a closed month refuses it too.
+    assert_books_open(db, plant_id, cf.opening_date)
 
     header = InventoryOpeningLoad(
         plant_id=plant_id,
@@ -1872,3 +1908,586 @@ def post_opening_from_carry_forward(
         "message": f"Posted {posted_lines} opening lines from carry-forward {cf.document_no}",
         "already_existed": False,
     }
+
+
+# ---------------------------------------------------------------------------------------------------
+# Month figures (spec 2.1 / 5): the store side of month-end close. Every number is in the item's unit.
+# ---------------------------------------------------------------------------------------------------
+
+
+def _month_bounds(month: str) -> tuple[date, date]:
+    start = parse_month(month)
+    if start > month_start(ist_today()):
+        raise HTTPException(status_code=422, detail=f"{month_label(start)} has not started yet.")
+    return start, next_month(start) - timedelta(days=1)
+
+
+def month_end_count_row(db: Session, plant_id: str, start: date) -> Optional[InventoryCertification]:
+    return db.query(InventoryCertification).filter(
+        InventoryCertification.plant_id == str(plant_id),
+        InventoryCertification.kind == "MONTH_END",
+        InventoryCertification.month == start,
+        InventoryCertification.status != "CANCELLED",
+    ).order_by(InventoryCertification.created_at.desc()).first()
+
+
+def count_changes_after_approval(db: Session, plant_id: str, count: Optional[InventoryCertification], items: Optional[dict] = None) -> dict[str, dict[str, Any]]:
+    """Back-dated store movements entered after an approved month-end count (see changes_after_count)."""
+    if count is None or count.kind != "MONTH_END" or count.status not in {"CERTIFIED", "APPROVED"}:
+        return {}
+    approved = count.approved_at or count.certified_at
+    if approved is None:
+        return {}
+    # Only items with a store row entered after the approval can have changed (bounded SQL), so the book
+    # is not read again in full on every month-figures call (r4: two whole-history reads per call).
+    touched = _items_entered_after(db, plant_id, approved)
+    if items is not None:
+        touched &= set(items)
+    if not touched:
+        return {}
+    docs = {
+        voucher_no for (voucher_no,) in db.query(StockAdjustmentVoucher.voucher_no).filter(
+            StockAdjustmentVoucher.plant_id == str(plant_id), StockAdjustmentVoucher.count_id == count.id,
+        ).all()
+    }
+    return changes_after_count(db, plant_id, count, items=book_items(db, plant_id, sorted(touched)), own_docs=docs)
+
+
+def _items_entered_after(db: Session, plant_id: str, after: datetime) -> set[str]:
+    """Material ids of the plant with a ledger row, reel, reel issue or reel adjustment entered after
+    ``after`` (naive UTC): the only items whose book can differ from what a count saw at ``after``."""
+    from ..models import ReelIssue
+
+    plant_items = db.query(ItemMaster.id).filter(ItemMaster.plant_id == str(plant_id))
+    touched = {str(value) for (value,) in db.query(StockTransaction.item_id).filter(
+        StockTransaction.item_id.in_(plant_items), StockTransaction.created_at > after,
+    ).distinct().all()}
+    try:
+        plant_uuid = uuid.UUID(str(plant_id))
+    except ValueError:
+        return touched
+    reels = db.query(PaperReel.paper_id).filter(PaperReel.plant_id == plant_uuid)
+    touched |= {str(value) for (value,) in reels.filter(PaperReel.created_at > after).distinct().all()}
+    touched |= {str(value) for (value,) in db.query(PaperReel.paper_id).join(ReelIssue, ReelIssue.reel_id == PaperReel.id).filter(
+        PaperReel.plant_id == plant_uuid, ReelIssue.created_at > after,
+    ).distinct().all()}
+    touched |= {str(value) for (value,) in db.query(PaperReel.paper_id).join(ReelScanEvent, ReelScanEvent.reel_id == PaperReel.id).filter(
+        PaperReel.plant_id == plant_uuid, ReelScanEvent.event_type == ReelScanEventType.MOVE_SCAN, ReelScanEvent.timestamp > after,
+    ).distinct().all()}
+    return touched
+
+
+def changed_items_payload(db: Session, plant_id: str, changes: dict[str, dict[str, Any]], items: Optional[dict] = None) -> list[dict[str, Any]]:
+    if not changes:
+        return []
+    items = items if items is not None else book_items(db, plant_id, list(changes))
+    rows = []
+    for key, change in changes.items():
+        item = items.get(key)
+        rows.append({
+            "item_id": key,
+            "item_code": getattr(item, "item_code", None),
+            "item_name": getattr(item, "name", None),
+            "uom": _enum(getattr(item, "uom", None)) if item is not None else None,
+            "qty": change["qty"], "rows": change["rows"], "docs": change["docs"], "first_day": change["first_day"],
+        })
+    return sorted(rows, key=lambda row: str(row["item_code"] or ""))
+
+
+def month_end_count_brief(db: Session, plant_id: str, start: date, *, changes: Optional[dict[str, dict[str, Any]]] = None) -> Optional[dict[str, Any]]:
+    row = month_end_count_row(db, plant_id, start)
+    if row is None:
+        return None
+    if changes is None:
+        changes = count_changes_after_approval(db, plant_id, row)
+    return {
+        "id": str(row.id),
+        "count_no": row.count_session_no,
+        "status": row.status,
+        "submitted_by": row.submitted_by,
+        "submitted_at": row.submitted_at.isoformat() if row.submitted_at else None,
+        "approved_by": row.approved_by or row.certified_by,
+        "approved_at": (row.approved_at or row.certified_at).isoformat() if (row.approved_at or row.certified_at) else None,
+        # Stock entered after the approval but dated into the counted month: the certificate no longer
+        # matches the book. The Owner recounts those items (a spot count) or checks the entries before closing.
+        "changed_after_count": bool(changes),
+        "changed_items": changed_items_payload(db, plant_id, changes),
+    }
+
+
+@router.get("/month-figures")
+def month_figures(
+    month: str = Query(..., description="YYYY-MM"),
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_one_plant),
+    current_user: dict = Depends(get_current_user),
+):
+    """Opening, received, sent back, issued, corrections and closing per material for one IST month.
+
+    ``received`` includes ``opening_loads``; ``corrections`` includes ``count_variance``. Closing =
+    opening + received - sent_back - issued + corrections and actual_used = opening + received -
+    sent_back - closing (= issued - corrections). A running month is figured up to now; its
+    ``identity_ok`` also checks the closing against the live stock records.
+    """
+    start, end = _month_bounds(month)
+    previous = month_start(start - timedelta(days=1))
+    result = book_period(db, plant_id, start, end)
+    count = month_end_count_row(db, plant_id, start)
+    changes = count_changes_after_approval(db, plant_id, count)
+    for row in result["items"]:
+        change = changes.get(row["item_id"])
+        row["changed_after_count"] = change["qty"] if change else None
+    return {
+        "plant_id": str(plant_id),
+        "month": month_key(start),
+        "month_label": month_label(start),
+        "period_start": start.isoformat(),
+        "period_end": end.isoformat(),
+        "running": result["running"],
+        "closed": is_month_locked(db, plant_id, start),
+        "opening_source": "PREVIOUS_CLOSE" if is_month_locked(db, plant_id, previous) else "BOOK_AT_START",
+        "month_end_count": month_end_count_brief(db, plant_id, start, changes=changes),
+        "units": result["units"],
+        "items": result["items"],
+        "generated_at": datetime.utcnow().isoformat(),
+    }
+
+
+@router.get("/month-figures/{item_id}/sources")
+def month_figure_sources(
+    item_id: uuid.UUID,
+    month: str = Query(..., description="YYYY-MM"),
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_one_plant),
+    current_user: dict = Depends(get_current_user),
+):
+    """The receipts, returns, issues and corrections behind one item's month figures (month-end drawer)."""
+    start, end = _month_bounds(month)
+    result = book_item_sources(db, plant_id, str(item_id), start, end)
+    if not result:
+        raise HTTPException(status_code=404, detail="That material is not in this plant's stock book.")
+    places = {str(row.id): row for row in db.query(InventoryLocation).filter(InventoryLocation.plant_id == str(plant_id)).all()}
+    for row in result["rows"]:
+        place = places.get(str(row.get("location_id") or ""))
+        if place is not None:
+            row["location_code"] = place.code
+            row["location_name"] = str(place.name or "").strip() or place.code
+    _return_references(db, result["rows"])
+    return {**result, "month": month_key(start), "month_label": month_label(start)}
+
+
+def _return_references(db: Session, rows: list[dict[str, Any]]) -> None:
+    """A supplier return reads by its own return reference ("RTV-…"), with the GRN it came in on beside
+    it, instead of the GRN number alone (r4: the drawer showed IN/25/002 for the return)."""
+    ledger_ids = [row["id"] for row in rows if row.get("kind") == "SENT_BACK" and row.get("type") == "LEDGER" and row.get("id")]
+    event_ids = [row["id"] for row in rows if row.get("kind") == "SENT_BACK" and row.get("type") == "REEL_ADJUST" and row.get("id")]
+    meta: dict[str, dict[str, Any]] = {}
+    if ledger_ids:
+        meta.update({str(key): value or {} for key, value in db.query(StockTransaction.id, StockTransaction.movement_metadata).filter(
+            StockTransaction.id.in_([uuid.UUID(str(value)) for value in ledger_ids]),
+        ).all()})
+    if event_ids:
+        meta.update({str(key): value or {} for key, value in db.query(ReelScanEvent.id, ReelScanEvent.event_metadata).filter(
+            ReelScanEvent.id.in_([uuid.UUID(str(value)) for value in event_ids]),
+        ).all()})
+    for row in rows:
+        data = meta.get(str(row.get("id") or ""))
+        if not data:
+            continue
+        reference = str(data.get("return_reference") or "").strip()
+        grn = str(data.get("grn_no") or "").strip()
+        if reference:
+            row["doc"] = reference
+        if grn and grn != row.get("doc"):
+            row["against_grn"] = grn
+
+
+# ---------------------------------------------------------------------------------------------------
+# Corrections outside counts (spec 2.4): Store, RMIssue, GRN, PlantManager, Owner or Admin raise one
+# for a lot or reel (new qty, or "not here / damaged") or for loose stock found without a label; it is
+# saved as a DRAFT and only the Owner approves (posts) or rejects (cancels with a note) it.
+# ---------------------------------------------------------------------------------------------------
+
+
+
+class CorrectionPayload(BaseModel):
+    code: Optional[str] = Field(default=None, max_length=500)
+    entity_type: Optional[str] = None
+    entity_id: Optional[uuid.UUID] = None
+    item_id: Optional[uuid.UUID] = None
+    location_id: Optional[uuid.UUID] = None
+    new_qty: Optional[float] = Field(default=None, ge=0)
+    not_here: bool = False
+    reason: str = Field(min_length=1, max_length=40)
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class CorrectionDecisionPayload(BaseModel):
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+def _voucher_kind(header: StockAdjustmentVoucher) -> str:
+    source = str(header.source_type or "").upper()
+    if header.count_id or source in {"STOCK_COUNT", "CERTIFICATION_VARIANCE"}:
+        return "COUNT"
+    if source in {"CORRECTION", "MANUAL"}:
+        return "CORRECTION"
+    return "SYSTEM"
+
+
+def _rebased_delta(line: StockAdjustmentLine, changed_since: float, live: float) -> float:
+    """A waiting correction's change after other postings on the same lot since it was raised."""
+    delta = round(float(line.qty_delta or 0.0) - changed_since, 3)
+    if float(line.qty_delta or 0.0) < 0 < delta or float(line.qty_delta or 0.0) > 0 > delta:
+        return 0.0  # the other posting already went past what this one asked for
+    return round(max(delta, -live), 3)
+
+
+def _issued_since(db: Session, entity_type: str, lot: Any, since: Optional[datetime]) -> Optional[date]:
+    """The day a reel / lot was issued to the floor after ``since`` (naive UTC), or None.
+
+    Issues are not adjustment postings, so ``posted_since`` never sees them: a waiting gain on a lot
+    the floor has since used up would otherwise put the issued weight back into store stock."""
+    if since is None or lot is None:
+        return None
+    if entity_type == "REEL":
+        from ..models import ReelIssue
+
+        row = db.query(ReelIssue).filter(ReelIssue.reel_id == lot.id, ReelIssue.created_at > since).order_by(ReelIssue.created_at.desc()).first()
+        return row.issue_date if row is not None else None
+    row = db.query(StockTransaction).filter(
+        StockTransaction.batch_id == lot.id, StockTransaction.transaction_type == TransactionType.ISSUE_PRODUCTION,
+        StockTransaction.created_at > since,
+    ).order_by(StockTransaction.created_at.desc()).first()
+    if row is None:
+        return None
+    from ..services.books import ist_day
+
+    return row.effective_date or ist_day(row.created_at)
+
+
+def _still_to_post(db: Session, header: StockAdjustmentVoucher, line: StockAdjustmentLine, entity_type: str, lot: Any) -> tuple[float, float, float, Optional[date]]:
+    """(changed since raised, live qty, what approving still posts, issued-to-floor day) for one waiting line.
+
+    Nothing returns from the floor: a gain on a lot that was issued since it was raised and is now empty
+    in the store posts nothing (as count approval does for "issued after it was counted")."""
+    changed = posted_since(db, entity_type, lot.id, header.created_at, exclude_voucher_id=header.id)
+    live = entity_qty(db, entity_type, lot)
+    delta = _rebased_delta(line, changed, live)
+    issued = None
+    if live <= 0.0005:
+        issued = _issued_since(db, entity_type, lot, header.created_at)
+        if issued is not None:
+            delta = 0.0
+    return changed, live, delta, issued
+
+
+def _correction_view(db: Session, header: StockAdjustmentVoucher) -> dict[str, Any]:
+    payload = _serialize_adjustment_voucher(header, include_lines=True)
+    reel_ids = [line.reel_id for line in header.lines or [] if line.reel_id] + [line.created_reel_id for line in header.lines or [] if line.created_reel_id]
+    batch_ids = [line.batch_id for line in header.lines or [] if line.batch_id] + [line.created_batch_id for line in header.lines or [] if line.created_batch_id]
+    reels = {str(row.id): row for row in db.query(PaperReel).filter(PaperReel.id.in_(reel_ids)).all()} if reel_ids else {}
+    batches = {str(row.id): row for row in db.query(StockBatch).filter(StockBatch.id.in_(batch_ids)).all()} if batch_ids else {}
+    codes = {str(row.id): row.code for row in db.query(InventoryLocation).filter(InventoryLocation.plant_id == header.plant_id).all()}
+    for line, row in zip(header.lines or [], payload.get("lines") or []):
+        lot = reels.get(str(line.reel_id or line.created_reel_id)) if (line.reel_id or line.created_reel_id) else batches.get(str(line.batch_id or line.created_batch_id)) if (line.batch_id or line.created_batch_id) else None
+        row["uom"] = "KG" if isinstance(lot, PaperReel) else _enum(getattr(line.item, "uom", None))
+        row["lot_code"] = (lot.reel_code if isinstance(lot, PaperReel) else lot.batch_no) if lot is not None else None
+        row["new_lot"] = bool(line.created_reel_id or line.created_batch_id) or (not line.reel_id and not line.batch_id and float(line.qty_delta or 0) > 0)
+        row["location_code"] = codes.get(str(line.location_id)) if line.location_id else None
+        if header.status == "DRAFT" and lot is not None:
+            kind = "REEL" if isinstance(lot, PaperReel) else "BATCH"
+            # Another count or correction already changed this lot after this one was raised, or the floor
+            # used it up: approving posts only what is still different (shown to the Owner before approving).
+            changed, live, still, issued = _still_to_post(db, header, line, kind, lot)
+            row["live_qty"] = live
+            row["changed_since"] = changed
+            row["still_to_post"] = still
+            row["issued_since"] = issued.isoformat() if issued is not None else None
+    payload["kind"] = _voucher_kind(header)
+    payload["reason_label"] = CORRECTION_REASONS.get(header.reason_code) or {"PHYSICAL_COUNT_VARIANCE": "Stock count", "CUSTOMER_REJECTION_SCRAP": "Customer complaint scrap"}.get(header.reason_code, header.reason_code.replace("_", " ").capitalize())
+    payload["count_id"] = str(header.count_id) if header.count_id else None
+    payload["cancelled_by"] = header.cancelled_by
+    payload["cancelled_at"] = header.cancelled_at.isoformat() if header.cancelled_at else None
+    payload["cancel_note"] = header.cancel_note
+    return payload
+
+
+@router.get("/corrections")
+def list_corrections(
+    status: str = Query(default="ALL"),
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_one_plant),
+    current_user: dict = Depends(get_current_user),
+):
+    """Corrections waiting for the Owner, and posted / rejected ones (count and system vouchers included)."""
+    query = db.query(StockAdjustmentVoucher).filter(StockAdjustmentVoucher.plant_id == str(plant_id))
+    wanted = status.strip().upper()
+    if wanted in {"DRAFT", "POSTED", "CANCELLED"}:
+        query = query.filter(StockAdjustmentVoucher.status == wanted)
+    rows = query.order_by(StockAdjustmentVoucher.created_at.desc()).limit(150).all()
+    waiting = db.query(StockAdjustmentVoucher.id).filter(
+        StockAdjustmentVoucher.plant_id == str(plant_id), StockAdjustmentVoucher.status == "DRAFT",
+    ).count()
+    roles = set(current_user.get("roles") or [])
+    return {
+        "items": [_correction_view(db, row) for row in rows], "waiting_count": waiting, "reasons": CORRECTION_REASONS,
+        "can": {"approve": is_actual_owner(current_user), "raise": bool(roles & {"Owner", "Admin", *CORRECTION_RAISE_ROLES}),
+                "opening_load": bool(roles & {"Owner", "Admin"})},
+    }
+
+
+@router.get("/corrections/lookup")
+def correction_lookup(
+    code: str = Query(..., min_length=1, max_length=500),
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_one_plant),
+    current_user: dict = Depends(get_current_user),
+):
+    """What a typed or scanned label is, before raising a correction: material, place, book qty now, QC
+    state, and a correction already waiting on it (plain-word 404 / 409 for an unknown or rack label)."""
+    found = resolve_lot(db, plant_id, code)
+    entity_type, entity, item = found["entity_type"], found["entity"], found["item"]
+    locations = {str(row.id): row for row in db.query(InventoryLocation).filter(InventoryLocation.plant_id == str(plant_id)).all()}
+    row = lot_row(entity, item, entity_qty(db, entity_type, entity), locations=locations)
+    waiting = _waiting_correction(db, plant_id, entity_type, entity.id)
+    status = str(entity.stock_status or "")
+    issued = None
+    if entity_type == "REEL" and float(entity.current_weight_kg or 0) <= 0.0005:
+        from ..models import ReelIssue
+
+        issue = db.query(ReelIssue).filter(ReelIssue.reel_id == entity.id).order_by(ReelIssue.created_at.desc()).first()
+        issued = issue.issue_date.isoformat() if issue is not None else None
+    return {
+        **row,
+        "qc_word": QC_WORDS.get(status, row["qc_word"]),
+        "inward_qty": round(float(entity.inward_weight_kg or 0.0), 3) if entity_type == "REEL" else None,
+        "returned": status == "RETURNED",
+        "issued_on": issued,
+        "waiting": {"id": str(waiting.id), "voucher_no": waiting.voucher_no, "created_by": waiting.created_by} if waiting is not None else None,
+    }
+
+
+def _waiting_correction(db: Session, plant_id: str, entity_type: str, entity_id: Any) -> Optional[StockAdjustmentVoucher]:
+    column = StockAdjustmentLine.reel_id if entity_type == "REEL" else StockAdjustmentLine.batch_id
+    return db.query(StockAdjustmentVoucher).join(StockAdjustmentLine, StockAdjustmentLine.adjustment_id == StockAdjustmentVoucher.id).filter(
+        StockAdjustmentVoucher.plant_id == str(plant_id), StockAdjustmentVoucher.status == "DRAFT", column == entity_id,
+    ).order_by(StockAdjustmentVoucher.created_at.asc()).first()
+
+
+@router.post("/corrections")
+def raise_correction(
+    payload: CorrectionPayload,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_one_plant),
+    current_user: dict = Depends(require_role(CORRECTION_RAISE_ROLES)),
+):
+    reason = payload.reason.strip().upper()
+    if reason not in CORRECTION_REASONS:
+        raise HTTPException(status_code=422, detail="Choose a reason: count short, count extra, damaged in store, wrong GRN weight, label lost / found, or other.")
+    note = " ".join((payload.note or "").split()) or None
+    if reason == "OTHER" and len(note or "") < 3:
+        raise HTTPException(status_code=422, detail="Write what happened when the reason is Other.")
+    today = ist_today()
+    assert_books_open(db, plant_id, today)
+    # Two raises at the same moment: the second waits here, then sees the first one's waiting correction
+    # and gets its own voucher number (never a duplicate-number 500).
+    lock_voucher_numbers(db, str(plant_id))
+    actor = _actor(current_user)
+    entity = None
+    entity_type = ""
+    if payload.code or payload.entity_id:
+        if payload.code:
+            found = resolve_lot(db, plant_id, payload.code)
+            entity_type, entity = found["entity_type"], found["entity"]
+        else:
+            entity_type = str(payload.entity_type or "").upper()
+            model = PaperReel if entity_type == "REEL" else StockBatch if entity_type == "BATCH" else None
+            if model is None:
+                raise HTTPException(status_code=422, detail="entity_type must be REEL or BATCH")
+            entity = db.get(model, payload.entity_id)
+            if entity is None or str(getattr(entity, "plant_id", "")).lower() != str(plant_id).lower():
+                raise HTTPException(status_code=404, detail="That reel or lot is not in this plant.")
+        item = db.query(ItemMaster).filter(ItemMaster.id == (entity.paper_id if entity_type == "REEL" else entity.item_id)).first()
+        code = entity.reel_code if entity_type == "REEL" else entity.batch_no
+        if str(entity.stock_status or "") == "RETURNED":
+            raise HTTPException(status_code=409, detail=f"{code} was returned to the supplier. It is not in stock.")
+        if entity_type == "REEL":
+            from ..models import ReelIssue
+
+            issue = db.query(ReelIssue).filter(ReelIssue.reel_id == entity.id).order_by(ReelIssue.created_at.desc()).first()
+            if issue is not None and float(entity.current_weight_kg or 0) <= 0.0005:
+                raise HTTPException(status_code=409, detail=f"{code} was issued to the floor on {issue.issue_date.strftime('%d %b %Y')}. Nothing comes back from the floor; if it is in the store, record it in a stock count.")
+        waiting = _waiting_correction(db, plant_id, entity_type, entity.id)
+        if waiting is not None:
+            # Two waiting corrections of one lot would both post their difference.
+            # The raiser goes as its own field too: the web shows the person's directory name, never a login.
+            raiser = str(waiting.created_by or "").strip()
+            raise HTTPException(status_code=409, detail={
+                "code": "CORRECTION_WAITING",
+                "message": f"{code} already has a correction waiting for the Owner ({waiting.voucher_no}, raised by {raiser.split('@')[0] or 'the store'}). The Owner approves or rejects that one first.",
+                "voucher_no": waiting.voucher_no,
+                "raised_by": raiser or None,
+            })
+        live = entity_qty(db, entity_type, entity)
+        if not payload.not_here and payload.new_qty is None:
+            raise HTTPException(status_code=422, detail="Enter the quantity really there, or mark it not here / damaged.")
+        target = 0.0 if payload.not_here else round(float(payload.new_qty or 0.0), 3)
+        if entity_type == "REEL" and target > float(entity.inward_weight_kg or 0.0) + 0.0005:
+            raise HTTPException(status_code=422, detail=f"{code} came in at {float(entity.inward_weight_kg or 0):g} kg; it cannot weigh more.")
+        delta = round(target - live, 3)
+        if abs(delta) < 0.0005:
+            raise HTTPException(status_code=422, detail=f"The book already says {live:g} for {code}. Nothing to correct.")
+        status_value = str(entity.stock_status or "UNRESTRICTED")
+        line = StockAdjustmentLine(
+            item_id=item.id,
+            reel_id=entity.id if entity_type == "REEL" else None,
+            batch_id=entity.id if entity_type == "BATCH" else None,
+            qty_delta=delta,
+            unit_cost=float(entity.unit_cost) if getattr(entity, "unit_cost", None) else None,
+            location_id=entity.location_id,
+            stock_status=status_value if status_value in LINE_STATUSES else "UNRESTRICTED",
+            reason_code=reason,
+            notes=f"{code}: book {live:g} → {target:g}" + (" (not here / damaged)" if payload.not_here else ""),
+        )
+    else:
+        if not payload.item_id or not payload.new_qty:
+            raise HTTPException(status_code=422, detail="Scan the lot, or choose the material and the quantity found.")
+        item = db.query(ItemMaster).filter(ItemMaster.id == payload.item_id, ItemMaster.plant_id == str(plant_id)).first()
+        if item is None or _enum(item.type) in {"FINISHED_GOOD", "TOOL"}:
+            raise HTTPException(status_code=404, detail="Choose a material of this plant.")
+        location_id = payload.location_id
+        if location_id and not db.query(InventoryLocation.id).filter(InventoryLocation.id == location_id, InventoryLocation.plant_id == str(plant_id)).first():
+            raise HTTPException(status_code=404, detail="That location is not in this plant.")
+        if not location_id:
+            from ..services.locations import default_receiving_location
+
+            location_id = default_receiving_location(db, plant_id, actor=actor).id
+        # Stock found without a label is added as a new lot ON QC HOLD: incoming QC stays the only gate.
+        line = StockAdjustmentLine(
+            item_id=item.id, qty_delta=round(float(payload.new_qty), 3), location_id=location_id,
+            stock_status="QC_HOLD", reason_code=reason, notes="Found without a label; new lot on QC hold",
+        )
+    header = StockAdjustmentVoucher(
+        plant_id=str(plant_id),
+        voucher_no=_next_adjustment_no(db, str(plant_id), today),
+        effective_date=today,
+        effective_at=ist_day_end_utc(today),
+        reason_code=reason,
+        reason_notes=note,
+        source_type="CORRECTION",
+        attachment_refs=[],
+        created_by=actor,
+        status="DRAFT",
+    )
+    db.add(header)
+    db.flush()
+    line.adjustment_id = header.id
+    db.add(line)
+    db.commit()
+    db.refresh(header)
+    return _correction_view(db, header)
+
+
+def _draft_correction(db: Session, plant_id: str, voucher_id: uuid.UUID) -> StockAdjustmentVoucher:
+    header = db.query(StockAdjustmentVoucher).filter(
+        StockAdjustmentVoucher.id == voucher_id, StockAdjustmentVoucher.plant_id == str(plant_id),
+    ).with_for_update().first()
+    if header is None:
+        raise HTTPException(status_code=404, detail="Correction not found")
+    return header
+
+
+def _approve_waiting_voucher(db: Session, header: StockAdjustmentVoucher, plant_id: str, actor: str, note: Optional[str] = None) -> None:
+    """Post a waiting (DRAFT) voucher the Owner approves now. The caller has locked the header row
+    (``_draft_correction``), so a double submit waits and then finds it POSTED.
+
+    It is dated today (IST), and each named reel / lot line is re-based on the stock now: a count or
+    another correction that changed the same lot after this one was raised is taken off, so one
+    difference is never posted twice."""
+    today = ist_today()
+    header.effective_date = today
+    header.effective_at = ist_day_end_utc(today)
+    for line in list(header.lines or []):
+        # The lot row is locked, so an issue running at the same moment either finishes first (and is seen
+        # below) or waits for this approval.
+        model = PaperReel if line.reel_id else StockBatch if line.batch_id else None
+        lot = db.query(model).filter(model.id == (line.reel_id or line.batch_id)).with_for_update().populate_existing().first() if model is not None else None
+        if lot is None:
+            if float(line.qty_delta or 0.0) < 0:
+                # An old item-level voucher: posting it would split the item total from its lots.
+                raise HTTPException(status_code=409, detail=f"{header.voucher_no} takes stock off without naming the reel or lot. Reject it and raise a correction for the lot.")
+            continue
+        kind = "REEL" if line.reel_id else "BATCH"
+        changed, live, delta, issued = _still_to_post(db, header, line, kind, lot)
+        if issued is not None:
+            # Nothing returns from the floor: a gain on a lot the floor has used up would put it back in store.
+            raise HTTPException(status_code=409, detail={
+                "code": "ISSUED_SINCE_RAISED",
+                "message": f"{lot_code(lot)} was issued to the floor on {issued.strftime('%d %b %Y')}, after this correction was raised. Nothing comes back from the floor, so reject this correction. If it is really in the store, record it in a stock count.",
+                "issued_on": issued.isoformat(),
+            })
+        if abs(delta) < 0.0005:
+            why = (f"the book already changed by {changed:+g} since this was raised" if abs(changed) >= 0.0005
+                   else "it was issued or used since this was raised")
+            raise HTTPException(status_code=409, detail=f"Nothing left to correct on {lot_code(lot)}: {why} (now {live:g}). Reject this correction.")
+        if abs(delta - float(line.qty_delta or 0.0)) >= 0.0005:
+            line.notes = f"{line.notes or ''} · re-based on the book now ({float(line.qty_delta or 0.0):+g} → {delta:+g})".strip(" ·")[:500]
+            line.qty_delta = delta
+    if note and note.strip():
+        header.reason_notes = " · ".join(filter(None, [header.reason_notes, f"Owner: {note.strip()}"]))[:500]
+    _post_adjustment_voucher(db, header=header, plant_id=str(plant_id), actor=actor)
+
+
+@router.post("/corrections/{voucher_id}/approve")
+def approve_correction(
+    voucher_id: uuid.UUID,
+    payload: CorrectionDecisionPayload,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_one_plant),
+    current_user: dict = Depends(require_owner),
+):
+    """Owner only: post the correction today (IST). Idempotent: an approved one is returned as it is."""
+    header = _draft_correction(db, plant_id, voucher_id)
+    if header.status == "POSTED":
+        return _correction_view(db, header)
+    if header.status != "DRAFT":
+        raise HTTPException(status_code=409, detail="This correction was rejected. Raise a new one if needed.")
+    _approve_waiting_voucher(db, header, str(plant_id), _actor(current_user), payload.note)
+    db.commit()
+    db.refresh(header)
+    try:
+        emit_audit_event(
+            token=current_user.get("token", ""), event_type="stock_correction_approved", entity_type="stock_adjustment_voucher",
+            entity_id=str(header.id), plant_id=str(plant_id), actor_role="Owner", actor_email=current_user.get("sub"),
+            summary=f"Correction {header.voucher_no} approved", payload=_serialize_adjustment_voucher(header, include_lines=True),
+        )
+    except Exception as exc:
+        _audit_logger.warning("audit emit failed for stock_correction_approved %s: %s", header.id, exc)
+    return _correction_view(db, header)
+
+
+@router.post("/corrections/{voucher_id}/cancel")
+def reject_correction(
+    voucher_id: uuid.UUID,
+    payload: CorrectionDecisionPayload,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_one_plant),
+    current_user: dict = Depends(require_owner),
+):
+    """Owner only: reject a waiting correction with a note; stock does not change."""
+    note = " ".join((payload.note or "").split())
+    if len(note) < 3:
+        raise HTTPException(status_code=422, detail="Write why the correction is rejected.")
+    header = _draft_correction(db, plant_id, voucher_id)
+    if header.status == "CANCELLED":
+        return _correction_view(db, header)
+    if header.status != "DRAFT":
+        raise HTTPException(status_code=409, detail="This correction is already posted.")
+    header.status = "CANCELLED"
+    header.cancelled_by = _actor(current_user)
+    header.cancelled_at = datetime.utcnow()
+    header.cancel_note = note
+    db.commit()
+    db.refresh(header)
+    return _correction_view(db, header)

@@ -35,6 +35,15 @@ def batch_label_payload(batch: StockBatch, item: ItemMaster | None = None, *, in
     metadata = getattr(batch, "inward_metadata", None) or {}
     amigo_no = str(metadata.get("amigo_no") or batch.batch_no or "").strip().upper()
     qr_value = f"HARIOM|BATCH|{batch.plant_id}|{batch.id}|{amigo_no}"
+    if inward_date is None:
+        # A reprint (GET /labels/batches/{id}) passes no date: use the one saved at receipt, or the go-live
+        # date of an opening-stock lot, so the label never loses its inward date.
+        saved = metadata.get("saved_label") if isinstance(metadata.get("saved_label"), dict) else {}
+        known = saved.get("inward_date") or metadata.get("go_live_date")
+        try:
+            inward_date = date.fromisoformat(str(known)[:10]) if known else None
+        except ValueError:
+            inward_date = None
     return {
         "entity_type": "BATCH",
         "entity_id": str(batch.id),

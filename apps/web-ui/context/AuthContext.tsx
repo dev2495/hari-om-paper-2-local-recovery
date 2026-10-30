@@ -3,6 +3,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react"
 import { getStoredPlant, setStoredPlant } from "@/lib/api"
 import { canonicalPlantScopeValue } from "@/lib/plant-scope"
+import { setDraftOwner } from "@/components/production/card/draft-store"
 
 interface User {
   id: string
@@ -93,6 +94,9 @@ function resolveActivePlant(user: User, preferredPlant: string | null) {
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
+  // Floor form drafts on this device belong to the signed-in person (set while rendering, so every form
+  // below reads its own drafts on its first render; nobody signed in means no drafts).
+  setDraftOwner(user?.id)
   const [activePlant, setActivePlantState] = useState<string | null>(null)
   const [activeRole, setActiveRoleState] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)

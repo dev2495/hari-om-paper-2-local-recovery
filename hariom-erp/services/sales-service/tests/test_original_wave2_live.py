@@ -98,7 +98,7 @@ def test_rel07_lost_production_response_replays_same_lot_without_new_release():
         winder = uuid.uuid4()
         first = release_sales_order_line(
             line.id,
-            SalesOrderLineReleasePayload(release_qty=6, winder_machine_id=winder, release_lot_id=lot_id),
+            SalesOrderLineReleasePayload(release_qty=6, winder_machine_id=winder, release_lot_id=lot_id, parchment_color="Natural"),
             db=db,
             plant_id=PLANT,
             current_user=_user("planner-1", roles=("Planner",)),
@@ -106,7 +106,7 @@ def test_rel07_lost_production_response_replays_same_lot_without_new_release():
         assert first["job_card_id"] is None
         replay = release_sales_order_line(
             line.id,
-            SalesOrderLineReleasePayload(release_qty=6, winder_machine_id=winder, release_lot_id=lot_id),
+            SalesOrderLineReleasePayload(release_qty=6, winder_machine_id=winder, release_lot_id=lot_id, parchment_color="Natural"),
             db=db,
             plant_id=PLANT,
             current_user=_user("planner-1", roles=("Planner",)),
@@ -145,17 +145,20 @@ def test_rel09_partial_multiline_sync_failure_retries_only_pending_line():
             lines=[_line(qty=8, line_no=1), _line(qty=8, line_no=2, due_date=date.today() + timedelta(days=15))],
             po="REL9",
         )
+        # Capture the ids first: releasing gives line 1 its parchment colour, which can change the
+        # unordered relationship's row order on reload.
+        line_one, line_two = [line.id for line in sorted(order.lines, key=lambda row: row.line_no)]
         winder = uuid.uuid4()
         first = release_sales_order_line(
-            order.lines[0].id,
-            SalesOrderLineReleasePayload(release_qty=8, winder_machine_id=winder, release_lot_id=uuid.uuid4()),
+            line_one,
+            SalesOrderLineReleasePayload(release_qty=8, winder_machine_id=winder, release_lot_id=uuid.uuid4(), parchment_color="Natural"),
             db=db,
             plant_id=PLANT,
             current_user=_user("planner-1", roles=("Planner",)),
         )
         second = release_sales_order_line(
-            order.lines[1].id,
-            SalesOrderLineReleasePayload(release_qty=8, winder_machine_id=winder, release_lot_id=uuid.uuid4()),
+            line_two,
+            SalesOrderLineReleasePayload(release_qty=8, winder_machine_id=winder, release_lot_id=uuid.uuid4(), parchment_color="Natural"),
             db=db,
             plant_id=PLANT,
             current_user=_user("planner-1", roles=("Planner",)),
@@ -204,7 +207,7 @@ def test_rel11_status_only_header_release_does_not_invent_release_qty():
         line = order.lines[0]
         actual = release_sales_order_line(
             line.id,
-            SalesOrderLineReleasePayload(release_qty=5, winder_machine_id=uuid.uuid4()),
+            SalesOrderLineReleasePayload(release_qty=5, winder_machine_id=uuid.uuid4(), parchment_color="Natural"),
             db=db,
             plant_id=PLANT,
             current_user=_user("planner-1", roles=("Planner",)),
@@ -243,6 +246,7 @@ def test_rel11_status_only_header_release_does_not_invent_release_qty():
                     line_id=other.lines[0].id,
                     release_qty=3,
                     winder_machine_id=uuid.uuid4(),
+                    parchment_color="Natural",
                 )
             ],
             db=db,
@@ -409,7 +413,7 @@ def test_plan04_locked_or_delivered_history_cannot_move_only_editable_remainder(
         assert locked.delivery_date == date(2026, 9, 18)
         released = release_sales_order_line(
             line.id,
-            SalesOrderLineReleasePayload(release_qty=40, winder_machine_id=uuid.uuid4()),
+            SalesOrderLineReleasePayload(release_qty=40, winder_machine_id=uuid.uuid4(), parchment_color="Natural"),
             db=db,
             plant_id=PLANT,
             current_user=_user("planner-1", roles=("Planner",)),

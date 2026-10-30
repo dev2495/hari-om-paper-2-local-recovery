@@ -646,6 +646,9 @@ FLOOR_FLAG_LABELS = {
     "MACHINE_CHANGED": "Other machine",
     "MATERIAL_PREP_PENDING": "Before slitting record",
     "QC_NOT_RECORDED": "Moisture not recorded",
+    "COUNT_GAP": "Process count gap",
+    "QC_OUT_OF_BAND": "Final QC out of band",
+    "TIME_REVERSED": "End time before start",
 }
 
 
@@ -662,9 +665,11 @@ def _exception_report(snapshot: dict[str, Any], sales_report: dict[str, Any], in
         "unscheduled_entries": [
             {
                 "check": FLOOR_FLAG_LABELS.get(str(row.get("flag") or ""), "Review"),
-                **{k: row.get(k) for k in ("job_card_no", "customer", "stage", "entry_no", "business_date", "shift_code", "operator_name", "produced", "accepted", "entered_by", "entered_at", "reason", "job_card_id", "plant_id")},
+                # The reason (e.g. "4 pcs short") right after the check, so the table and the CSV show it.
+                **{k: row.get(k) for k in ("reason", "job_card_no", "customer", "stage", "entry_no", "business_date", "shift_code", "operator_name", "produced", "accepted", "entered_by", "entered_at", "job_card_id", "plant_id")},
             }
-            for row in (snapshot.get("flagged_entries") or [])[:50]
+            # Every flagged entry the KPI counts (production returns at most 200), not only the newest 50.
+            for row in (snapshot.get("flagged_entries") or [])[:200]
         ],
         "delayed_orders": sales_report["delayed_rows"],
         "low_stock": inventory_report["risk_items"]["low_stock"],

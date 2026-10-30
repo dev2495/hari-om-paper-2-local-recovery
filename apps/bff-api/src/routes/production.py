@@ -643,6 +643,39 @@ async def put_tolerance_settings(request: Request, token: str = Depends(get_toke
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# Month-end close (client 2026-10-28): the page, past months, financial year, sources, notes, close and
+# re-open, usage limits. Close / re-open change the closed months, so the dated-write guard cache drops.
+# ──────────────────────────────────────────────────────────────────────────
+
+
+@router.get("/month-end/{view}")
+async def get_month_end(view: str, request: Request, token: str = Depends(get_token)):
+    if view not in {"overview", "months", "year", "sources", "limits"}:
+        return JSONResponse(status_code=404, content={"detail": "Not found"})
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/reconciliation/month-end/{view}", request, token)
+
+
+@router.put("/month-end/notes")
+async def put_month_end_note(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/reconciliation/month-end/notes", request, token)
+
+
+@router.put("/month-end/limits")
+async def put_month_end_limits(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/reconciliation/month-end/limits", request, token)
+
+
+@router.post("/month-end/{action}")
+async def post_month_end(action: str, request: Request, token: str = Depends(get_token)):
+    if action not in {"close", "reopen"}:
+        return JSONResponse(status_code=404, content={"detail": "Not found"})
+    response = await proxy_to_service(PRODUCTION_SERVICE_URL, f"/reconciliation/month-end/{action}", request, token)
+    if 200 <= response.status_code < 300:
+        await invalidate_books_cache(request.headers.get("X-Plant-ID") or None)
+    return response
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # Operations honesty endpoints
 # ──────────────────────────────────────────────────────────────────────────
 

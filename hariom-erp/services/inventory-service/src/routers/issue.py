@@ -19,6 +19,7 @@ from ..models import (
     StockTransaction,
     TransactionType,
 )
+from ..services.books import assert_books_open, ist_today
 from ..services import (
     get_batch_balance,
     get_item_balance,
@@ -148,6 +149,9 @@ def create_issue(
         )
 
     uom = item.uom.value
+    # The issue day is the IST business day; a closed month takes no more issues (spec 2.5).
+    effective_date_value = issue.effective_date or ist_today()
+    assert_books_open(db, plant_id, effective_date_value)
     # A chosen lot is checked on its own balance below (it may be released by concession).
     cleared = [] if issue.batch_id else _issuable_batches(db, issue.item_id, plant_id)
     check_issue_quantity(issue.qty, uom, float("inf") if issue.batch_id else sum(balance for _, balance in cleared), item.name)
@@ -193,7 +197,6 @@ def create_issue(
             raise HTTPException(status_code=400, detail=f"Not enough cleared stock of {item.name} to issue {_qty_text(issue.qty, uom)}.")
         batch, selected_batch_id = allocations[0][0], allocations[0][0].id
 
-    effective_date_value = issue.effective_date or date.today()
     reference_id = issue.production_job_id or uuid.uuid4()
 
     transactions: list[StockTransaction] = []
@@ -270,6 +273,9 @@ class ProductionReturnCreate(BaseModel):
     reason: str = Field(min_length=3, max_length=1000)
 
 
+FLOOR_RETURN_RETIRED = "Nothing comes back from the floor: issued material is used when it is issued. If it is still in the store, record it in a stock count."
+
+
 def _returned_quantity(db, plant_id, issue_id):
     return float(db.query(func.coalesce(func.sum(StockTransaction.qty_change), 0)).filter(
         StockTransaction.plant_id == plant_id,
@@ -280,6 +286,8 @@ def _returned_quantity(db, plant_id, issue_id):
 
 @router.get("/returnable")
 def list_returnable_issues(db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(require_role(["Store", "Admin", "RMIssue"]))):
+    # Rule 0.1: nothing returns from the floor; everything issued is consumed when it is issued.
+    return {"items": [], "retired": True, "message": FLOOR_RETURN_RETIRED}
     issues = db.query(StockTransaction, ItemMaster, StockBatch).join(ItemMaster, ItemMaster.id == StockTransaction.item_id).join(
         StockBatch, StockBatch.id == StockTransaction.batch_id).filter(
         StockTransaction.plant_id == plant_id, StockTransaction.transaction_type == TransactionType.ISSUE_PRODUCTION,
@@ -301,6 +309,9 @@ def list_returnable_issues(db: Session = Depends(get_db), plant_id: str = Depend
 
 @router.post("/returns")
 def return_from_production(payload: ProductionReturnCreate, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(require_role(["Store", "Admin", "RMIssue"]))):
+    # Rule 0.1: nothing returns from the floor. Material found in the store after it was issued is recorded in a
+    # stock count (the Owner adds it as new stock on QC hold); the issue itself is never reversed.
+    raise HTTPException(409, FLOOR_RETURN_RETIRED)
     fingerprint = canonical_hash(payload.model_dump(mode="json", exclude={"request_id"}))
     db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": f"production-return:{plant_id}:{payload.request_id}"})
     existing = db.query(StockTransaction).filter(StockTransaction.plant_id == plant_id,
@@ -321,6 +332,7 @@ def return_from_production(payload: ProductionReturnCreate, db: Session = Depend
         raise HTTPException(422, "Return date must be between the original issue date and today")
     if len(payload.reason.strip()) < 3:
         raise HTTPException(422, "Explain why the material is being returned")
+    assert_books_open(db, plant_id, payload.effective_date)
     remaining = -float(issue.qty_change) - _returned_quantity(db, plant_id, issue.id)
     if payload.quantity > remaining + 0.000001:
         raise HTTPException(409, f"Return exceeds the {remaining:g} still outstanding from this issue")

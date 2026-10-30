@@ -121,13 +121,17 @@ def test_repeated_paper_layers_aggregate_before_issue_subtraction():
     assert error is None and len(rows) == 1
     assert rows[0]['qty_kg'] == 42.75
 
-def residual_result(*, section_issues=None, job_issues=None, shared=False, plan_date=None):
+def residual_result(*, section_issues=None, job_issues=None, shared=False, plan_date=None, made=None, line_due='2026-09-20', packing=None, spec_error=False, released=5000, job_extra=None, adhesive=None):
     import asyncio
     from unittest.mock import AsyncMock, patch
     import httpx
     from src.services.procurement_demand import material_demand
     bom = {'expected_output': {'tubes_per_bamboo': 5}, 'raw_materials': {'papers': [
         {'paper_id': 'paper', 'weight_kg': 5}, {'paper_id': 'paper', 'weight_kg': 5}]}}
+    if packing:
+        bom['packing'] = packing
+    if adhesive:
+        bom['raw_materials']['adhesives'] = {'components': [{'item_code': 'GLUE', 'name': 'Glue', 'weight_kg': adhesive}]}
     jobs = [
         {'id':'done','sales_order_line_id':'line','planned_qty':2000,'status':'COMPLETED'},
         {'id':'wip','sales_order_line_id':'line','planned_qty':3000,'status':'RUNNING','started':True,
@@ -138,14 +142,19 @@ def residual_result(*, section_issues=None, job_issues=None, shared=False, plan_
     if plan_date:
         jobs[1]['production_plan_date'] = plan_date
         jobs[1]['job_card_no'] = '26/09/07'
+    if made is not None:
+        jobs[1]['made_pcs'] = made
+    jobs[1].update(job_extra or {})
     bodies = {
         '/sales-orders': [{'id':'so','order_no':'SO-1','status':'partially_dispatched','lines':[{
-            'id':'line','due_date':'2026-09-20','release_remaining_qty':5000,'remaining_qty':8000,
-            'released_qty':5000,'fulfilled_qty':2000,'approved_spec_id':'spec'}]}],
+            'id':'line','due_date':line_due,'release_remaining_qty':5000,'remaining_qty':8000,
+            'released_qty':released,'fulfilled_qty':2000,'approved_spec_id':'spec'}]}],
         '/master/tube-sizes/':[{'id':'tube','length_mm':500,'outer_diameter_mm':120}],
         '/master/papers/':[{'id':'paper','code':'P1'}],
-        '/items/':[{'id':'paper','item_code':'P1','name':'Paper','type':'RAW_PAPER','uom':'KG'}],
-        '/specs/spec':{'id':'spec','version':2,'status':'approved','tube_size_id':'tube'},
+        '/items/':[{'id':'paper','item_code':'P1','name':'Paper','type':'RAW_PAPER','uom':'KG'},
+                   {'id':'box','item_code':'R-150','name':'Box R-150','type':'PACKAGING','uom':'PCS'},
+                   {'id':'glue','item_code':'GLUE','name':'Glue','type':'ADHESIVE','uom':'KG'}],
+        '/specs/spec':{'id':'spec','version':2,'status':'approved','tube_size_id':'tube', **({'seasonal_model': True} if spec_error else {})},
         '/recipes/spec/spec':[{'id':'recipe','version':2}],
         '/calculate/bom/recipe':bom,
         '/material-demand-snapshots':{'coverage':'all_linked_jobs','jobs':jobs},
@@ -156,6 +165,7 @@ def residual_result(*, section_issues=None, job_issues=None, shared=False, plan_
                 {'line_id':'line','spec_id':'spec','quantity_pcs':2000,'source_job_ids':['done']}]}}
     async def get(url, **kwargs):
         path = httpx.URL(url).path
+        if path=='/calculate/bom-for-spec/spec':return httpx.Response(409,json={'detail':'recipe pending'})
         if path=='/season':return httpx.Response(200,json={'active_season':'ROY','epoch':1})
         if path=='/season/release-authorizations':return httpx.Response(200,json=[])
         return httpx.Response(200,json=bodies[path])
@@ -164,22 +174,52 @@ def residual_result(*, section_issues=None, job_issues=None, shared=False, plan_
 
 
 def test_residual_uses_frozen_layers_once_and_accepted_fg_before_new_bom():
-    result = residual_result(job_issues=[{'job_id':'wip','item_id':'paper','net_issued_qty':4500}])
+    # Started card: BOM x (planned - good made) / planned = 6000 x (3000 - 2250) / 3000 (client 2026-10-28).
+    result = residual_result(made=2250)
     assert result['blocked'] == []
     work, new = result['requirements']
-    assert work['gross_qty_kg'] == 6000 and work['qty_kg'] == 1500
+    assert work['gross_qty_kg'] == 6000 and work['qty_kg'] == 1500 and work['already_used_kg'] == 4500
+    assert work['made_pcs'] == 2250 and work['planned_pcs'] == 3000 and work['basis'] == 'FROZEN_JOB_REMAINING'
     assert work['recipe_id'] == 'frozen' and work['recipe_version'] == 1
     assert new['open_units'] == 4000 and new['qty_kg'] == 8000
     assert new['accepted_external_fg_pcs'] == 1000
 
 
-def test_exclusive_reel_issue_covers_its_job_but_shared_issue_is_not_duplicated():
+def test_started_card_never_depends_on_attributed_issues_and_never_blocks():
+    # Floor issues are by shift: exclusive, shared or missing attribution changes nothing and
+    # nothing is "blocked" any more; the card is still counted (flags, not blocks).
     issue = [{'id':'issue','item_id':'paper','qty_kg':6000}]
-    result = residual_result(section_issues=issue)
-    assert result['blocked'] == [] and result['requirements'][0]['qty_kg'] == 0
-    ambiguous = residual_result(section_issues=issue,shared=True)
-    assert len(ambiguous['blocked']) == 1
-    assert all(row.get('job_id') != 'wip' for row in ambiguous['requirements'])
+    for result in (residual_result(made=1500, section_issues=issue), residual_result(made=1500, section_issues=issue, shared=True),
+                   residual_result(made=1500, job_issues=[{'job_id':'wip','item_id':'paper','net_issued_qty':4500}])):
+        assert result['blocked'] == []
+        assert result['requirements'][0]['job_id'] == 'wip' and result['requirements'][0]['qty_kg'] == 3000
+
+
+def test_started_card_without_made_figure_is_counted_whole_with_a_warning():
+    result = residual_result()
+    assert result['requirements'][0]['qty_kg'] == 6000
+    assert any('pieces made so far are not known' in row['reason'] for row in result['warnings'])
+
+
+def test_fully_made_card_needs_nothing_more():
+    result = residual_result(made=3000)
+    assert all(row.get('job_id') != 'wip' for row in result['requirements'])
+
+
+def test_line_due_after_window_still_counts_its_card_planned_inside_the_window():
+    # Before 2026-10-28 a line due after the window end was skipped whole, hiding planner demand.
+    hidden = residual_result(made=0, line_due='2026-11-15')
+    assert hidden['requirements'] == []
+    shown = residual_result(made=0, line_due='2026-11-15', plan_date='2026-09-12')
+    work = shown['requirements'][0]
+    assert work['job_id'] == 'wip' and work['date'] == '2026-09-12' and work['qty_kg'] == 6000
+    assert all(row.get('job_id') == 'wip' for row in shown['requirements'])
+    # The planner slot is the need date; the order's own date travels apart (checker r4: the day
+    # sheet called the 12 Sep slot "due" while the order is due 15 Nov).
+    assert work['due_date'] == '2026-09-12' and work['production_plan_date'] == '2026-09-12' and work['order_due_date'] == '2026-11-15'
+    from src.services.rm_calendar import _need_payload
+    need = _need_payload({**work, 'qty': work['qty_kg']})
+    assert need['production_plan_date'] == '2026-09-12' and need['order_due_date'] == '2026-11-15'
 
 
 def other_fixture(**line_overrides):
@@ -311,3 +351,93 @@ def test_free_text_bom_codes_cannot_create_master_records():
         asyncio.run(create_material_stock_items("t", "PLANT_A", [{"material_class": "ADHESIVE", "code": "Unverified name"}]))
     assert error.value.status_code == 409
     assert "Masters" in error.value.detail
+
+
+def test_line_with_no_delivery_date_is_needed_at_window_start_and_never_overdue():
+    # Delivery date is optional everywhere (client 2026-10-28): a line with no date is "No date".
+    line = {'id': 'line', 'due_date': None, 'delivery_schedules': []}
+    assert dated_new_build_buckets(line, 500) == [{'due_date': None, 'quantity': 500, 'delivery_schedule_ids': []}]
+    assert job_material_need_date(line, {}) is None
+    args = list(fixture()); args[1] = {**args[1], 'due_date': None}
+    rows, error = explode_paper_demand(*args)
+    assert error is None and rows[0]['date'] == '2026-09-01'
+    assert rows[0]['due_date'] is None and rows[0]['no_date'] is True and rows[0]['overdue'] is False
+    from src.services.procurement_demand import explode_other_demand
+    order, line_row, spec, bom, items, start, end = other_fixture(due_date=None)
+    other, _ = explode_other_demand(order, line_row, spec, bom, items, start, end)
+    assert other and all(row['due_date'] is None and row['no_date'] and not row['overdue'] for row in other)
+
+
+def test_no_date_line_counts_new_build_at_window_start_and_queued_card_too():
+    # Queued card (no plan slot) on a line with no date: needed at the window start, not dropped.
+    result = residual_result(made=0, line_due=None)
+    work, new = result['requirements']
+    assert work['job_id'] == 'wip' and work['source'] == 'RELEASED_QUEUE' and work['date'] == '2026-09-01'
+    assert work['no_date'] is True and work['overdue'] is False
+    assert new['source'] == 'LINE_DUE' and new['date'] == '2026-09-01' and new['due_date'] is None
+
+
+def test_no_date_line_with_a_planned_card_keeps_the_plan_slot_date():
+    result = residual_result(made=0, line_due=None, plan_date='2026-09-12')
+    work = result['requirements'][0]
+    assert work['job_id'] == 'wip' and work['source'] == 'PRODUCTION_PLAN' and work['date'] == '2026-09-12'
+    assert work['no_date'] is False and work['due_date'] == '2026-09-12'
+
+
+def test_packing_of_a_started_card_is_needed_until_packed_and_rounds_up():
+    # Card planned 3000 pcs, wound 2250: paper follows the made share, the boxes are used at packing,
+    # so the whole card still needs ceil(3000 / 45) = 67 boxes (checker 2026-10-28: 6 x 100/240 -> 2).
+    result = residual_result(made=2250, packing={'box_code': 'R-150', 'qty_per_box': 45})
+    work_paper = next(row for row in result['requirements'] if row['basis'] == 'FROZEN_JOB_REMAINING')
+    assert work_paper['qty_kg'] == 1500
+    box = next(row for row in result['material_requirements'] if row['basis'] == 'FROZEN_JOB_REMAINING')
+    assert box['item_code'] == 'R-150' and box['qty'] == 67 and box['remaining_share'] == 1.0 and box['share_basis'] == 'UNTIL_PACKED'
+    # Fully wound, not packed: no paper is needed, every box still is.
+    wound = residual_result(made=3000, packing={'box_code': 'R-150', 'qty_per_box': 45})
+    assert not [row for row in wound['requirements'] if row['basis'] == 'FROZEN_JOB_REMAINING']
+    assert next(row for row in wound['material_requirements'] if row['basis'] == 'FROZEN_JOB_REMAINING')['qty'] == 67
+
+
+def test_packing_demand_drops_once_the_card_is_packed_not_at_dispatch():
+    # Client 2026-10-30, card 26/10/155: Process closed, Packing auto-closed, waiting dispatch. Its boxes
+    # were consumed at packing, so the card needs none; paper is already 0 because it is fully made.
+    box = {'box_code': 'R-150', 'qty_per_box': 45}
+    packed = residual_result(made=3000, packing=box, job_extra={'packing_closed': True, 'packed_pcs': 3000})
+    assert not [row for row in packed['material_requirements'] if row['basis'] == 'FROZEN_JOB_REMAINING']
+    assert not [row for row in packed['requirements'] if row['basis'] == 'FROZEN_JOB_REMAINING']
+    # Packing still open with 1,350 of 3,000 pcs packed: ceil(1,650 / 45) = 37 boxes, rounded up.
+    half = residual_result(made=3000, packing=box, job_extra={'packing_closed': False, 'packed_pcs': 1350})
+    row = next(row for row in half['material_requirements'] if row['basis'] == 'FROZEN_JOB_REMAINING')
+    assert row['qty'] == 37 and row['packed_pcs'] == 1350 and row['remaining_share'] == 0.55 and row['already_used'] == 30
+    # Closed Packing wins even when the packed count is not known.
+    assert not [r for r in residual_result(made=0, packing=box, job_extra={'packing_closed': True})['material_requirements']
+                if r['basis'] == 'FROZEN_JOB_REMAINING']
+
+
+def test_a_closed_winder_needs_no_more_paper_or_adhesive_even_after_a_short_close():
+    # Checker 2026-10-30: 26/10/45 short-closed its Winder at 690 of 1,440 pcs (Oven running) and still
+    # asked for 233 kg of paper and 26 kg of adhesive. Boxes are used at packing, so they stay.
+    box = {'box_code': 'R-150', 'qty_per_box': 45}
+    open_winder = residual_result(made=1350, packing=box, adhesive=0.2)
+    assert next(r for r in open_winder['requirements'] if r['basis'] == 'FROZEN_JOB_REMAINING')['qty_kg'] == 3300
+    assert any(r['item_code'] == 'GLUE' for r in open_winder['material_requirements'] if r['basis'] == 'FROZEN_JOB_REMAINING')
+    short = residual_result(made=1350, packing=box, adhesive=0.2, job_extra={'winding_closed': True, 'packing_closed': False})
+    work = [r for r in short['requirements'] if r['basis'] == 'FROZEN_JOB_REMAINING']
+    other = [r for r in short['material_requirements'] if r['basis'] == 'FROZEN_JOB_REMAINING']
+    assert work == [] and [r['item_code'] for r in other] == ['R-150'] and other[0]['qty'] == 67
+    # Process and Packing closed, only Dispatch open (26/10/10): nothing at all, even from an older
+    # production service that does not send winding_closed, and no "made not known" warning.
+    for extra in ({'winding_closed': True, 'packing_closed': True}, {'packing_closed': True}):
+        done = residual_result(packing=box, adhesive=0.2, job_extra=extra)
+        assert not [r for r in done['requirements'] + done['material_requirements'] if r['basis'] == 'FROZEN_JOB_REMAINING']
+        assert not any('pieces made so far are not known' in w['reason'] for w in done['warnings'])
+
+
+def test_a_line_is_never_both_counted_and_not_counted():
+    # 960 released pcs have no card, and the season recipe is pending: one plain "not counted" note.
+    result = residual_result(made=0, spec_error=True, released=5960)
+    reasons = [row['reason'] for row in result['warnings'] if row.get('line_id') == 'line']
+    assert not any('counted as still to make' in reason for reason in reasons)
+    assert any(reason.startswith('Not counted:') and '960 released pcs have no job card yet' in reason for reason in reasons)
+    counted = residual_result(made=0, released=5960)
+    assert any(row['reason'] == '960 released pcs have no job card yet — counted as still to make' for row in counted['warnings'])

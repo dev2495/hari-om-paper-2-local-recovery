@@ -1,7 +1,8 @@
 "use client"
 
-import { useMemo, useState, type ReactNode } from "react"
-import { AlertTriangle, CheckCircle2 } from "lucide-react"
+import { Suspense, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import { AlertTriangle, CheckCircle2, Pencil } from "lucide-react"
 import { useApp } from "@/context/AppContext"
 
 import {
@@ -138,7 +139,17 @@ const inr = (value?: number | null) => (value == null ? "—" : `₹${Number(val
 const days = (value?: number | null) => (value == null ? "—" : `${value} day${value === 1 ? "" : "s"}`)
 
 export default function VendorsPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading vendors…</div>}>
+      <VendorsBody />
+    </Suspense>
+  )
+}
+
+function VendorsBody() {
   const { showToast } = useApp()
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const vendorsQuery = useVendors({ include_inactive: true })
   const createVendor = useCreateVendor()
   const updateVendor = useUpdateVendor()
@@ -156,6 +167,7 @@ export default function VendorsPage() {
 
   // One form for "+ New vendor" and "Edit vendor".
   const [formMode, setFormMode] = useState<null | "create" | "edit">(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<VendorForm>(emptyForm())
   const [formError, setFormError] = useState<string | null>(null)
   const [showFieldErrors, setShowFieldErrors] = useState(false)
@@ -200,15 +212,18 @@ export default function VendorsPage() {
   const saving = createVendor.isPending || createContact.isPending || updateVendor.isPending
 
   const openCreate = () => {
+    setEditingId(null)
     setForm(emptyForm())
     setFormError(null)
     setShowFieldErrors(false)
     setFormMode("create")
   }
 
-  const startEdit = () => {
-    if (!selectedVendor) return
-    setForm(formFromVendor(selectedVendor))
+  const startEdit = (vendor: Vendor | null = selectedVendor) => {
+    if (!vendor) return
+    setSelectedId(vendor.id)
+    setEditingId(vendor.id)
+    setForm(formFromVendor(vendor))
     setFormError(null)
     setShowFieldErrors(false)
     setFormMode("edit")
@@ -217,7 +232,25 @@ export default function VendorsPage() {
   const closeForm = () => {
     setFormMode(null)
     setFormError(null)
+    if (editParam) router.replace("/masters/vendors")
   }
+
+  // /masters/vendors?edit=<id or code> opens that vendor's form.
+  const editParam = searchParams?.get("edit") || ""
+  const openedFromLink = useRef<string | null>(null)
+  useEffect(() => {
+    if (!editParam || openedFromLink.current === editParam || !vendors.length) return
+    const vendor = vendors.find((v) => v.id === editParam || compact(v.supplier_code).toUpperCase() === editParam.toUpperCase())
+    if (!vendor) return
+    openedFromLink.current = editParam
+    setStatusFilter("ALL")
+    setSelectedId(vendor.id)
+    setEditingId(vendor.id)
+    setForm(formFromVendor(vendor))
+    setFormError(null)
+    setShowFieldErrors(false)
+    setFormMode("edit")
+  }, [editParam, vendors])
 
   const submitForm = async () => {
     setFormError(null)
@@ -237,8 +270,8 @@ export default function VendorsPage() {
     }
     const body = payloadFromForm(form)
     try {
-      if (formMode === "edit" && selectedVendor) {
-        await updateVendor.mutateAsync({ id: selectedVendor.id, data: body })
+      if (formMode === "edit" && editingId) {
+        await updateVendor.mutateAsync({ id: editingId, data: body })
         showToast("Vendor updated", "success")
       } else {
         const created = await createVendor.mutateAsync(body)
@@ -346,39 +379,47 @@ export default function VendorsPage() {
     URL.revokeObjectURL(url)
   }
 
+  // Code and category sit above the name so the list fits beside the detail panel at 1280 px.
   const columns: GridColumn<Vendor>[] = [
     {
-      key: "supplier_code",
-      label: "Code",
-      width: "120px",
-      sortAccessor: (r) => r.supplier_code || "",
-      render: (r) => (
-        <div className="min-w-0 max-w-[120px]">
-          <div className="truncate font-mono text-xs text-muted-foreground" title={r.supplier_code || ""}>{r.supplier_code || "—"}</div>
-          <div className="truncate text-[11px] text-signal-cyan-ink">{vendorCategory(r)}</div>
-        </div>
-      ),
-    },
-    {
       key: "name",
-      label: "Name",
+      label: "Vendor",
       sortAccessor: (r) => r.name || "",
       render: (r) => (
-        <div className="min-w-0 max-w-[220px]">
+        <div className="min-w-0 max-w-[260px]">
+          <div className="truncate font-mono text-[11px] text-muted-foreground" title={r.supplier_code || ""}>{r.supplier_code || "—"} · <span className="font-sans text-signal-cyan-ink">{vendorCategory(r)}</span></div>
           <div className="flex min-w-0 items-center gap-1.5">
             <span className="truncate text-sm font-semibold text-foreground">{r.name || "—"}</span>
             {r.is_active === false ? <Pill tone="neutral">Inactive</Pill> : null}
           </div>
           <div className="truncate text-[11px] text-muted-foreground">{[place(r) || r.address, r.contact_name && `${r.contact_name}${r.contact_phone ? ` · ${r.contact_phone}` : ""}`].filter(Boolean).join(" · ") || "No address yet"}</div>
+          {r.contact_email ? <div className="truncate text-[11px] text-muted-foreground" title={r.contact_email}>{r.contact_email}</div> : null}
         </div>
       ),
     },
     {
       key: "gst_no",
       label: "GSTIN",
-      width: "140px",
+      width: "136px",
       sortAccessor: (r) => r.gst_no || "",
       render: (r) => r.gst_no ? <span className="font-mono text-xs text-foreground">{r.gst_no}</span> : <span className="text-[11px] text-muted-foreground">Not given</span>,
+    },
+    {
+      key: "edit",
+      label: "",
+      width: "76px",
+      align: "right",
+      render: (r) => (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); startEdit(r) }}
+          className="inline-flex h-9 items-center gap-1 rounded-full border border-border bg-card px-3 text-xs font-semibold text-foreground hover:border-signal-cyan-line hover:text-signal-cyan-ink"
+          aria-label={`Edit ${r.name}`}
+          data-testid={`vendor-row-edit-${r.supplier_code}`}
+        >
+          <Pencil className="h-3.5 w-3.5" aria-hidden="true" />Edit
+        </button>
+      ),
     },
   ]
 
@@ -408,14 +449,14 @@ export default function VendorsPage() {
       }
       filters={
         <>
-          <FilterField label="Search">
-            <SearchField value={search} onChange={setSearch} placeholder="name, code, GSTIN, city, contact…" />
+          <FilterField label="Search" stackOnPhone>
+            <SearchField value={search} onChange={setSearch} placeholder="name, code, GSTIN, city, contact…" fullWidthOnPhone />
           </FilterField>
-          <FilterField label="Category">
+          <FilterField label="Category" stackOnPhone>
             <select
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
-              className="rounded-md border border-border bg-card px-2 py-1 text-sm font-medium text-foreground"
+              className="h-11 w-full rounded-md border border-border bg-card px-2 text-base font-medium text-foreground sm:h-9 sm:w-auto sm:text-sm"
             >
               <option value="ALL">All</option>
               {VENDOR_CATEGORIES.map((c) => (
@@ -425,22 +466,22 @@ export default function VendorsPage() {
               ))}
             </select>
           </FilterField>
-          <FilterField label="GSTIN">
+          <FilterField label="GSTIN" stackOnPhone>
             <select
               value={gstFilter}
               onChange={(e) => setGstFilter(e.target.value as any)}
-              className="rounded-md border border-border bg-card px-2 py-1 text-sm font-medium text-foreground"
+              className="h-11 w-full rounded-md border border-border bg-card px-2 text-base font-medium text-foreground sm:h-9 sm:w-auto sm:text-sm"
             >
               <option value="ALL">All</option>
               <option value="WITH">Given</option>
               <option value="WITHOUT">Not given</option>
             </select>
           </FilterField>
-          <FilterField label="Status">
+          <FilterField label="Status" stackOnPhone>
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as any)}
-              className="rounded-md border border-border bg-card px-2 py-1 text-sm font-medium text-foreground"
+              className="h-11 w-full rounded-md border border-border bg-card px-2 text-base font-medium text-foreground sm:h-9 sm:w-auto sm:text-sm"
             >
               <option value="ACTIVE">Active</option>
               <option value="INACTIVE">Inactive</option>
@@ -451,14 +492,14 @@ export default function VendorsPage() {
           <button
             type="button"
             onClick={exportFilteredCsv}
-            className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-signal-cyan-line hover:text-signal-cyan-ink"
+            className="inline-flex min-h-11 items-center rounded-full border border-border bg-card px-4 sm:min-h-9 sm:px-3 text-xs font-semibold text-muted-foreground hover:border-signal-cyan-line hover:text-signal-cyan-ink"
           >
             ⇡ Export CSV
           </button>
           <button
             type="button"
             onClick={openCreate}
-            className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90"
+            className="inline-flex min-h-11 items-center rounded-full bg-primary px-4 sm:min-h-9 sm:px-3 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90"
           >
             + New vendor
           </button>
@@ -466,7 +507,28 @@ export default function VendorsPage() {
       }
     >
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(380px,0.9fr)]">
-        <div className="space-y-3" data-testid="vendors-grid-region">
+        <div className="min-w-0 space-y-3" data-testid="vendors-grid-region">
+          {/* Phone: one card per vendor with GSTIN, place, contact and an Edit button. */}
+          <ul className="space-y-2 md:hidden" data-testid="vendor-cards">
+            {filteredVendors.map((v) => (
+              <li key={v.id} className={`rounded-xl border bg-card p-3 ${selectedId === v.id ? "border-signal-cyan-line" : "border-border"}`}>
+                <button type="button" className="block w-full min-w-0 text-left" onClick={() => setSelectedId(v.id)}>
+                  <span className="block font-mono text-[11px] text-muted-foreground">{v.supplier_code} · {vendorCategory(v)}</span>
+                  <span className="block break-words text-sm font-semibold text-foreground">{v.name}</span>
+                  <span className="mt-1 block text-xs text-muted-foreground">GSTIN <span className="font-mono text-foreground">{v.gst_no || "not given"}</span></span>
+                  <span className="mt-0.5 block break-words text-xs text-muted-foreground">{vendorAddress(v) || "No address yet"}</span>
+                  {v.contact_name || v.contact_phone || v.contact_email ? <span className="mt-0.5 block break-words text-xs text-muted-foreground">{[v.contact_name, v.contact_phone, v.contact_email].filter(Boolean).join(" · ")}</span> : null}
+                </button>
+                <div className="mt-2 flex justify-end">
+                  <button type="button" onClick={() => startEdit(v)} className="inline-flex h-11 items-center gap-1.5 rounded-full border border-border bg-card px-4 text-sm font-semibold text-foreground" data-testid={`vendor-card-edit-${v.supplier_code}`}>
+                    <Pencil className="h-4 w-4" aria-hidden="true" />Edit
+                  </button>
+                </div>
+              </li>
+            ))}
+            {!filteredVendors.length ? <li className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">{vendorsQuery.isLoading ? "Loading vendors…" : "No vendors match the current filters."}</li> : null}
+          </ul>
+          <div className="hidden md:block">
           <DataGrid<Vendor>
             columns={columns}
             rows={filteredVendors}
@@ -483,6 +545,7 @@ export default function VendorsPage() {
                   : "No vendors match the current filters."
             }
           />
+          </div>
           {selection.size ? (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-[1.2rem] border border-border bg-muted px-3 py-2 text-xs">
               <span className="font-semibold text-muted-foreground">{selection.size} selected</span>
@@ -490,21 +553,21 @@ export default function VendorsPage() {
                 <button
                   type="button"
                   onClick={bulkActivate}
-                  className="rounded-full border border-border bg-card px-3 py-1.5 font-semibold text-muted-foreground hover:border-signal-emerald-line hover:text-signal-emerald-ink"
+                  className="inline-flex min-h-11 items-center rounded-full border border-border bg-card px-4 sm:min-h-9 sm:px-3 font-semibold text-muted-foreground hover:border-signal-emerald-line hover:text-signal-emerald-ink"
                 >
                   Activate
                 </button>
                 <button
                   type="button"
                   onClick={bulkDeactivate}
-                  className="rounded-full border border-border bg-card px-3 py-1.5 font-semibold text-muted-foreground hover:border-signal-amber-line hover:text-signal-amber-ink"
+                  className="inline-flex min-h-11 items-center rounded-full border border-border bg-card px-4 sm:min-h-9 sm:px-3 font-semibold text-muted-foreground hover:border-signal-amber-line hover:text-signal-amber-ink"
                 >
                   Deactivate
                 </button>
                 <button
                   type="button"
                   onClick={() => setSelection(new Set())}
-                  className="rounded-full border border-border bg-card px-3 py-1.5 font-semibold text-muted-foreground hover:border-input"
+                  className="inline-flex min-h-11 items-center rounded-full border border-border bg-card px-4 sm:min-h-9 sm:px-3 font-semibold text-muted-foreground hover:border-input"
                 >
                   Clear
                 </button>
@@ -580,7 +643,7 @@ export default function VendorsPage() {
                       showToast(errorMessage(err), "error")
                     }
                   }}
-                  className="rounded-full border border-signal-emerald-line bg-card px-3 py-1.5 text-xs font-semibold text-signal-emerald-ink hover:bg-signal-emerald-soft"
+                  className="inline-flex min-h-11 items-center rounded-full border border-signal-emerald-line bg-card px-4 sm:min-h-9 sm:px-3 text-xs font-semibold text-signal-emerald-ink hover:bg-signal-emerald-soft"
                 >
                   Reactivate
                 </button>
@@ -588,7 +651,7 @@ export default function VendorsPage() {
                 <button
                   type="button"
                   onClick={() => setConfirmKind("deactivate")}
-                  className="rounded-full border border-signal-amber-line bg-card px-3 py-1.5 text-xs font-semibold text-signal-amber-ink hover:bg-signal-amber-soft"
+                  className="inline-flex min-h-11 items-center rounded-full border border-signal-amber-line bg-card px-4 sm:min-h-9 sm:px-3 text-xs font-semibold text-signal-amber-ink hover:bg-signal-amber-soft"
                 >
                   Deactivate
                 </button>
@@ -596,14 +659,14 @@ export default function VendorsPage() {
               <button
                 type="button"
                 onClick={() => setConfirmKind("delete")}
-                className="rounded-full border border-signal-rose-line bg-card px-3 py-1.5 text-xs font-semibold text-signal-rose-ink hover:bg-signal-rose-soft"
+                className="inline-flex min-h-11 items-center rounded-full border border-signal-rose-line bg-card px-4 sm:min-h-9 sm:px-3 text-xs font-semibold text-signal-rose-ink hover:bg-signal-rose-soft"
               >
                 Delete
               </button>
               <button
                 type="button"
-                onClick={startEdit}
-                className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90"
+                onClick={() => startEdit()}
+                className="inline-flex min-h-11 items-center rounded-full bg-primary px-4 sm:min-h-9 sm:px-3 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90"
                 data-testid="vendor-edit"
               >
                 Edit vendor
@@ -625,7 +688,7 @@ export default function VendorsPage() {
             <button
               type="button"
               onClick={closeForm}
-              className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-input"
+              className="inline-flex min-h-11 items-center rounded-full border border-border bg-card px-4 sm:min-h-9 sm:px-3 text-xs font-semibold text-muted-foreground hover:border-input"
             >
               Cancel
             </button>
@@ -634,7 +697,7 @@ export default function VendorsPage() {
               onClick={submitForm}
               disabled={saving}
               data-testid="vendor-save"
-              className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90 disabled:opacity-50"
+              className="inline-flex min-h-11 items-center rounded-full bg-primary px-4 sm:min-h-9 sm:px-3 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90 disabled:opacity-50"
             >
               {saving ? "Saving…" : formMode === "edit" ? "Save changes" : "Create vendor"}
             </button>
@@ -646,7 +709,7 @@ export default function VendorsPage() {
           setForm={setForm}
           errors={showFieldErrors ? fieldErrors : {}}
           creating={formMode === "create"}
-          sameGstin={vendors.find((v) => v.gst_no && v.gst_no === form.gst_no.replace(/\s+/g, "").toUpperCase() && (formMode === "create" || v.id !== selectedVendor?.id)) || null}
+          sameGstin={vendors.find((v) => v.gst_no && v.gst_no === form.gst_no.replace(/\s+/g, "").toUpperCase() && (formMode === "create" || v.id !== editingId)) || null}
         />
         {formError ? (
           <p role="alert" className="mt-3 flex items-start gap-1.5 rounded-lg border border-signal-rose-line bg-signal-rose-soft px-3 py-2 text-xs font-medium text-signal-rose-ink">
@@ -742,7 +805,9 @@ function FieldRow({ label, value }: { label: string; value: React.ReactNode }) {
   )
 }
 
-const inputClass = "w-full rounded-md border bg-card px-3 py-2 text-sm font-medium text-foreground focus:border-signal-cyan-line focus:outline-none"
+// Phone: 44 px fields with 16 px text (iOS does not zoom in on focus); desktop keeps the compact size.
+const inputClass = "h-11 w-full min-w-0 rounded-md border bg-card px-3 text-base font-medium text-foreground focus:border-signal-cyan-line focus:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-10 sm:text-sm"
+const textareaClass = "w-full min-w-0 rounded-md border bg-card px-3 py-2 text-base font-medium text-foreground focus:border-signal-cyan-line focus:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-sm"
 
 function FormField({
   label,
@@ -771,12 +836,14 @@ function FormField({
   testId?: string
   className?: string
 }) {
+  const noteId = useId()
   return (
     <label className={`flex min-w-0 flex-col gap-1 text-sm ${className || ""}`}>
-      <span className="text-[11.5px] font-semibold text-muted-foreground">
+      <span className="text-xs font-semibold text-muted-foreground">
         {label} {required ? <span className="text-signal-rose-ink">*</span> : null}
       </span>
       <input
+        aria-describedby={error || hint ? noteId : undefined}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
@@ -787,9 +854,9 @@ function FormField({
         className={`${inputClass} ${mono ? "font-mono uppercase tracking-wide" : ""} ${error ? "border-signal-rose-line" : "border-border"}`}
       />
       {error ? (
-        <span className="flex items-start gap-1 text-[11px] font-medium text-signal-rose-ink"><AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />{error}</span>
+        <span id={noteId} className="flex items-start gap-1 text-xs font-medium text-signal-rose-ink"><AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />{error}</span>
       ) : hint ? (
-        <span className="text-[11px] text-muted-foreground">{hint}</span>
+        <span id={noteId} className="text-xs text-muted-foreground">{hint}</span>
       ) : null}
     </label>
   )
@@ -820,17 +887,22 @@ function VendorFormFields({
   const set = (key: keyof VendorForm) => (value: string) => setForm({ ...form, [key]: value })
   const gst = fromGstin(form.gst_no)
   const gstProblem = gstinError(form.gst_no)
-  const panMismatch = gst.pan && form.pan_no && form.pan_no.replace(/\s+/g, "").toUpperCase() !== gst.pan
-  const stateMismatch = gst.stateCode && form.state_code && form.state_code !== gst.stateCode
+  // PAN and state that are not the GSTIN's are refused on save (here and by the server); shown as you type.
+  const liveErrors = vendorFormErrors(form)
+  const stateError = errors.state_code || liveErrors.state_code
+  const stateNoteId = useId()
 
-  // A complete GSTIN fills PAN and state when they are still empty.
+  // A complete GSTIN fills PAN and state when they are empty or still the old GSTIN's (the server does the same),
+  // so a new GSTIN never leaves the old PAN and state behind.
   const onGstin = (raw: string) => {
     const value = raw.toUpperCase()
     const next = { ...form, gst_no: value }
     const derived = fromGstin(value)
+    const previous = fromGstin(form.gst_no)
     if (derived.pan) {
-      if (!form.pan_no.trim()) next.pan_no = derived.pan
-      if (!form.state_code) {
+      const pan = form.pan_no.replace(/\s+/g, "").toUpperCase()
+      if (!pan || pan === previous.pan) next.pan_no = derived.pan
+      if (!form.state_code || form.state_code === previous.stateCode) {
         next.state_code = derived.stateCode
         next.state = derived.state
       }
@@ -852,8 +924,8 @@ function VendorFormFields({
     <div data-testid="vendor-form">
       <FormSection title="Vendor">
         <FormField label="Code" required value={form.supplier_code} onChange={set("supplier_code")} placeholder="VEND-XXX" testId="vendor-code" />
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-[11.5px] font-semibold text-muted-foreground">Category</span>
+        <label className="flex min-w-0 flex-col gap-1 text-sm">
+          <span className="text-xs font-semibold text-muted-foreground">Category</span>
           <select
             value={form.category}
             onChange={(e) => setForm({ ...form, category: e.target.value })}
@@ -880,8 +952,8 @@ function VendorFormFields({
           onChange={(v) => setForm({ ...form, pan_no: v.toUpperCase() })}
           mono
           maxLength={12}
-          error={errors.pan_no}
-          hint={panMismatch ? <span className="flex items-center gap-1 text-signal-amber-ink"><AlertTriangle className="h-3 w-3" aria-hidden="true" />The GSTIN carries PAN {gst.pan}</span> : "10 characters, e.g. ABCDE1234F"}
+          error={errors.pan_no || liveErrors.pan_no}
+          hint="10 characters, e.g. ABCDE1234F"
           testId="vendor-pan"
         />
         <FormField label="MSME / Udyam number" value={form.msme_no} onChange={(v) => setForm({ ...form, msme_no: v.toUpperCase() })} mono placeholder="UDYAM-GJ-01-0012345" />
@@ -891,12 +963,14 @@ function VendorFormFields({
         <FormField label="Address line 1" value={form.address} onChange={set("address")} className="sm:col-span-2" placeholder="Plot / building, street" testId="vendor-address1" />
         <FormField label="Address line 2" value={form.address_line2} onChange={set("address_line2")} className="sm:col-span-2" placeholder="Area, landmark" />
         <FormField label="City" value={form.city} onChange={set("city")} testId="vendor-city" />
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-[11.5px] font-semibold text-muted-foreground">State (GST code)</span>
+        <label className="flex min-w-0 flex-col gap-1 text-sm">
+          <span className="text-xs font-semibold text-muted-foreground">State (GST code)</span>
           <select
             value={form.state_code}
             onChange={(e) => setForm({ ...form, state_code: e.target.value, state: stateName(e.target.value) })}
-            className={`${inputClass} border-border`}
+            className={`${inputClass} ${stateError ? "border-signal-rose-line" : "border-border"}`}
+            aria-invalid={stateError ? true : undefined}
+            aria-describedby={stateError ? stateNoteId : undefined}
             data-testid="vendor-state"
           >
             <option value="">{form.state && !form.state_code ? form.state : "Choose state…"}</option>
@@ -906,7 +980,7 @@ function VendorFormFields({
               </option>
             ))}
           </select>
-          {stateMismatch ? <span className="flex items-center gap-1 text-[11px] text-signal-amber-ink"><AlertTriangle className="h-3 w-3" aria-hidden="true" />GSTIN is registered in {gst.state} ({gst.stateCode})</span> : null}
+          {stateError ? <span id={stateNoteId} className="flex items-start gap-1 text-xs font-medium text-signal-rose-ink"><AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />{stateError}</span> : null}
         </label>
         <FormField label="PIN code" value={form.pin_code} onChange={set("pin_code")} inputMode="numeric" maxLength={6} error={errors.pin_code} testId="vendor-pin" />
         <FormField label="Country" value={form.country} onChange={set("country")} />
@@ -937,7 +1011,7 @@ function VendorFormFields({
           rows={2}
           value={form.notes}
           onChange={(e) => setForm({ ...form, notes: e.target.value })}
-          className={`${inputClass} mt-2 border-border`}
+          className={`${textareaClass} mt-2 border-border`}
           placeholder="Delivery days, rate agreements, anything the team should know"
         />
       </fieldset>

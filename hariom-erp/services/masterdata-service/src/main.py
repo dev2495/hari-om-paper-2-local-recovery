@@ -52,6 +52,18 @@ def _ensure_schema_compatibility() -> None:
         connection.execute(text("ALTER TABLE customer ADD COLUMN IF NOT EXISTS category VARCHAR(80)"))
         connection.execute(text("ALTER TABLE customer ADD COLUMN IF NOT EXISTS credit_limit DOUBLE PRECISION"))
         connection.execute(text("ALTER TABLE customer ADD COLUMN IF NOT EXISTS payment_terms VARCHAR(120)"))
+        # Billing and dispatch (ship-to) place for the delivery challan (client 2026-10-28), all optional.
+        for column_sql in (
+            "billing_city VARCHAR(120)",
+            "billing_state VARCHAR(120)",
+            "billing_state_code VARCHAR(2)",
+            "billing_pin_code VARCHAR(10)",
+            "shipping_city VARCHAR(120)",
+            "shipping_state VARCHAR(120)",
+            "shipping_state_code VARCHAR(2)",
+            "shipping_pin_code VARCHAR(10)",
+        ):
+            connection.execute(text(f"ALTER TABLE customer ADD COLUMN IF NOT EXISTS {column_sql}"))
         connection.execute(text("ALTER TABLE customer_contact ADD COLUMN IF NOT EXISTS is_primary BOOLEAN DEFAULT FALSE"))
         connection.execute(text("ALTER TABLE supplier ADD COLUMN IF NOT EXISTS category_label VARCHAR(120)"))
         connection.execute(text("ALTER TABLE supplier_contact ADD COLUMN IF NOT EXISTS is_primary BOOLEAN DEFAULT FALSE"))

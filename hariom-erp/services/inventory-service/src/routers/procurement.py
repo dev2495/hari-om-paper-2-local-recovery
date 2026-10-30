@@ -82,9 +82,12 @@ from ..services.procurement import (
     over_receipt,
     physical_form,
 )
+from ..services.books import assert_books_open
+from ..services.locations import RECEIVING_PURPOSES, default_receiving_location
 from ..services.procurement_documents import render_debit_note_pdf
+from ..services import rm_calendar
 from ..services.stock_calc import get_usable_item_qty
-from ..utils.auth import get_current_plant, get_current_user, require_cost_administrator, require_role
+from ..utils.auth import get_current_plant, get_current_user, is_actual_owner, require_cost_administrator, require_owner, require_role
 from .purchase import _actor, _next_doc_no, _next_purchase_order_no, _persist_revision
 
 
@@ -174,7 +177,8 @@ def _receipt_payload(receipt: PurchaseReceipt, db: Session) -> dict[str, Any]:
             if reel:
                 label = db.query(LotLabelRecord).filter(LotLabelRecord.reel_id == reel.id).first()
                 lots.append({
-                    "id": str(reel.id), "at_no": reel.reel_code, "source_reel_no": reel.source_reel_no,
+                    "id": str(reel.id), "entity_type": "REEL", "receipt_line_id": str(allocation.receipt_line_id),
+                    "at_no": reel.reel_code, "source_reel_no": reel.source_reel_no,
                     "physical_form": reel.physical_form, "net_weight_kg": float(reel.inward_weight_kg or 0),
                     "current_weight_kg": float(reel.current_weight_kg or 0), "width_mm": reel.width_mm,
                     "stock_status": reel.stock_status, "commercial_status": reel.commercial_status,
@@ -184,9 +188,15 @@ def _receipt_payload(receipt: PurchaseReceipt, db: Session) -> dict[str, Any]:
             batch = db.get(StockBatch, allocation.batch_id)
             if batch:
                 label = (batch.inward_metadata or {}).get("saved_label") or batch_label_payload(batch, inward_date=receipt.received_date)
-                lots.append({"id": str(batch.id), "at_no": batch.batch_no, "entity_type": "BATCH", "quantity": float(batch.received_qty),
+                lots.append({"id": str(batch.id), "at_no": batch.batch_no, "entity_type": "BATCH", "receipt_line_id": str(allocation.receipt_line_id), "quantity": float(batch.received_qty),
                     "uom": label.get("uom"), "stock_status": batch.stock_status, "label": label})
 
+    # Rate cases still open per line, including those opened from a challan rate while the invoice is pending.
+    line_ids = [line.id for line in receipt.lines or []]
+    open_rate_lines = {row[0] for row in db.query(ReceiptInvoiceAllocation.receipt_line_id).join(
+        PurchaseDiscrepancy, PurchaseDiscrepancy.allocation_id == ReceiptInvoiceAllocation.id,
+    ).filter(ReceiptInvoiceAllocation.receipt_line_id.in_(line_ids), PurchaseDiscrepancy.discrepancy_type == "RATE",
+             PurchaseDiscrepancy.status.in_(["OPEN", "UNDER_REVIEW"])).all()} if line_ids else set()
     return {
         "id": str(receipt.id), "request_id": str(receipt.request_id) if receipt.request_id else None,
         "purchase_order_id": str(receipt.purchase_order_id) if receipt.purchase_order_id else None,
@@ -208,6 +218,7 @@ def _receipt_payload(receipt: PurchaseReceipt, db: Session) -> dict[str, Any]:
             "quantity": float(line.qty_received or 0), "uom": line.order_line.uom if line.order_line else _enum(line.item.uom),
             "po_rate": float(line.po_rate) if line.po_rate is not None else None, "invoice_rate": float(line.invoice_rate) if line.invoice_rate is not None else None,
             "tracking_mode": line.tracking_mode, "qc_status": line.qc_status, "commercial_status": line.commercial_status,
+            "rate_review_open": line.id in open_rate_lines,
         } for line in receipt.lines or []],
         "lots": lots, "lot_count": len(lots), "received_kg": round(sum(float(row.get("net_weight_kg", 0)) for row in lots), 3),
     }
@@ -250,7 +261,18 @@ def _validate_receipt(payload: GovernedReceiptCreate, db: Session = None, plant_
     if db is not None:
         location_ids = {location_id for line in payload.lines for location_id in [line.location_id, *[lot.location_id for lot in line.lots]] if location_id}
         if location_ids and db.query(InventoryLocation).filter(InventoryLocation.id.in_(location_ids), InventoryLocation.plant_id == plant_id, InventoryLocation.active == "true").count() != len(location_ids):
-            raise HTTPException(422, "Choose active storage locations in the receipt plant")
+            raise HTTPException(422, "Put the goods in an active location of this plant. That location is closed or belongs to another plant.")
+        # Goods inward lands on a store rack or the QC bay (RECEIVING_PURPOSES): never the production floor
+        # (stock reaches it only through the issue desks), a dispatch bay (finished goods only) or the scrap
+        # area, where material would sit outside every count while the book still has it (spec 2.7).
+        floor = db.query(InventoryLocation).filter(
+            InventoryLocation.id.in_(location_ids),
+            InventoryLocation.purpose.isnot(None), InventoryLocation.purpose != "",
+            func.upper(InventoryLocation.purpose).notin_(list(RECEIVING_PURPOSES)),
+        ).first() if location_ids else None
+        if floor is not None:
+            where = {"WIP": "the production floor", "DISPATCH": "a dispatch bay", "SCRAP": "the scrap area"}.get(str(floor.purpose or "").upper(), "not a store rack")
+            raise HTTPException(422, f"{floor.code} is {where}. Put goods inward on a store rack, such as the RM store.")
     line_ids = [line.po_line_id for line in payload.lines if line.po_line_id]
     if len(line_ids) != len(set(line_ids)):
         raise HTTPException(422, "Each PO line may appear once per receipt; add its physical lots to the same line")
@@ -290,6 +312,86 @@ def _next_grn_no(db: Session, plant_id: str, item_types: list[Any], on_date: dat
     counter.next_value = sequence + 1
     counter.version = int(counter.version or 1) + 1
     return candidate
+
+
+def _next_receipt_reel_code(db: Session, plant_id: Any, received_date: date) -> str:
+    """AT number of a received reel, dated by the GRN's received date (AT-260205-001), not today.
+
+    A backdated GRN keeps the date the goods came in on its labels (problem "Backdated GRN lots show
+    today as their date"). Same advisory lock as ``_next_doc_no``, so both never hand out one number.
+    """
+    db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": f"document:{plant_id}:AT"})
+    base = f"AT-{received_date.strftime('%y%m%d')}"
+    for seq in range(1, 10000):
+        candidate = f"{base}-{seq:03d}"
+        if not db.query(PaperReel.id).filter(PaperReel.plant_id == plant_id, PaperReel.reel_code == candidate).first():
+            return candidate
+    raise HTTPException(status_code=500, detail="Unable to generate AT number")
+
+
+# A GRN whose invoice is still to come (challan received · invoice pending) may still carry the
+# rate typed from the challan (client 2026-10-30: "not able to edit the rate"). A rate that differs
+# from the PO opens the same RATE review case as an invoice does. The case needs an invoice line, so
+# it hangs on a placeholder invoice of status PENDING; attaching the real invoice later moves the
+# lines and the case onto it, keeping the case and its decision.
+PENDING_INVOICE_STATUS = "PENDING"
+
+
+def _pending_invoice_key(receipt_id: Any) -> str:
+    return f"PENDING:{receipt_id}"
+
+
+def _open_pending_rate_case(
+    db: Session, receipt: PurchaseReceipt, receipt_line: PurchaseReceiptLine, *, plant_id: str, supplier_id: Any,
+    uom: str, qty: Decimal, po_rate: Any, invoice_rate: float, revision_line_id: Any, actor: str,
+) -> Optional[PurchaseDiscrepancy]:
+    comparison = compare_rates(qty, po_rate, invoice_rate)
+    if not comparison.requires_review:
+        return None
+    holder = db.query(SupplierInvoice).filter(
+        SupplierInvoice.plant_id == plant_id, SupplierInvoice.supplier_id == supplier_id,
+        SupplierInvoice.normalized_invoice_no == _pending_invoice_key(receipt.id),
+    ).first()
+    if holder is None:
+        holder = SupplierInvoice(
+            plant_id=plant_id, supplier_id=supplier_id, invoice_no=f"Invoice pending · {receipt.grn_no}",
+            normalized_invoice_no=_pending_invoice_key(receipt.id), invoice_date=receipt.received_date,
+            currency="INR", status=PENDING_INVOICE_STATUS, created_by=actor,
+        )
+        db.add(holder)
+        db.flush()
+    invoice_line = SupplierInvoiceLine(invoice_id=holder.id, item_id=receipt_line.item_id, qty=qty, rate=invoice_rate, uom=uom)
+    db.add(invoice_line)
+    db.flush()
+    allocation = ReceiptInvoiceAllocation(
+        receipt_line_id=receipt_line.id, invoice_line_id=invoice_line.id, revision_line_id=revision_line_id,
+        allocated_qty=qty, po_rate=po_rate, invoice_rate=invoice_rate, rate_delta=comparison.delta_per_kg,
+        claimable_amount=comparison.claimable_amount,
+    )
+    db.add(allocation)
+    db.flush()
+    case = PurchaseDiscrepancy(
+        plant_id=plant_id, allocation_id=allocation.id, discrepancy_type="RATE", quantity=qty, po_rate=po_rate,
+        invoice_rate=invoice_rate, delta=comparison.delta_per_kg, claimable_amount=comparison.claimable_amount,
+        evidence_json={"invoice_pending": True, "rate_source": "CHALLAN", "grn_no": receipt.grn_no}, status="OPEN",
+    )
+    db.add(case)
+    db.flush()
+    return case
+
+
+def _pending_allocations(db: Session, receipt: PurchaseReceipt) -> dict[Any, tuple[ReceiptInvoiceAllocation, SupplierInvoiceLine]]:
+    """Challan-rate allocations of a pending-invoice GRN, by receipt line."""
+    line_ids = [line.id for line in receipt.lines or []]
+    if not line_ids:
+        return {}
+    rows = db.query(ReceiptInvoiceAllocation, SupplierInvoiceLine).join(
+        SupplierInvoiceLine, SupplierInvoiceLine.id == ReceiptInvoiceAllocation.invoice_line_id,
+    ).join(SupplierInvoice, SupplierInvoice.id == SupplierInvoiceLine.invoice_id).filter(
+        ReceiptInvoiceAllocation.receipt_line_id.in_(line_ids),
+        SupplierInvoice.status == PENDING_INVOICE_STATUS,
+    ).all()
+    return {allocation.receipt_line_id: (allocation, invoice_line) for allocation, invoice_line in rows}
 
 
 def _challan_key(challan_no: str) -> str:
@@ -347,6 +449,7 @@ def preview_receipt(
     current_user: dict = Depends(require_role(["Store", "PlantManager", "GRN"])),
 ):
     _validate_receipt(payload, db, plant_id)
+    assert_books_open(db, plant_id, payload.received_date)
     order = db.query(PurchaseOrder).filter(PurchaseOrder.id == payload.purchase_order_id, PurchaseOrder.plant_id == plant_id).first()
     if not order or order.status not in {"APPROVED", "PARTIALLY_RECEIVED"}:
         raise HTTPException(status_code=409, detail="Select an approved purchase order in this plant")
@@ -366,7 +469,8 @@ def preview_receipt(
         if extra > 0 and not payload.over_receipt_reason:
             raise HTTPException(status_code=422, detail=_over_receipt_text(index, po_line.item.item_code, received, open_qty, po_line.uom))
         invoice_qty = received if requested.invoice_quantity is None else Decimal(str(requested.invoice_quantity))
-        comparison = None if payload.invoice_pending else compare_rates(received, po_line.unit_cost, requested.invoice_rate)
+        # Invoice pending: a rate typed from the challan is still compared with the PO (client 2026-10-30).
+        comparison = compare_rates(received, po_line.unit_cost, requested.invoice_rate) if requested.invoice_rate is not None else None
         quantity_review = not payload.invoice_pending and invoice_qty != received
         result.append({
             "po_line_id": str(po_line.id), "item_code": po_line.item.item_code, "tracking_mode": _enum(po_line.item.tracking_mode),
@@ -378,6 +482,7 @@ def preview_receipt(
             "signed_difference": float(comparison.signed_difference) if comparison else None,
             "claimable_amount": float(comparison.claimable_amount) if comparison else 0,
             "commercial_status": "INVOICE_PENDING" if payload.invoice_pending else ("RATE_REVIEW" if comparison.requires_review or quantity_review else "CLEAR"),
+            "rate_review": bool(comparison and comparison.requires_review),
         })
     return {"purchase_order_id": str(order.id), "po_no": order.po_no, "revision_no": order.current_revision_no,
             "invoice_pending": payload.invoice_pending, "lines": result, "warnings": warnings,
@@ -403,6 +508,7 @@ def post_governed_receipt(
         response = _receipt_payload(existing, db)
         response["idempotent"] = True
         return response
+    assert_books_open(db, plant_id, payload.received_date)
     order = db.query(PurchaseOrder).filter(PurchaseOrder.id == payload.purchase_order_id, PurchaseOrder.plant_id == plant_id).with_for_update().first()
     if not order or order.status not in {"APPROVED", "PARTIALLY_RECEIVED"}:
         raise HTTPException(status_code=409, detail="Only an approved purchase order can receive material")
@@ -443,11 +549,14 @@ def post_governed_receipt(
     )
     db.add(receipt)
     db.flush()
+    # A line or reel with no location goes to the plant's receiving default, the RM store (spec 2.7).
+    default_location_id = default_receiving_location(db, plant_id, actor=_actor(current_user)).id
     revision_lines = {line.source_order_line_id: line for line in revision.lines or []}
     result_lots: list[dict[str, Any]] = []
     receipt_statuses: list[str] = []
     commercial_states: list[str] = []
     over_lines: list[dict[str, Any]] = []
+    rate_cases: list[dict[str, Any]] = []
     for index, requested in enumerate(payload.lines, start=1):
         po_line = order_lines.get(requested.po_line_id)
         revision_line = revision_lines.get(requested.po_line_id)
@@ -502,7 +611,7 @@ def post_governed_receipt(
                 form = lot.physical_form or ("COIL" if _enum(po_line.item.type) == "PARCHMENT" else physical_form(lot.width_mm))
                 if _enum(po_line.item.type) == "PARCHMENT" and form != "COIL":
                     raise HTTPException(422, "Parchment is received as production-ready coils")
-                at_no = _next_doc_no(db, PaperReel, _plant_uuid(plant_id), "reel_code", "AT")
+                at_no = _next_receipt_reel_code(db, _plant_uuid(plant_id), payload.received_date)
                 # Quality specification is no longer typed on the PO (client 2026-10-26): the
                 # material master's nominal values describe the reel when the PO line has none.
                 spec = po_line.metadata_json or {}
@@ -518,7 +627,8 @@ def post_governed_receipt(
                     vendor_batch_no=lot.vendor_batch_no, width_mm=lot.width_mm,
                     unit_cost=float(revision_line.unit_rate),
                     cost_source=CostSource.SUPPLIER, status=ReelStatus.IN_STOCK, stock_status=stock_status,
-                    commercial_status=commercial, location_id=lot.location_id, inward_date=payload.received_date,
+                    commercial_status=commercial, location_id=lot.location_id or requested.location_id or default_location_id,
+                    inward_date=payload.received_date,
                     inward_metadata={**quality_metadata, "po_id": str(order.id), "po_no": order.po_no, "po_revision": revision.revision_no,
                         "po_line_id": str(po_line.id), "receipt_id": str(receipt.id), "grn_no": receipt.grn_no,
                         "challan_no": payload.supplier_challan_no, "invoice_no": payload.invoice_no, "invoice_date": payload.invoice_date.isoformat() if payload.invoice_date else None,
@@ -544,11 +654,13 @@ def post_governed_receipt(
         else:
             batch_no = (requested.batch_no or f"{grn_no}-B{index:03d}").strip().upper()
             batch = StockBatch(item_id=po_line.item_id, batch_no=batch_no, received_qty=float(qty),
-                location_id=requested.location_id, stock_status=stock_status,
+                location_id=requested.location_id or default_location_id, stock_status=stock_status,
                 unit_cost=float(revision_line.unit_rate),
                 cost_source="SUPPLIER", supplier_id=order.supplier_id, supplier_name_snapshot=order.supplier_name_snapshot,
                 plant_id=plant_id, inward_metadata={**quality_metadata, "po_id": str(order.id), "receipt_id": str(receipt.id),
-                    "grn_no": receipt.grn_no, "challan_no": payload.supplier_challan_no, "invoice_no": payload.invoice_no})
+                    "grn_no": receipt.grn_no, "challan_no": payload.supplier_challan_no, "invoice_no": payload.invoice_no,
+                    # "In since": a backdated GRN's lot came in on its received date, not on the day it was typed.
+                    "received_date": payload.received_date.isoformat(), "invoice_rate": requested.invoice_rate})
             db.add(batch)
             db.flush()
             receipt_line.batch_id = batch.id
@@ -564,7 +676,7 @@ def post_governed_receipt(
             batch.inward_metadata = {**batch.inward_metadata, "saved_label": batch_label_payload(batch, po_line.item, inward_date=payload.received_date)}
             db.add(StockTransaction(item_id=po_line.item_id, batch_id=batch.id, transaction_type=TransactionType.INWARD,
                 qty_change=float(qty), reference_type=ReferenceType.PURCHASE, reference_id=order.id, plant_id=plant_id,
-                effective_date=payload.received_date, location_id=requested.location_id, stock_status=stock_status,
+                effective_date=payload.received_date, location_id=batch.location_id, stock_status=stock_status,
                 external_ref=f"PGRN:{receipt.id}:{index}", movement_metadata={"receipt_id": str(receipt.id), "po_revision": revision.revision_no}))
         if invoice:
             invoice_line = SupplierInvoiceLine(invoice_id=invoice.id, item_id=po_line.item_id, qty=invoice_qty,
@@ -590,6 +702,12 @@ def post_governed_receipt(
                 db.add(PurchaseDiscrepancy(plant_id=plant_id, allocation_id=allocation.id, discrepancy_type="SPECIFICATION",
                     quantity=qty, po_rate=width_evidence["expected_width_mm"], invoice_rate=first["measured_width_mm"],
                     delta=first["delta_mm"], claimable_amount=0, evidence_json=width_evidence, status="OPEN"))
+        elif requested.invoice_rate is not None and _open_pending_rate_case(
+                db, receipt, receipt_line, plant_id=plant_id, supplier_id=order.supplier_id, uom=po_line.uom, qty=qty,
+                po_rate=revision_line.unit_rate, invoice_rate=requested.invoice_rate, revision_line_id=revision_line.id,
+                actor=_actor(current_user)) is not None:
+            rate_cases.append({"po_line_id": str(po_line.id), "item_code": po_line.item.item_code,
+                "po_rate": float(revision_line.unit_rate), "invoice_rate": requested.invoice_rate})
         po_line.qty_received = float(po_line.qty_received or 0) + float(qty)
         if is_reel:
             po_line.received_unit_count = int(po_line.received_unit_count or 0) + len(requested.lots)
@@ -629,6 +747,8 @@ def post_governed_receipt(
     response = _receipt_payload(receipt, db)
     response["created_lots"] = result_lots
     response["warnings"] = warnings
+    # Challan rates that differ from the PO opened review cases although the invoice is pending.
+    response["rate_review_cases"] = rate_cases
     return response
 
 
@@ -771,6 +891,7 @@ def attach_invoice_to_receipt(
         db.flush()
 
     review_required = False
+    pending_pairs = _pending_allocations(db, receipt)
     for receipt_line_id, requested in supplied.items():
         receipt_line = receipt_lines[receipt_line_id]
         qty = Decimal(str(receipt_line.qty_received))
@@ -784,33 +905,85 @@ def attach_invoice_to_receipt(
                     lot_widths.append({"source_reel_no": saved_reel.source_reel_no, "width_mm": saved_reel.width_mm})
         revision_line = db.query(PurchaseOrderRevisionLine).filter(PurchaseOrderRevisionLine.id == receipt_line.approved_revision_line_id).first()
         width_evidence = _width_variance(lot_widths, revision_line.specification_json or {}) if revision_line else None
-        line_state = "MANUAL_REVIEW" if receipt.receipt_kind == "MANUAL" else ("RATE_REVIEW" if comparison.requires_review or invoice_qty != qty or width_evidence else "CLEAR")
-        review_required = review_required or comparison.requires_review or invoice_qty != qty or bool(width_evidence)
+        line_po_rate = receipt_line.po_rate if receipt_line.po_rate is not None else requested.invoice_rate
+        pending_pair = pending_pairs.get(receipt_line.id)
+        rate_case = None
+        if pending_pair is not None:
+            # The challan rate already opened a case: move its line and the case onto the real invoice.
+            allocation, invoice_line = pending_pair
+            invoice_line.invoice_id = invoice.id
+            invoice_line.qty = invoice_qty
+            invoice_line.rate = requested.invoice_rate
+            invoice_line.tax_amount = requested.tax_amount
+            invoice_line.charge_amount = requested.charge_amount
+            allocation.po_rate = line_po_rate
+            allocation.invoice_rate = requested.invoice_rate
+            allocation.rate_delta = comparison.delta_per_kg
+            allocation.claimable_amount = comparison.claimable_amount
+            rate_case = db.query(PurchaseDiscrepancy).filter(
+                PurchaseDiscrepancy.allocation_id == allocation.id, PurchaseDiscrepancy.discrepancy_type == "RATE",
+            ).with_for_update().first()
+            db.flush()
+        rate_review = comparison.requires_review
+        if rate_case is not None:
+            same_rate = Decimal(str(rate_case.invoice_rate)) == Decimal(str(requested.invoice_rate))
+            # Keep the rate first typed from the challan on the case; the case's own rate follows the invoice.
+            challan_rate = (rate_case.evidence_json or {}).get("challan_rate", float(rate_case.invoice_rate))
+            evidence = {**(rate_case.evidence_json or {}), "invoice_no": invoice.invoice_no, "invoice_rate": requested.invoice_rate, "challan_rate": challan_rate}
+            if not comparison.requires_review:
+                if rate_case.status in {"OPEN", "UNDER_REVIEW", "ACCEPTED"}:
+                    rate_case.status = "RESOLVED"
+                    rate_case.resolution_reason = f"Invoice {invoice.invoice_no} came at the PO rate (challan said ₹{challan_rate:g})."
+                    rate_case.resolved_at = datetime.utcnow()
+                    # The resolved row shows the invoice as it came, so it no longer shows a difference.
+                    rate_case.po_rate = line_po_rate
+                    rate_case.invoice_rate = requested.invoice_rate
+                    rate_case.delta = comparison.delta_per_kg
+                    rate_case.claimable_amount = comparison.claimable_amount
+                    receipt_line.unit_cost = float(line_po_rate)
+            elif rate_case.status == "ACCEPTED" and same_rate:
+                rate_review = False  # The difference was already accepted at this very rate.
+            elif rate_case.status in {"OPEN", "UNDER_REVIEW", "ACCEPTED"}:
+                if rate_case.status == "ACCEPTED":
+                    rate_case.status = "OPEN"
+                    rate_case.resolution_reason = None
+                    rate_case.resolved_at = None
+                    receipt_line.unit_cost = float(line_po_rate)
+                rate_case.quantity = qty
+                rate_case.po_rate = line_po_rate
+                rate_case.invoice_rate = requested.invoice_rate
+                rate_case.delta = comparison.delta_per_kg
+                rate_case.claimable_amount = comparison.claimable_amount
+            rate_case.evidence_json = evidence
+            rate_case.version += 1
+        line_state = "MANUAL_REVIEW" if receipt.receipt_kind == "MANUAL" else ("RATE_REVIEW" if rate_review or invoice_qty != qty or width_evidence else "CLEAR")
+        review_required = review_required or rate_review or invoice_qty != qty or bool(width_evidence)
 
-        invoice_line = SupplierInvoiceLine(
-            invoice_id=invoice.id,
-            item_id=receipt_line.item_id,
-            qty=invoice_qty,
-            rate=requested.invoice_rate,
-            uom=receipt_line.order_line.uom if receipt_line.order_line else _enum(receipt_line.item.uom),
-            tax_amount=requested.tax_amount,
-            charge_amount=requested.charge_amount,
-        )
-        db.add(invoice_line)
-        db.flush()
-        allocation = ReceiptInvoiceAllocation(
-            receipt_line_id=receipt_line.id,
-            invoice_line_id=invoice_line.id,
-            revision_line_id=receipt_line.approved_revision_line_id,
-            allocated_qty=qty,
-            po_rate=receipt_line.po_rate if receipt_line.po_rate is not None else requested.invoice_rate,
-            invoice_rate=requested.invoice_rate,
-            rate_delta=comparison.delta_per_kg,
-            claimable_amount=comparison.claimable_amount,
-        )
-        db.add(allocation)
-        db.flush()
-        if comparison.requires_review:
+        if pending_pair is None:
+            invoice_line = SupplierInvoiceLine(
+                invoice_id=invoice.id,
+                item_id=receipt_line.item_id,
+                qty=invoice_qty,
+                rate=requested.invoice_rate,
+                uom=receipt_line.order_line.uom if receipt_line.order_line else _enum(receipt_line.item.uom),
+                tax_amount=requested.tax_amount,
+                charge_amount=requested.charge_amount,
+            )
+            db.add(invoice_line)
+            db.flush()
+            allocation = ReceiptInvoiceAllocation(
+                receipt_line_id=receipt_line.id,
+                invoice_line_id=invoice_line.id,
+                revision_line_id=receipt_line.approved_revision_line_id,
+                allocated_qty=qty,
+                po_rate=line_po_rate,
+                invoice_rate=requested.invoice_rate,
+                rate_delta=comparison.delta_per_kg,
+                claimable_amount=comparison.claimable_amount,
+            )
+            db.add(allocation)
+            db.flush()
+        if comparison.requires_review and rate_case is None:
             db.add(PurchaseDiscrepancy(
                 plant_id=plant_id,
                 allocation_id=allocation.id,
@@ -844,11 +1017,13 @@ def attach_invoice_to_receipt(
 
         receipt_line.invoice_rate = requested.invoice_rate
         receipt_line.commercial_status = line_state
+        # A difference already accepted at this rate keeps its accepted cost; otherwise stock costs at the PO rate.
+        lot_cost = float(rate_case.invoice_rate) if rate_case is not None and rate_case.status == "ACCEPTED" else float(line_po_rate)
         for stock_allocation in db.query(ReceiptStockAllocation).filter(ReceiptStockAllocation.receipt_line_id == receipt_line.id).all():
             if stock_allocation.reel_id:
                 reel = db.query(PaperReel).filter(PaperReel.id == stock_allocation.reel_id).first()
                 if reel:
-                    reel.unit_cost = float(receipt_line.po_rate if receipt_line.po_rate is not None else requested.invoice_rate)
+                    reel.unit_cost = lot_cost
                     reel.cost_source = CostSource.SUPPLIER
                     reel.commercial_status = receipt_line.commercial_status
                     reel.inward_metadata = {**(reel.inward_metadata or {}), "invoice_no": invoice.invoice_no,
@@ -856,7 +1031,7 @@ def attach_invoice_to_receipt(
             elif stock_allocation.batch_id:
                 batch = db.query(StockBatch).filter(StockBatch.id == stock_allocation.batch_id).first()
                 if batch:
-                    batch.unit_cost = float(receipt_line.po_rate if receipt_line.po_rate is not None else requested.invoice_rate)
+                    batch.unit_cost = lot_cost
                     batch.cost_source = "SUPPLIER"
                     batch.inward_metadata = {**(batch.inward_metadata or {}), "invoice_no": invoice.invoice_no,
                         "invoice_date": invoice.invoice_date.isoformat(), "invoice_rate": requested.invoice_rate}
@@ -864,6 +1039,14 @@ def attach_invoice_to_receipt(
         db.flush()
         refresh_receipt_stock(db, receipt_line)
 
+    if pending_pairs:
+        # Every challan-rate line now sits on the real invoice; drop the empty placeholder.
+        holder_ids = [row[0] for row in db.query(SupplierInvoice.id).filter(
+            SupplierInvoice.plant_id == plant_id, SupplierInvoice.normalized_invoice_no == _pending_invoice_key(receipt.id),
+            SupplierInvoice.status == PENDING_INVOICE_STATUS).all()]
+        for holder_id in holder_ids:
+            if not db.query(SupplierInvoiceLine.id).filter(SupplierInvoiceLine.invoice_id == holder_id).first():
+                db.query(SupplierInvoice).filter(SupplierInvoice.id == holder_id).delete(synchronize_session=False)
     receipt.supplier_invoice_id = invoice.id
     receipt.invoice_pending = False
     receipt.commercial_status = "MANUAL_REVIEW" if receipt.receipt_kind == "MANUAL" else ("REVIEW_REQUIRED" if review_required else "CLEAR")
@@ -883,9 +1066,13 @@ def _discrepancy_payload(row: PurchaseDiscrepancy, db: Session) -> dict[str, Any
     receipt = db.query(PurchaseReceipt).filter(PurchaseReceipt.id == receipt_line.receipt_id).first() if receipt_line else None
     invoice_line = db.query(SupplierInvoiceLine).filter(SupplierInvoiceLine.id == allocation.invoice_line_id).first() if allocation else None
     invoice = db.query(SupplierInvoice).filter(SupplierInvoice.id == invoice_line.invoice_id).first() if invoice_line else None
+    # A case opened from the challan rate while the invoice is pending has no supplier invoice yet.
+    invoice_pending = bool(invoice and invoice.status == PENDING_INVOICE_STATUS)
+    if invoice_pending:
+        invoice = None
     order = receipt.order if receipt else None
     item = receipt_line.item if receipt_line else None
-    return {"id": str(row.id), "type": row.discrepancy_type, "status": row.status, "version": row.version,
+    return {"id": str(row.id), "type": row.discrepancy_type, "status": row.status, "version": row.version, "invoice_pending": invoice_pending,
         "po_id": str(order.id) if order else None, "po_no": order.po_no if order else None,
         "revision_no": order.current_revision_no if order else None, "receipt_id": str(receipt.id) if receipt else None,
         "grn_no": receipt.grn_no if receipt else None, "invoice_no": invoice.invoice_no if invoice else None,
@@ -933,6 +1120,9 @@ def _refresh_receipt_commercial_status(db: Session, line: PurchaseReceiptLine) -
     if line.receipt.receipt_kind == "MANUAL" and not any(event.get("action") == "MANUAL_RECEIPT_APPROVED" for event in (line.receipt.approval_history or [])):
         line.commercial_status = "MANUAL_REVIEW"
         line.receipt.commercial_status = "MANUAL_REVIEW"
+        return
+    if line.receipt is not None and line.receipt.invoice_pending:
+        # Deciding a challan-rate case does not attach the invoice: the GRN still waits for it.
         return
     allocations = db.query(ReceiptInvoiceAllocation).filter(ReceiptInvoiceAllocation.receipt_line_id == line.id).all()
     allocation_ids = [row.id for row in allocations]
@@ -1007,8 +1197,8 @@ def act_on_discrepancy(
         if unresolved_siblings:
             raise HTTPException(status_code=409, detail="Resolve every other discrepancy on this receipt line before releasing stock")
         row.resolution_reason = payload.reason
-        receipt_line.commercial_status = "RELEASED_WITH_CLAIM"
-        if receipt_line.receipt:
+        if not receipt_line.receipt.invoice_pending:
+            receipt_line.commercial_status = "RELEASED_WITH_CLAIM"
             receipt_line.receipt.commercial_status = "RELEASED_WITH_CLAIM"
         _refresh_receipt_line_stock(db, receipt_line)
     receipt_line.receipt.approval_history = [*(receipt_line.receipt.approval_history or []), {
@@ -1056,6 +1246,8 @@ def create_debit_note(
     if any(row.claimable_amount <= 0 or row.status not in {"OPEN", "UNDER_REVIEW"} for row in rows):
         raise HTTPException(status_code=409, detail="Only open positive claim amounts can create a debit note")
     source = [_discrepancy_payload(row, db) for row in rows]
+    if any(row["invoice_pending"] for row in source):
+        raise HTTPException(status_code=409, detail="A debit note needs the supplier invoice. Attach the invoice to the GRN first; the rate case stays open.")
     supplier_ids = {row["supplier_id"] for row in source}
     if len(supplier_ids) != 1:
         raise HTTPException(status_code=422, detail="A debit note cannot mix vendors")
@@ -1345,6 +1537,9 @@ def act_on_plan(plan_id: uuid.UUID, payload: PlanStatusAction, db: Session = Dep
     if payload.action == "SUBMIT" and plan.status in {"DRAFT", "REJECTED"}:
         plan.status = "SUBMITTED"
     elif payload.action == "APPROVE" and plan.status == "SUBMITTED":
+        # Retired month plans (spec 3): only the Owner decides RM buying; arrivals are approved on the calendar.
+        if not is_actual_owner(current_user):
+            raise HTTPException(status_code=403, detail="Only the Owner can approve RM buying.")
         if actor.strip().lower() == plan.created_by.strip().lower():
             raise HTTPException(status_code=403, detail="A different person must approve the procurement plan")
         plan.status = "APPROVED"
@@ -1466,6 +1661,121 @@ def convert_plan_to_purchase_orders(plan_id: uuid.UUID, payload: PlanConversionI
     db.add(conversion); plan.version += 1
     db.commit()
     return {"id": str(conversion.id), "purchase_order_ids": order_ids, "idempotent": False}
+
+
+# ---------------------------------------------------------------- RM inward calendar (spec 3)
+
+CALENDAR_PROPOSERS = rm_calendar.CALENDAR_PROPOSERS
+# Spec 2.8: viewing carries vendors, rates and open POs, so it is limited to the purchasing roles.
+calendar_viewer = require_role(rm_calendar.CALENDAR_VIEWERS)
+calendar_proposer = rm_calendar.desk_role(CALENDAR_PROPOSERS, "Only the Planner, Store, plant head or Owner can propose or move arrivals.")
+
+
+class CalendarEntryInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    item_id: uuid.UUID
+    entry_date: date
+    qty: float = Field(gt=0)
+    supplier_id: Optional[uuid.UUID] = None
+    supplier_name: Optional[str] = Field(default=None, max_length=200)
+    note: Optional[str] = Field(default=None, max_length=1000)
+    source: str = Field(default="MANUAL", pattern="^(MANUAL|SUGGESTED)$")
+
+
+class CalendarEntriesCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    entries: list[CalendarEntryInput] = Field(min_length=1, max_length=500)
+
+
+class CalendarEntryUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    entry_date: Optional[date] = None
+    qty: Optional[float] = Field(default=None, gt=0)
+    supplier_id: Optional[uuid.UUID] = None
+    supplier_name: Optional[str] = Field(default=None, max_length=200)
+    note: Optional[str] = Field(default=None, max_length=1000)
+    confirm_po_change: bool = False
+
+
+class CalendarEntryCancel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: Optional[str] = Field(default=None, max_length=500)
+
+
+class CalendarApprove(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    request_id: uuid.UUID
+    entry_ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    # Vendor master details (address, GSTIN, contact, payment terms) the BFF adds for new drafts.
+    vendor_details: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    # True when vendor_details is this plant's whole active vendor master (the BFF always sends it):
+    # an arrival whose vendor is not in it is skipped, never put on a draft PO (checker 2026-10-29).
+    vendor_master_checked: bool = False
+
+
+def _calendar_window(start: Optional[date], end: Optional[date]) -> tuple[date, date]:
+    from ..services.books import ist_today
+    first = start or ist_today()
+    last = end or (first + timedelta(days=55))
+    if last < first or (last - first).days > 400:
+        raise HTTPException(422, "Choose a window of at most 400 days")
+    return first, last
+
+
+@router.get("/schedule/supply")
+def calendar_supply(start: Optional[date] = Query(default=None), end: Optional[date] = Query(default=None),
+                    db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(calendar_viewer)):
+    """Stock, QC pending, policies, last vendor/rate and every arrival for the RM inward calendar."""
+    first, last = _calendar_window(start, end)
+    return rm_calendar.supply_view(db, plant_id, first, last)
+
+
+@router.get("/schedule/expected-arrivals")
+def calendar_expected_arrivals(db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant),
+                               current_user: dict = Depends(calendar_viewer)):
+    return rm_calendar.expected_arrivals(db, plant_id)
+
+
+@router.post("/schedule/entries")
+def calendar_propose(payload: CalendarEntriesCreate, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant),
+                     current_user: dict = Depends(calendar_proposer)):
+    created = rm_calendar.propose_entries(db, plant_id, [row.model_dump() for row in payload.entries], _actor(current_user))
+    db.commit()
+    return {"plant_id": plant_id, "items": [rm_calendar.entry_payload(entry) for entry in created]}
+
+
+@router.patch("/schedule/entries/{entry_id}")
+def calendar_update(entry_id: uuid.UUID, payload: CalendarEntryUpdate, db: Session = Depends(get_db),
+                    plant_id: str = Depends(get_current_plant), current_user: dict = Depends(calendar_proposer)):
+    changes = payload.model_dump(exclude_unset=True)
+    entry = rm_calendar.update_entry(db, plant_id, entry_id, changes, _actor(current_user), is_owner=is_actual_owner(current_user))
+    db.commit(); db.refresh(entry)
+    return {"plant_id": plant_id, **rm_calendar.entry_payload(entry)}
+
+
+@router.post("/schedule/entries/{entry_id}/cancel")
+def calendar_cancel(entry_id: uuid.UUID, payload: CalendarEntryCancel, db: Session = Depends(get_db),
+                    plant_id: str = Depends(get_current_plant), current_user: dict = Depends(calendar_proposer)):
+    entry = rm_calendar.cancel_entry(db, plant_id, entry_id, _actor(current_user), is_owner=is_actual_owner(current_user), reason=payload.reason)
+    db.commit(); db.refresh(entry)
+    return {"plant_id": plant_id, **rm_calendar.entry_payload(entry)}
+
+
+@router.post("/schedule/approve")
+def calendar_approve(payload: CalendarApprove, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant),
+                     current_user: dict = Depends(require_owner)):
+    """Owner approves one or many arrivals; they become dated rows on DRAFT POs (vendor x ISO week)."""
+    result = rm_calendar.approve_entries(db, plant_id, list(payload.entry_ids), _actor(current_user), request_id=payload.request_id,
+                                         vendor_details=payload.vendor_details, vendor_master_checked=payload.vendor_master_checked)
+    try:
+        db.commit()
+    except IntegrityError as error:
+        db.rollback()
+        prior = db.query(PlanConversion).filter(PlanConversion.plant_id == plant_id, PlanConversion.request_id == payload.request_id).first()
+        if prior:
+            return rm_calendar.approve_entries(db, plant_id, list(payload.entry_ids), _actor(current_user), request_id=payload.request_id)
+        raise HTTPException(409, "Arrivals changed while approving; reload the calendar") from error
+    return {"plant_id": plant_id, **result}
 
 
 class MrpDatedDemand(BaseModel):

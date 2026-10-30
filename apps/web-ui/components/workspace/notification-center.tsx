@@ -9,7 +9,9 @@ import { ArrowRight, Bell, CheckCheck, Circle, Inbox } from "lucide-react"
 import { WorkQueue } from "@/components/workspace/work-queue"
 import { useApp } from "@/context/AppContext"
 import { useNotifications, useNotificationSummary, useNotificationUnreadCount } from "@/hooks/use-workspace"
+import { usePeopleVersion } from "@/hooks/use-people"
 import { authApi } from "@/lib/api"
+import { peopleInText } from "@/lib/people"
 import {
   ACTION_LABELS,
   NOTIFICATION_CATEGORIES,
@@ -42,6 +44,7 @@ export function NotificationRow({
   onToggleRead: (item: InboxNotification) => void
   compact?: boolean
 }) {
+  usePeopleVersion()
   const category = NOTIFICATION_CATEGORIES[notificationCategory(item)]
   const priority = notificationPriority(item)
   const Icon = category.icon
@@ -62,7 +65,7 @@ export function NotificationRow({
           <span className={cn("min-w-0 flex-1 text-[13px] leading-5", item.is_read ? "font-medium text-foreground/80" : "font-semibold text-foreground")}>{item.title}</span>
           <span className="shrink-0 pt-0.5 text-[11px] tabular-nums text-muted-foreground">{relativeTime(item.created_at)}</span>
         </span>
-        {item.message ? <span className={cn("mt-0.5 block text-[12.5px] leading-5 text-muted-foreground", compact ? "line-clamp-2" : "line-clamp-3")}>{item.message}</span> : null}
+        {item.message ? <span className={cn("mt-0.5 block text-[12.5px] leading-5 text-muted-foreground", compact ? "line-clamp-2" : "line-clamp-3")}>{peopleInText(item.message)}</span> : null}
         <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
           <span className="text-[11px] font-medium text-muted-foreground">{category.label}</span>
           {item.role_context ? <span className="text-[11px] text-muted-foreground">· for {item.role_context}</span> : null}

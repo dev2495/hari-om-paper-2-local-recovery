@@ -23,9 +23,11 @@ import type { ReactNode } from "react"
 
 import { useAuth } from "@/context/AuthContext"
 import { useJobCardAggregates, usePlanningJobCards } from "@/hooks/use-production"
+import { useProposedArrivals } from "@/hooks/use-rm-calendar"
 import { useSalesOrderAggregates, useSalesOrders } from "@/hooks/use-sales"
 import { purchaseApi } from "@/lib/api"
 import { jobCardRef } from "@/lib/job-card-display"
+import { personLabel } from "@/lib/people"
 import { cn } from "@/lib/utils"
 
 type Tone = "rose" | "amber" | "primary" | "emerald"
@@ -80,14 +82,14 @@ function Lane({ title, icon: Icon, tone, count, loading, rows, href, cta, empty,
 export function ActionCenter() {
   const { activePlant } = useAuth()
   const concrete = Boolean(activePlant && activePlant !== "ALL")
-  const month = dayjs().format("YYYY-MM")
   const salesAgg = useSalesOrderAggregates()
   const jobsAgg = useJobCardAggregates()
   const drafts = useSalesOrders({ status: "submitted", limit: 6, offset: 0 })
   const draftOnly = useSalesOrders({ status: "draft", limit: 6, offset: 0 })
   const jobs = usePlanningJobCards({ limit: 250 })
   const poQuery = useQuery({ queryKey: ["action-center", "po-approvals", activePlant], enabled: concrete, queryFn: () => purchaseApi.getOrders({ status: "SUBMITTED", limit: 20 }) })
-  const planQuery = useQuery({ queryKey: ["action-center", "plans", activePlant, month], enabled: concrete, queryFn: () => purchaseApi.getPlans({ month: `${month}-01` }) })
+  // RM inward calendar (spec 3): the Owner approves arrivals, not a month plan.
+  const planQuery = useProposedArrivals()
   const diffQuery = useQuery({ queryKey: ["action-center", "discrepancies", activePlant], enabled: concrete, queryFn: () => purchaseApi.getDiscrepancies() })
   const receiptsQuery = useQuery({ queryKey: ["action-center", "invoice-pending", activePlant], enabled: concrete, queryFn: () => purchaseApi.getGovernedReceipts({ invoice_pending: true, limit: 20, offset: 0 }) })
   const alertsQuery = useQuery({ queryKey: ["action-center", "stock-alerts", activePlant], enabled: concrete, queryFn: () => purchaseApi.getStockAlerts() })
@@ -103,13 +105,11 @@ export function ActionCenter() {
     id: String(row.id), title: row.po_no, detail: `${row.supplier_name || "Supplier"} · revision ${row.current_revision_no ?? "—"}`, href: "/purchase/approvals",
     meta: row.total_amount ? `₹${Number(row.total_amount).toLocaleString("en-IN", { maximumFractionDigits: 0 })}` : undefined,
   }))
-  const plans = (planQuery.data?.data?.items || []) as any[]
-  const plan = plans[0]
-  const planRows: Row[] = !concrete ? [] : !plan
-    ? [{ id: "no-plan", title: `No RM plan for ${dayjs().format("MMMM")}`, detail: "Create the month's paper arrival plan", href: "/purchase/scheduler" }]
-    : plan.status === "APPROVED" || plan.status === "LOCKED"
-      ? []
-      : [{ id: plan.id, title: plan.name, detail: plan.status === "SUBMITTED" ? "Submitted — waiting for your approval" : `Status ${String(plan.status).toLowerCase()} · v${plan.version}`, href: "/purchase/scheduler" }]
+  const planRows: Row[] = !concrete ? [] : (planQuery.data || []).slice(0, 8).map((row) => ({
+    id: String(row.entry_id), title: `${row.item?.item_code || "Material"} · ${dayjs(row.date).format("D MMM")}`,
+    detail: `${row.supplier_name || "No vendor yet"} · proposed by ${personLabel(row.proposed_by, "the desk")}`,
+    href: "/purchase/scheduler?review=1", meta: `${Number(row.qty).toLocaleString("en-IN")} ${String(row.item?.uom || "").toLowerCase()}`,
+  }))
   const diffRows: Row[] = ((diffQuery.data?.data?.items || []) as any[]).filter((row) => ["OPEN", "UNDER_REVIEW"].includes(row.status)).map((row) => ({
     id: String(row.id), title: `${row.po_no} · ${row.item_code}`, detail: `${row.supplier_name} · ${row.type.toLowerCase()} difference`, href: "/purchase/discrepancies",
     meta: row.type === "RATE" ? `₹${Number(row.signed_amount || 0).toLocaleString("en-IN")}` : undefined,
@@ -136,7 +136,7 @@ export function ActionCenter() {
       <div className="stagger grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <Lane title="Sales orders to approve" icon={ClipboardCheck} tone="amber" count={draftCount} loading={salesAgg.isLoading} rows={salesRows} href="/sales-orders?status=draft" cta="Open sales orders" empty="No drafts or submitted orders." />
         <Lane title="Purchase orders to approve" icon={ShoppingCart} tone="amber" count={concrete ? poRows.length : null} loading={concrete && poQuery.isLoading} rows={poRows} href="/purchase/approvals" cta="Open PO approvals" empty="No PO revisions waiting." note={plantNote} />
-        <Lane title={`RM purchase plan · ${dayjs().format("MMM")}`} icon={CalendarRange} tone="primary" count={concrete ? planRows.length : null} loading={concrete && planQuery.isLoading} rows={planRows} href="/purchase/scheduler" cta="Open purchase planner" empty="This month's plan is approved." note={plantNote} />
+        <Lane title="RM arrivals to approve" icon={CalendarRange} tone="primary" count={concrete ? (planQuery.data || []).length : null} loading={concrete && planQuery.isLoading} rows={planRows} href="/purchase/scheduler?review=1" cta="Open the RM inward calendar" empty="No arrival waits for your approval." note={plantNote} />
         <Lane title="Blocked & overdue job cards" icon={Factory} tone="rose" count={jobRows.length} loading={jobs.isLoading} rows={jobRows} href="/production/job-cards" cta="Open job cards" empty="Every open card is ready for the floor." />
         <Lane title="Quality holds" icon={ShieldAlert} tone="rose" count={Number(jobsAgg.data?.qc_holds ?? 0)} loading={jobsAgg.isLoading} rows={[]} href="/quality/results" cta="Open results & holds" empty={Number(jobsAgg.data?.qc_holds ?? 0) ? "Open the results desk to decide each hold." : "No open holds."} />
         <Lane title="Invoice differences" icon={FileWarning} tone="amber" count={concrete ? diffRows.length : null} loading={concrete && diffQuery.isLoading} rows={diffRows} href="/purchase/discrepancies" cta="Open invoice differences" empty="No rate or quantity differences open." note={plantNote} />

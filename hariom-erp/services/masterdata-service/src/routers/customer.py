@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from .. import models
 from ..database import get_db
+from ..utils import party_formats as formats
 from ..utils.auth import (
     accepted_persisted_plant_ids,
     apply_plant_scope,
@@ -29,12 +30,21 @@ class CustomerCreate(BaseModel):
     gst_no: Optional[str] = None
     primary_contact_name: Optional[str] = None
     primary_contact_phone: Optional[str] = None
-    primary_contact_email: Optional[EmailStr] = None
-    contact_email: Optional[EmailStr] = None
+    primary_contact_email: Optional[str] = None
+    contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
     dispatch_contact_name: Optional[str] = None
     dispatch_contact_phone: Optional[str] = None
     tax_id: Optional[str] = None
+    # Billing and dispatch (ship-to) place for the delivery challan (client 2026-10-28).
+    billing_city: Optional[str] = None
+    billing_state: Optional[str] = None
+    billing_state_code: Optional[str] = None
+    billing_pin_code: Optional[str] = None
+    shipping_city: Optional[str] = None
+    shipping_state: Optional[str] = None
+    shipping_state_code: Optional[str] = None
+    shipping_pin_code: Optional[str] = None
     # Master redesign fields (additive — optional, default None).
     category: Optional[str] = None
     credit_limit: Optional[float] = None
@@ -51,12 +61,21 @@ class CustomerUpdate(BaseModel):
     gst_no: Optional[str] = None
     primary_contact_name: Optional[str] = None
     primary_contact_phone: Optional[str] = None
-    primary_contact_email: Optional[EmailStr] = None
-    contact_email: Optional[EmailStr] = None
+    primary_contact_email: Optional[str] = None
+    contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
     dispatch_contact_name: Optional[str] = None
     dispatch_contact_phone: Optional[str] = None
     tax_id: Optional[str] = None
+    # Billing and dispatch (ship-to) place for the delivery challan (client 2026-10-28).
+    billing_city: Optional[str] = None
+    billing_state: Optional[str] = None
+    billing_state_code: Optional[str] = None
+    billing_pin_code: Optional[str] = None
+    shipping_city: Optional[str] = None
+    shipping_state: Optional[str] = None
+    shipping_state_code: Optional[str] = None
+    shipping_pin_code: Optional[str] = None
     active: Optional[bool] = None
     # Allow the UI cockpit to write back its is_active alias; downstream the
     # handler maps both `active` and `is_active` to the model.
@@ -83,6 +102,18 @@ class CustomerResponse(BaseModel):
     tax_id: Optional[str]
     dispatch_contact_name: Optional[str]
     dispatch_contact_phone: Optional[str]
+    billing_city: Optional[str] = None
+    billing_state: Optional[str] = None
+    billing_state_code: Optional[str] = None
+    billing_pin_code: Optional[str] = None
+    shipping_city: Optional[str] = None
+    shipping_state: Optional[str] = None
+    shipping_state_code: Optional[str] = None
+    shipping_pin_code: Optional[str] = None
+    # One line each for documents (street lines, city, state - PIN); the dispatch address falls back
+    # to the billing address when no separate ship-to address is kept.
+    billing_full_address: Optional[str] = None
+    shipping_full_address: Optional[str] = None
     plant_id: str
     active: bool
     # Mirrored "is_active" so the UI cockpit's expectation matches the response.
@@ -146,7 +177,188 @@ def _normalized_name(value: Optional[str]) -> str:
     return resolved
 
 
+_PLACE_FIELDS = (
+    "billing_city", "billing_state", "billing_state_code", "billing_pin_code",
+    "shipping_city", "shipping_state", "shipping_state_code", "shipping_pin_code",
+)
+# Field -> (label for messages, normaliser). Every detail is optional; blank clears it.
+_DETAIL_FORMATS = {
+    "gst_no": ("GSTIN", formats.normalize_gstin),
+    "tax_id": ("GSTIN", formats.normalize_gstin),
+    "pan_no": ("PAN", formats.normalize_pan),
+    "billing_pin_code": ("Billing PIN code", formats.normalize_pin),
+    "shipping_pin_code": ("Dispatch PIN code", formats.normalize_pin),
+    "billing_state_code": ("Billing state code", formats.normalize_state_code),
+    "shipping_state_code": ("Dispatch state code", formats.normalize_state_code),
+    "primary_contact_phone": ("Phone", formats.normalize_phone),
+    "contact_phone": ("Phone", formats.normalize_phone),
+    "dispatch_contact_phone": ("Dispatch contact phone", formats.normalize_phone),
+    "primary_contact_email": ("Email", formats.normalize_email),
+    "contact_email": ("Email", formats.normalize_email),
+}
+_TEXT_FIELDS = (
+    "address", "billing_address", "shipping_address", "primary_contact_name", "dispatch_contact_name",
+    "billing_city", "billing_state", "shipping_city", "shipping_state",
+)
+
+
+def _clean_details(values: dict) -> dict:
+    """Trim and format-check the customer details present in ``values`` (blank becomes NULL).
+
+    Raises a 422 with a plain message naming the field, e.g. "GSTIN must be 15 characters".
+    """
+    cleaned = dict(values)
+    for key, (label, normalise) in _DETAIL_FORMATS.items():
+        if key in cleaned:
+            try:
+                cleaned[key] = normalise(cleaned[key])
+            except ValueError as exc:
+                message = str(exc)
+                if message.startswith("PIN code") and label != "PIN code":
+                    message = f"{label}{message[len('PIN code'):]}"
+                elif message.startswith("State code") and label.endswith("state code"):
+                    message = f"{label}{message[len('State code'):]}"
+                raise HTTPException(status_code=422, detail=message if message.startswith(label) else f"{label}: {message}")
+    for key in _TEXT_FIELDS:
+        if key in cleaned:
+            cleaned[key] = formats.blank_to_none(cleaned[key])
+    return cleaned
+
+
+def _state_code_for(name: Optional[str]) -> Optional[str]:
+    wanted = str(name or "").strip().lower()
+    if not wanted:
+        return None
+    return next((code for code, state in formats.GST_STATE_CODES.items() if state.lower() == wanted), None)
+
+
+def _fill_places(model: models.Customer) -> None:
+    """A GSTIN carries the PAN and the billing state; fill those when empty, and keep state name and code together.
+
+    A typed state name keeps its own code ("Karnataka" is 29); _check_gstin_state then refuses a billing state
+    that is not the GSTIN's. The GSTIN only fills the billing state when neither the state name nor the code is given.
+    """
+    for prefix in ("billing", "shipping"):
+        code = getattr(model, f"{prefix}_state_code", None)
+        state = getattr(model, f"{prefix}_state", None)
+        if state and not code:
+            setattr(model, f"{prefix}_state_code", _state_code_for(state))
+    gstin = model.gst_no or ""
+    if len(gstin) == 15:
+        if not model.pan_no:
+            model.pan_no = gstin[2:12]
+        if not model.billing_state_code and not model.billing_state:
+            model.billing_state_code = gstin[:2]
+    for prefix in ("billing", "shipping"):
+        code = getattr(model, f"{prefix}_state_code", None)
+        state = getattr(model, f"{prefix}_state", None)
+        if code and not state:
+            setattr(model, f"{prefix}_state", formats.state_for_code(code))
+
+
+def _check_state_pairs(values: dict) -> None:
+    """A state name and a state code sent together must be the same state (e.g. Karnataka is 29)."""
+    for prefix, label in (("billing", "Billing"), ("shipping", "Dispatch")):
+        state = values.get(f"{prefix}_state")
+        code = values.get(f"{prefix}_state_code")
+        expected = _state_code_for(state)
+        if state and code and expected and expected != code:
+            raise HTTPException(
+                status_code=422,
+                detail=f"{label} state {state} has GST state code {expected}, not {code}. Pick the state again.",
+            )
+
+
+def _follow_new_gstin(model: models.Customer, before: dict, update_data: dict) -> None:
+    """When the GSTIN changes, the PAN and billing state that came from the old GSTIN follow the new one.
+
+    A PAN or billing state that is still the old GSTIN's (unchanged, or sent back unchanged by the form)
+    is replaced; a PAN typed in the same request that does not match the new GSTIN is refused in plain words.
+    """
+    new_gstin = model.gst_no or ""
+    old_gstin = before.get("gst_no") or ""
+    gstin_changed = new_gstin != old_gstin
+    pan_sent = "pan_no" in update_data and update_data.get("pan_no") != before.get("pan_no")
+    if gstin_changed and len(new_gstin) == 15:
+        old_pan = before.get("pan_no")
+        if not pan_sent and (not old_pan or (len(old_gstin) == 15 and old_pan == old_gstin[2:12])):
+            model.pan_no = new_gstin[2:12]
+        code_sent = "billing_state_code" in update_data and update_data.get("billing_state_code") != before.get("billing_state_code")
+        state_sent = "billing_state" in update_data and update_data.get("billing_state") != before.get("billing_state")
+        old_code = before.get("billing_state_code")
+        if not code_sent and not state_sent and (not old_code or (len(old_gstin) == 15 and old_code == old_gstin[:2])):
+            model.billing_state_code = new_gstin[:2]
+            model.billing_state = formats.state_for_code(new_gstin[:2])
+    if (gstin_changed or pan_sent) and len(new_gstin) == 15 and model.pan_no and model.pan_no != new_gstin[2:12]:
+        raise HTTPException(
+            status_code=422,
+            detail=f"PAN {model.pan_no} does not match GSTIN {new_gstin}, which carries PAN {new_gstin[2:12]}. Correct the PAN or the GSTIN.",
+        )
+
+
+def _check_gstin_state(model: models.Customer, before: dict, update_data: dict) -> None:
+    """A GSTIN is registered in one state, and the billing address is that registration's address.
+
+    When the GSTIN or the billing state changes, a billing state that is not the GSTIN's state is refused in
+    plain words (the challan prints both side by side). Old rows that already disagree can still be edited
+    as long as neither is touched. The dispatch (ship-to) address may be in any state.
+    """
+    gstin = model.gst_no or ""
+    code = model.billing_state_code or ""
+    if len(gstin) != 15 or not code or code == gstin[:2]:
+        return
+    gstin_changed = gstin != (before.get("gst_no") or "")
+    state_changed = any(
+        key in update_data and update_data.get(key) != before.get(key) for key in ("billing_state", "billing_state_code")
+    )
+    if gstin_changed or state_changed:
+        state = model.billing_state or formats.state_for_code(code) or code
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"GSTIN {gstin} is registered in {formats.state_for_code(gstin[:2]) or gstin[:2]} ({gstin[:2]}), "
+                f"but the billing state is {state} ({code}). The billing address must be in the GSTIN's state: "
+                "correct the billing state or the GSTIN."
+            ),
+        )
+
+
+def _place_line(street: Optional[str], city: Optional[str], state: Optional[str], pin: Optional[str]) -> Optional[str]:
+    place = ", ".join(part for part in (formats.blank_to_none(city), formats.blank_to_none(state)) if part)
+    pin = formats.blank_to_none(pin)
+    if pin:
+        place = f"{place} - {pin}" if place else pin
+    lines = [line.strip() for line in str(street or "").replace("\r", "").split("\n") if line.strip()]
+    joined = ", ".join([*lines, *([place] if place else [])])
+    return joined or None
+
+
+def _has_street(street: Optional[str]) -> bool:
+    """True when an address has a street line (plot / building, street, area), not only city, state or PIN."""
+    return any(line.strip() for line in str(street or "").replace("\r", "").split("\n"))
+
+
+def _for_response(model: models.Customer) -> models.Customer:
+    setattr(model, "is_active", bool(model.active))
+    billing_street = model.billing_address or model.address
+    billing = _place_line(billing_street, model.billing_city, model.billing_state, model.billing_pin_code)
+    # Older rows copy the one address into shipping_address; that is not a separate ship-to address.
+    separate = any((model.shipping_city, model.shipping_state, model.shipping_pin_code)) or (
+        formats.blank_to_none(model.shipping_address) and (model.shipping_address or "").strip() != (billing_street or "").strip()
+    )
+    # Goods cannot be sent to "Gujarat": the dispatch address counts only when it has a street line.
+    # A GSTIN fills the billing state by itself, so a customer with only a GSTIN (or only a city) has none.
+    if separate:
+        shipping = _place_line(model.shipping_address, model.shipping_city, model.shipping_state, model.shipping_pin_code) if _has_street(model.shipping_address) else None
+    else:
+        shipping = billing if _has_street(billing_street) else None
+    setattr(model, "billing_full_address", billing)
+    setattr(model, "shipping_full_address", shipping)
+    return model
+
+
 def _customer_payload(data: dict) -> dict:
+    data = _clean_details(data)
     address = data.get("address")
     primary_contact_email = data.get("primary_contact_email")
     primary_contact_phone = data.get("primary_contact_phone")
@@ -178,10 +390,12 @@ def _customer_payload(data: dict) -> dict:
         "category": (data.get("category") or None),
         "credit_limit": data.get("credit_limit"),
         "payment_terms": (data.get("payment_terms") or None),
+        **{key: data.get(key) for key in _PLACE_FIELDS},
     }
 
 
 def _apply_customer_update(model: models.Customer, update_data: dict) -> None:
+    before = {key: getattr(model, key, None) for key in ("gst_no", "pan_no", "billing_state", "billing_state_code")}
     if "customer_code" in update_data:
         model.customer_code = _normalized_code(update_data.get("customer_code"))
     if "name" in update_data:
@@ -236,6 +450,21 @@ def _apply_customer_update(model: models.Customer, update_data: dict) -> None:
             model.credit_limit = None
     if "payment_terms" in update_data:
         model.payment_terms = update_data.get("payment_terms") or None
+    for key in _PLACE_FIELDS:
+        if key in update_data:
+            setattr(model, key, update_data.get(key))
+    if "billing_state" in update_data and "billing_state_code" not in update_data:
+        model.billing_state_code = None
+    if "shipping_state" in update_data and "shipping_state_code" not in update_data:
+        model.shipping_state_code = None
+    if "billing_state_code" in update_data and "billing_state" not in update_data:
+        model.billing_state = None
+    if "shipping_state_code" in update_data and "shipping_state" not in update_data:
+        model.shipping_state = None
+    _check_state_pairs(update_data)
+    _follow_new_gstin(model, before, update_data)
+    _fill_places(model)
+    _check_gstin_state(model, before, update_data)
 
 
 @router.get("/", response_model=List[CustomerResponse])
@@ -256,7 +485,7 @@ def get_customers(
     rows = query.order_by(models.Customer.name.asc()).all()
     # Mirror `active` → `is_active` for the cockpit UI.
     for r in rows:
-        setattr(r, "is_active", bool(r.active))
+        _for_response(r)
     return rows
 
 
@@ -270,7 +499,7 @@ def get_customer(
     customer = apply_plant_scope(query, models.Customer.plant_id, plant_scope).first()
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
-    setattr(customer, "is_active", bool(customer.active))
+    _for_response(customer)
     return customer
 
 
@@ -290,10 +519,14 @@ def create_customer(
     if exists:
         raise HTTPException(status_code=400, detail="Customer code or name already exists in this plant")
     db_customer = models.Customer(**payload, plant_id=plant_id)
+    _check_state_pairs(payload)
+    _follow_new_gstin(db_customer, {}, payload)
+    _fill_places(db_customer)
+    _check_gstin_state(db_customer, {}, payload)
     db.add(db_customer)
     db.commit()
     db.refresh(db_customer)
-    setattr(db_customer, "is_active", bool(db_customer.active))
+    _for_response(db_customer)
     try:
         from ..utils.audit_client import emit_audit_event
         emit_audit_event(
@@ -328,7 +561,7 @@ def update_customer(
     if not db_customer:
         raise HTTPException(status_code=404, detail="Customer not found")
 
-    update_data = customer_update.model_dump(exclude_unset=True)
+    update_data = _clean_details(customer_update.model_dump(exclude_unset=True))
     next_code = _normalized_code(update_data.get("customer_code", db_customer.customer_code))
     next_name = _normalized_name(update_data.get("name", db_customer.name))
     duplicate = db.query(models.Customer).filter(
@@ -342,7 +575,7 @@ def update_customer(
     _apply_customer_update(db_customer, update_data)
     db.commit()
     db.refresh(db_customer)
-    setattr(db_customer, "is_active", bool(db_customer.active))
+    _for_response(db_customer)
     try:
         from ..utils.audit_client import emit_audit_event
         emit_audit_event(

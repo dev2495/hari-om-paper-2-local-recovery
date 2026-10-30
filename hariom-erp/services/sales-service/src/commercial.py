@@ -85,25 +85,22 @@ def validate_delivery_after_customer_po_date(
     origin: str = ORIGIN_CUSTOMER_PO,
     line_no: Optional[int] = None,
 ) -> None:
-    """R05: for customer-PO origin, delivery_date must be strictly later.
+    """R05: for customer-PO origin, a GIVEN delivery_date must be strictly later.
 
-    Internal orders have no customer PO date; do not apply this rule to a
-    nonexistent date. Equal and earlier dates both fail.
+    The delivery date itself is optional everywhere (client 2026-10-28): a blank date is
+    "No date" and passes. Internal orders have no customer PO date; do not apply this rule
+    to a nonexistent date. Equal and earlier dates both fail.
     """
     if not requires_customer_po_date_rule(origin):
         return
-    po_date = _as_date(customer_po_date)
     due = _as_date(delivery_date)
+    if due is None:
+        return
+    po_date = _as_date(customer_po_date)
     if po_date is None:
         raise SalesCommercialError(
             "Customer PO Date is required for customer PO orders.",
             field="po_date",
-        )
-    if due is None:
-        raise SalesCommercialError(
-            delivery_date_error(po_date, line_no=line_no),
-            field="due_date",
-            line_no=line_no,
         )
     if due <= po_date:
         raise SalesCommercialError(

@@ -150,6 +150,20 @@ async def notify_receipt(path: str, response: Response, request: Request, token:
                 event_id=f"grn-difference:{receipt_id}:{commercial}",
             )
         elif commercial == "INVOICE_PENDING" and path in {"receipts", "manual-receipts"}:
+            if body.get("rate_review_cases"):
+                # Challan rate differs from the PO: the review case opens now, before the invoice comes.
+                await _emit(
+                    token,
+                    event_type="PURCHASE_INVOICE_DIFFERENCE",
+                    title=f"{grn_label}: challan rate differs from the PO — decide",
+                    message=f"{supplier_label}: the rate on the challan is not what the PO says. Plant head or Accounts accepts the difference or keeps the case for the invoice (not the person who made the GRN). Incoming QC still decides whether the stock can be issued.",
+                    href="/purchase/discrepancies",
+                    recipient_roles=["PlantManager", "Accounts", "Owner", "Admin"],
+                    role_context="PlantManager",
+                    plant_id=plant_id,
+                    payload={"receipt_id": receipt_id, "action": "approve", "priority": "action", "plant_id": plant_id},
+                    event_id=f"grn-difference:{receipt_id}:CHALLAN_RATE",
+                )
             await _emit(
                 token,
                 event_type="PURCHASE_INVOICE_PENDING",

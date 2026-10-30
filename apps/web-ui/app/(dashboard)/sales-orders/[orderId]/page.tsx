@@ -13,7 +13,9 @@ import {
   ClipboardCheck,
   ExternalLink,
   Factory,
+  FileCheck2,
   History,
+  Lock,
   MoreHorizontal,
   Palette,
   PauseCircle,
@@ -38,6 +40,7 @@ import { ErrorState, LoadingState } from "@/components/workspace/query-state"
 import { ReleaseToQueueDialog } from "@/components/sales/release-to-queue-dialog"
 import { OrderClosureDialog, orderClosureAction, orderPlantId } from "@/components/sales/order-closure-dialog"
 import { OrderHoldDialog } from "@/components/sales/order-hold-dialog"
+import { CustomerPoDialog, awaitingCustomerPo, poChangeOptions } from "@/components/sales/customer-po-dialog"
 import { OrderCardStepper } from "@/components/sales/order-card-stepper"
 import { Chip, DueCell, OrderStatusChip, PlanChip, QcFlagChip, StageDots } from "@/components/sales/order-chips"
 import { OrderHistoryTimeline } from "@/components/sales/order-history-timeline"
@@ -50,10 +53,16 @@ import { usePlanningJobCards } from "@/hooks/use-production"
 import { useApproveSalesOrder, useMoveDeliverySchedule, useOrderDeliverySchedules, useOrderHistory, useResumeSalesOrder, useSalesOrder, useSubmitSalesOrder } from "@/hooks/use-sales"
 import { dispatchApi, productionApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import { peopleInText, personLabel } from "@/lib/people"
+import { lineHasReleaseWork } from "@/lib/sales-release"
 import { isInternalOrigin, salesOrderOriginLabel } from "@/lib/sales-order-entry"
-import { cardReadyToDispatch, cardState, cardSummary, formatDateTime, formatShortDate, nextAction, orderDue, orderHealth, orderTotals, whatIsNext } from "@/lib/sales-order-tracker"
+import { canMakeChallan, cardReadyToDispatch, cardState, cardSummary, formatDateTime, formatShortDate, nextAction, orderDue, orderHealth, orderTotals, whatIsNext } from "@/lib/sales-order-tracker"
 
 const fmt = (value: unknown) => Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })
+/** Phone (< 640 px) table cells become labelled blocks: the label comes from data-label. */
+const PHONE_LABEL = "max-sm:before:mb-0.5 max-sm:before:block max-sm:before:text-[11px] max-sm:before:font-semibold max-sm:before:text-muted-foreground max-sm:before:content-[attr(data-label)]"
+/** Rates per piece always show paise: ₹2.40, never ₹2.4. */
+const rateText = (value: unknown) => `₹${Number(value || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const money = (value: unknown) => `₹ ${Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`
 
 type TabKey = "overview" | "cards" | "deliveries" | "history"
@@ -86,6 +95,7 @@ export default function SalesOrderPage() {
   const [releaseOpen, setReleaseOpen] = useState(false)
   const [holdOpen, setHoldOpen] = useState(false)
   const [closureOpen, setClosureOpen] = useState(false)
+  const [poOpen, setPoOpen] = useState(false)
   const [sheetJobId, setSheetJobId] = useState<string | null>(null)
   const [moreOpen, setMoreOpen] = useState(false)
 
@@ -135,18 +145,20 @@ export default function SalesOrderPage() {
   }, [orderJobs, lifecycleById])
   const made = Math.max(madeFromLifecycle ?? cards.made, totals.dispatched)
   const due = useMemo(() => orderDue(order), [order])
-  const action = useMemo(() => nextAction(order, cards, user?.email), [order, cards, user?.email])
+  // Sales views challans only: the challan actions go to the roles that can seal one (Owner, Admin, Dispatch).
+  const canChallan = canMakeChallan(user)
+  const action = useMemo(() => nextAction(order, cards, user?.email, canChallan), [order, cards, user?.email, canChallan])
   const scheduleItems: any[] = useMemo(() => (Array.isArray((schedulesQuery.data as any)?.items) ? (schedulesQuery.data as any).items : []), [schedulesQuery.data])
   const scheduleRevision = Number((schedulesQuery.data as any)?.schedule_revision ?? order?.schedule_revision ?? 0)
   const health = useMemo(() => orderHealth(order, totals, { ...cards, made }, due), [order, totals, cards, made, due])
-  const next = useMemo(() => whatIsNext(order, totals, cards, orderJobs, scheduleItems), [order, totals, cards, orderJobs, scheduleItems])
+  const next = useMemo(() => whatIsNext(order, totals, cards, orderJobs, scheduleItems, canChallan), [order, totals, cards, orderJobs, scheduleItems, canChallan])
   const history = historyQuery.data
   const lastChange = history?.events?.[0]
 
   const status = String(order?.status || "").toLowerCase()
   const canApprove = ["draft", "submitted"].includes(status)
   const isMine = Boolean(user?.email) && String(order?.created_by || "").toLowerCase() === String(user?.email || "").toLowerCase()
-  const releasableLineIds = (order?.lines || []).filter((line: any) => Number(line.release_remaining_qty ?? line.remaining_qty ?? 0) > 0).map((line: any) => String(line.id))
+  const releasableLineIds = (order?.lines || []).filter((line: any) => lineHasReleaseWork(line)).map((line: any) => String(line.id))
   const canRelease = ["approved", "released", "partially_released", "partially_dispatched"].includes(status) && !order?.is_held && releasableLineIds.length > 0
   const closure = orderClosureAction(order)
   const editable = !["closed", "cancelled"].includes(status) && !order?.is_held
@@ -181,17 +193,21 @@ export default function SalesOrderPage() {
   if (!order) return <EmptyState label="Sales order not found." />
 
   const customerName = customer?.name || order.customer_name || "Customer"
+  const awaitingPo = awaitingCustomerPo(order)
+  const poOptions = poChangeOptions(order)
+  const poChanges: any[] = Array.isArray(order.po_changes) ? order.po_changes : []
+  const poLocked = poOptions.mode === "locked" && poChanges.some((row: any) => row.after_release)
   const customerCode = customer?.customer_code || ""
   const firstReady = cards.firstReadyId
   const dcHref = firstReady ? `/logistics/dispatch/new?job_card_id=${firstReady}` : "/logistics/dispatch"
   const callOffs = scheduleItems.filter((row) => row.status !== "cancelled")
   const dcs = dispatchQueries.map((result, index) => ({ job: dispatchJobs[index], data: result.data })).filter((row) => row.data?.dispatch_snapshot || row.data?.challan_no)
 
-  const actionBtn = "erp-btn-secondary !h-9 whitespace-nowrap"
+  const actionBtn = "erp-btn-secondary !h-11 sm:!h-9 whitespace-nowrap"
   return (
     <div className="space-y-3" data-testid="sales-orders:tracking-page">
       <nav className="flex items-center gap-1.5 text-[12.5px] text-muted-foreground" aria-label="Breadcrumb">
-        <Link href="/sales-orders" className="inline-flex items-center gap-1 hover:text-foreground"><ArrowLeft className="h-3.5 w-3.5" />Orders</Link>
+        <Link href="/sales-orders" className="inline-flex min-h-11 items-center gap-1 pr-1 hover:text-foreground sm:min-h-0"><ArrowLeft className="h-3.5 w-3.5" />Orders</Link>
         <ChevronRight className="h-3.5 w-3.5 opacity-60" aria-hidden="true" />
         <span className="font-semibold text-foreground">{order.order_no || "Sales order"}</span>
       </nav>
@@ -204,8 +220,8 @@ export default function SalesOrderPage() {
           <span className="hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
           <dl className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-muted-foreground">
             <div><dt className="sr-only">Customer</dt><dd><strong className="text-foreground">{customerName}</strong>{customerCode ? ` · ${customerCode}` : ""}</dd></div>
-            <div><dt className="sr-only">PO</dt><dd>{isInternalOrigin(order.origin) ? <>Internal order · {formatShortDate(order.internal_order_date)}</> : <>PO <strong className="text-foreground">{order.po_number || "—"}</strong> · {formatShortDate(order.po_date)}</>}</dd></div>
-            <div><dt className="sr-only">Due</dt><dd>Due <strong className="text-foreground">{formatShortDate(due.date)}</strong></dd></div>
+            <div><dt className="sr-only">PO</dt><dd>{awaitingPo ? <Chip tone="amber" icon={FileCheck2} title={`Internal order made ${formatShortDate(order.internal_order_date)}`}>Internal order · waiting for customer PO</Chip> : <>PO <strong className="text-foreground">{order.po_number || "—"}</strong> · {formatShortDate(order.po_date)}{poLocked ? <Lock className="ml-1 inline h-3.5 w-3.5 align-[-2px]" aria-label="Customer PO locked" /> : null}</>}</dd></div>
+            <div><dt className="sr-only">Due</dt><dd>{due.date ? <>Due <strong className="text-foreground">{formatShortDate(due.date)}</strong></> : <span data-testid="sales-order:no-date">No delivery date</span>}</dd></div>
             <div><dt className="sr-only">Quantity</dt><dd><strong className="text-foreground">{fmt(totals.ordered)}</strong> pcs · {totals.lines} line{totals.lines === 1 ? "" : "s"}</dd></div>
             <div><dt className="sr-only">Value</dt><dd>Value <strong className="text-foreground">{money(totals.value)}</strong> ex-GST</dd></div>
           </dl>
@@ -221,15 +237,16 @@ export default function SalesOrderPage() {
         {canApprove ? (
           isMine ? (
             status === "draft"
-              ? <button type="button" className="erp-btn-primary !h-9" onClick={() => void handleSubmit()} disabled={submitOrder.isPending} title="You entered this order, so another user approves it (maker-checker)" data-testid="sales-order:submit"><Send className="h-4 w-4" />Send for approval</button>
+              ? <button type="button" className="erp-btn-primary !h-11 sm:!h-9" onClick={() => void handleSubmit()} disabled={submitOrder.isPending} title="You entered this order, so another user approves it (maker-checker)" data-testid="sales-order:submit"><Send className="h-4 w-4" />Send for approval</button>
               : <span className="rounded-lg border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-[12.5px] font-medium text-signal-amber-ink" title="Maker-checker: the person who created the order cannot approve it, even after switching role.">Waiting for another user to approve</span>
           ) : (
-            <button type="button" className="erp-btn-primary !h-9" onClick={() => void handleApprove()} disabled={approveOrder.isPending} data-testid="sales-order:approve"><CheckCircle2 className="h-4 w-4" />Approve</button>
+            <button type="button" className="erp-btn-primary !h-11 sm:!h-9" onClick={() => void handleApprove()} disabled={approveOrder.isPending} data-testid="sales-order:approve"><CheckCircle2 className="h-4 w-4" />Approve</button>
           )
         ) : null}
-        <button type="button" className={cn(canApprove ? actionBtn : "erp-btn-primary !h-9")} disabled={!canRelease} title={!canRelease ? (order.is_held ? "Lift the customer hold to release" : canApprove ? "Approve the order first" : finished ? "The order is closed" : "All lines are already released to job cards") : "Make job cards for the open lines"} onClick={() => handleOpenRelease()} data-testid="sales-order:release"><Rocket className="h-4 w-4" />Release lines</button>
-        {cards.total ? <Link href={`/planning/board?section=winder&order_id=${order.id}&view=calendar`} className={actionBtn}><CalendarDays className="h-4 w-4" />Plan</Link> : <button type="button" className={actionBtn} disabled title="Nothing to plan — release the lines first"><CalendarDays className="h-4 w-4" />Plan</button>}
-        {cards.ready ? <Link href={dcHref} className={actionBtn} data-testid="sales-order:make-dc"><Truck className="h-4 w-4" />Make DC · {fmt(cards.readyQty)} ready</Link> : <button type="button" className={actionBtn} disabled title="No packed pieces waiting for a DC"><Truck className="h-4 w-4" />Make DC</button>}
+        <button type="button" className={cn(canApprove ? actionBtn : "erp-btn-primary !h-11 sm:!h-9")} disabled={!canRelease} title={!canRelease ? (order.is_held ? "Lift the customer hold to release" : canApprove ? "Approve the order first" : finished ? "The order is closed" : "All lines are already released to job cards") : "Make job cards for the open lines"} onClick={() => handleOpenRelease()} data-testid="sales-order:release"><Rocket className="h-4 w-4" />Release lines</button>
+        {/* On a phone the buttons that cannot be used yet are left out so the bar stays short. */}
+        {cards.total ? <Link href={`/planning/board?section=winder&order_id=${order.id}&view=calendar`} className={actionBtn}><CalendarDays className="h-4 w-4" />Plan</Link> : <button type="button" className={cn(actionBtn, "max-sm:!hidden")} disabled title="Nothing to plan — release the lines first"><CalendarDays className="h-4 w-4" />Plan</button>}
+        {cards.ready && !canChallan ? <span className={cn(actionBtn, "cursor-default opacity-80")} data-testid="sales-order:waiting-dc" title="Dispatch makes the delivery challan for the packed pieces"><Truck className="h-4 w-4" />Waiting for dispatch · {fmt(cards.readyQty)} ready</span> : cards.ready ? <Link href={dcHref} className={actionBtn} data-testid="sales-order:make-dc" title="Make the delivery challan for the packed pieces"><Truck className="h-4 w-4" />Make challan · {fmt(cards.readyQty)} ready</Link> : canChallan ? <button type="button" className={cn(actionBtn, "max-sm:!hidden")} disabled title="No packed pieces waiting for a delivery challan"><Truck className="h-4 w-4" />Make challan</button> : null}
         <span className="hidden h-6 w-px bg-border sm:block" aria-hidden="true" />
         {order.is_held ? (
           <button type="button" className={cn(actionBtn, "!text-signal-emerald-ink")} onClick={() => void handleResume()} disabled={resumeOrder.isPending} data-testid="sales-order:resume"><PlayCircle className="h-4 w-4" />Resume</button>
@@ -240,21 +257,30 @@ export default function SalesOrderPage() {
           {closure.kind === "cancel" ? <Ban className="h-4 w-4" /> : <CircleSlash2 className="h-4 w-4" />}{closure.kind === "cancel" ? "Cancel order" : "Short close"}
         </button>
         <span className="hidden h-6 w-px bg-border sm:block" aria-hidden="true" />
-        <button type="button" className={actionBtn} onClick={() => window.print()}><Printer className="h-4 w-4" />Print</button>
-        {canApprove ? <Link href={`/sales-orders/${order.id}/edit`} className={actionBtn}><Pencil className="h-4 w-4" />Edit</Link> : null}
+        <button type="button" className={cn(actionBtn, "max-sm:!hidden")} onClick={() => window.print()}><Printer className="h-4 w-4" />Print</button>
+        {canApprove ? <Link href={`/sales-orders/${order.id}/edit`} className={actionBtn} title="Edit the order, its lines and the customer PO" data-testid="sales-order:edit"><Pencil className="h-4 w-4" />Edit</Link> : null}
+        {awaitingPo && poOptions.allowed ? (
+          <button type="button" className={cn(actionBtn, "!text-signal-amber-ink")} onClick={() => setPoOpen(true)} data-testid="sales-order:add-po" title={poOptions.mode === "once" ? "Released: the PO can be added once, then it locks" : "Add the customer's PO to confirm this order"}><FileCheck2 className="h-4 w-4" />Add customer PO</button>
+        ) : !awaitingPo && poOptions.allowed && !canApprove ? (
+          /* A draft changes its PO through Edit; one way to the same change is enough. */
+          <button type="button" className={actionBtn} onClick={() => setPoOpen(true)} data-testid="sales-order:change-po" title={poOptions.reason || "Change the customer PO number"}><FileCheck2 className="h-4 w-4" />{poOptions.mode === "once" ? "Change PO (once)" : "Change PO"}</button>
+        ) : poLocked && !finished ? (
+          <span className="inline-flex h-11 items-center gap-1.5 rounded-lg border border-border px-3 text-[12.5px] text-muted-foreground sm:h-9" title={poOptions.reason || undefined} data-testid="sales-order:po-locked"><Lock className="h-3.5 w-3.5" aria-hidden="true" />PO locked</span>
+        ) : null}
         <div className="relative">
-          <button type="button" className="erp-btn-secondary !h-9 !w-9 !px-0" aria-label="More actions" aria-expanded={moreOpen} onClick={() => setMoreOpen((value) => !value)}><MoreHorizontal className="h-4 w-4" /></button>
+          <button type="button" className="erp-btn-secondary !h-11 !w-11 !px-0 sm:!h-9 sm:!w-9" aria-label="More actions" aria-expanded={moreOpen} onClick={() => setMoreOpen((value) => !value)}><MoreHorizontal className="h-4 w-4" /></button>
           {moreOpen ? (
             <div className="tube-popover right-0 top-full mt-1 w-56" role="menu" onMouseLeave={() => setMoreOpen(false)}>
-              <Link role="menuitem" href={`/sales-orders/new?copy=${order.id}`} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] hover:bg-foreground/[.05]"><Plus className="h-3.5 w-3.5 opacity-80" />Copy as new order</Link>
-              <button role="menuitem" type="button" onClick={() => { setMoreOpen(false); setTab("history") }} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] hover:bg-foreground/[.05]"><History className="h-3.5 w-3.5 opacity-80" />Full history</button>
-              {cards.total ? <Link role="menuitem" href={`/inventory/genealogy?job_card_id=${orderJobs[0].id}`} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] hover:bg-foreground/[.05]"><ExternalLink className="h-3.5 w-3.5 opacity-80" />Trace materials</Link> : null}
+              <Link role="menuitem" href={`/sales-orders/new?copy=${order.id}`} className="flex min-h-11 items-center gap-2 rounded-md px-2 py-1.5 text-[13px] hover:bg-foreground/[.05] sm:min-h-0"><Plus className="h-3.5 w-3.5 opacity-80" />Copy as new order</Link>
+              <button role="menuitem" type="button" onClick={() => { setMoreOpen(false); window.print() }} className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] hover:bg-foreground/[.05] sm:hidden"><Printer className="h-3.5 w-3.5 opacity-80" />Print</button>
+              <button role="menuitem" type="button" onClick={() => { setMoreOpen(false); setTab("history") }} className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] hover:bg-foreground/[.05] sm:min-h-0"><History className="h-3.5 w-3.5 opacity-80" />Full history</button>
+              {cards.total ? <Link role="menuitem" href={`/inventory/genealogy?job_card_id=${orderJobs[0].id}`} className="flex min-h-11 items-center gap-2 rounded-md px-2 py-1.5 text-[13px] hover:bg-foreground/[.05] sm:min-h-0"><ExternalLink className="h-3.5 w-3.5 opacity-80" />Trace materials</Link> : null}
             </div>
           ) : null}
         </div>
         <span className="ml-auto inline-flex items-center gap-1.5 text-[12px] text-muted-foreground" data-testid="sales-order:last-change">
           <History className="h-3.5 w-3.5" aria-hidden="true" />
-          {historyQuery.isLoading ? "Loading history…" : lastChange ? `Last change: ${formatDateTime(lastChange.at)} · ${lastChange.actor || "system"}` : "No changes yet"}
+          {historyQuery.isLoading ? "Loading history…" : lastChange ? `Last change: ${formatDateTime(lastChange.at)} · ${lastChange.actor ? personLabel(lastChange.actor) : "system"}` : "No changes yet"}
         </span>
       </div>
 
@@ -270,12 +296,12 @@ export default function SalesOrderPage() {
         </div>
       ) : null}
 
-      <div className="flex items-center gap-1 overflow-x-auto border-b border-border print:hidden" role="tablist" aria-label="Order sections">
+      <div className="flex items-center gap-1 overflow-x-auto border-b border-border print:hidden max-sm:flex-wrap max-sm:overflow-visible" role="tablist" aria-label="Order sections">
         {TABS.map((item) => {
           const count = item.key === "cards" ? cards.total : item.key === "deliveries" ? callOffs.length : item.key === "history" ? history?.summary?.events ?? null : null
           const active = tab === item.key
           return (
-            <button key={item.key} type="button" role="tab" aria-selected={active} data-testid={`sales-order:tab-${item.key}`} onClick={() => setTab(item.key)} className={cn("-mb-px inline-flex h-10 shrink-0 items-center gap-1.5 border-b-2 px-3 text-[13px] font-medium transition-colors", active ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")}>
+            <button key={item.key} type="button" role="tab" aria-selected={active} data-testid={`sales-order:tab-${item.key}`} onClick={() => setTab(item.key)} className={cn("-mb-px inline-flex h-11 shrink-0 items-center gap-1.5 border-b-2 px-3 text-[13px] font-medium transition-colors", active ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")}>
               {item.label}
               {count != null ? <span className={cn("rounded px-1.5 text-[11px] font-semibold tabular-nums", active ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")}>{count}</span> : null}
               {item.key === "history" && history?.summary?.flags ? <Chip tone="amber" size="xs">{history.summary.flags} flagged</Chip> : null}
@@ -309,15 +335,16 @@ export default function SalesOrderPage() {
                 {totals.shortClosed > 0 ? <span className="text-signal-amber-ink"><strong className="tabular-nums">{fmt(totals.shortClosed)}</strong> dropped by short close</span> : null}
                 {!finished ? <span><strong className="tabular-nums text-foreground">{fmt(totals.pending)}</strong> still to send</span> : null}
               </p>
-              {cards.readyQty > 0 ? <p className="mt-2 rounded-lg border border-signal-teal-line bg-signal-teal-soft px-3 py-2 text-[12.5px] text-signal-teal-ink">{fmt(cards.readyQty)} pcs through Process (packed, both QC readings in), waiting for a DC. <Link href={dcHref} className="font-semibold underline">Make DC</Link></p> : null}
+              {cards.readyQty > 0 ? <p className="mt-2 rounded-lg border border-signal-teal-line bg-signal-teal-soft px-3 py-2 text-[12.5px] text-signal-teal-ink">{fmt(cards.readyQty)} pcs through Process (packed, both QC readings in), waiting for a delivery challan.{canChallan ? <> <Link href={dcHref} className="inline-flex min-h-11 items-center font-semibold underline max-sm:flex max-sm:w-fit sm:min-h-0">Make challan</Link></> : " Dispatch makes it."}</p> : null}
             </section>
 
             <section className="erp-panel overflow-hidden rounded-xl" aria-label="Lines">
               <div className="flex flex-wrap items-baseline gap-2 px-4 pt-4"><h2 className="text-[14px] font-semibold">Lines</h2><span className="text-[12px] text-muted-foreground">with colour splits and rates</span></div>
-              <div className="mt-3 overflow-x-auto">
-                <table className="tube-grid">
-                  <thead>
-                    <tr><th className="num">Line</th><th>Size</th><th>Colour · rate</th><th className="num">Ordered</th><th className="num">Released</th><th className="num">Made</th><th className="num">Dispatched</th><th>Job cards</th><th><span className="sr-only">Actions</span></th></tr>
+              {/* Phone (< 640 px): each line is a card with labelled cells — nothing scrolls sideways. */}
+              <div className="mt-3 overflow-x-auto max-sm:overflow-visible">
+                <table className="tube-grid max-sm:block max-sm:[&>tbody]:block">
+                  <thead className="max-sm:hidden">
+                    <tr><th className="num">Line</th><th>Size</th><th>Colour · rate</th><th className="num 2xl:hidden">Pcs</th><th className="num hidden 2xl:table-cell">Ordered</th><th className="num hidden 2xl:table-cell">Released</th><th className="num hidden 2xl:table-cell">Made</th><th className="num hidden 2xl:table-cell">Dispatched</th><th>Job cards</th><th><span className="sr-only">Actions</span></th></tr>
                   </thead>
                   <tbody>
                     {(order.lines || []).map((line: any) => (
@@ -350,8 +377,8 @@ export default function SalesOrderPage() {
               </ol>
               {action.key !== "open" && action.key !== "waiting" ? (
                 <div className="mt-3">
-                  {action.href ? <Link href={action.href} className="erp-btn-primary !h-9 w-full justify-center">{action.label}</Link>
-                    : <button type="button" className="erp-btn-primary !h-9 w-full justify-center" onClick={() => { if (action.key === "approve") void handleApprove(); else if (action.key === "submit") void handleSubmit(); else if (action.key === "resume") void handleResume(); else handleOpenRelease() }}>{action.label}</button>}
+                  {action.href ? <Link href={action.href} className="erp-btn-primary !h-11 sm:!h-9 w-full justify-center">{action.label}</Link>
+                    : <button type="button" className="erp-btn-primary !h-11 sm:!h-9 w-full justify-center" onClick={() => { if (action.key === "approve") void handleApprove(); else if (action.key === "submit") void handleSubmit(); else if (action.key === "resume") void handleResume(); else handleOpenRelease() }}>{action.label}</button>}
                 </div>
               ) : null}
             </section>
@@ -360,16 +387,17 @@ export default function SalesOrderPage() {
               <h2 className="text-[14px] font-semibold">Order details</h2>
               <dl className="mt-3 grid grid-cols-[96px_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-[13px]">
                 <dt className="text-muted-foreground">Customer</dt><dd>{customerName}{customerCode ? ` (${customerCode})` : ""}</dd>
-                <dt className="text-muted-foreground">{isInternalOrigin(order.origin) ? "Order" : "PO"}</dt><dd>{isInternalOrigin(order.origin) ? `${salesOrderOriginLabel(order.origin)} · ${formatShortDate(order.internal_order_date)}` : `${order.po_number || "—"} · ${formatShortDate(order.po_date)}`}</dd>
+                <dt className="text-muted-foreground">{awaitingPo ? "Order" : "PO"}</dt><dd>{awaitingPo ? <>{`Internal order · ${formatShortDate(order.internal_order_date)}`} <span className="text-signal-amber-ink">· waiting for customer PO</span></> : `${order.po_number || "—"} · ${formatShortDate(order.po_date)}${isInternalOrigin(order.origin) ? ` · ${salesOrderOriginLabel(order.origin)}` : ""}`}</dd>
+                {poChanges.length ? <><dt className="text-muted-foreground">PO history</dt><dd data-testid="sales-order:po-history"><ul className="space-y-0.5">{poChanges.map((row: any) => <li key={row.id} className="text-[12.5px]">{row.kind === "CONFIRMED" ? `Confirmed with PO ${row.new_po_number}` : `${row.old_po_number || "—"} → ${row.new_po_number}`}{row.after_release ? " (after release, one-time)" : ""} <span className="text-muted-foreground">· {formatDateTime(row.changed_at)} · {personLabel(row.changed_by)}</span></li>)}</ul>{poLocked ? <span className="mt-0.5 flex items-center gap-1 text-[12px] text-muted-foreground"><Lock className="h-3 w-3" aria-hidden="true" />Locked: {peopleInText(poOptions.reason)}</span> : null}</dd></> : null}
                 <dt className="text-muted-foreground">Due</dt><dd><DueCell due={due} compact /></dd>
-                <dt className="text-muted-foreground">Rate</dt><dd>{(order.lines || []).map((line: any) => line.rate_per_pc != null ? `₹ ${Number(line.rate_per_pc).toLocaleString("en-IN")} / pc${(order.lines || []).length > 1 ? ` (L${line.line_no})` : ""}` : null).filter(Boolean).join(" · ") || "—"}</dd>
+                <dt className="text-muted-foreground">Rate</dt><dd>{(order.lines || []).map((line: any) => line.rate_per_pc != null ? `${rateText(line.rate_per_pc)} / pc${(order.lines || []).length > 1 ? ` (L${line.line_no})` : ""}` : null).filter(Boolean).join(" · ") || "—"}</dd>
                 <dt className="text-muted-foreground">Value</dt><dd>{money(totals.value)} ex-GST</dd>
                 <dt className="text-muted-foreground">Valid till</dt><dd>{formatShortDate(order.expiry_date)}</dd>
                 <dt className="text-muted-foreground">Plant</dt><dd>{String(order.plant_id || "—").slice(-2).toUpperCase() === "A1" ? "Plant A" : String(order.plant_id || "—")}</dd>
-                <dt className="text-muted-foreground">Created</dt><dd>{formatDateTime(order.created_at)} · {order.created_by || "—"}</dd>
-                <dt className="text-muted-foreground">Approved</dt><dd>{order.approved_at ? `${formatDateTime(order.approved_at)} · ${order.approved_by || "—"}` : "—"}</dd>
-                {order.released_at ? <><dt className="text-muted-foreground">Released</dt><dd>{formatDateTime(order.released_at)} · {order.released_by || "—"}</dd></> : null}
-                {order.is_held ? <><dt className="text-muted-foreground">On hold</dt><dd>{formatDateTime(order.held_at)} · {order.held_by || "—"}{order.hold_reason ? ` · ${order.hold_reason}` : ""}</dd></> : null}
+                <dt className="text-muted-foreground">Created</dt><dd>{formatDateTime(order.created_at)} · {personLabel(order.created_by)}</dd>
+                <dt className="text-muted-foreground">Approved</dt><dd>{order.approved_at ? `${formatDateTime(order.approved_at)} · ${personLabel(order.approved_by)}` : "—"}</dd>
+                {order.released_at ? <><dt className="text-muted-foreground">Released</dt><dd>{formatDateTime(order.released_at)} · {personLabel(order.released_by)}</dd></> : null}
+                {order.is_held ? <><dt className="text-muted-foreground">On hold</dt><dd>{formatDateTime(order.held_at)} · {personLabel(order.held_by)}{order.hold_reason ? ` · ${order.hold_reason}` : ""}</dd></> : null}
                 {order.notes ? <><dt className="text-muted-foreground">Notes</dt><dd className="whitespace-pre-wrap">{order.notes}</dd></> : null}
               </dl>
             </section>
@@ -387,7 +415,7 @@ export default function SalesOrderPage() {
                 <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2.5">
                   <h2 className="text-[14px] font-semibold">Line {line.line_no} · {line.size_label || line.product_code || "—"} · {colour}</h2>
                   <span className="text-[12px] text-muted-foreground">{fmt(line.qty)} pcs · {lineJobs.length} card{lineJobs.length === 1 ? "" : "s"}{Number(line.release_remaining_qty || 0) > 0 && !finished ? ` · ${fmt(line.release_remaining_qty)} not released` : ""}</span>
-                  {canRelease && Number(line.release_remaining_qty ?? 0) > 0 ? <button type="button" className="erp-btn-primary ml-auto !h-8" onClick={() => handleOpenRelease([String(line.id)])}><Rocket className="h-3.5 w-3.5" />Release {fmt(line.release_remaining_qty)}</button> : null}
+                  {canRelease && Number(line.release_remaining_qty ?? 0) > 0 ? <button type="button" className="erp-btn-primary ml-auto !h-11 sm:!h-8" onClick={() => handleOpenRelease([String(line.id)])}><Rocket className="h-3.5 w-3.5" />Release {fmt(line.release_remaining_qty)}</button> : null}
                 </div>
                 <div className="space-y-2.5 p-3 sm:p-4">
                   {lineJobs.length ? lineJobs.map((job) => <CardBlock key={job.id} job={job} jobs={orderJobs} lifecycle={lifecycleById.get(String(job.id))} onManage={() => setSheetJobId(String(job.id))} />) : <p className="text-[13px] text-muted-foreground">No job card yet{status === "approved" ? " — release this line to create one." : ["draft", "submitted"].includes(status) ? " — waiting for approval." : "."}</p>}
@@ -414,11 +442,11 @@ export default function SalesOrderPage() {
             <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2.5">
               <h2 className="text-[14px] font-semibold">Delivery challans</h2>
               <span className="text-[12px] text-muted-foreground">{dcs.length} DC{dcs.length === 1 ? "" : "s"} · {fmt(totals.dispatched)} pcs dispatched</span>
-              {cards.ready ? <Link href={dcHref} className="erp-btn-primary ml-auto !h-8"><Truck className="h-3.5 w-3.5" />Make DC · {fmt(cards.readyQty)} ready</Link> : <button type="button" className="erp-btn-secondary ml-auto !h-8" disabled title="No packed pieces waiting"><Truck className="h-3.5 w-3.5" />Make DC</button>}
+              {cards.ready && !canChallan ? <span className="ml-auto text-[12.5px] text-muted-foreground">{fmt(cards.readyQty)} pcs ready · waiting for Dispatch to make the challan</span> : cards.ready ? <Link href={dcHref} className="erp-btn-primary ml-auto !h-11 sm:!h-8"><Truck className="h-3.5 w-3.5" />Make challan · {fmt(cards.readyQty)} ready</Link> : canChallan ? <button type="button" className="erp-btn-secondary ml-auto !h-11 sm:!h-8" disabled title="No packed pieces waiting"><Truck className="h-3.5 w-3.5" />Make challan</button> : null}
             </div>
             {dispatchQueries.some((result) => result.isLoading) ? <p className="px-4 py-3 text-[12.5px] text-muted-foreground">Loading challans…</p> : dcs.length ? (
-              <table className="tube-grid">
-                <thead><tr><th>DC</th><th>When</th><th className="num">Pcs</th><th className="num">Boxes</th><th>Vehicle</th><th>Card</th><th><span className="sr-only">Print</span></th></tr></thead>
+              <table className="tube-grid max-sm:block max-sm:[&_tbody]:block max-sm:[&_td]:!border-0 max-sm:[&_td]:!px-0 max-sm:[&_td]:!py-0 max-sm:[&_tr]:flex max-sm:[&_tr]:flex-wrap max-sm:[&_tr]:items-center max-sm:[&_tr]:gap-x-3 max-sm:[&_tr]:gap-y-1 max-sm:[&_tr]:border-b max-sm:[&_tr]:border-border max-sm:[&_tr]:px-4 max-sm:[&_tr]:py-2">
+                <thead className="max-sm:hidden"><tr><th>DC</th><th>When</th><th className="num">Pcs</th><th className="num">Boxes</th><th>Vehicle</th><th>Card</th><th><span className="sr-only">Print</span></th></tr></thead>
                 <tbody>
                   {dcs.map(({ job, data }) => {
                     const snap = data?.dispatch_snapshot || {}
@@ -430,8 +458,8 @@ export default function SalesOrderPage() {
                         <td className="num">{fmt(snap.dispatch_qty || snap.qty || data?.dispatch_qty)}</td>
                         <td className="num">{boxes || "—"}</td>
                         <td>{snap.transporter?.vehicle_no || data?.vehicle_no || "—"}</td>
-                        <td><button type="button" onClick={() => setSheetJobId(String(job.id))} className="hover:text-primary"><JobCardNo job={job} /></button></td>
-                        <td className="text-right"><Link href={`/logistics/dispatch/${job.id}/print${data?.id ? `?dispatch_id=${data.id}` : ""}`} aria-label="Print challan" className="inline-grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-foreground/[.06] hover:text-foreground"><Printer className="h-3.5 w-3.5" /></Link></td>
+                        <td><button type="button" onClick={() => setSheetJobId(String(job.id))} className="inline-flex min-h-11 items-center hover:text-primary sm:min-h-0"><JobCardNo job={job} /></button></td>
+                        <td className="text-right"><Link href={`/logistics/dispatch/${job.id}/print${data?.id ? `?dispatch_id=${data.id}` : ""}`} aria-label="Print challan" className="inline-grid h-11 w-11 place-items-center sm:h-7 sm:w-7 rounded-md text-muted-foreground hover:bg-foreground/[.06] hover:text-foreground"><Printer className="h-3.5 w-3.5" /></Link></td>
                       </tr>
                     )
                   })}
@@ -455,6 +483,7 @@ export default function SalesOrderPage() {
       />
       <OrderHoldDialog orders={holdOpen ? [order] : []} open={holdOpen} onOpenChange={setHoldOpen} testIdPrefix="sales-order:hold" />
       <OrderClosureDialog order={order} open={closureOpen} onOpenChange={setClosureOpen} />
+      <CustomerPoDialog order={order} open={poOpen} onOpenChange={setPoOpen} />
       <JobCardLifecycleSheet jobCardId={sheetJobId} open={Boolean(sheetJobId)} onOpenChange={(open) => { if (!open) setSheetJobId(null) }} />
     </div>
   )
@@ -474,7 +503,7 @@ function ClosureBanner({ order }: { order: any }) {
           {" — "}{order.closure_reason || order.closure_reason_code} <span className="font-normal opacity-80">({order.closure_reason_code})</span>
         </p>
         <p className="opacity-90">
-          {formatDateTime(order.closure_at)} by {order.closure_by || "—"}
+          {formatDateTime(order.closure_at)} by {personLabel(order.closure_by)}
           {order.closure_note ? ` · ${order.closure_note}` : ""}
           {cancelled ? " · it cannot be released or dispatched." : stillOpen ? " · job cards already released finish; the order closes once they are dispatched." : " · the order is closed."}
         </p>
@@ -488,21 +517,21 @@ function LineRow({ line, jobs, lifecycleById, editable, onOpenCard, onRelease }:
   const [editing, setEditing] = useState(false)
   const splits: any[] = Array.isArray(line.color_splits) ? line.color_splits : []
   const made = jobs.reduce((sum, job) => sum + Number(lifecycleById.get(String(job.id))?.made_qty ?? ((cardState(job) === "COMPLETED" || cardState(job) === "FORCE_CLOSED") ? Number(job.planned_qty || 0) - Number(job.returned_qty || 0) : 0)), 0)
-  const lineRate = line.rate_per_pc != null ? `₹ ${Number(line.rate_per_pc).toLocaleString("en-IN")}` : null
+  const lineRate = line.rate_per_pc != null ? rateText(line.rate_per_pc) : null
   return (
     <>
-      <tr data-testid={`order-line-row:${line.id}`}>
-        <td className="num align-top font-semibold">{line.line_no}</td>
-        <td className="whitespace-nowrap align-top">{line.size_label || line.product_code || "—"}{line.size_label && line.product_code ? <span className="block text-[11px] text-muted-foreground">{line.product_code}</span> : null}</td>
-        <td className="align-top">
+      <tr data-testid={`order-line-row:${line.id}`} className="max-sm:grid max-sm:grid-cols-4 max-sm:gap-x-3 max-sm:gap-y-2.5 max-sm:border-b max-sm:border-border max-sm:px-4 max-sm:py-3 max-sm:[&>td]:!border-0 max-sm:[&>td]:!p-0 max-sm:[&>td.num]:!text-left">
+        <td className={cn("num align-top font-semibold", PHONE_LABEL)} data-label="Line">{line.line_no}</td>
+        <td className={cn("whitespace-nowrap align-top max-sm:col-span-3 max-sm:whitespace-normal", PHONE_LABEL)} data-label="Size">{line.size_label || line.product_code || "—"}{line.size_label && line.product_code ? <span className="block text-[11px] text-muted-foreground">{line.product_code}</span> : null}</td>
+        <td className={cn("align-top max-sm:col-span-4", PHONE_LABEL)} data-label="Colour · rate">
           {line.parchment_required ? (
             splits.length ? (
               <span className="flex flex-col gap-0.5">
                 {splits.map((split) => (
-                  <span key={split.color} className="flex items-center gap-2 text-[12.5px]">
+                  <span key={split.color} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12.5px]">
                     <ColorChip color={split.color} />
                     <span className="tabular-nums text-muted-foreground">{fmt(split.qty)}</span>
-                    <span className="tabular-nums text-muted-foreground">{split.rate_per_pc != null ? `₹ ${Number(split.rate_per_pc).toLocaleString("en-IN")}` : lineRate ? `${lineRate} (line)` : "—"}</span>
+                    <span className="whitespace-nowrap tabular-nums text-muted-foreground" title={split.rate_per_pc != null ? "Rate for this colour" : lineRate ? "The line's rate" : undefined}>{split.rate_per_pc != null ? rateText(split.rate_per_pc) : lineRate ? `${lineRate} line` : "—"}</span>
                   </span>
                 ))}
                 {Number(line.unassigned_color_qty || 0) > 0 ? <span className="text-[11.5px] text-signal-amber-ink">{fmt(line.unassigned_color_qty)} pcs colour not decided</span> : null}
@@ -510,16 +539,25 @@ function LineRow({ line, jobs, lifecycleById, editable, onOpenCard, onRelease }:
             ) : <span className="text-[12.5px] text-signal-amber-ink">colour not decided{lineRate ? ` · ${lineRate}` : ""}</span>
           ) : <span className="text-[12.5px]">plain{lineRate ? <span className="text-muted-foreground"> · {lineRate} / pc</span> : null}</span>}
         </td>
-        <td className="num align-top font-semibold">{fmt(line.qty)}{Number(line.short_closed_qty || 0) > 0 ? <span className="block text-[11px] font-normal text-signal-amber-ink">{fmt(line.short_closed_qty)} dropped</span> : null}{Number(line.hold_qty || 0) > 0 ? <span className="block text-[11px] font-normal text-signal-rose-ink">{fmt(line.hold_qty)} on hold</span> : null}</td>
-        <td className="num align-top">{fmt(line.released_qty)}</td>
-        <td className="num align-top">{jobs.length ? fmt(Math.max(made, Number(line.fulfilled_qty || 0))) : "—"}</td>
-        <td className="num align-top">{fmt(line.fulfilled_qty)}</td>
-        <td className="align-top">
+        {/* 640–1535 px: the four counts share one column, so the table fits the panel without scrolling sideways. */}
+        <td className="num hidden whitespace-nowrap align-top sm:table-cell 2xl:hidden" data-label="Pcs">
+          <span className="block font-semibold tabular-nums">{fmt(line.qty)} <small className="font-normal text-muted-foreground">ordered</small></span>
+          {Number(line.short_closed_qty || 0) > 0 ? <span className="block text-[11px] text-signal-amber-ink">{fmt(line.short_closed_qty)} dropped</span> : null}
+          {Number(line.hold_qty || 0) > 0 ? <span className="block text-[11px] text-signal-rose-ink">{fmt(line.hold_qty)} on hold</span> : null}
+          <span className="block text-[11.5px] tabular-nums text-muted-foreground">{fmt(line.released_qty)} released</span>
+          <span className="block text-[11.5px] tabular-nums text-muted-foreground">{jobs.length ? fmt(Math.max(made, Number(line.fulfilled_qty || 0))) : "—"} made</span>
+          <span className="block text-[11.5px] tabular-nums text-muted-foreground">{fmt(line.fulfilled_qty)} dispatched</span>
+        </td>
+        <td className={cn("num align-top font-semibold max-sm:block sm:hidden 2xl:table-cell", PHONE_LABEL)} data-label="Ordered">{fmt(line.qty)}{Number(line.short_closed_qty || 0) > 0 ? <span className="block text-[11px] font-normal text-signal-amber-ink">{fmt(line.short_closed_qty)} dropped</span> : null}{Number(line.hold_qty || 0) > 0 ? <span className="block text-[11px] font-normal text-signal-rose-ink">{fmt(line.hold_qty)} on hold</span> : null}</td>
+        <td className={cn("num align-top max-sm:block sm:hidden 2xl:table-cell", PHONE_LABEL)} data-label="Released">{fmt(line.released_qty)}</td>
+        <td className={cn("num align-top max-sm:block sm:hidden 2xl:table-cell", PHONE_LABEL)} data-label="Made">{jobs.length ? fmt(Math.max(made, Number(line.fulfilled_qty || 0))) : "—"}</td>
+        <td className={cn("num align-top max-sm:block sm:hidden 2xl:table-cell", PHONE_LABEL)} data-label="Dispatched">{fmt(line.fulfilled_qty)}</td>
+        <td className={cn("align-top max-sm:col-span-4", PHONE_LABEL)} data-label="Job cards">
           {jobs.length ? (
             <span className="flex flex-col gap-1">
               {jobs.map((job) => (
                 <span key={job.id} className="flex flex-wrap items-center gap-1.5">
-                  <button type="button" onClick={() => onOpenCard(String(job.id))} className="text-left hover:text-primary"><JobCardNo job={job} /></button>
+                  <button type="button" onClick={() => onOpenCard(String(job.id))} className="inline-flex min-h-11 items-center text-left hover:text-primary sm:min-h-0"><JobCardNo job={job} /></button>
                   <LifecycleBadge state={lifecycleFromSummary(job)} />
                   <QcFlagChip runs={Number(job.qc_flagged_runs || 0)} />
                 </span>
@@ -527,13 +565,14 @@ function LineRow({ line, jobs, lifecycleById, editable, onOpenCard, onRelease }:
             </span>
           ) : <span className="text-muted-foreground">—</span>}
         </td>
-        <td className="whitespace-nowrap text-right align-top">
-          {onRelease ? <button type="button" className="text-[12px] font-semibold text-primary hover:underline" onClick={onRelease}>Release {fmt(line.release_remaining_qty)}</button> : null}
-          {line.parchment_required && editable ? <button type="button" className="ml-3 inline-flex items-center gap-1 text-[12px] font-semibold text-muted-foreground hover:text-foreground" onClick={() => setEditing((value) => !value)}><Palette className="h-3.5 w-3.5" />{editing ? "Close" : "Colours"}</button> : null}
+        {/* Release and Colours stack until 2xl, so the column stays narrow and nothing is cut at 1280. */}
+        <td className="text-right align-top max-sm:col-span-4 max-sm:flex max-sm:flex-wrap max-sm:gap-2 max-sm:text-left sm:[&>button]:flex sm:[&>button]:ml-auto sm:[&>button]:min-h-9 sm:[&>button]:whitespace-nowrap 2xl:whitespace-nowrap 2xl:[&>button]:inline-flex">
+          {onRelease ? <button type="button" className="text-[12px] font-semibold text-primary hover:underline max-sm:inline-flex max-sm:min-h-11 max-sm:items-center max-sm:rounded-md max-sm:bg-primary max-sm:px-3 max-sm:text-[13px] max-sm:text-primary-foreground max-sm:hover:no-underline" onClick={onRelease}>Release {fmt(line.release_remaining_qty)}</button> : null}
+          {line.parchment_required && editable ? <button type="button" className="inline-flex items-center gap-1 text-[12px] font-semibold text-muted-foreground hover:text-foreground 2xl:ml-3 max-sm:ml-0 max-sm:min-h-11 max-sm:rounded-md max-sm:border max-sm:border-border max-sm:px-3" onClick={() => setEditing((value) => !value)}><Palette className="h-3.5 w-3.5" />{editing ? "Close" : "Colours"}</button> : null}
         </td>
       </tr>
       {editing ? (
-        <tr className="sub-row"><td colSpan={9} className="!px-4 !py-3">
+        <tr className="sub-row max-sm:block"><td colSpan={10} className="!px-4 !py-3 max-sm:block">
           {Number(line.qty || 0) > 0 && splits.length ? (
             <div className="mb-2 flex h-2.5 overflow-hidden rounded-full bg-muted">
               {splits.map((split) => <div key={split.color} className="h-full" title={`${split.color}: ${fmt(split.qty)}`} style={{ width: `${(Number(split.qty) / Number(line.qty)) * 100}%`, background: swatchFor(split.color) }} />)}
@@ -557,7 +596,7 @@ function CardBlock({ job, jobs, lifecycle, onManage }: { job: any; jobs: any[]; 
   return (
     <article className="rounded-lg border border-border bg-[hsl(var(--surface-2))] px-3 py-2.5" data-testid={`sales-order:card-${job.job_card_no || job.id}`}>
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
-        <Link href={`/production/job-cards/${job.id}`} className="hover:text-primary"><JobCardNo job={job} className="text-[15px]" /></Link>
+        <Link href={`/production/job-cards/${job.id}`} className="inline-flex min-h-11 items-center hover:text-primary sm:min-h-0"><JobCardNo job={job} className="text-[15px]" /></Link>
         <LifecycleBadge state={state} />
         <span className="text-[12.5px] text-muted-foreground">{fmt(job.planned_qty)} pcs{job.target_bamboo_count ? ` · ${fmt(job.target_bamboo_count)} bamboo` : ""}{lifecycle ? ` · made ${fmt(lifecycle.made_qty)}` : ""}</span>
         {job.parchment_color ? <ColorChip color={job.parchment_color} /> : null}
@@ -568,12 +607,12 @@ function CardBlock({ job, jobs, lifecycle, onManage }: { job: any; jobs: any[]; 
         <span className="ml-auto flex flex-wrap items-center justify-end gap-1">
           {open ? (
             <>
-              <Link href={`/production/job-cards/${job.id}?log=output`} className="erp-btn-secondary !h-7 !px-2 !text-[12px]"><Factory className="h-3.5 w-3.5" />Log output</Link>
-              <Link href={`/production/job-cards/${job.id}?log=qc`} className="erp-btn-secondary !h-7 !px-2 !text-[12px]"><ClipboardCheck className="h-3.5 w-3.5" />Log QC</Link>
+              <Link href={`/production/job-cards/${job.id}?log=output`} className="erp-btn-secondary !h-11 sm:!h-7 !px-2 !text-[12px]"><Factory className="h-3.5 w-3.5" />Log output</Link>
+              <Link href={`/production/job-cards/${job.id}?log=qc`} className="erp-btn-secondary !h-11 sm:!h-7 !px-2 !text-[12px]"><ClipboardCheck className="h-3.5 w-3.5" />Log QC</Link>
             </>
           ) : null}
-          <Link href={`/production/job-cards/${job.id}`} className="erp-btn-secondary !h-7 !px-2 !text-[12px]"><ExternalLink className="h-3.5 w-3.5" />Open</Link>
-          <button type="button" onClick={onManage} className="erp-btn-secondary !h-7 !px-2 !text-[12px]" title="Split, edit qty / colour, force close, cancel"><Settings2 className="h-3.5 w-3.5" />Manage</button>
+          <Link href={`/production/job-cards/${job.id}`} className="erp-btn-secondary !h-11 sm:!h-7 !px-2 !text-[12px]"><ExternalLink className="h-3.5 w-3.5" />Open</Link>
+          <button type="button" onClick={onManage} className="erp-btn-secondary !h-11 sm:!h-7 !px-2 !text-[12px]" title="Split, edit qty / colour, force close, cancel"><Settings2 className="h-3.5 w-3.5" />Manage</button>
         </span>
       </div>
       {job.blocked_reason ? <p className="mt-2 rounded-md border border-signal-rose-line bg-signal-rose-soft px-2.5 py-1.5 text-[12.5px] text-signal-rose-ink"><PauseCircle className="mr-1 inline h-3.5 w-3.5" />{job.blocked_reason}</p> : null}
@@ -652,8 +691,8 @@ function DeliveryPlan({ order, items, revision, loading, failed, totals }: { ord
               {unscheduled.map(({ line, qty }: any) => (
                 <tr key={`due-${line.id}`} className="bg-[hsl(var(--surface-2))]">
                   <td className="text-muted-foreground">—</td>
-                  <td className="whitespace-nowrap font-semibold tabular-nums">{formatShortDate(line.due_date)}</td>
-                  <td className="text-muted-foreground">L{line.line_no} · no call-off yet (line date)</td>
+                  <td className="whitespace-nowrap font-semibold tabular-nums">{line.due_date ? formatShortDate(line.due_date) : <span className="font-normal text-muted-foreground">No date</span>}</td>
+                  <td className="text-muted-foreground">L{line.line_no} · no call-off yet{line.due_date ? " (line date)" : ""}</td>
                   <td className="num">{fmt(qty)}</td><td className="num">—</td><td className="num font-semibold">{fmt(qty)}</td><td><Chip size="xs">whole line due</Chip></td>
                 </tr>
               ))}
@@ -667,8 +706,8 @@ function DeliveryPlan({ order, items, revision, loading, failed, totals }: { ord
                 <label className="grid gap-0.5 text-[11px] text-muted-foreground">Shift all open call-offs by days
                   <input type="number" step="1" value={shift} onChange={(event) => { setShift(event.target.value); setShiftPreview(null) }} className="h-8 w-28 rounded-md border border-input bg-card px-2 text-[12.5px] text-foreground" />
                 </label>
-                <button type="button" onClick={() => void runShift(true)} disabled={!shift || move.isPending} className="erp-btn-secondary !h-8">Preview date shift</button>
-                <button type="button" onClick={() => void runShift(false)} disabled={!shiftPreview?.moved?.length || move.isPending} className="erp-btn-primary !h-8">Save date shift</button>
+                <button type="button" onClick={() => void runShift(true)} disabled={!shift || move.isPending} className="erp-btn-secondary !h-11 sm:!h-8">Preview date shift</button>
+                <button type="button" onClick={() => void runShift(false)} disabled={!shiftPreview?.moved?.length || move.isPending} className="erp-btn-primary !h-11 sm:!h-8">Save date shift</button>
               </div>
               {shiftPreview ? (
                 <div className="mt-2 space-y-0.5 text-[12px]" data-testid="delivery-shift-preview" aria-live="polite">
@@ -739,8 +778,8 @@ function ColorEditor({ line, onDone }: { line: any; onDone: () => void }) {
       </div>
       <p className="text-[11.5px] text-muted-foreground">A colour cannot go below what is already released in it. Released colours are locked here — force-close their job card to change them.</p>
       <div className="flex justify-end gap-2">
-        <button type="button" className="erp-btn-secondary !h-8" onClick={onDone}>Cancel</button>
-        <button type="button" className="erp-btn-primary !h-8" disabled={over || update.isPending} onClick={() => void save()}>{update.isPending ? "Saving…" : "Save colours"}</button>
+        <button type="button" className="erp-btn-secondary !h-11 sm:!h-8" onClick={onDone}>Cancel</button>
+        <button type="button" className="erp-btn-primary !h-11 sm:!h-8" disabled={over || update.isPending} onClick={() => void save()}>{update.isPending ? "Saving…" : "Save colours"}</button>
       </div>
     </div>
   )

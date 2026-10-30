@@ -115,7 +115,7 @@ function StageColumn({ data, stage, winderTotal }: { data: JobCardLifecycle; sta
           </div>
         </div>
       ) : (
-        <p className="mt-2 text-[12.5px] text-muted-foreground">Put the card on the schedule to start logging.</p>
+        <p className="mt-2 text-[12.5px] text-muted-foreground">Quick logging here starts once the stage has a planned slot. The card form below takes the stage now — it is saved and flagged as run before planning.</p>
       )}
       {stage.running_entries.length ? (
         <ul className="mt-3 max-h-36 space-y-1 overflow-y-auto border-t border-border pt-2">

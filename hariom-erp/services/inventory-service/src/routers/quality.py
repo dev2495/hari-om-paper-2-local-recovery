@@ -55,6 +55,7 @@ from ..models import (
 from ..quality_eval import evaluate_incoming, evaluate_incoming_quality, submission_error, non_waivable_release_detail
 from ..quality_templates import ALLOWED_MATERIAL_TYPES
 from ..services import get_batch_balance
+from ..services.books import assert_books_open, ist_today
 from ..utils.auth import authorized_plant_ids, get_current_plant, get_current_plant_scope, require_role
 
 router = APIRouter(prefix="/inventory/quality", tags=["inventory-quality"])
@@ -424,6 +425,8 @@ class PendingQualityItem(BaseModel):
     uom: str = "KG"
     due_at: Optional[datetime] = None
     overdue: bool = False
+    # OPENING_LOAD: an opening-stock lot put on hold at go-live (no 24 h inward clock); else None.
+    origin: Optional[str] = None
     item_id: Optional[uuid.UUID] = None
     quality_profile: Optional[dict[str, Any]] = None
 
@@ -662,6 +665,18 @@ def upsert_quality_template(
     return _template_response(row)
 
 
+def _opening_hold(entity: Any) -> Optional[dict[str, Any]]:
+    """An opening-stock lot put on hold at go-live: not a delivery, so no 24 h inward clock. The queue
+    names it "Opening stock · on hold: <reason>" instead of a supplier and an overdue badge."""
+    meta = getattr(entity, "inward_metadata", None) or {}
+    if str(meta.get("source") or "") != "OPENING_LOAD":
+        return None
+    reason = str(meta.get("hold_reason") or "").strip()
+    # source stays INWARD (the inspection is an incoming one); origin tells the queue it is opening stock.
+    return {"source": "INWARD", "origin": "OPENING_LOAD", "due_at": None, "overdue": False,
+            "supplier_or_customer": f"Opening stock · on hold: {reason}" if reason else "Opening stock · on hold"}
+
+
 def _incoming_deadline(created_at):
     if created_at is None:
         return {"due_at": None, "overdue": False}
@@ -699,11 +714,9 @@ def list_pending_quality(
                 material_type=_material_type_for_item(item) if item else "OTHER",
                 stock_status=batch.stock_status,
                 qty=float(balances.get(batch.id) or 0.0),
-                supplier_or_customer=batch.supplier_name_snapshot,
                 created_at=batch.created_at,
                 uom=str(getattr(item.uom, "value", item.uom)) if item else "KG",
-                **_incoming_deadline(batch.created_at),
-                source="INWARD",
+                **(_opening_hold(batch) or {"supplier_or_customer": batch.supplier_name_snapshot, "source": "INWARD", **_incoming_deadline(batch.created_at)}),
                 item_id=item.id if item else None,
                 quality_profile=_effective_profile(item, batch),
                 plant_id=str(batch.plant_id) if batch.plant_id else None,
@@ -732,10 +745,8 @@ def list_pending_quality(
                     material_type=_material_type_for_item(paper) if paper else "RAW_PAPER",
                     stock_status=reel.stock_status,
                     qty=float(reel.current_weight_kg or 0.0),
-                    supplier_or_customer=reel.supplier_name_snapshot or reel.supplier_name,
                     created_at=reel.created_at,
-                    **_incoming_deadline(reel.created_at),
-                    source="INWARD",
+                    **(_opening_hold(reel) or {"supplier_or_customer": reel.supplier_name_snapshot or reel.supplier_name, "source": "INWARD", **_incoming_deadline(reel.created_at)}),
                     item_id=paper.id if paper else getattr(reel, "paper_id", None),
                     quality_profile=_effective_profile(paper, reel),
                     plant_id=str(reel.plant_id) if reel.plant_id else None,
@@ -829,6 +840,8 @@ def _annotate_pending_rows(db: Session, rows: list[PendingQualityItem]) -> None:
             .join(SupplierInvoiceLine, SupplierInvoiceLine.id == ReceiptInvoiceAllocation.invoice_line_id)
             .join(SupplierInvoice, SupplierInvoice.id == SupplierInvoiceLine.invoice_id)
             .filter(ReceiptInvoiceAllocation.receipt_line_id.in_(list(lines)))
+            # A challan-rate placeholder (invoice still pending) is not a supplier invoice.
+            .filter(SupplierInvoice.status != "PENDING")
             .all()
         ):
             invoice_nos.setdefault(receipt_line_id, invoice_no)
@@ -959,7 +972,9 @@ def return_rejected_lot_to_supplier(
             },
         )
 
-    today = date.today()
+    # Sent back today (IST); a supplier return cannot land in a closed month (spec 2.5).
+    today = ist_today()
+    assert_books_open(db, plant_id, today)
     now = datetime.utcnow()
     allocation = (
         db.query(ReceiptStockAllocation)
@@ -983,7 +998,7 @@ def return_rejected_lot_to_supplier(
     }
 
     if payload.entity_type == "BATCH":
-        quantity = float(get_batch_balance(db, entity.id) or 0.0)
+        quantity = float(get_batch_balance(str(entity.id), db) or 0.0)
         if quantity <= 0:
             raise HTTPException(status_code=409, detail={"code": "NOTHING_TO_RETURN", "message": "This lot has no remaining quantity."})
         db.add(
@@ -1144,7 +1159,7 @@ def create_quality_inspection(
             db.query(StockTransaction)
             .filter(
                 StockTransaction.batch_id == batch.id,
-                StockTransaction.transaction_type == TransactionType.INWARD,
+                StockTransaction.transaction_type.in_((TransactionType.INWARD, TransactionType.OPENING)),
             )
             .order_by(StockTransaction.created_at.asc())
             .first()
@@ -1264,7 +1279,7 @@ def create_quality_inspection(
                 .filter(
                     StockTransaction.batch_id == batch.id,
                     StockTransaction.stock_status == "QC_HOLD",
-                    StockTransaction.transaction_type == TransactionType.INWARD,
+                    StockTransaction.transaction_type.in_(_LOT_RECEIPT_TXN_TYPES),
                 )
                 .all()
             ):
@@ -1276,7 +1291,7 @@ def create_quality_inspection(
                 .filter(
                     StockTransaction.batch_id == batch.id,
                     StockTransaction.stock_status == "QC_HOLD",
-                    StockTransaction.transaction_type == TransactionType.INWARD,
+                    StockTransaction.transaction_type.in_(_LOT_RECEIPT_TXN_TYPES),
                 )
                 .all()
             ):
@@ -1348,7 +1363,7 @@ def create_quality_inspection(
         elif status in {"PASS", "NOT_REQUIRED"} and _open_entity_holds(db, plant_id=plant_id, entity_type=payload.entity_type, entity_id=payload.entity_id):
             entity.stock_status = "QC_HOLD"
             if batch:
-                for txn in db.query(StockTransaction).filter_by(batch_id=batch.id, transaction_type=TransactionType.INWARD).all():
+                for txn in db.query(StockTransaction).filter(StockTransaction.batch_id == batch.id, StockTransaction.transaction_type.in_(_LOT_RECEIPT_TXN_TYPES)).all():
                     if txn.stock_status == "UNRESTRICTED":
                         txn.stock_status = "QC_HOLD"
         stock_status = entity.stock_status
@@ -1422,13 +1437,19 @@ def _concession_scope_metadata(payload: QualityConcessionCreate, expires_at: Opt
     }
 
 
+# Ledger rows that bring a lot into store and carry its QC status: a GRN (INWARD), an opening load
+# put on hold (OPENING) and a count/correction lot added on QC hold (ADJUSTMENT). A QC decision
+# re-statuses all of them, or the status-split ledger (usable vs held) disagrees with the lot.
+_LOT_RECEIPT_TXN_TYPES = (TransactionType.INWARD, TransactionType.OPENING, TransactionType.ADJUSTMENT)
+
+
 def _set_inward_txn_status(db: Session, *, batch: StockBatch, status: str) -> None:
     for txn in (
         db.query(StockTransaction)
         .filter(
             StockTransaction.batch_id == batch.id,
             StockTransaction.stock_status == "QC_HOLD",
-            StockTransaction.transaction_type == TransactionType.INWARD,
+            StockTransaction.transaction_type.in_(_LOT_RECEIPT_TXN_TYPES),
         )
         .all()
     ):
@@ -1954,11 +1975,14 @@ def consume_destructive_sample(
     balance = get_batch_balance(str(batch.id), db)
     if float(payload.qty) - balance > 1e-9:
         raise HTTPException(status_code=400, detail="Destructive sample exceeds remaining batch quantity")
+    # Dated by the IST business day (the server clock is UTC); a closed month refuses it.
+    sample_day = ist_today()
+    assert_books_open(db, plant_id, sample_day)
     txn = StockTransaction(
         item_id=batch.item_id,
         batch_id=batch.id,
         transaction_type=TransactionType.ADJUSTMENT,
-        effective_date=date.today(),
+        effective_date=sample_day,
         qty_change=-float(payload.qty),
         reference_type=ReferenceType.ADJUSTMENT,
         reference_id=inspection.id,
@@ -2403,7 +2427,10 @@ def dispose_customer_rejection(
         target_stock_status = rejection.status
     else:
         target_stock_status = stock_status_for_disposition(payload.disposition)
-    effective_date_value = payload.effective_date or date.today()
+    effective_date_value = payload.effective_date or ist_today()
+    if rejection.batch_id:
+        # The disposition moves or scraps stock: not inside a closed month (spec 2.5).
+        assert_books_open(db, plant_id, effective_date_value)
     computed_scrap_cost: Optional[float] = None
     if rejection.batch_id:
         batch = db.query(StockBatch).filter(StockBatch.id == rejection.batch_id, StockBatch.plant_id == plant_id).with_for_update().populate_existing().first()

@@ -152,7 +152,7 @@ export function PlanningPrintSheet({ data, selection, plantLabel, printedAt }: {
                         <td className={cell}>{slot.parchment_color || "—"}</td>
                         <td className={cn(cell, "text-right font-bold tabular-nums")}>{fmtNum(slot.planned_qty, 1)}</td>
                         <td className={cn(cell, "text-right tabular-nums")}>{fmtNum(slot.planned_pcs)}</td>
-                        <td className={cn(cell, "whitespace-nowrap tabular-nums")}>{fmtDay(slot.due_date)}</td>
+                        <td className={cn(cell, "whitespace-nowrap tabular-nums")}>{slot.due_date ? fmtDay(slot.due_date) : "No date"}</td>
                         <td className={cell}>{made > 0 ? <span className="text-[9.5px] tabular-nums">{fmtNum(made, 1)} logged</span> : null}</td>
                         <td className={cell} />
                       </tr>

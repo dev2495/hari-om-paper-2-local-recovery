@@ -104,7 +104,7 @@ export function HistoryTab({ card }: { card: any }) {
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3">
         <h3 className="text-[14px] font-semibold">History &amp; audit</h3>
         <span className="hidden text-[12px] text-muted-foreground sm:inline">released, planned, runs logged / edited / voided, QC and flags, holds, closes, splits, edits, dispatch — who, when, before → after</span>
-        <Button size="sm" variant="outline" className="ml-auto" disabled={exporting || !shown.length} onClick={() => void exportExcel()} data-testid="history-export">
+        <Button size="sm" variant="outline" className="ml-auto min-h-11 sm:min-h-0" disabled={exporting || !shown.length} onClick={() => void exportExcel()} data-testid="history-export">
           <Download className="h-3.5 w-3.5" /> {exporting ? "Exporting…" : "Export"}
         </Button>
       </div>

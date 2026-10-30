@@ -34,19 +34,26 @@ async function loginAsAdmin(page) {
   )
 }
 
-test("sidebar approval card is removed and reconciliation actual rows are live", async ({ page }) => {
+test("sidebar approval card is removed and month-end close replaces the old reconciliation pages", async ({ page }) => {
   await loginAsAdmin(page)
 
   await page.goto("/dashboard", { waitUntil: "domcontentloaded" })
   await expect(page.getByText(/approval inbox/i)).toHaveCount(0)
   await expect(page.getByText(/Track pending specs/i)).toHaveCount(0)
 
+  // Month-end close (client 2026-10-28): one page; Usage limits is its only sub-page.
   await page.goto("/production/reconciliation", { waitUntil: "domcontentloaded" })
-  await expect(page.getByTestId("reconciliation-page")).toBeVisible()
-  await page.getByRole("link", { name: "Actual entry", exact: true }).click()
-  await expect(page).toHaveURL(/reconciliation\/actuals/)
-  await expect(page.getByRole("heading", { name: "Monthly material actuals" })).toBeVisible()
-  await expect(page.getByText("No material rows found for this month/filter.")).toHaveCount(0)
-  const liveRow = page.locator("table tbody tr, [data-testid*='actual'] tbody tr").first()
-  await expect(liveRow, "Reconciliation actuals must show a live material row from the isolated stack").toBeVisible()
+  await expect(page.getByTestId("month-end-close-page")).toBeVisible()
+  await expect(page.getByRole("link", { name: "Actual entry", exact: true })).toHaveCount(0)
+  await page.locator(".tube-subnav").getByRole("link", { name: "Usage limits", exact: true }).click()
+  await expect(page).toHaveURL(/\/production\/reconciliation\/limits/)
+  await expect(page.getByTestId("usage-limits-page")).toBeVisible()
+
+  // Old bookmarks still land on the right tab.
+  await page.goto("/production/reconciliation/actuals?month=2026-09", { waitUntil: "domcontentloaded" })
+  await expect(page).toHaveURL(/\/production\/reconciliation\?tab=month&month=2026-09/)
+  await page.goto("/production/reconciliation/history", { waitUntil: "domcontentloaded" })
+  await expect(page).toHaveURL(/\/production\/reconciliation\?tab=past/)
+  await page.goto("/system/tolerances", { waitUntil: "domcontentloaded" })
+  await expect(page).toHaveURL(/\/production\/reconciliation\/limits/)
 })

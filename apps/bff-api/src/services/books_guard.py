@@ -248,8 +248,8 @@ async def assert_not_backdated(
     effective_date: Any = None,
     date_field: Any = None,
 ) -> None:
-    """Reject the request with HTTP 422 if effective_date (or date) falls in
-    a period that has been monthly-close APPROVED.
+    """Reject the request with HTTP 409 BOOKS_LOCKED if effective_date (or date) falls in
+    a CLOSED month: the same body inventory and production send ({code, message, month}).
 
     Args:
         token: Bearer JWT.
@@ -291,6 +291,24 @@ async def assert_not_backdated(
     state = await fetch_books_state(token, plant_id)
     if not state:
         return
+    # Exactly the CLOSED months are locked (spec 2.5). Older production builds only send
+    # locked_through, which locked everything up to the latest close.
+    locked_months = state.get("locked_months")
+    if isinstance(locked_months, list):
+        candidate_month = candidate_date.strftime("%Y-%m")
+        if candidate_month not in {str(value)[:7] for value in locked_months}:
+            return
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "BOOKS_LOCKED",
+                "message": f"{_month_label(candidate_date)} is closed. Ask the owner to re-open it.",
+                "month": candidate_month,
+                "candidate_date": candidate_date.isoformat(),
+                "locked_by": state.get("locked_by"),
+                "locked_at": state.get("locked_at"),
+            },
+        )
     locked_through_raw = state.get("locked_through")
     locked_through = _parse_iso_date(locked_through_raw)
     if not locked_through:
@@ -298,19 +316,44 @@ async def assert_not_backdated(
 
     if candidate_date <= locked_through:
         raise HTTPException(
-            status_code=422,
+            status_code=409,
             detail={
                 "code": "BOOKS_LOCKED",
-                "message": (
-                    f"Cannot write with effective_date {candidate_date.isoformat()} — "
-                    f"books are locked through {locked_through.isoformat()}."
-                ),
+                "message": f"{_month_label(candidate_date)} is closed. Ask the owner to re-open it.",
+                "month": candidate_date.strftime("%Y-%m"),
                 "locked_through": locked_through.isoformat(),
                 "candidate_date": candidate_date.isoformat(),
                 "locked_by": state.get("locked_by"),
                 "locked_at": state.get("locked_at"),
             },
         )
+
+
+_MONTH_NAMES = (
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+)
+
+
+def _month_label(value: DateT) -> str:
+    return f"{_MONTH_NAMES[value.month - 1]} {value.year}"
+
+
+def books_locked_body(body: Any) -> Optional[dict[str, Any]]:
+    """The one public body of a closed-month refusal, or None when `body` is not one.
+
+    The BFF guard refuses with a top-level {code, message, month, ...}; inventory and production
+    refuse with FastAPI's {"detail": {code, message, month}}, which the proxies pass through. Every
+    BOOKS_LOCKED that leaves the BFF carries both: the fields at the top level and the same dict as
+    `detail`, so `data.code`, `data.message`, `data.detail.code` and `data.detail.message` all work.
+    """
+    if not isinstance(body, dict):
+        return None
+    inner = body.get("detail") if isinstance(body.get("detail"), dict) else body
+    if inner.get("code") != "BOOKS_LOCKED":
+        return None
+    fields = {key: value for key, value in inner.items() if key != "detail"}
+    return {**fields, "detail": dict(fields)}
 
 
 async def invalidate_books_cache(plant_id: Optional[str] = None) -> None:

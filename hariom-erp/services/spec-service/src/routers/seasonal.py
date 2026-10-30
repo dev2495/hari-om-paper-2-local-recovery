@@ -1179,7 +1179,8 @@ def release_readiness(spec_id: uuid.UUID,db: Session=Depends(get_db),plant: dict
 
 
 @router.post("/specs/{spec_id}/release-authorizations")
-def authorize_release(spec_id: uuid.UUID,payload: Authorize,db: Session=Depends(get_db),plant: str=Depends(get_current_plant),user: dict=Depends(require_role(["Owner","Admin","Planner","PlantManager"]))):
+def authorize_release(spec_id: uuid.UUID,payload: Authorize,db: Session=Depends(get_db),plant: str=Depends(get_current_plant),user: dict=Depends(require_role(["Owner","Admin","Planner","PlantManager","Sales"]))):
+    # Sales releases fully (user answer 30 Oct 2026): a Sales release makes the job card at once.
     prior=db.query(ReleaseAuthorization).filter_by(plant_id=plant,operation_key=payload.request_id).first()
     request_hash=fingerprint({"spec_id":str(spec_id),**payload.model_dump(mode="json")})
     if prior:

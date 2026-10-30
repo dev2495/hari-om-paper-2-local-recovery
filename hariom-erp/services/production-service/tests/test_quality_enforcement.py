@@ -209,18 +209,30 @@ class QualityEnforcementTests(unittest.TestCase):
             actor_role="Owner",
         )
 
-    def test_qc10_inline_out_of_range_final_qc_cannot_bypass(self):
+    def test_qc10_inline_out_of_range_final_qc_is_flagged_not_refused(self):
+        # User 2026-10-30 (decision 8): old-form Final QC out of band saves with a flag, as on V2 cards;
+        # no Owner/Admin override is needed. The gate hands back the readings to flag.
         job_card = SimpleNamespace(id=uuid.uuid4(), spec_snapshot=_spec_snapshot())
-        with self.assertRaises(HTTPException) as exc:
-            self._gate()(
-                db=_InspectionSession([]),
-                plant_id=PLANT_ID,
-                job_card=job_card,
-                selected_stage="QC",
-                quality_checks={**_full_spec_readings(), "od": 180},
-                override_reason=None,
-            )
-        self.assertEqual(exc.exception.status_code, 400)
+        flags = self._gate()(
+            db=_InspectionSession([]),
+            plant_id=PLANT_ID,
+            job_card=job_card,
+            selected_stage="QC",
+            quality_checks={**_full_spec_readings(), "od": 180},
+            override_reason=None,
+        )
+        self.assertEqual([row["label"] for row in flags], ["OD"])
+        self.assertIsNone(self._gate()(
+            db=_InspectionSession([]), plant_id=PLANT_ID, job_card=job_card, selected_stage="QC",
+            quality_checks=_full_spec_readings(), override_reason=None,
+        ))
+
+    def test_flagged_old_form_final_qc_counts_as_the_final_record(self):
+        job = SimpleNamespace(id=uuid.uuid4(), spec_snapshot=_spec_snapshot())
+        flagged = SimpleNamespace(status="FAIL", readings={**_full_spec_readings(), "od": 180}, evaluation={"flagged_not_held": True})
+        self.assertTrue(planning._final_spec_qc_passed(db=_InspectionSession([flagged]), plant_id=PLANT_ID, job_card=job))
+        partial = SimpleNamespace(status="FAIL", readings={"od": 180}, evaluation={"flagged_not_held": True})
+        self.assertFalse(planning._final_spec_qc_passed(db=_InspectionSession([partial]), plant_id=PLANT_ID, job_card=job))
 
     def test_qc10_fail_inspection_does_not_satisfy_final_qc_gate(self):
         job_card = SimpleNamespace(id=uuid.uuid4(), spec_snapshot=_spec_snapshot())

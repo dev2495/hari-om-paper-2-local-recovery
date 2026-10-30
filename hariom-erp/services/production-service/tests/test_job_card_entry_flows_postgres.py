@@ -164,7 +164,7 @@ def test_whole_card_entered_at_once_in_route_order_completes_the_job(db):
     _preassign(db, job, 'PACKING', PACK)
     _enter(db, job, 'WINDER', 250, input_qty=250)
     _enter(db, job, 'OVEN', 248, input_qty=250)
-    _enter(db, job, 'PROCESS', 1980, scrap_qty=4)
+    _enter(db, job, 'PROCESS', 1980, scrap_qty=4, entry_snapshot={'reject_reason': 'Crushed ends'})  # rejects need a reason
     _enter(db, job, 'PACKING', 1980)  # this route has no QC stage, so packing closes the card
     db.refresh(job)
     assert [(_stage(db, job, stage).status) for stage in ROUTE] == ['COMPLETED'] * 4
@@ -419,7 +419,7 @@ def _planned_whole_route(db):
 def test_whole_card_batch_saves_every_stage_in_one_go(db):
     job = _planned_whole_route(db)
     result = _batch(db, job, [_entry('WINDER', 250, input_qty=250), _entry('OVEN', 248, input_qty=250),
-                              _entry('PROCESS', 1980, scrap_qty=4), _entry('PACKING', 1980)], request_id='card-1')
+                              _entry('PROCESS', 1980, scrap_qty=4, entry_snapshot={'reject_reason': 'Crushed ends'}), _entry('PACKING', 1980)], request_id='card-1')
     assert result['saved_stages'] == ROUTE and result['external_pending'] == []
     db.refresh(job)
     assert job.current_stage == 'DONE' and all(_stage(db, job, stage).status == 'COMPLETED' for stage in ROUTE)
@@ -433,7 +433,7 @@ def test_whole_card_batch_saves_nothing_when_a_later_stage_is_rejected(db):
     bad_oven = _entry('OVEN', 248, input_qty=250, entry_snapshot={'pre_weight': 3300})  # moisture missing
     with pytest.raises(HTTPException) as error:
         _batch(db, job, [_entry('WINDER', 250), bad_oven, _entry('PROCESS', 1980)])
-    assert error.value.detail.startswith('OVEN:') and 'Nothing on this card was saved' in error.value.detail
+    assert error.value.detail.startswith('Oven:') and 'Nothing on this card was saved' in error.value.detail
     db.expire_all()
     assert _stage(db, job, 'WINDER').status != 'COMPLETED'
     assert db.get(JobCard, job.id).current_stage == 'WINDER'

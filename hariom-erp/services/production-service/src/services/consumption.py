@@ -505,3 +505,293 @@ def summarize_streams(rows: list[ConsumptionStreams]) -> dict[str, Any]:
     ):
         totals[k] = round(totals[k], 4 if "cost" not in k else 2)
     return totals
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Month-end close maths (spec 2.1 / 2.2, client 2026-10-28)
+#
+# Store figures come from inventory month-figures (every number in the item's own stock unit):
+#   Closing = Opening + Received − Sent back − Issued + Corrections   (Received includes opening loads)
+#   Actual used = Opening + Received − Sent back − Closing = Issued − Corrections
+# Spec is BOM × good output posted at the card's final close; Expected = Spec × (1 + normal wastage %).
+#   Floor gap = Issued − Expected     (the floor used more / less than spec + wastage)
+#   Store gap = Actual used − Issued  (= −Corrections: shortage / excess found by counts)
+#   Total gap = Actual used − Expected = Floor gap + Store gap
+# Status is NOT_KNOWN until the month-end count is approved; the running month shows the floor gap only.
+# Totals group by unit: a kg total never includes pieces.
+# ──────────────────────────────────────────────────────────────────────────
+
+from datetime import datetime, timezone  # noqa: E402
+from zoneinfo import ZoneInfo  # noqa: E402
+
+IST = ZoneInfo("Asia/Kolkata")
+MONTH_NAMES = (
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+)
+STORE_FIGURE_KEYS = ("opening", "received", "opening_loads", "sent_back", "issued", "corrections", "count_variance", "closing")
+UNIT_TOTAL_KEYS = (
+    "opening", "received", "opening_loads", "sent_back", "issued", "corrections", "count_variance", "closing",
+    "actual_used", "spec", "expected", "floor_gap", "store_gap", "total_gap",
+)
+_UNIT_ALIASES = {
+    "KGS": "KG", "KILOGRAM": "KG", "KILOGRAMS": "KG", "KG.": "KG",
+    "PC": "PCS", "PCE": "PCS", "PIECE": "PCS", "PIECES": "PCS", "NOS": "PCS", "NO": "PCS", "NO.": "PCS", "EA": "PCS",
+    "LTR": "L", "LTRS": "L", "LITRE": "L", "LITRES": "L", "LITER": "L", "LITERS": "L",
+    "MTR": "M", "MTRS": "M", "METRE": "M", "METRES": "M",
+}
+_UNIT_LABELS = {"KG": "kg", "PCS": "pcs", "L": "litre", "M": "m", "G": "g", "TON": "tonne", "MT": "tonne"}
+
+
+def ist_today() -> date:
+    return datetime.now(IST).date()
+
+
+def ist_day(value: Any) -> date:
+    """IST calendar day of a naive-UTC server timestamp (a plain date is already a business day)."""
+    if value is None:
+        return ist_today()
+    if isinstance(value, datetime):
+        aware = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return aware.astimezone(IST).date()
+    return value
+
+
+def month_key(month: date) -> str:
+    return f"{month.year:04d}-{month.month:02d}"
+
+
+def month_label(month: date) -> str:
+    """"October 2026"."""
+    return f"{MONTH_NAMES[month.month - 1]} {month.year}"
+
+
+def last_day_of_month(month: date) -> date:
+    return next_month_start(month.replace(day=1)) - timedelta(days=1)
+
+
+def financial_year_start(month: date) -> date:
+    """1 April of the financial year a month belongs to (Jan–Mar belong to the year that began last April)."""
+    return date(month.year if month.month >= 4 else month.year - 1, 4, 1)
+
+
+def financial_year_label(month: date) -> str:
+    """"2026-27" for any month from April 2026 to March 2027."""
+    start = financial_year_start(month)
+    return f"{start.year}-{(start.year + 1) % 100:02d}"
+
+
+def parse_financial_year(value: str) -> date:
+    """1 April of a "2026-27" (or "2026") label; ValueError otherwise."""
+    text = str(value or "").strip()
+    head = text.split("-")[0]
+    if len(head) != 4 or not head.isdigit():
+        raise ValueError("Give the financial year as 2026-27.")
+    year = int(head)
+    if "-" in text:
+        tail = text.split("-", 1)[1]
+        if not tail.isdigit() or int(tail) % 100 != (year + 1) % 100:
+            raise ValueError("Give the financial year as 2026-27.")
+    return date(year, 4, 1)
+
+
+def normalize_uom(value: Any) -> str:
+    """The stock unit key used for grouping ("KG", "PCS", "L" …); blank means kg (paper and adhesive)."""
+    key = str(value or "").strip().upper()
+    if not key:
+        return "KG"
+    return _UNIT_ALIASES.get(key, key)
+
+
+def unit_label(uom: Any) -> str:
+    key = normalize_uom(uom)
+    return _UNIT_LABELS.get(key, key.lower())
+
+
+def _num(value: Any) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return number if number == number else 0.0  # NaN → 0
+
+
+def _r3(value: Optional[float]) -> Optional[float]:
+    if value is None:
+        return None
+    rounded = round(float(value), 3)
+    return 0.0 if rounded == 0 else rounded
+
+
+def store_identity_ok(figures: dict[str, Any], tolerance: float = 0.0005) -> bool:
+    """Closing = Opening + Received − Sent back − Issued + Corrections, to 3 decimals."""
+    expected_closing = (
+        _num(figures.get("opening")) + _num(figures.get("received")) - _num(figures.get("sent_back"))
+        - _num(figures.get("issued")) + _num(figures.get("corrections"))
+    )
+    return abs(round(expected_closing, 3) - round(_num(figures.get("closing")), 3)) <= tolerance
+
+
+def store_actual_used(figures: dict[str, Any]) -> float:
+    """Opening + Received − Sent back − Closing (equal to Issued − Corrections when the books hold)."""
+    if figures.get("actual_used") is not None:
+        return _num(figures.get("actual_used"))
+    return (
+        _num(figures.get("opening")) + _num(figures.get("received")) - _num(figures.get("sent_back"))
+        - _num(figures.get("closing"))
+    )
+
+
+def month_end_item_row(
+    *,
+    figures: Optional[dict[str, Any]],
+    spec_qty: float,
+    limits: dict[str, Any],
+    actual_known: bool,
+) -> dict[str, Any]:
+    """Every derived number for one item and month, in the item's own unit (spec 2.1).
+
+    ``figures`` are the inventory month-figures of the item (None = no store movement or stock);
+    ``limits`` the effective usage limits of its material type; ``actual_known`` is True only when the
+    month has ended and its month-end count is approved. Before that, Actual / Store gap / Total gap are
+    None, status is NOT_KNOWN and only the floor gap ("so far") is given.
+    """
+    from .usage_limits import allowed_gap as _allowed_gap, expected_use as _expected_use, gap_status as _gap_status
+
+    figures = figures or {}
+    store = {key: _num(figures.get(key)) for key in STORE_FIGURE_KEYS}
+    spec = _num(spec_qty)
+    expected = _expected_use(spec, limits)
+    issued = store["issued"]
+    actual_used = store_actual_used(figures) if figures else 0.0
+    floor_gap = issued - expected
+    allowed = _allowed_gap(expected, limits)
+    store_gap = (actual_used - issued) if actual_known else None
+    total_gap = (actual_used - expected) if actual_known else None
+    status = _gap_status(_r3(total_gap) if total_gap is not None else None, allowed)
+    floor_status = _gap_status(_r3(floor_gap), allowed)
+    has_use = any(abs(value) > 0.0005 for value in (spec, issued, store["corrections"])) or (
+        actual_known and abs(actual_used) > 0.0005
+    )
+    row = {key: _r3(value) for key, value in store.items()}
+    row.update(
+        {
+            "actual_used": _r3(actual_used) if actual_known else None,
+            "book_used": _r3(actual_used),
+            "identity_ok": bool(figures.get("identity_ok", store_identity_ok(store))) if figures else True,
+            "spec": _r3(spec),
+            "normal_wastage_pct": _r3(_num(limits.get("normal_wastage_pct"))),
+            "allowed_gap_pct": _r3(_num(limits.get("allowed_gap_pct"))),
+            "min_gap": _r3(_num(limits.get("min_gap"))),
+            "expected": _r3(expected),
+            "wastage_allowance": _r3(expected - spec),
+            "floor_gap": _r3(floor_gap),
+            "store_gap": _r3(store_gap),
+            "total_gap": _r3(total_gap),
+            "allowed_gap": _r3(allowed),
+            "status": status,
+            "floor_status": floor_status,
+            "has_use": bool(has_use),
+        }
+    )
+    return row
+
+
+FLOOR_SPLIT_KEYS = ("floor_over_items", "floor_over", "floor_under_items", "floor_under")
+
+
+def floor_split_by_unit(rows: Iterable[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Per unit: how many items the floor took more / less than spec + wastage for, beyond their own
+    allowed gap, and by how much in total. The signed unit total nets these out (one item 200 pcs over
+    and another 200 pcs under add up to 0), so a summary must never call such a unit "exactly"."""
+    out: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        uom = normalize_uom(row.get("uom"))
+        bucket = out.setdefault(uom, {"floor_over_items": 0, "floor_over": 0.0, "floor_under_items": 0, "floor_under": 0.0})
+        gap = _num(row.get("floor_gap"))
+        status = str(row.get("floor_status") or "")
+        if status == "OVER":
+            bucket["floor_over_items"] += 1
+            bucket["floor_over"] += gap
+        elif status == "UNDER":
+            bucket["floor_under_items"] += 1
+            bucket["floor_under"] += abs(gap)
+    for bucket in out.values():
+        bucket["floor_over"] = _r3(bucket["floor_over"])
+        bucket["floor_under"] = _r3(bucket["floor_under"])
+    return out
+
+
+def with_floor_split(units: Iterable[dict[str, Any]], rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Unit totals with the floor split filled in from the item rows (frozen snapshots taken before the
+    split existed get it from their own items)."""
+    split = floor_split_by_unit(rows)
+    empty = {"floor_over_items": 0, "floor_over": 0.0, "floor_under_items": 0, "floor_under": 0.0}
+    return [{**unit, **split.get(normalize_uom(unit.get("uom")), empty)} for unit in units]
+
+
+def year_floor_split(month_rows: Iterable[Iterable[dict[str, Any]]]) -> dict[str, dict[str, Any]]:
+    """Financial-year floor split per unit: each item's issued and expected are added over the months, and
+    the item is over / under when its year gap is beyond max(allowed gap % x year expected, minimum gap)
+    (the limits of its latest month)."""
+    from .usage_limits import allowed_gap as _allowed_gap, gap_status as _gap_status
+
+    items: dict[tuple[str, str], dict[str, Any]] = {}
+    for rows in month_rows:
+        for row in rows or []:
+            code = str(row.get("item_code") or "").strip().upper()
+            if not code:
+                continue
+            uom = normalize_uom(row.get("uom"))
+            item = items.setdefault((uom, code), {"uom": uom, "issued": 0.0, "expected": 0.0})
+            item["issued"] += _num(row.get("issued"))
+            item["expected"] += _num(row.get("expected"))
+            item["limits"] = {"allowed_gap_pct": row.get("allowed_gap_pct"), "min_gap": row.get("min_gap")}
+    rows_out = []
+    for item in items.values():
+        gap = item["issued"] - item["expected"]
+        rows_out.append({
+            "uom": item["uom"],
+            "floor_gap": gap,
+            "floor_status": _gap_status(_r3(gap), _allowed_gap(item["expected"], item.get("limits") or {})),
+        })
+    return floor_split_by_unit(rows_out)
+
+
+def month_end_unit_totals(rows: Iterable[dict[str, Any]], *, actual_known: bool) -> list[dict[str, Any]]:
+    """Totals per stock unit (kg, pcs, litre …). Pieces never enter a kg total."""
+    rows = list(rows)
+    buckets: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        uom = normalize_uom(row.get("uom"))
+        bucket = buckets.setdefault(
+            uom,
+            {
+                "uom": uom,
+                "unit_label": unit_label(uom),
+                "items": 0,
+                "items_with_use": 0,
+                "status_counts": {"OK": 0, "OVER": 0, "UNDER": 0, "NOT_KNOWN": 0},
+                **{key: 0.0 for key in UNIT_TOTAL_KEYS},
+            },
+        )
+        bucket["items"] += 1
+        if row.get("has_use"):
+            bucket["items_with_use"] += 1
+        status = str(row.get("status") or "NOT_KNOWN")
+        bucket["status_counts"][status] = bucket["status_counts"].get(status, 0) + 1
+        for key in UNIT_TOTAL_KEYS:
+            value = row.get(key)
+            if value is not None:
+                bucket[key] += _num(value)
+    out: list[dict[str, Any]] = []
+    order = {"KG": 0, "PCS": 1, "L": 2}
+    for uom in sorted(buckets, key=lambda key: (order.get(key, 9), key)):
+        bucket = buckets[uom]
+        for key in UNIT_TOTAL_KEYS:
+            bucket[key] = _r3(bucket[key])
+        if not actual_known:
+            for key in ("actual_used", "store_gap", "total_gap"):
+                bucket[key] = None
+        out.append(bucket)
+    return with_floor_split(out, rows)

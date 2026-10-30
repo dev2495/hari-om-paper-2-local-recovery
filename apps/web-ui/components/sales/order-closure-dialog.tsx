@@ -48,8 +48,9 @@ export function useOrderCloseReasons(plantId: string | undefined, enabled: boole
   })
 }
 
-/** A code whose name says OTHER also needs a short note. */
-export const closeReasonNeedsNote = (code: string) => /OTHER/i.test(code)
+/** A code with the word OTHER (or OTHERS) in it also needs a short note — SO-OTHER, OTHER_REASON —
+ * but not a word that only contains it, such as ANOTHER or MOTHER. Same rule as the server. */
+export const closeReasonNeedsNote = (code: string) => /(^|[^A-Z0-9])OTHERS?($|[^A-Z0-9])/.test(String(code || "").trim().toUpperCase())
 export const closeReasonComplete = (code: string, note: string) => Boolean(code) && (!closeReasonNeedsNote(code) || note.trim().length >= 5)
 
 /** Reason code + note fields shared by every way an order is closed. */
@@ -80,15 +81,23 @@ export function OrderCloseReasonFields({ reasons, reasonCode, note, onReasonCode
             data-testid={`${testIdPrefix}-reason`}
             value={reasonCode}
             onChange={(event) => onReasonCodeChange(event.target.value)}
-            className="h-10 rounded-lg border border-input bg-card px-3 text-[13px] font-normal"
+            className="h-11 w-full min-w-0 rounded-lg border border-input bg-card px-3 text-[14px] font-normal sm:h-10 sm:text-[13px]"
           >
             <option value="">Choose why</option>
             {rows.map((row) => <option key={row.id || row.code} value={row.code}>{row.label} ({row.code})</option>)}
           </select>
-        ) : (
+        ) : null}
+        {!reasons.isLoading && !reasons.isError && rows.length ? (
+          <span className="text-[12px] font-normal text-muted-foreground">
+            Reason not in the list?{" "}
+            <Link href="/masters/order-close-reasons" className="inline-flex min-h-11 items-center font-semibold text-primary underline sm:min-h-0" data-testid={`${testIdPrefix}-manage-reasons`}>Order close reasons</Link>{" "}
+            (the Owner or an Admin adds them there).
+          </span>
+        ) : null}
+        {reasons.isLoading || reasons.isError || rows.length ? null : (
           <span className="text-[12.5px] font-normal text-muted-foreground">
             No order cancel / short close reasons are set up for this plant.{" "}
-            <Link href="/masters/reason-codes" className="font-semibold text-primary underline">Add them in Masters › Reason codes</Link>.
+            <Link href="/masters/order-close-reasons" className="font-semibold text-primary underline">Add them in Masters › Order close reasons</Link> (Owner or Admin).
           </span>
         )}
       </label>
@@ -101,7 +110,7 @@ export function OrderCloseReasonFields({ reasons, reasonCode, note, onReasonCode
           rows={2}
           maxLength={1000}
           placeholder={needsNote ? "Say what happened (needed for Other)" : notePlaceholder || "e.g. Confirmed by the customer on call, 20 Oct"}
-          className="rounded-lg border border-input bg-card px-3 py-2 text-[13px] font-normal"
+          className="w-full min-w-0 rounded-lg border border-input bg-card px-3 py-2 text-[14px] font-normal sm:text-[13px]"
         />
       </label>
     </>
@@ -183,9 +192,9 @@ export function OrderClosureDialog({ order: incoming, open, onOpenChange }: { or
   const title = kind === "cancel" ? "Cancel order" : kind === "short_close" ? "Short close order" : "Cancel or short close"
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent data-testid="sales-order:closure-dialog" className="sm:max-w-lg">
+      <DialogContent data-testid="sales-order:closure-dialog" className="max-h-[92dvh] grid-cols-[minmax(0,1fr)] overflow-y-auto p-4 sm:max-w-lg sm:p-6">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+          <DialogTitle className="flex items-center gap-2 pr-8 text-left">
             {kind === "cancel" ? <Ban className="h-4 w-4 text-signal-rose-ink" /> : <CircleSlash2 className="h-4 w-4 text-signal-amber-ink" />}
             {title} · {order?.order_no || ""}
           </DialogTitle>
@@ -199,15 +208,15 @@ export function OrderClosureDialog({ order: incoming, open, onOpenChange }: { or
         </DialogHeader>
 
         {order ? (
-          <div className="grid grid-cols-4 overflow-hidden rounded-lg border border-border text-center">
+          <div className="grid grid-cols-[repeat(4,minmax(0,1fr))] overflow-hidden rounded-lg border border-border text-center">
             {[
               ["Ordered", fmt(ordered)],
               ["Dispatched", fmt(options.dispatched_qty)],
               ["On job cards", fmt(onCards)],
               [kind === "cancel" ? "Cancels" : "Drops", fmt(kind === "cancel" ? cancelQty : dropQty)],
             ].map(([label, value], index) => (
-              <div key={label} className={cn("px-2 py-2", index && "border-l border-border", index === 3 && kind && (kind === "cancel" ? "bg-signal-rose-soft" : "bg-signal-amber-soft"))}>
-                <p className="text-[11px] text-muted-foreground">{label}</p>
+              <div key={label} className={cn("min-w-0 px-1.5 py-2 sm:px-2", index && "border-l border-border", index === 3 && kind && (kind === "cancel" ? "bg-signal-rose-soft" : "bg-signal-amber-soft"))}>
+                <p className="text-[11px] leading-tight text-muted-foreground">{label}</p>
                 <p className={cn("text-[14px] font-semibold tabular-nums", index === 3 && kind && (kind === "cancel" ? "text-signal-rose-ink" : "text-signal-amber-ink"))}>{value}</p>
               </div>
             ))}
@@ -230,14 +239,14 @@ export function OrderClosureDialog({ order: incoming, open, onOpenChange }: { or
         {error ? <p role="alert" className="rounded-lg border border-signal-rose-line bg-signal-rose-soft px-3 py-2 text-[13px] text-signal-rose-ink">{error}</p> : null}
 
         <DialogFooter>
-          <button type="button" className="erp-btn-secondary" onClick={() => onOpenChange(false)}>Back</button>
+          <button type="button" className="erp-btn-secondary !h-11 sm:!h-9" onClick={() => onOpenChange(false)}>Back</button>
           {kind ? (
             <button
               type="button"
               data-testid="sales-order:closure-confirm"
               disabled={!canSubmit}
               onClick={() => void submit()}
-              className={cn("erp-btn-primary", kind === "cancel" ? "!bg-signal-rose-ink !text-background" : "!bg-signal-amber-ink !text-background")}
+              className={cn("erp-btn-primary !h-11 sm:!h-9", kind === "cancel" ? "!bg-signal-rose-ink !text-background" : "!bg-signal-amber-ink !text-background")}
             >
               {closeOrder.isPending ? "Saving…" : kind === "cancel" ? "Cancel order" : `Short close · drop ${fmt(dropQty)} pcs`}
             </button>

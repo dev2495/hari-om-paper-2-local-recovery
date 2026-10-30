@@ -66,6 +66,13 @@ class SalesOrder(Base):
     closure_at = Column(DateTime, nullable=True)
 
     lines = relationship("SalesOrderLine", back_populates="sales_order", cascade="all, delete-orphan")
+    # Customer PO history (SalesOrderPoChange), oldest first; selectin keeps the list endpoint to one query.
+    po_changes = relationship(
+        "SalesOrderPoChange",
+        cascade="all, delete-orphan",
+        order_by="SalesOrderPoChange.changed_at",
+        lazy="selectin",
+    )
 
 
 class SalesOrderLine(Base):
@@ -83,7 +90,8 @@ class SalesOrderLine(Base):
     parchment_color = Column(String(100), nullable=True)
     rate_per_pc = Column(Float, nullable=True)
     qty = Column(Float, nullable=False)
-    due_date = Column(Date, nullable=False)
+    # Delivery date is optional everywhere (client 2026-10-28): NULL means "No date".
+    due_date = Column(Date, nullable=True)
     fulfilled_qty = Column(Float, nullable=False, default=0.0)
     hold_qty = Column(Float, nullable=False, default=0.0)
     # Pieces dropped from this line by a short close (qty already excludes them).
@@ -121,6 +129,29 @@ class SalesOrderLineColor(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     line = relationship("SalesOrderLine", back_populates="color_splits")
+
+
+class SalesOrderPoChange(Base):
+    """Every change of an order's customer PO number (client 2026-10-28).
+
+    Before release the number is freely editable; after release it may change ONCE in the
+    order's lifetime (``after_release``), then it is locked. ``kind`` CONFIRMED marks an internal
+    order that became a confirmed customer order when its customer PO number was added.
+    """
+
+    __tablename__ = "sales_order_po_changes"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    sales_order_id = Column(UUID(as_uuid=True), ForeignKey("sales_orders.id"), nullable=False, index=True)
+    kind = Column(String(20), nullable=False, default="EDITED")
+    old_po_number = Column(String(100), nullable=True)
+    new_po_number = Column(String(100), nullable=True)
+    old_po_date = Column(Date, nullable=True)
+    new_po_date = Column(Date, nullable=True)
+    after_release = Column(Boolean, nullable=False, default=False)
+    note = Column(Text, nullable=True)
+    changed_by = Column(String(200), nullable=False)
+    changed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class SalesOrderReleaseLot(Base):

@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 
 import { useApp } from "@/context/AppContext"
@@ -40,6 +41,10 @@ const CATEGORIES = ["DOWNTIME", "SCRAP", "QC_REJECT", "SHORT_CLOSE", "SO_CLOSE",
 // "Customer complaints" is the master the client keeps updating for the complaints module.
 // SO_CLOSE: reasons offered when a sales order is cancelled or short-closed. SHORT_CLOSE: job-card shortages.
 const CATEGORY_LABELS: Record<string, string> = { CUSTOMER_COMPLAINT: "Customer complaints", QC_REJECT: "QC reject", SHORT_CLOSE: "Job card short close", SO_CLOSE: "Order cancel / short close", RM_ISSUE: "RM issue" }
+// Order cancel / short close reasons (SO_CLOSE) are kept on Masters › Order close reasons only: their code
+// never changes there, because closed orders keep it (checker 30 Oct). This page shows them read-only.
+const EDITABLE_CATEGORIES = CATEGORIES.filter((c) => c !== "SO_CLOSE")
+const CLOSE_REASONS_HREF = "/masters/order-close-reasons"
 const categoryLabel = (value: string) => CATEGORY_LABELS[value] || value.charAt(0) + value.slice(1).toLowerCase().replace(/_/g, " ")
 const SEVERITIES = ["OK", "WATCH", "CRITICAL"] as const
 
@@ -129,7 +134,7 @@ function ReasonCodesPage() {
   }
 
   const startEdit = () => {
-    if (!selected) return
+    if (!selected || selected.category === "SO_CLOSE") return
     setEditForm({ ...selected }); setEditError(null); setEditOpen(true)
   }
   const submitEdit = async () => {
@@ -205,7 +210,12 @@ function ReasonCodesPage() {
               </div>
             )
           }] : []}
-          footer={selected ? (
+          footer={selected?.category === "SO_CLOSE" ? (
+            <div className="flex flex-wrap items-center justify-end gap-2" data-testid="reason-codes:so-close-readonly">
+              <span className="text-[12px] text-muted-foreground">Order close reasons are changed on their own page.</span>
+              <Link href={CLOSE_REASONS_HREF} className="inline-flex min-h-11 items-center rounded-full bg-primary px-4 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90">Open Order close reasons</Link>
+            </div>
+          ) : selected ? (
             <div className="flex justify-end gap-2">
               {selected.is_active === false ? (
                 <button onClick={async () => { await updateReason.mutateAsync({ id: selected.id, data: { is_active: true } }); showToast("Reactivated", "success") }} className="rounded-full border border-signal-emerald-line bg-card px-3 py-1.5 text-xs font-semibold text-signal-emerald-ink hover:bg-signal-emerald-soft">Reactivate</button>
@@ -227,8 +237,9 @@ function ReasonCodesPage() {
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-[11.5px] font-semibold text-muted-foreground">Category *</span>
             <select value={createForm.category} onChange={(e) => setCreateForm({ ...createForm, category: e.target.value })} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
-              {CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}
+              {EDITABLE_CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}
             </select>
+            <span className="text-[11px] text-muted-foreground">Order cancel / short close reasons: add them on <Link href={CLOSE_REASONS_HREF} className="font-semibold text-primary underline">Order close reasons</Link>.</span>
           </label>
           <div className="sm:col-span-2">
             <LabeledInput label="Label" required value={createForm.label} onChange={(v) => setCreateForm({ ...createForm, label: v })} placeholder="Power cut" />
@@ -255,7 +266,7 @@ function ReasonCodesPage() {
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-[11.5px] font-semibold text-muted-foreground">Category *</span>
             <select value={editForm.category || ""} onChange={(e) => setEditForm({ ...editForm, category: e.target.value })} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
-              {CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}
+              {EDITABLE_CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}
             </select>
           </label>
           <div className="sm:col-span-2"><LabeledInput label="Label" required value={editForm.label || ""} onChange={(v) => setEditForm({ ...editForm, label: v })} /></div>

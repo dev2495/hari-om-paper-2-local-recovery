@@ -20,7 +20,7 @@ export function QcChip({ qc, compact }: { qc: RunQcState; compact?: boolean }) {
   const Icon = qc.flags.length || qc.key === "flagged" ? Flag : qc.key === "done" || qc.key === "qc_only" || qc.key === "no_qc" ? CheckCircle2 : qc.key === "due" || qc.key === "short" || qc.key === "draft" ? Clock3 : null
   const words =
     compact && (qc.key === "flagged" || (qc.key === "draft" && qc.flags.length))
-      ? `${qc.key === "draft" ? "Draft · " : ""}Flagged · ${qc.flags.length} reading${qc.flags.length === 1 ? "" : "s"}`
+      ? `${qc.key === "draft" ? "With supervisor · " : ""}Flagged · ${qc.flags.length} reading${qc.flags.length === 1 ? "" : "s"}`
       : compact && qc.key === "short"
         ? "Needs more readings"
         : qc.label
@@ -38,6 +38,21 @@ function FlagLines({ qc, className }: { qc: RunQcState; className?: string }) {
   return (
     <span className={cn("mt-0.5 block text-[11.5px] leading-snug text-signal-amber-ink", className)} data-testid="run-flag-lines">
       {qc.flags.map((f: any) => flagText(f)).join(" · ")}
+    </span>
+  )
+}
+
+/** Process run whose pieces do not match bamboo × pcs per bamboo: saved and flagged (client 2026-10-28). */
+export function CountGapLine({ entry, className }: { entry: any; className?: string }) {
+  const gap = entry?.details?.count_gap
+  if (!gap || entry?.status === "VOID") return null
+  const short = Number(gap.gap) > 0
+  return (
+    <span className={cn("mt-0.5 flex items-start gap-1 text-[11.5px] leading-snug text-signal-amber-ink", className)} data-testid={`run-count-gap-${entry.entry_no}`} title={gap.message || undefined}>
+      <Flag className="mt-[2px] h-3 w-3 shrink-0" aria-hidden="true" />
+      <span>
+        Count gap: {fmt(gap.bamboo)} bamboo × {fmt(gap.pcs_per_bamboo)} = {fmt(gap.possible)} pcs, run counts {fmt(gap.counted)} · {short ? `${fmt(gap.gap)} pcs short` : `${fmt(-Number(gap.gap))} pcs over`}
+      </span>
     </span>
   )
 }
@@ -141,13 +156,13 @@ export function RunRows({
     return (
       <div className="flex flex-wrap items-center justify-end gap-0.5">
         {["SUBMITTED", "DRAFT"].includes(e.status) && hasQc && canQc && onQc && e.kind !== "QC_ONLY" ? (
-          <Button size="sm" variant={accepted ? "ghost" : "outline"} className="h-8 px-2.5" onClick={() => onQc(e)} title={e.samples?.length ? "See or add QC readings" : "Log QC for this run"} data-testid={`run-qc-button-${e.entry_no}${suffix}`}>
+          <Button size="sm" variant={accepted ? "ghost" : "outline"} className="h-11 min-h-11 px-3 sm:h-8 sm:min-h-0 sm:px-2.5" onClick={() => onQc(e)} title={e.samples?.length ? "See or add QC readings" : "Log QC for this run"} data-testid={`run-qc-button-${e.entry_no}${suffix}`}>
             <CheckCircle2 className="h-3.5 w-3.5" />
             {e.samples?.length ? "QC" : "Add QC"}
           </Button>
         ) : null}
         {e.status === "DRAFT" && canSubmit && !readOnly ? (
-          <Button size="sm" className="h-8 px-2.5" disabled={mutation.isPending} onClick={() => submit(e)} title="Checked — post this run" data-testid={`run-submit-${e.entry_no}${suffix}`}>
+          <Button size="sm" className="h-11 min-h-11 px-3 sm:h-8 sm:min-h-0 sm:px-2.5" disabled={mutation.isPending} onClick={() => submit(e)} title="Checked — post this run" data-testid={`run-submit-${e.entry_no}${suffix}`}>
             <Send className="h-3.5 w-3.5" />
             Submit
           </Button>
@@ -157,16 +172,16 @@ export function RunRows({
           </span>
         ) : null}
         {e.status === "DRAFT" && canDraft && onEdit ? (
-          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => onEdit(e)} title="Edit this draft" aria-label={`Edit draft ${runNo(e)}`} data-testid={`run-edit-${e.entry_no}${suffix}`}>
+          <Button size="icon" variant="ghost" className="h-11 min-h-11 w-11 min-w-11 sm:h-8 sm:min-h-0 sm:w-8 sm:min-w-0" onClick={() => onEdit(e)} title="Edit this run (with the supervisor)" aria-label={`Edit run ${runNo(e)}, with the supervisor`} data-testid={`run-edit-${e.entry_no}${suffix}`}>
             <Pencil className="h-3.5 w-3.5" />
           </Button>
         ) : null}
         {e.status !== "VOID" && canSubmit && !readOnly && state?.status !== "COMPLETED" ? (
-          <Button size="icon" variant="ghost" className="h-8 w-8" disabled={mutation.isPending} onClick={() => voidRun(e)} title="Void this run (reason required)" aria-label={`Void ${runNo(e)}`} data-testid={`run-void-${e.entry_no}${suffix}`}>
+          <Button size="icon" variant="ghost" className="h-11 min-h-11 w-11 min-w-11 sm:h-8 sm:min-h-0 sm:w-8 sm:min-w-0" disabled={mutation.isPending} onClick={() => voidRun(e)} title="Void this run (reason required)" aria-label={`Void ${runNo(e)}`} data-testid={`run-void-${e.entry_no}${suffix}`}>
             <X className="h-3.5 w-3.5" />
           </Button>
         ) : null}
-        <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => void openHistory(e)} title="Revision history" aria-label={`Revision history of ${runNo(e)}`} data-testid={`run-history-${e.entry_no}${suffix}`}>
+        <Button size="icon" variant="ghost" className="h-11 min-h-11 w-11 min-w-11 sm:h-8 sm:min-h-0 sm:w-8 sm:min-w-0" onClick={() => void openHistory(e)} title="Revision history" aria-label={`Revision history of ${runNo(e)}`} data-testid={`run-history-${e.entry_no}${suffix}`}>
           <History className="h-3.5 w-3.5" />
         </Button>
       </div>
@@ -176,7 +191,7 @@ export function RunRows({
     <>
       {e.kind === "QC_ONLY" ? <span className={cn("rounded-full border px-1.5 text-[10.5px] font-semibold", toneClass("violet"))}>QC without a run</span> : null}
       {e.kind === "DISPOSITION" ? <span className="rounded-full border border-border bg-muted px-1.5 text-[10.5px] font-semibold text-muted-foreground">held pieces</span> : null}
-      {e.status === "DRAFT" ? <span className={cn("rounded-full border px-1.5 text-[10.5px] font-semibold", toneClass("amber"))}>Draft</span> : null}
+      {e.status === "DRAFT" ? <span className={cn("rounded-full border px-1.5 text-[10.5px] font-semibold", toneClass("amber"))} title="Saved by the operator, waiting for the supervisor to submit">With supervisor</span> : null}
       {e.status === "VOID" ? (
         <span className={cn("inline-flex items-center gap-0.5 rounded-full border px-1.5 text-[10.5px] font-semibold", toneClass("rose"))}>
           <X className="h-2.5 w-2.5" aria-hidden="true" /> Voided
@@ -230,7 +245,7 @@ export function RunRows({
                 const voided = e.status === "VOID"
                 const note = reason(e)
                 return (
-                  <tr key={e.id} className={cn("align-top", voided ? "text-muted-foreground" : "", qc.flags.length && !voided ? "bg-signal-amber-soft/25" : "")} data-testid={`run-row-${e.stage.toLowerCase()}-${e.entry_no}`}>
+                  <tr key={e.id} className={cn("align-top", voided ? "text-muted-foreground" : "", (qc.flags.length || e.details?.count_gap) && !voided ? "bg-signal-amber-soft/25" : "")} data-testid={`run-row-${e.stage.toLowerCase()}-${e.entry_no}`}>
                     <td className="px-3 py-2">
                       <span className={cn("font-semibold", voided ? "line-through" : "")}>{runNo(e)}</span>
                       {showStage ? <span className="block text-[11.5px] text-muted-foreground">{stageLabel(e.stage)}</span> : null}
@@ -284,6 +299,7 @@ export function RunRows({
                     <td className="px-2 py-2">
                       {voided ? <span className="text-[11.5px] text-muted-foreground">not counted</span> : <QcChip qc={qc} compact />}
                       <FlagLines qc={qc} />
+                      <CountGapLine entry={e} />
                     </td>
                     <td className="px-2 py-1.5">{actions(e)}</td>
                   </tr>
@@ -303,7 +319,7 @@ export function RunRows({
                     </td>
                     <td className="px-2 py-2 text-right font-semibold tabular-nums">{fmt(t.rejected)}</td>
                     <td className="px-2 py-2 text-[11.5px] text-muted-foreground" colSpan={2}>
-                      {index === totals.length - 1 ? (totals.length > 1 ? "each stage in its own unit · drafts count once submitted" : "drafts count once submitted") : ""}
+                      {index === totals.length - 1 ? (totals.length > 1 ? "each stage in its own unit · runs with the supervisor count once submitted" : "runs with the supervisor count once submitted") : ""}
                     </td>
                   </tr>
                 ))}
@@ -324,7 +340,7 @@ export function RunRows({
             return (
               <li
                 key={e.id}
-                className={cn("flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-4", voided ? "text-muted-foreground" : "", qc.flags.length && !voided ? "bg-signal-amber-soft/25" : "")}
+                className={cn("flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-4", voided ? "text-muted-foreground" : "", (qc.flags.length || e.details?.count_gap) && !voided ? "bg-signal-amber-soft/25" : "")}
                 data-testid={`run-card-${e.stage.toLowerCase()}-${e.entry_no}`}
               >
                 <div className="min-w-0 flex-1 space-y-1.5">
@@ -357,6 +373,7 @@ export function RunRows({
                     {e.kind !== "QC_ONLY" && !voided ? <span className={cn("inline-block max-w-full truncate rounded-full border px-2 py-0.5 text-[11px] font-medium", toneClass(plan.tone))}>{plan.label}</span> : null}
                   </div>
                   <FlagLines qc={qc} />
+                  <CountGapLine entry={e} />
                 </div>
                 <div className="shrink-0 sm:w-auto">{actions(e, "-m")}</div>
               </li>

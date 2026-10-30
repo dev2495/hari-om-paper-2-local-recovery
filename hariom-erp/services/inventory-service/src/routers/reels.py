@@ -24,6 +24,7 @@ from ..models import (
     ReelStatus,
     TrackingMode,
 )
+from ..services.books import assert_books_open, ist_today
 from ..services.labels import reel_label_payload
 from ..utils.auth import get_current_plant, get_current_plant_scope, get_current_user, require_role
 from ..quality_pin import pin_quality_profile_metadata
@@ -507,7 +508,8 @@ def slit_reel(
         raise HTTPException(status_code=404, detail="Output coil location not found in this plant")
 
     paper = db.query(ItemMaster).filter(ItemMaster.id == parent.paper_id).first()
-    slit_date = payload.slit_date or date.today()
+    slit_date = payload.slit_date or ist_today()
+    assert_books_open(db, plant_id, slit_date)
     existing_children = db.query(PaperReel).filter(PaperReel.parent_reel_id == parent.id).count()
     lineage = {
         key: (parent.inward_metadata or {}).get(key)

@@ -49,12 +49,12 @@ export function EntrySheet({
   )
 }
 
-export type StageTab = { stage: string; status: string; good?: number; target?: number; unit?: string; disabled?: string; badge?: string }
+export type StageTab = { stage: string; status: string; good?: number; target?: number; unit?: string; disabled?: string; badge?: string; /** The badge in full words for screen readers and a long press. */ badgeTitle?: string }
 
 /** Stage chips across the top of a form. Disabled ones say why (closed, not open yet, no QC checks). */
 export function FormStageTabs({ tabs, value, onChange, ariaLabel = "Stage" }: { tabs: StageTab[]; value: string; onChange: (stage: string) => void; ariaLabel?: string }) {
   return (
-    <div role="tablist" aria-label={ariaLabel} className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1" data-testid="form-stage-tabs">
+    <div role="tablist" aria-label={ariaLabel} className="flex flex-wrap gap-1.5 pb-1" data-testid="form-stage-tabs">
       {tabs.map((tab) => {
         const Icon = STAGE_ICON[tab.stage]
         const active = tab.stage === value
@@ -70,7 +70,8 @@ export function FormStageTabs({ tabs, value, onChange, ariaLabel = "Stage" }: { 
             onClick={() => (tab.disabled ? undefined : onChange(tab.stage))}
             data-testid={`form-stage-${tab.stage.toLowerCase()}`}
             className={cn(
-              "flex min-w-[8.25rem] shrink-0 items-center gap-2 rounded-xl border px-3 py-2 text-left transition",
+              // The chips wrap to a second row instead of running past the sheet edge (round 28 final check).
+              "flex min-w-[8.25rem] flex-1 basis-[9.5rem] items-center gap-2 rounded-xl border px-3 py-2 text-left transition",
               active ? "border-primary bg-primary text-primary-foreground shadow-sm" : "border-border bg-card hover:bg-muted",
               tab.disabled ? "cursor-not-allowed opacity-60 hover:bg-card" : "",
             )}
@@ -81,7 +82,13 @@ export function FormStageTabs({ tabs, value, onChange, ariaLabel = "Stage" }: { 
             <span className="min-w-0">
               <span className="flex items-center gap-1.5 text-[13px] font-semibold">
                 {stageLabel(tab.stage)}
-                {tab.badge ? <span className={cn("rounded-full px-1.5 text-[10.5px] font-bold", active ? "bg-primary-foreground/20" : "bg-signal-amber-soft text-signal-amber-ink")}>{tab.badge}</span> : null}
+                {tab.badge ? (
+                  // Solid chip on the active tab: white-on-teal at 20% fell below 4.5:1 (round 28 check 4).
+                  <span className={cn("whitespace-nowrap rounded-full px-1.5 text-[10.5px] font-bold", active ? "bg-primary-foreground text-primary" : "bg-signal-amber-soft text-signal-amber-ink")} title={tab.badgeTitle} aria-hidden={tab.badgeTitle ? true : undefined}>
+                    {tab.badge}
+                  </span>
+                ) : null}
+                {tab.badge && tab.badgeTitle ? <span className="sr-only">{tab.badgeTitle}</span> : null}
               </span>
               <span className={cn("block truncate text-[11.5px] tabular-nums", active ? "opacity-90" : "text-muted-foreground")}>
                 {tab.disabled ? tab.disabled : tab.target != null ? `${fmt(tab.good)} of ${fmt(tab.target)} ${tab.unit || ""} good` : tab.status.toLowerCase()}
@@ -127,7 +134,7 @@ export function Chips({ options, value, onChange, label, tone = "primary", testI
             aria-pressed={on}
             onClick={() => onChange(on && allowClear ? "" : option.value)}
             className={cn(
-              "inline-flex min-h-10 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[13.5px] font-medium transition",
+              "inline-flex min-h-11 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[13.5px] font-medium transition",
               on ? (tone === "rose" ? "border-signal-rose-ink bg-signal-rose-ink text-white" : "border-primary bg-primary text-primary-foreground") : "border-border bg-card text-foreground hover:bg-muted",
             )}
           >

@@ -140,26 +140,24 @@ test("premium sales and planner surfaces load with animated interactive elements
   await page.goto("/inventory", { waitUntil: "domcontentloaded" })
   await expect(page.getByTestId("inventory-control-page")).toBeVisible()
   await expect(page.getByRole("heading", { name: /^stock overview$/i })).toBeVisible()
-  await expect(page.getByRole("link", { name: /open mrp reorder and demand views/i })).toBeVisible()
-  await expect(page.getByRole("link", { name: /open stock close control/i }).first()).toBeVisible()
+  await expect(page.getByRole("link", { name: /open the rm inward calendar/i })).toBeVisible()
+  await expect(page.getByRole("link", { name: /open stock counts & book/i }).first()).toBeVisible()
 
+  // One Stock place (client 2026-10-28): counts, corrections and the stock book are tabs of the hub.
   await page.goto("/inventory/stock-control", { waitUntil: "domcontentloaded" })
-  await expect(page.getByTestId("inventory-stock-control-page")).toBeVisible()
-  await expect(page.getByText(/opening stock, closing certification, and formal year carry-forward/i)).toBeVisible()
-  await expect(page.getByRole("button", { name: /draft certification for period/i })).toBeVisible()
-  await expect(
-    page.getByRole("button", { name: /post opening load|opening already initialized/i }),
-  ).toBeVisible()
-  await expect(page.getByText(/bootstrap opening stock/i)).toBeVisible()
+  await expect(page.getByTestId("stock-hub")).toBeVisible()
+  await expect(page.getByRole("tab", { name: /counts/i }).first()).toBeVisible()
+  await page.locator(".tube-subnav").getByRole("link", { name: "Stock book", exact: true }).click()
+  await expect(page).toHaveURL(/\/inventory\/stock-control\?tab=book/)
+  await expect(page.locator(".tube-subnav").getByRole("link", { name: "Stock book", exact: true })).toHaveAttribute("aria-current", "page")
 
+  // Retired pages redirect for old bookmarks.
   await page.goto("/system/locations", { waitUntil: "domcontentloaded" })
-  await expect(page.getByText(/inventory locations/i)).toBeVisible()
-  await expect(page.getByText(/new storage location/i)).toBeVisible()
+  await expect(page).toHaveURL(/\/inventory\/locations/)
+  await expect(page.getByTestId("locations-page")).toBeVisible()
 
   await page.goto("/analytics/mrp", { waitUntil: "domcontentloaded" })
-  await expect(page.getByTestId("mrp-analytics-page")).toBeVisible()
-  await expect(page.getByRole("heading", { name: /reorder policy review/i })).toBeVisible()
-  await expect(page.getByRole("link", { name: /open demand \/ bom coverage/i })).toBeVisible()
+  await expect(page).toHaveURL(/\/purchase\/scheduler\?view=list/)
 
   await page.goto("/planning/board?section=winder&plan_date=2026-04-19", { waitUntil: "domcontentloaded" })
   await expect(page.getByTestId("planner-page")).toBeVisible()

@@ -10,8 +10,9 @@ import { cn } from "@/lib/utils"
 
 export const fieldClass = "h-9 w-full rounded-lg border border-input bg-card px-3 text-[13px] text-foreground shadow-[var(--shadow-xs)] outline-none transition-[border-color,box-shadow] duration-150 hover:border-foreground/20 focus:border-ring/70 focus:ring-[3px] focus:ring-ring/15 disabled:bg-muted disabled:text-muted-foreground"
 export const areaClass = "w-full rounded-lg border border-input bg-card px-3 py-2 text-[13px] text-foreground shadow-[var(--shadow-xs)] outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring/70 focus:ring-[3px] focus:ring-ring/15"
-export const primaryButton = "erp-btn-primary"
-export const secondaryButton = "erp-btn-secondary"
+// 44 px tall on a phone (spec 1). Only a variant beats .erp-btn-*'s own height, so plain h-11 never works.
+export const primaryButton = "erp-btn-primary max-sm:h-11"
+export const secondaryButton = "erp-btn-secondary max-sm:h-11"
 
 export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
@@ -81,7 +82,7 @@ export function QuantityLotStrip({ ordered, received, open, lots, expectedLots, 
         { k: "Open to receive", v: open },
         { k: showPlan ? "Lots actual / plan" : "Physical lots", v: showPlan ? `${lots} / ${expectedLots}` : String(lots) }].map((item, index) => (
         <div key={item.k} className={cn("px-4 py-3", index > 0 && "border-t border-signal-cyan-line sm:border-l sm:border-t-0")}>
-          <p className="text-[11.5px] font-semibold text-signal-cyan-ink/70">{item.k}</p>
+          <p className="text-[11.5px] font-semibold text-signal-cyan-ink">{item.k}</p>
           <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">{item.v}</p>
         </div>
       ))}
@@ -95,12 +96,26 @@ export function MessageBar({ tone, children }: { tone: "success" | "error" | "in
   return <div role={tone === "error" ? "alert" : "status"} className={cn("rounded-lg border px-4 py-3 text-sm leading-6", classes)}>{children}</div>
 }
 
+const STATE_WORDS: Record<string, string> = {
+  DRAFT: "Draft", SUBMITTED: "Waiting approval", APPROVED: "Approved", PARTIALLY_RECEIVED: "Partly received", RECEIVED: "Received",
+  CANCELLED: "Cancelled", SHORT_CLOSED: "Short-closed", REJECTED: "Rejected", REVISION_REQUIRED: "Revision needed", WITHDRAWN: "Withdrawn",
+  QC_HOLD: "On QC hold", UNRESTRICTED: "Usable", NOT_REQUIRED: "Not needed", PASS: "Passed", FAIL: "Failed", UNKNOWN: "Unknown",
+}
+
+/** A status code in plain words: "PARTIALLY_RECEIVED" → "Partly received" (no codes on screen, spec 0.6). */
+export function stateWord(value: string | null | undefined): string {
+  const state = String(value || "UNKNOWN").toUpperCase()
+  if (STATE_WORDS[state]) return STATE_WORDS[state]
+  const words = state.replaceAll("_", " ").toLowerCase()
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
 export function StateBadge({ value }: { value: string | null | undefined }) {
   const state = String(value || "UNKNOWN").toUpperCase()
   const good = ["APPROVED", "ACTIVE", "CLEAR", "RECEIVED", "SETTLED", "RECOVERED", "PASS"].includes(state)
   const bad = ["REJECTED", "BLOCKED", "CRITICAL", "VOID"].includes(state)
   return <span className={cn("inline-flex rounded-md px-2 py-1 text-[11.5px] font-semibold",
-    good ? "bg-signal-emerald-soft text-signal-emerald-ink" : bad ? "bg-signal-rose-soft text-signal-rose-ink" : "bg-signal-amber-soft text-signal-amber-ink")}>{state.replaceAll("_", " ")}</span>
+    good ? "bg-signal-emerald-soft text-signal-emerald-ink" : bad ? "bg-signal-rose-soft text-signal-rose-ink" : "bg-signal-amber-soft text-signal-amber-ink")}>{stateWord(state)}</span>
 }
 
 export function RequestErrors({ errors }: { errors: unknown[] }) {

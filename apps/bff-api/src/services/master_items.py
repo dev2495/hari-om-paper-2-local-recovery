@@ -113,10 +113,29 @@ def plants_for(token: str, plant_header: str | None) -> list[str]:
     return plants or ([str(claims["plant_id"])] if claims.get("plant_id") else [])
 
 
+# The roles inventory lets create stock items from masters (inventory routers/items.py
+# MASTER_SYNC_ROLES; Owner and Admin always pass). Pages call the catch-up sync for every role.
+MASTER_SYNC_ROLES = frozenset({"Owner", "Admin", "PlantManager", "Purchase", "Store", "GRN", "Planner", "RMIssue"})
+
+
+def can_sync(token: str) -> bool:
+    claims = current_user_claims(token)
+    roles = {str(role) for role in (claims.get("effective_roles") or claims.get("roles") or []) if role}
+    for key in ("acting_role", "role"):
+        if claims.get(key):
+            roles.add(str(claims[key]))
+    return bool(roles & MASTER_SYNC_ROLES)
+
+
 async def sync_master_items(token: str, plant_header: str | None) -> dict[str, Any]:
     """Create the missing stock items for every master, in the request's plant (or each plant the
     user can see when working in all plants)."""
     result: dict[str, Any] = {"plants": [], "created": [], "conflicts": []}
+    if not can_sync(token):
+        # Floor, QC and sales roles open rack and count pages too; the store keeps the material list
+        # in step for them. Nothing to do and nothing failed, so no 502 and no retry on every page.
+        result["skipped"] = "ROLE"
+        return result
     for plant in plants_for(token, plant_header):
         headers = {"Authorization": f"Bearer {token}", "X-Plant-ID": plant}
         papers = await _get(f"{MASTER_URL}/master/papers/", headers)

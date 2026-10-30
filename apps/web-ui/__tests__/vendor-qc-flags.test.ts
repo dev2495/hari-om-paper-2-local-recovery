@@ -22,6 +22,11 @@ assert.equal(vendorAddress({ address: "Plot 12", address_line2: "Phase 2", city:
 assert.equal(vendorAddress({ full_address: "From the service" }), "From the service")
 assert.deepEqual(vendorFormErrors({ gst_no: "", pan_no: "", payment_terms_days: "", credit_limit: "" }), {})
 assert.deepEqual(Object.keys(vendorFormErrors({ gst_no: "24ABC", bank_ifsc: "X", payment_terms_days: "400", credit_limit: "-1" })).sort(), ["bank_ifsc", "credit_limit", "gst_no", "payment_terms_days"])
+// The PAN and state must be the GSTIN's (they print beside it on the PO).
+assert.deepEqual(vendorFormErrors({ gst_no: "27AAACR5055K1Z7", pan_no: "AAACR5055K", state_code: "27" }), {})
+assert.match(vendorFormErrors({ gst_no: "27AAACR5055K1Z7", pan_no: "AABCS9999C", state_code: "27" }).pan_no, /carries PAN AAACR5055K/)
+assert.match(vendorFormErrors({ gst_no: "27AAACR5055K1Z7", pan_no: "", state_code: "24" }).state_code, /registered in Maharashtra \(27\), not Gujarat \(24\)/)
+assert.deepEqual(vendorFormErrors({ gst_no: "", pan_no: "AABCS9999C", state_code: "24" }), {})
 
 // QC flags register: flagged, never held; traced stage-wise.
 const row = (over: Partial<QcFlagRow>): QcFlagRow => ({ entry_id: "e1", job_card_id: "c1", stage: "WINDER", label: "I.D.", unit: "mm", value: 76.9, min: 76.2, max: 76.5, direction: "HIGH", ...over })

@@ -110,6 +110,7 @@ def test_po_pdf_prints_only_the_ordered_quantity():
                side_effect=lambda *args, **kwargs: SimpleDocTemplate(*args, **kwargs, pageCompression=0)):
         pdf = render_purchase_order_pdf(order, revision)
     text = b" ".join(re.findall(rb"\(([^()]*)\)\s*Tj", pdf))
-    assert b"Ordered quantity" in text and b"5,000.000 KG" in text
+    # Plain words on the vendor's copy too: "5,000 kg" (spec 0.6).
+    assert b"Ordered quantity" in text and b"5,000 kg" in text
     for gone in (b"GSM 230", b"Width 900", b"PB 180", b"estimated", b"Units"):
         assert gone not in text

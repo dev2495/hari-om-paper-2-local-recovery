@@ -10,7 +10,7 @@ from ..database import get_db
 from .. import models
 from ..security import hashing
 from ..plant_service import apply_user_scope
-from ..utils.deps import require_internal_event_request, require_role, get_session_claims
+from ..utils.deps import get_current_user, require_internal_event_request, require_role, get_session_claims
 from .auth import serialize_user, UserResponse, UserCreate, _assign_roles
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -91,6 +91,25 @@ def list_active_owner_recipients(request: Request, db: Session = Depends(get_db)
     require_internal_event_request(request)
     role = db.query(models.Role).filter(models.Role.name == "Owner").first()
     return {"items": [{"id": str(u.id), "email": u.email, "name": u.name} for u in (role.users if role else []) if u.is_active]}
+
+
+@router.get("/directory")
+def people_directory(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    """Names behind the logins pages show ("by owner2.e2e" → "by Owner two"), for every signed-in role.
+
+    Only the login and the display name, never roles or contact details. A login sees the people of
+    its own plants (and the all-plant owners who act there); an all-plant login sees everyone. Inactive
+    users stay listed: their names still appear on past counts, closes and orders."""
+    def plant_ids(user):
+        return {str(user.plant_id)} | {str(plant.id) for plant in user.allowed_plants} if user.plant_id else {str(plant.id) for plant in user.allowed_plants}
+
+    mine = plant_ids(current_user)
+    everyone = bool(current_user.is_owner_all_plants)
+    items = []
+    for user in db.query(models.User).order_by(models.User.name.asc()).all():
+        if everyone or user.id == current_user.id or user.is_owner_all_plants or plant_ids(user) & mine:
+            items.append({"email": str(user.email or "").strip().lower(), "name": str(user.name or "").strip()})
+    return {"items": items}
 
 
 @router.post("/", response_model=UserResponse)

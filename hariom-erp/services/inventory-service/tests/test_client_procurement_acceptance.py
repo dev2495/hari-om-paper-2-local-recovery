@@ -121,9 +121,9 @@ def test_a4_has_eight_labels_per_page_and_thermal_keeps_physical_size():
     assert re.search(rb"/MediaBox\s*\[\s*0\s+0\s+288\s+144\s*\]", thermal)
 
 
-def test_bulk_returns_are_linked_idempotent_and_cannot_overcredit():
+def test_floor_returns_are_retired():
+    # Rule 0.1: nothing returns from the floor, so the old return endpoint refuses and lists nothing.
     from src.routers.issue import ProductionReturnCreate, return_from_production, list_returnable_issues
-    from concurrent.futures import ThreadPoolExecutor
     with SessionLocal() as db:
         material=item(db, 'ADHESIVE', 'KG')
         batch=StockBatch(item_id=material.id,batch_no=uuid.uuid4().hex,received_qty=20,plant_id=PLANT,stock_status='UNRESTRICTED')
@@ -131,23 +131,11 @@ def test_bulk_returns_are_linked_idempotent_and_cannot_overcredit():
         original=StockTransaction(item_id=material.id,batch_id=batch.id,plant_id=PLANT,transaction_type='ISSUE_PRODUCTION',qty_change=-10,stock_status='UNRESTRICTED',reference_type='PRODUCTION_JOB',reference_id=str(uuid.uuid4()),effective_date=date.today())
         db.add(original);db.commit();issue_id=original.id
         payload=ProductionReturnCreate(request_id=uuid.uuid4(),issue_id=issue_id,quantity=3,effective_date=date.today(),reason='Unused adhesive')
-        saved=return_from_production(payload,db,PLANT,STORE)
-        assert return_from_production(payload,db,PLANT,STORE)['transaction_id']==saved['transaction_id']
-        with pytest.raises(HTTPException) as changed:
-            return_from_production(payload.model_copy(update={'quantity':4}),db,PLANT,STORE)
-        assert changed.value.status_code==409
-        db.rollback()
-        assert next(row for row in list_returnable_issues(db,PLANT,STORE)['items'] if row['id']==str(issue_id))['returnable']==7
-    def attempt(_):
-        with SessionLocal() as db:
-            try:
-                return_from_production(payload.model_copy(update={'request_id':uuid.uuid4(),'quantity':5}),db,PLANT,STORE)
-                return 'saved'
-            except HTTPException as exc:
-                assert exc.status_code==409
-                return 'conflict'
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        assert sorted(pool.map(attempt,range(2)))==['conflict','saved']
+        with pytest.raises(HTTPException) as refused:
+            return_from_production(payload,db,PLANT,STORE)
+        assert refused.value.status_code==409 and 'Nothing comes back from the floor' in refused.value.detail
+        assert list_returnable_issues(db,PLANT,STORE)['items']==[]
+        assert not db.query(StockTransaction).filter_by(item_id=material.id,transaction_type='PRODUCTION_RETURN').count()
 
 @pytest.mark.parametrize("inspector", [QC, OWNER, ADMIN])
 def test_authorized_quality_roles_release_only_measured_pass_and_keep_actor(inspector):

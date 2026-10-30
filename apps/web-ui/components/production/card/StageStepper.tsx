@@ -4,8 +4,9 @@
 
 import { Check, Flag } from "lucide-react"
 
+import { personLabel } from "@/lib/people"
 import { cn } from "@/lib/utils"
-import { STAGE_ICON, fmt, stageLabel, stampLabel, toneClass, visibleStages } from "./model"
+import { STAGE_ICON, fmt, oldFormFlags, stageLabel, stampLabel, toneClass, visibleStages, waitingRunsBadge, waitingRunsTitle } from "./model"
 
 export type StepInfo = {
   stage: string
@@ -17,6 +18,8 @@ export type StepInfo = {
   made?: number
   rejected?: number
   flagged?: number
+  /** What the flag means, when it is not readings outside the band (old-form count gap, other machine). */
+  flagNote?: string
   drafts?: number
   waiting?: number
   closedBy?: string
@@ -46,7 +49,7 @@ export function stepsFromFlow(flow: any): StepInfo[] {
     flagged: Number(s.qc_flagged_runs || 0),
     drafts: Number(s.draft_count || 0),
     waiting: Number(s.awaiting_qc_from_upstream || 0),
-    closedBy: s.supervisor_name,
+    closedBy: s.supervisor_name ? personLabel(s.supervisor_name, "") : undefined,
     closedAt: s.closed_at,
   }))
 }
@@ -55,13 +58,17 @@ export function stepsFromFlow(flow: any): StepInfo[] {
 export function stepsFromOldCard(card: any, lifecycle: any): StepInfo[] {
   const rows: any[] = Array.isArray(card?.stages) ? card.stages : []
   const life: any[] = lifecycle?.stages || []
+  const flags = oldFormFlags(card)
   return rows
     .filter((row) => (row.stage_type !== "SLITTING" || card?.requires_slitting) && !["PACKING", "QC"].includes(row.stage_type))
     .map((row) => {
       const l = life.find((s) => s.stage === row.stage_type)
       const status = String(row.status || "").toUpperCase()
+      const own = flags.filter((f) => f.stage === row.stage_type)
       return {
         stage: row.stage_type,
+        flagged: own.length || undefined,
+        flagNote: own.length ? own.map((f) => f.message).join(" · ") : undefined,
         label: stageLabel(row.stage_type),
         state: status === "COMPLETED" ? "done" : Number(row.output_qty || 0) > 0 || status === "RUNNING" || status === "IN_PROGRESS" ? "running" : row.plan_date ? "planned" : "todo",
         good: Number(l?.output_qty ?? row.output_qty ?? 0),
@@ -69,7 +76,7 @@ export function stepsFromOldCard(card: any, lifecycle: any): StepInfo[] {
         unit: l?.unit || (["WINDER", "OVEN"].includes(row.stage_type) ? "bamboo" : "pcs"),
         made: Number(row.output_qty || 0) + Number(row.scrap_qty || 0),
         rejected: Number(row.scrap_qty || 0),
-        closedBy: row.entered_by,
+        closedBy: row.entered_by ? personLabel(row.entered_by, "") : undefined,
         closedAt: row.actual_end,
       } as StepInfo
     })
@@ -77,7 +84,7 @@ export function stepsFromOldCard(card: any, lifecycle: any): StepInfo[] {
 
 export function StageStepper({ steps, current, onSelect }: { steps: StepInfo[]; current?: string; onSelect?: (stage: string) => void }) {
   return (
-    <div className="-mx-1 flex gap-1 overflow-x-auto px-1 py-1" data-testid="stage-stepper" role={onSelect ? "group" : undefined} aria-label={onSelect ? "Stages" : undefined}>
+    <div className="-mx-1 grid grid-cols-3 gap-1 px-1 py-1 sm:flex sm:overflow-x-auto" data-testid="stage-stepper" role={onSelect ? "group" : undefined} aria-label={onSelect ? "Stages" : undefined}>
       {steps.map((step, index) => {
         const Icon = STAGE_ICON[step.stage] || STAGE_ICON.PACKING
         const word = STATE_WORD[step.state]
@@ -114,16 +121,16 @@ export function StageStepper({ steps, current, onSelect }: { steps: StepInfo[]; 
             <span className="mt-1 flex flex-wrap items-center justify-center gap-1">
               <span className={cn("rounded-full border px-1.5 py-px text-[10.5px] font-semibold", toneClass(word.tone))}>{word.label}</span>
               {step.flagged ? (
-                <span className={cn("inline-flex items-center gap-0.5 rounded-full border px-1.5 py-px text-[10.5px] font-semibold", toneClass("amber"))} title="Readings outside the band — flagged, not held">
+                <span className={cn("inline-flex items-center gap-0.5 rounded-full border px-1.5 py-px text-[10.5px] font-semibold", toneClass("amber"))} title={step.flagNote || "Readings outside the band — flagged, not held"}>
                   <Flag className="h-2.5 w-2.5" aria-hidden="true" /> {step.flagged} flagged
                 </span>
               ) : null}
-              {step.drafts ? <span className={cn("rounded-full border px-1.5 py-px text-[10.5px] font-semibold", toneClass("amber"))}>{step.drafts} draft</span> : null}
+              {step.drafts ? <span className={cn("rounded-full border px-1.5 py-px text-[10.5px] font-semibold", toneClass("amber"))} title={waitingRunsTitle(step.drafts)}>{waitingRunsBadge(step.drafts)}</span> : null}
             </span>
             {step.state === "done" && (step.closedBy || step.closedAt) ? <p className="mt-0.5 truncate text-[10.5px] text-muted-foreground">{[step.closedBy, step.closedAt ? stampLabel(step.closedAt) : ""].filter(Boolean).join(" · ")}</p> : null}
           </>
         )
-        const className = cn("min-w-[7.5rem] flex-1 rounded-xl px-2 py-2 text-center transition xl:min-w-[9.5rem]", isCurrent ? "bg-primary/[.06] ring-1 ring-primary/30" : "", selectable ? "hover:bg-muted" : "")
+        const className = cn("min-w-0 flex-1 rounded-xl sm:min-w-[7.5rem] px-2 py-2 text-center transition xl:min-w-[9.5rem]", isCurrent ? "bg-primary/[.06] ring-1 ring-primary/30" : "", selectable ? "hover:bg-muted" : "")
         return selectable ? (
           <button key={step.stage} type="button" aria-pressed={isCurrent} title={`Show ${step.label} runs`} className={className} onClick={() => onSelect?.(step.stage)} data-testid={`step-${step.stage.toLowerCase()}`}>
             {body}

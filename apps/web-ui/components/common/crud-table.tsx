@@ -83,7 +83,8 @@ const SYSTEM_LINKS = [
     { href: "/system/users", label: "Users" },
     { href: "/system/plants", label: "Plants" },
     { href: "/system/machines", label: "Machines" },
-    { href: "/system/locations", label: "Locations" },
+    // Locations moved to Stores (client 2026-10-28).
+    { href: "/inventory/locations", label: "Locations" },
 ] as const
 
 function datasetWorkspace(title: string) {

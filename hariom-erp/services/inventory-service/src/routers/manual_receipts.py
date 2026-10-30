@@ -11,9 +11,9 @@ from sqlalchemy.orm import Session
 from .procurement import (
     router, GovernedReceiptCreate, GovernedReceiptLineInput, _validate_receipt,
     _enum, _plant_uuid, _receipt_payload, _refresh_receipt_line_stock,
-    _challan_key, _challan_warnings, _next_grn_no,
+    _challan_key, _challan_warnings, _next_grn_no, _next_receipt_reel_code,
 )
-from .purchase import _actor, _next_doc_no
+from .purchase import _actor
 from ..database import get_db
 from ..models import (
     ItemMaster, PurchaseReceipt, PurchaseReceiptLine, PaperReel, StockBatch,
@@ -22,7 +22,9 @@ from ..models import (
     ReelScanSource, ReelStatus, CostSource, TransactionType, ReferenceType,
 )
 from ..quality_task_queue import enqueue_incoming_qc_task
+from ..services.books import assert_books_open
 from ..services.labels import reel_label_payload, batch_label_payload
+from ..services.locations import default_receiving_location
 from ..services.receipt_quality import initial_quality, inward_stock_status
 from ..services.procurement import canonical_hash, normalize_invoice_number
 from ..utils.auth import get_current_plant, require_role
@@ -86,6 +88,7 @@ def _manual_checks(payload, db, plant_id):
 @router.post("/manual-receipts/preview")
 def preview_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(require_role(["Store", "PlantManager", "GRN"]))):
     rows = _manual_checks(payload, db, plant_id)
+    assert_books_open(db, plant_id, payload.received_date)
     return {"receipt_kind": "MANUAL", "commercial_status": "INVOICE_PENDING" if payload.invoice_pending else "MANUAL_REVIEW",
             "warnings": _challan_warnings(db, plant_id, payload.supplier_id, payload.supplier_challan_no),
             "lines": [{"item_code": item.item_code, "uom": _enum(item.uom), "quantity_kg": float(qty), "physical_unit_count": len(requested.lots), "invoice_rate": requested.invoice_rate} for requested, item, qty, _ in rows],
@@ -109,6 +112,7 @@ def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_
             raise HTTPException(409, "This request key has already been used with different receipt details")
         return {**_receipt_payload(existing, db), "idempotent": True}
     rows = _manual_checks(payload, db, plant_id)
+    assert_books_open(db, plant_id, payload.received_date)
     invoice = None
     if not payload.invoice_pending:
         normalized = normalize_invoice_number(payload.invoice_no)
@@ -132,6 +136,8 @@ def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_
         approval_history=[{"action": "MANUAL_RECEIPT_CREATED", "actor": _actor(current_user), "at": datetime.utcnow().isoformat(), "reason": payload.reason}])
     db.add(receipt)
     db.flush()
+    # A line or reel with no location goes to the plant's receiving default, the RM store (spec 2.7).
+    default_location_id = default_receiving_location(db, plant_id, actor=_actor(current_user)).id
     for index, (requested, item, qty, is_reel) in enumerate(rows, 1):
         metadata, qc_status = initial_quality(item, plant_id, payload.received_date)
         lot_status = inward_stock_status(qc_status)
@@ -142,10 +148,12 @@ def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_
         db.add(line)
         db.flush()
         metadata = {**metadata, "receipt_id": str(receipt.id), "grn_no": receipt.grn_no, "challan_no": payload.supplier_challan_no,
-            "receipt_kind": "MANUAL", "manual_reason": payload.reason, "invoice_no": payload.invoice_no, "invoice_rate": requested.invoice_rate}
+            "receipt_kind": "MANUAL", "manual_reason": payload.reason, "invoice_no": payload.invoice_no, "invoice_rate": requested.invoice_rate,
+            # "In since": a backdated GRN's lot came in on its received date, not on the day it was typed.
+            "received_date": payload.received_date.isoformat()}
         if is_reel:
             for lot in requested.lots:
-                at_no = _next_doc_no(db, PaperReel, _plant_uuid(plant_id), "reel_code", "AT")
+                at_no = _next_receipt_reel_code(db, _plant_uuid(plant_id), payload.received_date)
                 nominals = item.qc_nominals or {}
                 reel = PaperReel(plant_id=_plant_uuid(plant_id), reel_code=at_no, purchase_receipt_line_id=line.id,
                     paper_id=item.id, gsm=nominals.get("gsm"), bf=nominals.get("bf"),
@@ -153,7 +161,8 @@ def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_
                     supplier_name_snapshot=payload.supplier_name, source_reel_no=lot.source_reel_no.strip().upper(),
                     vendor_batch_no=lot.vendor_batch_no, inward_weight_kg=lot.net_weight_kg, net_weight_kg=lot.net_weight_kg,
                     current_weight_kg=lot.net_weight_kg, gross_weight_kg=lot.gross_weight_kg, tare_weight_kg=lot.tare_weight_kg,
-                    width_mm=lot.width_mm, physical_form=lot.physical_form, location_id=lot.location_id,
+                    width_mm=lot.width_mm, physical_form=lot.physical_form,
+                    location_id=lot.location_id or requested.location_id or default_location_id,
                     unit_cost=rate, cost_source=CostSource.SUPPLIER, status=ReelStatus.IN_STOCK, stock_status=lot_status,
                     commercial_status=state, inward_date=payload.received_date, inward_metadata=metadata)
                 db.add(reel)
@@ -166,7 +175,8 @@ def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_
         else:
             batch = StockBatch(plant_id=plant_id, item_id=item.id, batch_no=(requested.batch_no or f"{receipt.grn_no}-{index}").strip().upper(),
                 received_qty=float(qty), stock_status=lot_status, unit_cost=rate, cost_source="SUPPLIER", supplier_id=payload.supplier_id,
-                supplier_name_snapshot=payload.supplier_name, location_id=requested.location_id, inward_metadata=metadata)
+                supplier_name_snapshot=payload.supplier_name, location_id=requested.location_id or default_location_id,
+                inward_metadata=metadata)
             db.add(batch)
             db.flush()
             line.batch_id = batch.id
@@ -175,7 +185,7 @@ def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_
             db.add(ReceiptStockAllocation(receipt_line_id=line.id, batch_id=batch.id, allocated_qty=qty))
             db.add(StockTransaction(plant_id=plant_id, item_id=item.id, batch_id=batch.id, transaction_type=TransactionType.INWARD,
                 qty_change=float(qty), reference_type=ReferenceType.PURCHASE, reference_id=receipt.id, effective_date=payload.received_date,
-                stock_status=lot_status, external_ref=f"MGRN:{receipt.id}:{index}", movement_metadata=metadata))
+                location_id=batch.location_id, stock_status=lot_status, external_ref=f"MGRN:{receipt.id}:{index}", movement_metadata=metadata))
         if invoice:
             invoice_qty = Decimal(str(requested.invoice_quantity)) if requested.invoice_quantity is not None else qty
             invoice_line = SupplierInvoiceLine(invoice_id=invoice.id, item_id=item.id, qty=invoice_qty, rate=rate, uom=_enum(item.uom), tax_amount=requested.tax_amount, charge_amount=requested.charge_amount)

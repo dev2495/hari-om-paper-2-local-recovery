@@ -97,7 +97,7 @@ const LANDING_COPY: Record<LandingRole, LandingCopy> = {
   },
   GRN: {
     badge: "Goods Receipt Workspace",
-    title: "Supplier deliveries to receive, weigh and label",
+    title: "Expected arrivals to receive, weigh and label",
     description: "Receive against approved POs, record each reel or coil weight, print labels and keep the GRN register complete for QC and accounts.",
   },
   RMIssue: {

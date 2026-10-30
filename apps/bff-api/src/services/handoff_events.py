@@ -249,11 +249,24 @@ def notify_stage_output(response: Response, request: Request, token: str, job_ca
             title=f"{ref}: {stage_label(stage)} done → {next_label}",
             message=f"{detail or 'Job card'} moved to {next_label}. Schedule the next machine or inspect before it proceeds.",
             href=f"/production/job-cards/{job_card_id}",
-            recipient_roles=["Planner", "PlantManager", "QC", "Operator"],
+            recipient_roles=["Planner", "PlantManager", "QC"],
             role_context="Planner",
             plant_id=plant_id,
             payload={"job_card_id": job_card_id, "stage": stage, "next_stage": current, "action": "schedule", "priority": "action"},
             event_id=f"stage-handoff:{job_card_id}:{stage}:{segment or 'all'}",
+        )
+        # Operators cannot schedule machines, so the floor gets its own plain line (30 Oct): what is ready, no planner task.
+        await _emit(
+            token,
+            event_type="JOB_CARD_STAGE_HANDOFF",
+            title=f"{ref} is ready for {next_label}",
+            message=f"{detail or 'Job card'} finished {stage_label(stage)} and is ready for {next_label}. Log its run when it reaches your machine.",
+            href=f"/production/job-cards/{job_card_id}",
+            recipient_roles=["Operator"],
+            role_context="Operator",
+            plant_id=plant_id,
+            payload={"job_card_id": job_card_id, "stage": stage, "next_stage": current, "action": "start", "priority": "info"},
+            event_id=f"stage-ready:{job_card_id}:{stage}:{segment or 'all'}",
         )
 
     run_in_background(send)

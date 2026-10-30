@@ -3,6 +3,8 @@ from contextlib import contextmanager
 import hashlib
 import json
 import math
+import os
+import re
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import and_, or_, text
@@ -24,6 +26,8 @@ router = APIRouter(prefix="/dispatch", tags=["dispatch"])
 settings = get_settings()
 QC_BLOCKING_STATUSES = {"HOLD"}
 DISPATCH_ACCESS_ROLES = ["Admin", "Owner", "Dispatch", "Store", "PlantManager", "Supervisor", "Logistics"]
+# Sales may look at the dispatch register and print sealed challans (role matrix: Sales "view"); it never writes.
+DISPATCH_VIEW_ROLES = [*DISPATCH_ACCESS_ROLES, "Sales"]
 DISPATCH_SEAL_ROLES = {"Admin", "Owner", "Dispatch"}
 ORCHESTRATION_SNAPSHOT_KEYS = {
     "dispatch_request_id",
@@ -94,7 +98,7 @@ def _sales_line_posting_lease(plant_id, line_id):
         locked = connection.execute(text("SELECT pg_try_advisory_lock(:key)"), {"key": key}).scalar()
         connection.commit()
         if not locked:
-            raise HTTPException(409, "Another shipment for this sales line is being posted; retry shortly")
+            raise HTTPException(409, "Another shipment for this order line is being saved right now. Wait a few seconds and try again.")
         try:
             yield
         finally:
@@ -118,7 +122,7 @@ def _require_sales_line_available(db, job):
         Dispatch.dispatch_snapshot["orchestration_state"].astext.in_(["PENDING", "FAILED"]),
     ).first()
     if other:
-        raise HTTPException(409, "Finish the existing unfinished shipment for this sales line before dispatching another card")
+        raise HTTPException(409, "Another job card of this order line has an unfinished shipment. Open that card in Dispatch and press Retry shipment first, then seal this one.")
 
 class DispatchPayload(BaseModel):
     job_card_id: uuid.UUID
@@ -209,7 +213,153 @@ def _active_hold_count(db: Session, job_card_id: uuid.UUID) -> int:
 def _require_final_qc(db: Session, plant_id: uuid.UUID, job_card: JobCard) -> None:
     from .planning import _final_spec_qc_passed
     if not _final_spec_qc_passed(db=db, plant_id=plant_id, job_card=job_card):
-        raise HTTPException(status_code=409, detail="A current passing final QC inspection is required before dispatch")
+        raise HTTPException(status_code=409, detail="Final QC has not passed for this card. Record a passing final QC inspection, then seal the challan.")
+
+
+def _downstream_detail(response: Any) -> str:
+    """The plain message another service sent back (its JSON ``detail``), else its raw text."""
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    detail = body.get("detail") if isinstance(body, dict) else None
+    if isinstance(detail, list):
+        detail = "; ".join(str(row.get("msg") if isinstance(row, dict) else row) for row in detail)
+    text_value = str(detail or getattr(response, "text", "") or f"error {getattr(response, 'status_code', '')}").strip()
+    return text_value[:500]
+
+
+AUTH_SERVICE_URL = os.getenv("AUTH_SERVICE_URL", "http://auth-service:8001")
+# GST state / union-territory codes (first two digits of a GSTIN); same names as the party masters.
+GST_STATE_NAMES = {
+    "01": "Jammu and Kashmir", "02": "Himachal Pradesh", "03": "Punjab", "04": "Chandigarh", "05": "Uttarakhand",
+    "06": "Haryana", "07": "Delhi", "08": "Rajasthan", "09": "Uttar Pradesh", "10": "Bihar", "11": "Sikkim",
+    "12": "Arunachal Pradesh", "13": "Nagaland", "14": "Manipur", "15": "Mizoram", "16": "Tripura", "17": "Meghalaya",
+    "18": "Assam", "19": "West Bengal", "20": "Jharkhand", "21": "Odisha", "22": "Chhattisgarh", "23": "Madhya Pradesh",
+    "24": "Gujarat", "26": "Dadra and Nagar Haveli and Daman and Diu", "27": "Maharashtra", "28": "Andhra Pradesh (old)",
+    "29": "Karnataka", "30": "Goa", "31": "Lakshadweep", "32": "Kerala", "33": "Tamil Nadu", "34": "Puducherry",
+    "35": "Andaman and Nicobar Islands", "36": "Telangana", "37": "Andhra Pradesh", "38": "Ladakh",
+    "97": "Other Territory", "99": "Centre Jurisdiction",
+}
+_GSTIN_SHAPE = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z][0-9A-Z][0-9A-Z]$")
+
+
+def _clean(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _gstin_state(gstin: str) -> tuple[str, str]:
+    if not _GSTIN_SHAPE.match(gstin) or gstin[:2] not in GST_STATE_NAMES:
+        return "", ""
+    return gstin[:2], GST_STATE_NAMES[gstin[:2]]
+
+
+def _without_blanks(values: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in values.items() if value not in (None, "")}
+
+
+def _plant_challan_party(plant: Optional[dict]) -> dict[str, Any]:
+    """Plant block of the challan from the plant master (same fields as the web's plantChallanParty)."""
+    if not plant:
+        return {}
+    gstin = _clean(plant.get("gstin")).upper()
+    code, state = _gstin_state(gstin)
+    return _without_blanks({
+        "id": _clean(plant.get("id")), "code": _clean(plant.get("code")), "name": _clean(plant.get("name")),
+        "legal_name": _clean(plant.get("legal_name")), "address": _clean(plant.get("address")), "gstin": gstin,
+        "state": state, "state_code": code,
+    })
+
+
+def _customer_challan_party(customer: Optional[dict]) -> dict[str, Any]:
+    """Customer block of the challan from the customer master (same fields as the web's customerChallanParty)."""
+    if not customer:
+        return {}
+    gstin = _clean(customer.get("gst_no") or customer.get("tax_id")).upper()
+    tax_code, tax_state = _gstin_state(gstin)
+    state_code = _clean(customer.get("billing_state_code")) or tax_code
+    billing = _clean(customer.get("billing_full_address"))
+    separate = any(_clean(customer.get(key)) for key in ("shipping_city", "shipping_state", "shipping_state_code", "shipping_pin_code")) or (
+        _clean(customer.get("shipping_address")) and _clean(customer.get("shipping_address")) != _clean(customer.get("billing_address") or customer.get("address"))
+    )
+    # Goods go to a street, not to "Gujarat": the GSTIN alone fills the billing state, so a customer with only a
+    # GSTIN (or only a city) has no dispatch address and the seal is refused (client 2026-10-28, checker round 2).
+    street = _clean(customer.get("shipping_address")) if separate else _clean(customer.get("billing_address") or customer.get("address"))
+    shipping = (_clean(customer.get("shipping_full_address")) or ("" if separate else billing)) if street else ""
+    billing_state = _clean(customer.get("billing_state")) or GST_STATE_NAMES.get(state_code, "") or tax_state
+    ship_name = _clean(customer.get("shipping_state")).lower()
+    ship_code = (_clean(customer.get("shipping_state_code")) or next((code for code, name in GST_STATE_NAMES.items() if name.lower() == ship_name), "")) if separate else state_code
+    ship_state = (_clean(customer.get("shipping_state")) or GST_STATE_NAMES.get(ship_code, "")) if separate else billing_state
+    return _without_blanks({
+        "id": _clean(customer.get("id")), "code": _clean(customer.get("customer_code")), "name": _clean(customer.get("name")),
+        "gstin": gstin, "state": billing_state, "state_code": state_code,
+        "billing_address": billing, "address": shipping, "ship_state": ship_state, "ship_state_code": ship_code,
+        "contact_name": _clean(customer.get("dispatch_contact_name") or customer.get("primary_contact_name")),
+        "contact_phone": _clean(customer.get("dispatch_contact_phone") or customer.get("primary_contact_phone")),
+    })
+
+
+def _master_get(url: str, token: str, plant_id: str, what: str) -> Any:
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.get(url, headers={"Authorization": f"Bearer {token}", "X-Plant-ID": plant_id})
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail=f"The {what} could not be read to fill the challan. Try Seal again in a minute.") from exc
+    if response.status_code == 404:
+        return None
+    if response.status_code >= 400:
+        raise HTTPException(status_code=response.status_code, detail=f"The {what} could not be read to fill the challan: {_downstream_detail(response)}")
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=f"The {what} sent back something unreadable. Try Seal again.") from exc
+
+
+def _challan_parties_from_masters(db: Session, job_card: JobCard, plant_id: str, token: str) -> tuple[dict, dict]:
+    """The plant and the order's customer, read from their masters at seal time (client 2026-10-28)."""
+    plants = _master_get(f"{AUTH_SERVICE_URL}/plants", token, plant_id, "plant master") or []
+    wanted = {str(job_card.plant_id), str(plant_id)}
+    plant = next((row for row in plants if isinstance(row, dict) and (str(row.get("id")) in wanted or str(row.get("code")) in wanted)), None)
+    order = db.query(SalesOrder).filter(SalesOrder.id == job_card.sales_order_id).first() if job_card.sales_order_id else None
+    customer = None
+    if order and order.customer_id:
+        customer = _master_get(f"{settings.MASTERDATA_SERVICE_URL}/master/customers/{order.customer_id}", token, plant_id, "customer master")
+    return _plant_challan_party(plant), _customer_challan_party(customer if isinstance(customer, dict) else None)
+
+
+def _require_challan_document(*, db: Session, job_card: JobCard, snapshot: dict[str, Any], plant_id: str, token: str) -> dict[str, Any]:
+    """Fill the plant and customer blocks from the masters and refuse a challan that would print blank.
+
+    The browser checks the same things first; this keeps a direct API call from sealing a challan with a
+    made-up or empty plant / customer block, or with no net weight.
+    """
+    company, customer = _challan_parties_from_masters(db, job_card, plant_id, token)
+    plant_name = company.get("legal_name") or company.get("name") or "this plant"
+    customer_name = customer.get("name") or "this customer"
+    gaps: list[str] = []
+    if not (company.get("legal_name") or company.get("name")):
+        gaps.append("the plant's legal name is not in the plant master (System › Plants)")
+    if not company.get("address"):
+        gaps.append(f"the address of {plant_name} is not in the plant master (System › Plants)")
+    if not company.get("gstin"):
+        gaps.append(f"the GSTIN of {plant_name} is not in the plant master (System › Plants)")
+    if not customer.get("name"):
+        gaps.append("the customer of this order is not in the customer master for this plant (Masters › Customers)")
+    elif not customer.get("address"):
+        gaps.append(f"the dispatch (ship-to) street address of {customer_name} is not in the customer master (Masters › Customers)")
+    transporter = snapshot.get("transporter") if isinstance(snapshot.get("transporter"), dict) else {}
+    if not _clean(transporter.get("vehicle_no")):
+        gaps.append("the vehicle number is empty")
+    if not _clean(transporter.get("name")):
+        gaps.append("the transporter name is empty")
+    items = snapshot.get("items") if isinstance(snapshot.get("items"), list) else []
+    first = items[0] if items and isinstance(items[0], dict) else {}
+    net_weight = _number(first.get("net_weight"))
+    if net_weight is None or not math.isfinite(net_weight) or net_weight <= 0:
+        gaps.append("the net weight is empty or 0 kg (type it on the challan)")
+    if gaps:
+        raise HTTPException(status_code=422, detail="The challan cannot be sealed yet: " + "; ".join(gaps) + ".")
+    return {**snapshot, "company": company, "customer": customer}
 
 
 def _post_inventory_dispatch_if_needed(
@@ -230,7 +380,7 @@ def _post_inventory_dispatch_if_needed(
     if not fg_item_id or not inventory_batch_id:
         raise HTTPException(
             status_code=409,
-            detail="Cannot seal dispatch before PACKING has posted FG inventory for this job card",
+            detail="The finished goods of this card are not in stock yet (packing has not posted them). Close packing so the stock is posted, then seal the challan.",
         )
 
     payload = {
@@ -262,7 +412,7 @@ def _post_inventory_dispatch_if_needed(
         raise HTTPException(status_code=502, detail=f"Inventory dispatch posting failed: {exc}") from exc
 
     if response.status_code not in (200, 201):
-        raise HTTPException(status_code=response.status_code, detail=response.text)
+        raise HTTPException(status_code=response.status_code, detail=f"Stock could not be moved out for this challan: {_downstream_detail(response)}")
     result = response.json()
     snapshot["inventory_dispatch_transaction_id"] = str(result.get("transaction_id"))
     snapshot["inventory_transaction_id"] = str(result.get("transaction_id"))
@@ -284,7 +434,7 @@ def _post_sales_request(*, path: str, token: str, plant_id: str, payload: dict[s
     except httpx.RequestError as exc:
         raise HTTPException(status_code=502, detail=f"{action} failed: {exc}") from exc
     if response.status_code >= 400:
-        raise HTTPException(status_code=response.status_code, detail=response.text)
+        raise HTTPException(status_code=response.status_code, detail=f"{action} refused: {_downstream_detail(response)}")
     try:
         result = response.json()
     except ValueError as exc:
@@ -353,7 +503,7 @@ def _create_or_update_dispatch(payload,db,plant_id,current_user):
             raise HTTPException(status_code=422, detail="dispatch_request_id is required when sealing a dispatch")
         effective_roles = {str(role) for role in (current_user.get("roles") or [])}
         if not effective_roles.intersection(DISPATCH_SEAL_ROLES):
-            raise HTTPException(status_code=403, detail="Only Admin, Owner, or Dispatch can seal a dispatch")
+            raise HTTPException(status_code=403, detail="Only an Owner, Admin or Dispatch user can seal a challan.")
 
     idem = None
     request_hash = _request_hash(payload) if request_id else ""
@@ -398,7 +548,7 @@ def _create_or_update_dispatch(payload,db,plant_id,current_user):
                 if pending_since and (datetime.utcnow() - pending_since).total_seconds() < 120:
                     raise HTTPException(
                         status_code=409,
-                        detail="This dispatch request is already being processed; retry with the same request ID",
+                        detail="This shipment is already being saved. Wait a few seconds and press Retry shipment.",
                         headers={"Retry-After": "5"},
                     )
 
@@ -409,9 +559,9 @@ def _create_or_update_dispatch(payload,db,plant_id,current_user):
     if dispatch:
         previous = dispatch.dispatch_snapshot or {}
         if previous.get("orchestration_state") in {"PENDING", "FAILED"} and previous.get("dispatch_request_id") != request_id:
-            raise HTTPException(status_code=409, detail="Finish the existing dispatch using its original request ID before starting another shipment")
+            raise HTTPException(status_code=409, detail="This card has an unfinished shipment. Open it and press Retry shipment to finish it before starting another.")
         if dispatch.status == "SEALED":
-            raise HTTPException(status_code=400, detail="Cannot edit a SEALED dispatch")
+            raise HTTPException(status_code=400, detail="This challan is sealed and cannot be changed.")
         dispatch_snapshot = {**dict(dispatch.dispatch_snapshot or {}), **dispatch_snapshot}
         dispatch.dispatch_snapshot = dict(dispatch_snapshot)
         _safe_flag_modified(dispatch, "dispatch_snapshot")
@@ -434,7 +584,7 @@ def _create_or_update_dispatch(payload,db,plant_id,current_user):
 
     active_holds = _active_hold_count(db, job_card.id)
     if active_holds:
-        raise HTTPException(status_code=409, detail=f"Cannot seal dispatch while {active_holds} quality hold(s) are active")
+        raise HTTPException(status_code=409, detail=f"{active_holds} quality hold(s) are open on this card. Clear them in Quality before sealing.")
 
     qc_stage = None
     if (getattr(job_card,"spec_snapshot",None) or {}).get("entry_model")!="V2":
@@ -444,16 +594,16 @@ def _create_or_update_dispatch(payload,db,plant_id,current_user):
         # QC — every good batch QC-accepted before Process closes (client rule 2026-10-18).
         stages={s.stage_type:s for s in db.query(JobCardStage).filter_by(job_card_id=job_card.id).all()}
         if any(not stages.get(s) or stages[s].status!="COMPLETED" for s in ("PACKING","QC")):
-            raise HTTPException(409,"Close Packing and final QC before dispatch")
+            raise HTTPException(409,"Close the Process stage first (packing and its final QC close with it), then seal the challan.")
         qc_stage = stages["QC"]
 
     packing_record = db.query(PackingRecord).filter(PackingRecord.job_card_id == job_card.id).first()
     if not packing_record or float(packing_record.total_packed_qty or 0.0) <= 0:
-        raise HTTPException(status_code=409, detail="Cannot seal dispatch before production is packed")
+        raise HTTPException(status_code=409, detail="Nothing is packed on this card yet. Close packing before sealing the challan.")
 
     dispatch_qty = _dispatch_qty(dispatch_snapshot, job_card, packing_record)
     if dispatch_qty <= 0:
-        raise HTTPException(status_code=400, detail="Dispatch quantity must be positive before sealing")
+        raise HTTPException(status_code=400, detail="Enter the shipment quantity (pcs) before sealing.")
     dispatchable_qty = dispatchable_quantity(job_card, packing_record, qc_stage)
     sealed = db.query(Dispatch).filter(Dispatch.job_card_id == job_card.id, Dispatch.status == "SEALED").all()
     previously_shipped = sum(float((row.dispatch_snapshot or {}).get("dispatch_qty") or (row.dispatch_snapshot or {}).get("qty") or 0) for row in sealed)
@@ -463,11 +613,18 @@ def _create_or_update_dispatch(payload,db,plant_id,current_user):
         raise HTTPException(409, "This card is reconciled with retained finished goods; create a governed new allocation before shipping that stock")
     remaining_qty = max(0, dispatchable_qty - previously_shipped - retained_qty)
     if dispatch_qty > remaining_qty + 0.0001:
-        raise HTTPException(status_code=409, detail=f"Dispatch qty {dispatch_qty:g} cannot exceed remaining accepted FG qty {remaining_qty:g}")
+        raise HTTPException(status_code=409, detail=f"Shipment quantity {dispatch_qty:g} pcs is more than the {remaining_qty:g} pcs of accepted finished goods left on this card.")
     allowance = shipping_allowance(job_card, dispatchable_qty, dispatch_stage)
     max_ship_qty = max(0, allowance - previously_shipped)
     if dispatch_qty > max_ship_qty + 0.0001:
-        raise HTTPException(status_code=409, detail=f"Dispatch qty {dispatch_qty:g} cannot exceed this card's remaining released allocation {max_ship_qty:g}")
+        raise HTTPException(status_code=409, detail=f"Shipment quantity {dispatch_qty:g} pcs is more than this card's remaining released allocation of {max_ship_qty:g} pcs.")
+
+    # Every seal attempt, a retry under the same request id included, reads the plant and customer from their
+    # masters and refuses a challan that would print blank. The payload's own company / customer blocks are
+    # never kept: the master copies are applied last, so a retry cannot swap in made-up details (checker r4).
+    dispatch_snapshot = _require_challan_document(
+        db=db, job_card=job_card, snapshot=dispatch_snapshot, plant_id=plant_id, token=current_user.get("token", ""),
+    )
 
     # Freeze the plant business date once so a retry across midnight keeps
     # the original challan and inventory accounting date.
@@ -492,7 +649,7 @@ def _create_or_update_dispatch(payload,db,plant_id,current_user):
             token=token, plant_id=plant_id,
             payload={"qty": dispatch_qty, "approved_spec_id": str(job_card.spec_id) if job_card.spec_id else None,
                      "dispatch_line_ref": sales_ref},
-            action="Sales dispatch validation",
+            action="The sales order check",
         )
     dispatch_snapshot.update(
         {
@@ -554,7 +711,7 @@ def _create_or_update_dispatch(payload,db,plant_id,current_user):
                 token=token,
                 plant_id=plant_id,
                 payload={"qty": dispatch_qty, "dispatch_line_ref": sales_ref},
-                action="Sales fulfillment update",
+                action="The sales order update",
             )
             dispatch_snapshot["sales_dispatch_status"] = "POSTED"
 
@@ -594,7 +751,7 @@ def get_dispatch(
     dispatch_id: uuid.UUID,
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(DISPATCH_ACCESS_ROLES))
+    current_user: dict = Depends(require_role(DISPATCH_VIEW_ROLES))
 ):
     dispatch = _apply_job_plant_scope(
         db.query(Dispatch)
@@ -611,7 +768,7 @@ def get_dispatch_by_job_card(
     include_sealed: bool = True,
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(DISPATCH_ACCESS_ROLES))
+    current_user: dict = Depends(require_role(DISPATCH_VIEW_ROLES))
 ):
     query = _apply_job_plant_scope(db.query(Dispatch).join(JobCard, JobCard.id == Dispatch.job_card_id).filter(
         Dispatch.job_card_id == job_card_id), plant_scope)
@@ -624,7 +781,7 @@ def get_dispatch_by_job_card(
 def get_ready_jobs_for_dispatch(
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(DISPATCH_ACCESS_ROLES))
+    current_user: dict = Depends(require_role(DISPATCH_VIEW_ROLES))
 ):
     """
     Packed/packing handoffs and shipment history, restricted to the allowed plants.

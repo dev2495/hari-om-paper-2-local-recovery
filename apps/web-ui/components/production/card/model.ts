@@ -36,6 +36,14 @@ export const machineLabelFor = (stage: string) => (stage === "WINDER" ? "Winder 
 export const helperLabelFor = (stage: string) => (stage === "WINDER" ? "Pattiwala" : stage === "PROCESS" ? "Packing name" : "Helper")
 
 export const fmt = (value: any, digits = 1) => Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: digits })
+/**
+ * Runs an operator saved that still wait for the supervisor (server status DRAFT). On the floor forms "draft"
+ * means only what is typed and kept on this device (the "Draft restored" bar), so these are named for who has them.
+ */
+export const waitingRunsBadge = (n: number) => (n > 0 ? `${n} with supervisor` : undefined)
+export const waitingRunsTitle = (n: number) => (n > 0 ? `${n} run${n === 1 ? "" : "s"} waiting for the supervisor to submit` : undefined)
+/** Plain words for runs still with the supervisor, with a count ("1 run", "2 runs"). */
+export const runsWord = (n: number) => `${n} run${n === 1 ? "" : "s"}`
 export const count = (value: string) => (value === "" ? 0 : Math.max(0, Math.floor(Number(value) || 0)))
 export const dayLabel = (value: any) => (value ? new Date(`${String(value).slice(0, 10)}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "—")
 export const shiftLabel = (value: any) => (value ? String(value).replace("SHIFT_", "Shift ") : "")
@@ -193,6 +201,29 @@ export const neededText = (items: string[]) => {
 /** Run number with its stage letter, as written on the printed card: W#1, O#2, P#1, K#1. */
 export const runNo = (entry: any) => `${({ WINDER: "W", OVEN: "O", PROCESS: "P", PACKING: "K", QC: "Q" } as Record<string, string>)[entry?.stage] || ""}#${entry?.entry_no ?? ""}`
 
+/** A flag an old-form (V1) card keeps on the stage itself (actuals_snapshot), as the card print and
+ * Reports › Exceptions show it: Process count gap, Final QC out of band, run on another machine. Saved and
+ * flagged, never held (client 2026-10-28 decision 3; user 2026-10-30 decision 8). Empty on batch-entry cards. */
+export type OldFormFlag = { stage: string; kind: "COUNT_GAP" | "QC_OUT_OF_BAND" | "MACHINE_CHANGED"; message: string; gap?: number; parameters?: string[] }
+export function oldFormFlags(card: any): OldFormFlag[] {
+  if (!card || (card.spec_snapshot || {}).entry_model === "V2") return []
+  const out: OldFormFlag[] = []
+  for (const row of Array.isArray(card.stages) ? card.stages : []) {
+    const actuals = row?.actuals_snapshot || {}
+    const stage = String(row?.stage_type || "")
+    if (actuals.count_gap) {
+      const gap = Number(actuals.count_gap.gap || 0)
+      out.push({ stage, kind: "COUNT_GAP", gap, message: actuals.count_gap.message || `${gap > 0 ? `${fmt(gap)} pcs short` : `${fmt(-gap)} pcs over`} against bamboo × pcs per bamboo` })
+    }
+    if (actuals.qc_flag) {
+      const parameters: string[] = Array.isArray(actuals.qc_flag.parameters) ? actuals.qc_flag.parameters.map(String) : []
+      out.push({ stage, kind: "QC_OUT_OF_BAND", parameters, message: actuals.qc_flag.message || `Final QC out of band: ${parameters.join(", ") || "reading"}. Saved and flagged, not held.` })
+    }
+    if (actuals.machine_changed) out.push({ stage, kind: "MACHINE_CHANGED", message: "Run on a different machine than planned" })
+  }
+  return out
+}
+
 /** Runs of a stage that still need QC before the next stage can take them (drafts included). */
 export const runsWithoutQc = (card: any, entries: any[], stage: string) =>
   entries.filter((e) => e.stage === stage && ["SUBMITTED", "DRAFT"].includes(e.status) && e.kind !== "QC_ONLY" && stageParameters(card, stage).length > 0 && !runQcState(card, e).accepted)
@@ -203,7 +234,7 @@ export const runDay = (entry: any) => (entry?.business_date ? dayLabel(entry.bus
 /** One QC state per run, in words (out of band is flagged, never held — client 2026-10-27). */
 export function runQcState(card: any, entry: any): RunQcState {
   const flags: any[] = Array.isArray(entry?.qc_flags) ? entry.qc_flags : []
-  if (entry?.status === "DRAFT") return { key: "draft", label: flags.length ? "Draft · QC flagged" : entry?.samples?.length ? "Draft · QC recorded" : "Draft", tone: "amber", detail: flags.length ? flags.map(flagText).join(" · ") : "Counts once the supervisor submits it", flags, accepted: false }
+  if (entry?.status === "DRAFT") return { key: "draft", label: flags.length ? "With supervisor · QC flagged" : entry?.samples?.length ? "With supervisor · QC recorded" : "With supervisor", tone: "amber", detail: flags.length ? flags.map(flagText).join(" · ") : "Counts once the supervisor submits it", flags, accepted: false }
   if (entry?.status === "VOID") return { key: "void", label: "Void", tone: "muted", flags, accepted: false }
   const verdict = entry?.evaluation?.verdict
   if (entry?.kind === "QC_ONLY") {
@@ -233,11 +264,20 @@ export const toneClass = (tone: RunQcState["tone"] | "blue" | "violet") =>
             ? "border-signal-violet-line bg-signal-violet-soft text-signal-violet-ink"
             : "border-border bg-muted text-muted-foreground"
 
-export type PlanMatch = { label: string; tone: "emerald" | "amber" | "muted" }
+export type PlanMatch = { label: string; tone: "emerald" | "amber" | "muted"; /** No planner slot: the run saves flagged as run before planning. */ unplanned?: boolean }
+/**
+ * The stage's planner slots, the one truth for the floor forms: a slot is a machine, a date and a shift, as the
+ * server sees it (entries: planned_slot_exists). A part with a date and shift but no machine is not on the
+ * planner yet, and a run on it is flagged as run before planning.
+ */
+export const plannerSlots = (state: any, openOnly = false): any[] =>
+  (state?.segments || []).filter((s: any) => (openOnly ? !["COMPLETED", "CANCELLED"].includes(s.status) : s.status !== "CANCELLED") && s.machine_id && s.plan_date && s.shift_code)
 /** Where a run lands against the plan (planning never blocks the floor; the slot is matched by date and shift). */
-export function planMatchFor(state: any, businessDate: string, shift: string, machineId?: string): PlanMatch {
-  const slots: any[] = (state?.segments || []).filter((s: any) => !["CANCELLED"].includes(s.status) && s.plan_date && s.shift_code)
-  if (!slots.length) return { label: "Run before planning — no slot for this stage yet", tone: "muted" }
+export function planMatchFor(state: any, businessDate: string, shift: string, machineId?: string, openOnly = true): PlanMatch {
+  // A new run matches only the open slots, as the server does (entries: matching_segment over open segments);
+  // a saved run is matched against every slot, its own may since have closed.
+  const slots: any[] = plannerSlots(state, openOnly)
+  if (!slots.length) return { label: "Run before planning — not on the planner yet", tone: "muted", unplanned: true }
   const same = slots.find((s: any) => String(s.plan_date).slice(0, 10) === businessDate && s.shift_code === shift)
   if (same) {
     return !machineId || !same.machine_id || String(same.machine_id) === String(machineId)
@@ -261,7 +301,7 @@ export function savedRunPlanMatch(entry: any, state: any, planRuns?: any[]): Pla
   const planned = planRuns?.find((run: any) => String(run.key || "") === `e:${entry?.id}`)
   if (planned?.match_label) return { label: planned.match_label, tone: planned.match === "ON_PLAN" ? "emerald" : planned.match === "UNPLANNED" ? "muted" : "amber" }
   if (!entry?.business_date) return { label: "—", tone: "muted" }
-  return planMatchFor(state, String(entry.business_date).slice(0, 10), entry.shift_code, entry.machine_id)
+  return planMatchFor(state, String(entry.business_date).slice(0, 10), entry.shift_code, entry.machine_id, false)
 }
 
 export const verdictLabels: Record<string, string> = { NOT_MEASURED: "QC readings due", OBSERVATION_ONLY: "Recorded", PASS: "QC pass", FAIL: "Flagged", INCOMPLETE: "QC incomplete", INVALID: "QC invalid" }

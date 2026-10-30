@@ -1,18 +1,19 @@
 """Hari Om Paper ERP BFF API."""
 
 import asyncio
+import json
 import os
 import time
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from src.middleware.auth import extract_token
 from src.routes import analytics, auth, dispatch, inventory, master, production, purchase, sales, spec, workspace
-from src.services.books_guard import books_guard_status
+from src.services.books_guard import books_guard_status, books_locked_body
 from src.services.plant_guard import assert_plant_allowed
 from src.services.workspace import REQUEST_PLANT
 
@@ -95,6 +96,26 @@ _BOOKS_GUARD_DETAIL_CODES = frozenset(
         "FUTURE_DATE_NOT_ALLOWED",
     }
 )
+
+
+@app.middleware("http")
+async def one_books_locked_shape(request: Request, call_next):
+    """Every closed-month 409 leaves the BFF in one shape (spec C4), whichever layer refused:
+    the BFF guard (top-level fields) or inventory/production through a proxy ({"detail": {...}}).
+    It sees route, exception-handler and proxy responses; other headers (CORS, cache) are kept.
+    """
+    response = await call_next(request)
+    if response.status_code != 409 or "json" not in (response.headers.get("content-type") or ""):
+        return response
+    raw = b"".join([chunk async for chunk in response.body_iterator])
+    headers = {key: value for key, value in response.headers.items() if key.lower() != "content-length"}
+    try:
+        body = books_locked_body(json.loads(raw or b"null"))
+    except ValueError:
+        body = None
+    if body is None:
+        return Response(content=raw, status_code=409, headers=headers)
+    return JSONResponse(status_code=409, content=body, headers={k: v for k, v in headers.items() if k.lower() != "content-type"})
 
 
 @app.middleware("http")

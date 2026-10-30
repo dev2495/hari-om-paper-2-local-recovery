@@ -67,7 +67,7 @@ export function BatchEntrySwitch({ card, onSwitched }: { card: any; onSwitched: 
         {state === "error" ? <span role="alert" className="mt-1 block font-semibold text-signal-rose-ink">{error}</span> : null}
       </p>
       {allowed ? (
-        <button type="button" className="erp-btn-primary !h-9" disabled={state === "working"} onClick={() => void run()} data-testid="batch-entry-switch-button">
+        <button type="button" className="erp-btn-primary !h-11 w-full sm:w-auto" disabled={state === "working"} onClick={() => void run()} data-testid="batch-entry-switch-button">
           {state === "working" ? "Moving…" : state === "error" ? "Try again" : "Move to batch entry"}
         </button>
       ) : (

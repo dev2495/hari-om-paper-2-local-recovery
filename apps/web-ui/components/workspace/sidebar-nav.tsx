@@ -4,7 +4,7 @@ import Link from "next/link"
 import { useCallback, useLayoutEffect, useRef, useState, type CSSProperties } from "react"
 import { ChevronRight, type LucideIcon } from "lucide-react"
 
-import type { ModuleLink } from "@/lib/module-navigation"
+import { activeModuleLink, type ModuleLink } from "@/lib/module-navigation"
 import { cn } from "@/lib/utils"
 
 export type SidebarItem = { name: string; href: string; icon: LucideIcon; description: string }
@@ -34,6 +34,7 @@ export function SidebarNav({
   onToggle,
   onNavigate,
   subnav,
+  search = "",
   badges,
 }: {
   groups: SidebarGroup[]
@@ -45,6 +46,8 @@ export function SidebarNav({
   onToggle: (title: string) => void
   onNavigate?: () => void
   subnav: Record<string, ModuleLink[]>
+  /** The address query: tab links (?tab=book) are marked from it. */
+  search?: string
   badges: Record<string, { count: number; tone?: "rose" | "amber" | "primary" } | undefined>
 }) {
   const canvas = useRef<HTMLDivElement | null>(null)
@@ -93,7 +96,7 @@ export function SidebarNav({
     // Groups open with a short height transition; reveal again once they have settled.
     const timer = window.setTimeout(reveal, 320)
     return () => window.clearTimeout(timer)
-  }, [currentHref, pathname, compact])
+  }, [currentHref, pathname, search, compact])
 
   const style = (box: Box): CSSProperties | undefined => (box ? { transform: `translateY(${box.top}px)`, height: box.height } : undefined)
 
@@ -143,13 +146,13 @@ export function SidebarNav({
                         </Link>
                         {isCurrent && group.title !== "Quality" && subnav[item.href] ? (
                           <div className="tube-subnav">
-                            {subnav[item.href].map((child) => (
+                            {subnav[item.href].map((child, _index, links) => (
                               <Link
                                 key={child.href}
                                 href={child.href}
                                 className="tube-nav-link"
                                 data-level="sub"
-                                aria-current={pathname === child.href ? "page" : undefined}
+                                aria-current={activeModuleLink(links, pathname, search)?.href === child.href ? "page" : undefined}
                                 onMouseEnter={(event) => setHover(measure(event.currentTarget))}
                                 onClick={(event) => { onNavigate?.(); if (compact && event.detail > 0) event.currentTarget.blur() }}
                               >

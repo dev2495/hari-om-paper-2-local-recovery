@@ -89,8 +89,8 @@ export function OrderHoldDialog({ orders, open, onOpenChange, testIdPrefix = "sa
           notePlaceholder="e.g. Customer has not lifted material since July; confirmed on call."
         />
         <DialogFooter>
-          <button type="button" className="erp-btn-secondary" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</button>
-          <button type="button" data-testid={`${testIdPrefix}-confirm`} className="erp-btn-primary !bg-signal-amber-ink !text-background" disabled={!closeReasonComplete(reasonCode, note) || busy} onClick={() => void submit()}>
+          <button type="button" className="erp-btn-secondary !h-11 sm:!h-9" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</button>
+          <button type="button" data-testid={`${testIdPrefix}-confirm`} className="erp-btn-primary !h-11 sm:!h-9 !bg-signal-amber-ink !text-background" disabled={!closeReasonComplete(reasonCode, note) || busy} onClick={() => void submit()}>
             {busy ? "Holding…" : orders.length > 1 ? `Hold & close ${orders.length} POs` : "Hold & close PO"}
           </button>
         </DialogFooter>

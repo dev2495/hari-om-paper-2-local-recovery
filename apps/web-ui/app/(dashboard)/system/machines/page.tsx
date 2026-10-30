@@ -6,15 +6,14 @@ import { MachineForm } from "@/components/forms/master-forms"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/context/AuthContext"
 import { useCreateMachine, useDeleteMachine, useMachines, useUpdateMachine } from "@/hooks/use-master-data"
-import { Building2, Factory, MapPin, PowerOff, RotateCcw, Users2, Wrench } from "lucide-react"
+import { Building2, Factory, PowerOff, RotateCcw, Users2, Wrench } from "lucide-react"
 
 function SystemSetupNav() {
     const items = [
         { href: "/system/users", label: "Users", icon: Users2 },
         { href: "/system/plants", label: "Plants", icon: Building2 },
         { href: "/system/machines", label: "Machines", icon: Factory },
-        { href: "/system/locations", label: "Locations", icon: MapPin },
-        { href: "/system/tolerances", label: "Tolerances", icon: Wrench },
+        { href: "/system/scheduler", label: "Background jobs", icon: Wrench },
     ]
 
     return (

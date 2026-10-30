@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import func, or_
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, object_session, selectinload
 from sqlalchemy.orm.attributes import flag_modified
 
 from ..database import get_db
@@ -22,6 +22,7 @@ from ..models import (
     PurchaseOrder,
     PurchaseRequisition,
     PurchaseApprovalDecision,
+    ProcurementPlanEntry,
     PurchaseOrderLine,
     PurchaseOrderRevision,
     PurchaseOrderRevisionLine,
@@ -42,9 +43,11 @@ from ..services.supplier_schedule import (
     serialize_schedule,
 )
 from ..services.procurement import canonical_hash, po_number
+from ..services.books import ist_today
 from ..services.procurement_documents import render_purchase_order_pdf
+from ..services import rm_calendar
 from ..utils.audit_client import emit_audit_event
-from ..utils.auth import get_current_plant, get_current_user, require_role
+from ..utils.auth import get_current_plant, get_current_user, is_actual_owner, require_role
 
 _audit_logger = logging.getLogger(__name__)
 
@@ -242,6 +245,7 @@ class PurchaseOrderLineCreate(BaseModel):
     uom: str = Field(default="KG", pattern="^(KG|PCS|L)$")
     expected_unit_count: Optional[int] = Field(default=None, gt=0)
     count_basis: Optional[str] = Field(default=None, pattern="^(ESTIMATED|CONTRACTUAL)$")
+    # Accepted for old callers but ignored: the server always stores true (C2, 30 Oct).
     incoming_qc_required: bool = True
     notes: Optional[str] = Field(default=None, max_length=500)
     description: Optional[str] = Field(default=None, max_length=500)
@@ -319,6 +323,24 @@ class PurchaseOrderResponse(BaseModel):
     special_instruction: Optional[str] = None
     metadata_json: dict[str, Any] = Field(default_factory=dict)
     lines: list[dict[str, Any]]
+    # RM inward calendar (spec 3): where the PO came from, who scheduled / approved / sent it.
+    source: str = "MANUAL"
+    scheduled_by: Optional[str] = None
+    scheduled_at: Optional[datetime] = None
+    schedule_week: Optional[str] = None
+    approved_by: Optional[str] = None
+    approved_at: Optional[datetime] = None
+    approval_source: Optional[str] = None
+    submitted_by: Optional[str] = None
+    sent_at: Optional[datetime] = None
+    sent_by: Optional[str] = None
+    sent_channel: Optional[str] = None
+    vendor_confirmed_at: Optional[datetime] = None
+    vendor_confirmed_by: Optional[str] = None
+    send_check: dict[str, Any] = Field(default_factory=dict)
+    # Maker-checker facts for the revision waiting for the Owner (pages hide what the server refuses).
+    revision_makers: list[str] = Field(default_factory=list)
+    owner_may_decide_own: bool = False
 
 
 class RevisionActionPayload(BaseModel):
@@ -439,6 +461,28 @@ def _order_for_plant(db: Session, po_id: uuid.UUID, plant_id: str) -> PurchaseOr
     return order
 
 
+def _owner_may_decide_own(order: PurchaseOrder) -> bool:
+    """A scheduled PO is the Owner's own decision from the RM inward calendar: he may approve or reject
+    a revision of it that he made or submitted himself (checker 2026-10-28: the only Owner filled a
+    missing rate and nobody could then approve it). Hand-made POs keep maker-checker."""
+    return order.source == "SCHEDULE"
+
+
+def _decision_facts(order: PurchaseOrder) -> dict[str, Any]:
+    """Who prepared and who submitted the revision waiting for the Owner, so a page never offers
+    Approve / Reject to someone the server will refuse."""
+    makers: list[str] = []
+    if order.status == "SUBMITTED":
+        session = object_session(order)
+        revision = session.query(PurchaseOrderRevision).filter(
+            PurchaseOrderRevision.purchase_order_id == order.id,
+            PurchaseOrderRevision.revision_no == order.current_revision_no,
+        ).first() if session is not None else None
+        if revision is not None:
+            makers = [value for value in dict.fromkeys([revision.created_by, revision.submitted_by]) if value]
+    return {"revision_makers": makers, "owner_may_decide_own": _owner_may_decide_own(order)}
+
+
 def _serialize_order(order: PurchaseOrder) -> dict[str, Any]:
     metadata = order.metadata_json or {}
     return {
@@ -464,6 +508,21 @@ def _serialize_order(order: PurchaseOrder) -> dict[str, Any]:
         "special_instruction": metadata.get("special_instruction"),
         "legal_entity": metadata.get("legal_entity") or metadata.get("legal_name"),
         "metadata_json": metadata,
+        "source": order.source or "MANUAL",
+        "scheduled_by": order.scheduled_by,
+        "scheduled_at": order.scheduled_at,
+        "schedule_week": metadata.get("schedule_week"),
+        "approved_by": order.approved_by,
+        "approved_at": order.approved_at,
+        "approval_source": order.approval_source,
+        "submitted_by": order.submitted_by,
+        "sent_at": order.sent_at,
+        "sent_by": order.sent_by,
+        "sent_channel": order.sent_channel,
+        "vendor_confirmed_at": order.vendor_confirmed_at,
+        "vendor_confirmed_by": order.vendor_confirmed_by,
+        "send_check": rm_calendar.send_check(order),
+        **_decision_facts(order),
         "lines": [
             {
                 "id": str(line.id),
@@ -490,7 +549,8 @@ def _serialize_order(order: PurchaseOrder) -> dict[str, Any]:
                 "received_unit_count": line.received_unit_count,
                 "count_basis": line.count_basis,
                 "unit_cost": float(line.unit_cost or 0.0),
-                "incoming_qc_required": bool(line.incoming_qc_required),
+                # Incoming QC is the only gate for issue: every PO line needs it (old false lines too).
+                "incoming_qc_required": True,
                 "line_status": line.line_status,
                 "notes": line.notes,
                 "description": (line.metadata_json or {}).get("description"),
@@ -505,16 +565,24 @@ def _serialize_order(order: PurchaseOrder) -> dict[str, Any]:
                 "requires_review": bool((line.metadata_json or {}).get("requires_review")),
                 "amount": round(float(line.qty_ordered or 0.0) * float(line.unit_cost or 0.0), 2),
                 "metadata_json": line.metadata_json or {},
+                "rate_needed": float(line.unit_cost or 0.0) <= 0,
+                "rate_source": (line.metadata_json or {}).get("rate_source"),
                 "schedules": [
                     {
                         "id": str(schedule.id),
                         "scheduled_qty": float(schedule.scheduled_qty or 0.0),
                         "allocated_qty": round(sum(float(row.allocated_qty or 0.0) for row in (schedule.allocations or [])), 6),
+                        "cancelled_qty": float(schedule.cancelled_qty or 0.0),
+                        "open_qty": round(max(0.0, float(schedule.scheduled_qty or 0.0) - float(schedule.cancelled_qty or 0.0)
+                                              - sum(float(row.allocated_qty or 0.0) for row in (schedule.allocations or []))), 6),
                         "promised_date": schedule.promised_date.isoformat() if schedule.promised_date else None,
                         "current_date": schedule.current_date.isoformat() if schedule.current_date else None,
                         "confirmation_status": schedule.confirmation_status,
+                        "from_calendar": bool(schedule.source_plan_entry_id),
+                        "version": int(schedule.version or 1),
+                        "change_history": schedule.change_history or [],
                     }
-                    for schedule in (line.schedules or [])
+                    for schedule in sorted(line.schedules or [], key=lambda row: (row.current_date, row.created_at or datetime.min))
                     if schedule.confirmation_status != "CANCELLED"
                 ],
             }
@@ -527,13 +595,38 @@ def _serialize_order(order: PurchaseOrder) -> dict[str, Any]:
 def list_purchase_orders(
     status: Optional[str] = Query(default=None),
     q: Optional[str] = Query(default=None, max_length=200),
+    source: Optional[str] = Query(default=None, pattern="^(MANUAL|SCHEDULE|REQUISITION|PLAN|WORKBOOK)$"),
+    # Purchase queue tabs (spec 3): scheduled drafts to send, waiting approval, approved not sent,
+    # sent and waiting delivery.
+    queue: Optional[str] = Query(default=None, pattern="^(scheduled|waiting|returned|unsent|sent|all)$"),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(get_current_user),
 ):
-    query = db.query(PurchaseOrder).filter(PurchaseOrder.plant_id == plant_id)
+    base = db.query(PurchaseOrder).filter(PurchaseOrder.plant_id == plant_id)
+    # "Approved – not sent" is what the desk still has to send: never sent, or a revision that must go
+    # again. An old PO approved before sends were recorded whose goods already came is plainly with
+    # the vendor, so it counts as sent (checker 2026-10-28: the tab never emptied).
+    open_order = PurchaseOrder.status.in_(["APPROVED", "PARTIALLY_RECEIVED"])
+    must_send = (PurchaseOrder.sent_at.is_(None)) & (
+        ~PurchaseOrder.lines.any(PurchaseOrderLine.qty_received > 0)
+        | PurchaseOrder.metadata_json["resend_reason"].as_string().isnot(None)
+    )
+    queue_filters = {
+        "scheduled": [PurchaseOrder.source == "SCHEDULE", PurchaseOrder.status == "DRAFT"],
+        "waiting": [PurchaseOrder.status == "SUBMITTED"],
+        "returned": [PurchaseOrder.status.in_(["REJECTED", "REVISION_REQUIRED"])],
+        "unsent": [open_order, must_send],
+        "sent": [open_order, ~must_send],
+    }
+    queue_counts = {key: base.filter(*filters).count() for key, filters in queue_filters.items()}
+    query = base
+    if queue and queue in queue_filters:
+        query = query.filter(*queue_filters[queue])
+    if source:
+        query = query.filter(PurchaseOrder.source == source)
     if status:
         query = query.filter(PurchaseOrder.status == status.strip().upper())
     if q and q.strip():
@@ -563,6 +656,7 @@ def list_purchase_orders(
             "awaiting_approval": counts.get("SUBMITTED", 0),
             "receivable": counts.get("APPROVED", 0) + counts.get("PARTIALLY_RECEIVED", 0),
             "open_by_uom": {uom or "KG": round(float(qty or 0), 6) for uom, qty in balances},
+            "queues": queue_counts,
         },
     }
 
@@ -583,6 +677,51 @@ def get_purchase_order(
     if not order:
         raise HTTPException(status_code=404, detail="Purchase order not found")
     return _serialize_order(order)
+
+
+def _people_names(token: str) -> dict[str, str]:
+    """Login -> display name from the auth people directory, so the PO prints "Owner two", not a login.
+
+    Best effort: if auth-service is slow or down, the PDF still prints (names fall back to the login's
+    title-cased local part)."""
+    if not token:
+        return {}
+    try:
+        import requests
+
+        from ..utils.audit_client import AUTH_SERVICE_URL
+
+        response = requests.get(f"{AUTH_SERVICE_URL}/users/directory", headers={"Authorization": f"Bearer {token}"}, timeout=2.0)
+        if response.status_code >= 300:
+            return {}
+        return {str(row.get("email") or "").strip().lower(): str(row.get("name") or "").strip()
+                for row in (response.json() or {}).get("items") or [] if row.get("email") and row.get("name")}
+    except Exception as exc:  # pragma: no cover - names are a nicety, never a failure
+        _audit_logger.warning("people directory unavailable for PO PDF: %s", exc)
+        return {}
+
+
+def _plant_master(token: str, plant_id: str) -> dict:
+    """This plant's row from the plant master (name, legal name, address, GSTIN) for the buyer block of
+    the PO print. Best effort like ``_people_names``: the PDF still prints without it."""
+    if not token:
+        return {}
+    try:
+        import requests
+
+        from ..utils.audit_client import AUTH_SERVICE_URL
+
+        response = requests.get(f"{AUTH_SERVICE_URL}/plants", headers={"Authorization": f"Bearer {token}", "X-Plant-ID": str(plant_id)}, timeout=2.0)
+        if response.status_code >= 300:
+            return {}
+        rows = response.json() or []
+        if isinstance(rows, dict):
+            rows = rows.get("items") or []
+        wanted = str(plant_id)
+        return next((row for row in rows if isinstance(row, dict) and wanted in {str(row.get("id")), str(row.get("code"))}), {})
+    except Exception as exc:  # pragma: no cover - the buyer block is a nicety, never a failure
+        _audit_logger.warning("plant master unavailable for PO PDF: %s", exc)
+        return {}
 
 
 @router.get("/orders/{po_id}/pdf")
@@ -606,28 +745,35 @@ def purchase_order_pdf(
     ).first()
     if not revision:
         raise HTTPException(status_code=404, detail="Purchase order revision not found")
-    revision_line_ids = [line.id for line in revision.lines or []]
+    # Delivery rows belong to the PO line, so every revision prints the current dates (rows made by
+    # the supplier-deliveries desk carry no revision line). The old read of a missing
+    # ``vendor_confirmation`` attribute made this a 500 for calendar POs.
+    revision_lines = {line.source_order_line_id: line for line in revision.lines or [] if line.source_order_line_id}
     schedule_rows = []
-    if revision_line_ids:
+    if revision_lines:
         schedules = db.query(PurchaseDeliverySchedule).filter(
-            PurchaseDeliverySchedule.revision_line_id.in_(revision_line_ids),
+            PurchaseDeliverySchedule.purchase_order_line_id.in_(list(revision_lines)),
+            PurchaseDeliverySchedule.confirmation_status != "CANCELLED",
         ).order_by(PurchaseDeliverySchedule.delivery_date, PurchaseDeliverySchedule.created_at).all()
-        revision_lines = {line.id: line for line in revision.lines or []}
         for schedule in schedules:
-            line = revision_lines.get(schedule.revision_line_id)
-            planned = Decimal(schedule.planned_qty or 0)
-            received = Decimal(schedule.received_qty or 0)
-            cancelled = Decimal(schedule.cancelled_qty or 0)
+            line = revision_lines.get(schedule.purchase_order_line_id)
+            planned = Decimal(str(schedule.planned_qty or 0))
+            received = Decimal(str(schedule.received_qty or 0))
+            cancelled = Decimal(str(schedule.cancelled_qty or 0))
             schedule_rows.append({
                 "delivery_date": schedule.delivery_date,
                 "item_code": line.item.item_code if line and line.item else str(line.item_id) if line else "-",
+                # The delivery table names the material the same way the materials table does.
+                "item_name": (dict(line.specification_json or {}).get("description") or (line.item.name if line.item else None)) if line else None,
+                "uom": line.uom if line else "",
                 "planned_qty": planned,
                 "received_qty": received,
                 "cancelled_qty": cancelled,
                 "open_qty": max(planned - received - cancelled, Decimal("0")),
-                "vendor_confirmation": schedule.vendor_confirmation,
+                "confirmation": "Confirmed" if schedule.confirmation_status == "CONFIRMED" else "To confirm",
             })
-    pdf_bytes = render_purchase_order_pdf(order, revision, schedule_rows)
+    pdf_bytes = render_purchase_order_pdf(order, revision, schedule_rows, names=_people_names(current_user.get("token", "")),
+                                           buyer=_plant_master(current_user.get("token", ""), plant_id))
     filename = f"{order.po_no.replace('/', '-')}-R{selected_revision}.pdf"
     return StreamingResponse(
         BytesIO(pdf_bytes),
@@ -727,7 +873,7 @@ def create_purchase_order(
                 expected_unit_count=line.expected_unit_count,
                 count_basis=line.count_basis,
                 unit_cost=line.unit_cost,
-                incoming_qc_required=line.incoming_qc_required,
+                incoming_qc_required=True,
                 line_status="OPEN",
                 notes=line.notes,
                 metadata_json={
@@ -749,7 +895,23 @@ def create_purchase_order(
         db.add(saved_line)
         saved_lines.append(saved_line)
     db.flush()
-    _persist_revision(db, order, saved_lines, revision_no=1, request_id=payload.request_id, actor=_actor(current_user))
+    revision = _persist_revision(db, order, saved_lines, revision_no=1, request_id=payload.request_id, actor=_actor(current_user))
+    db.flush()
+    # Every PO gets dated arrivals (spec 3): one TENTATIVE row per line on the line's own date, else
+    # the PO's expected date. They feed the RM inward calendar and Expected arrivals.
+    revision_lines = {row.source_order_line_id: row.id for row in db.query(PurchaseOrderRevisionLine).filter(PurchaseOrderRevisionLine.revision_id == revision.id).all()}
+    for saved_line, requested in zip(saved_lines, payload.lines):
+        raw = (requested.metadata_json or {}).get("delivery_date")
+        try:
+            line_date = date.fromisoformat(str(raw)[:10]) if raw else None
+        except ValueError:
+            line_date = None
+        delivery = line_date or payload.expected_date
+        if not delivery:
+            continue
+        db.add(PurchaseLineSchedule(plant_id=plant_id, purchase_order_line_id=saved_line.id, scheduled_qty=float(saved_line.qty_ordered),
+            promised_date=delivery, current_date=delivery, confirmation_status="TENTATIVE", notes=DEFAULT_ROW_NOTE,
+            created_by=_actor(current_user), revision_line_id=revision_lines.get(saved_line.id), cancelled_qty=0, version=1, change_history=[]))
     if requisition:
         requisition.status = "CONVERTED"; requisition.purchase_order_id = order.id; requisition.version += 1
         requisition.history = [*(requisition.history or []), {"action": "CONVERTED", "actor": _actor(current_user), "at": datetime.utcnow().isoformat(), "po_no": order.po_no}]
@@ -862,19 +1024,23 @@ def create_purchase_order_revision(
                 raise HTTPException(status_code=409, detail=f"Received line {index} cannot change material")
             if requested.qty_ordered + 1e-9 < float(line.qty_received or 0):
                 raise HTTPException(status_code=409, detail=f"Revision line {index} quantity is below received kg")
+            previous_meta = dict(line.metadata_json or {})
+            rate_changed = abs(float(line.unit_cost or 0) - float(requested.unit_cost or 0)) > 1e-9
             line.item_id = requested.item_id
             line.qty_ordered = requested.qty_ordered
             line.unit_cost = requested.unit_cost
             line.uom = requested.uom
             line.expected_unit_count = requested.expected_unit_count
             line.count_basis = requested.count_basis
-            line.incoming_qc_required = requested.incoming_qc_required
+            line.incoming_qc_required = True
             line.notes = requested.notes
+            # Keep what the line already knew (calendar source, rate source) unless this revision says otherwise.
             line.metadata_json = {
-                **dict(requested.metadata_json or {}), "description": requested.description,
+                **previous_meta, **dict(requested.metadata_json or {}), "description": requested.description,
                 "width_mm": requested.width_mm, "width_tolerance_mm": requested.width_tolerance_mm,
                 "gsm": requested.gsm, "plybond": requested.plybond,
                 "bulk": requested.bulk, "cobb": requested.cobb,
+                **({"rate_source": "DESK", "rate_needed": float(requested.unit_cost or 0) <= 0} if rate_changed else {}),
             }
             line.line_status = _line_status(line.qty_ordered, line.qty_received)
         else:
@@ -882,7 +1048,7 @@ def create_purchase_order_revision(
                 purchase_order_id=order.id, item_id=requested.item_id, logical_line_id=requested.logical_line_id or uuid.uuid4(),
                 qty_ordered=requested.qty_ordered, qty_received=0, unit_cost=requested.unit_cost, uom=requested.uom,
                 expected_unit_count=requested.expected_unit_count, count_basis=requested.count_basis,
-                incoming_qc_required=requested.incoming_qc_required, line_status="OPEN", notes=requested.notes,
+                incoming_qc_required=True, line_status="OPEN", notes=requested.notes,
                 metadata_json={**dict(requested.metadata_json or {}), "description": requested.description,
                     "width_mm": requested.width_mm, "width_tolerance_mm": requested.width_tolerance_mm,
                     "gsm": requested.gsm, "plybond": requested.plybond,
@@ -894,27 +1060,134 @@ def create_purchase_order_revision(
     omitted = [line for key, line in existing_by_logical.items() if key not in touched]
     if omitted:
         raise HTTPException(status_code=422, detail="Revision must include every existing logical PO line; use short-close for an unwanted balance")
-    order.supplier_id = payload.supplier_id
-    order.supplier_name_snapshot = payload.supplier_name
-    order.expected_date = payload.expected_date
-    order.notes = payload.notes
-    order.category = payload.category
-    order.metadata_json = {
-        **dict(payload.metadata_json or {}),
-        **{key: (order.metadata_json or {}).get(key) for key in ("requisition_id", "pr_no", "requested_by")}, "po_date": (payload.po_date or date.today()).isoformat(),
+    vendor_changed = str(payload.supplier_id) != str(order.supplier_id)
+    # The revision keeps what the PO already knew (calendar week, vendor master facts, requisition)
+    # and overlays what the form sends; a new vendor drops the old vendor's facts.
+    previous = dict(order.metadata_json or {})
+    kept = {key: value for key, value in previous.items()
+            if not (vendor_changed and (key.startswith("supplier_") or key == "payment_terms"))
+            and key not in {"resend_reason"}}
+    explicit = {
         "supplier_contact": payload.supplier_contact, "supplier_address": payload.supplier_address,
         "supplier_gst_no": payload.supplier_gst_no, "freight_terms": payload.freight_terms,
         "tax_terms": payload.tax_terms, "payment_terms": payload.payment_terms,
         "delivery_terms": payload.delivery_terms, "test_report_terms": payload.test_report_terms,
         "special_instruction": payload.special_instruction,
     }
-    order.current_revision_no = int(order.current_revision_no or 1) + 1
+    order.supplier_id = payload.supplier_id
+    order.supplier_name_snapshot = payload.supplier_name
+    order.expected_date = payload.expected_date
+    order.notes = payload.notes
+    order.category = payload.category
+    order.metadata_json = {
+        **kept,
+        **dict(payload.metadata_json or {}),
+        **{key: previous.get(key) for key in ("requisition_id", "pr_no", "requested_by")},
+        "po_date": (payload.po_date or date.today()).isoformat(),
+        **{key: value if value is not None else kept.get(key) for key, value in explicit.items()},
+    }
+    next_revision = int(order.current_revision_no or 1) + 1
+    if order.sent_at:
+        # The vendor has the old revision: this one must go to them again once approved.
+        order.metadata_json = {**order.metadata_json,
+            "send_history": [*(previous.get("send_history") or []), {"sent_at": order.sent_at.isoformat(), "sent_by": order.sent_by,
+                "channel": order.sent_channel, "revision_no": int(order.current_revision_no or 1)}],
+            "resend_reason": f"Revision {next_revision}: {payload.change_reason or 'PO changed'}"}
+        order.sent_at = order.sent_by = order.sent_channel = None
+        order.vendor_confirmed_at = order.vendor_confirmed_by = None
+    order.current_revision_no = next_revision
     order.status = "DRAFT"
     order.approved_by = None
     order.approved_at = None
+    order.approval_source = None
     order.version += 1
     db.flush()
-    _persist_revision(db, order, revised_lines, revision_no=order.current_revision_no, request_id=payload.request_id, actor=_actor(current_user), change_reason=payload.change_reason)
+    revision = _persist_revision(db, order, revised_lines, revision_no=order.current_revision_no, request_id=payload.request_id, actor=_actor(current_user), change_reason=payload.change_reason)
+    db.flush()
+    # Delivery rows follow the revised quantities (calendar cover, Expected arrivals, vendor PDF).
+    revision_lines = {row.source_order_line_id: row.id for row in db.query(PurchaseOrderRevisionLine).filter(PurchaseOrderRevisionLine.revision_id == revision.id).all()}
+    rm_calendar.sync_rows_to_lines(db, order, _actor(current_user), revision_no=order.current_revision_no, default_note=DEFAULT_ROW_NOTE,
+                                   revision_lines=revision_lines, vendor_changed=vendor_changed, lines=revised_lines)
+    if order.source == "SCHEDULE" and is_actual_owner(current_user):
+        # The Owner changed his own scheduled PO (e.g. filled a missing rate): his change is his
+        # approval, so the desk sends it on the schedule approval without a second Owner (there is
+        # often only one). Checker 2026-10-28: otherwise nobody could approve it.
+        rm_calendar.stamp_approved(db, order, _actor(current_user))
+    db.commit()
+    db.refresh(order)
+    return _serialize_order(order)
+
+
+class SendToVendorPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_version: int = Field(gt=0)
+    channel: str = Field(pattern="^(WHATSAPP|EMAIL|PDF|PRINT)$")
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class VendorConfirmRow(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    schedule_id: uuid.UUID
+    confirmed_date: Optional[date] = None
+
+
+class VendorConfirmPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_version: int = Field(gt=0)
+    rows: list[VendorConfirmRow] = Field(min_length=1, max_length=200)
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+# Purchase desk (spec 2.8): Store, Planner, PlantManager and the Owner send and record confirmations
+# (Admin alone is not on the desk).
+PURCHASE_DESK = rm_calendar.PURCHASE_DESK
+purchase_desk = rm_calendar.desk_role(PURCHASE_DESK, "Only the purchase desk (Store, Planner, plant head) or the Owner can send a PO or record the vendor's dates.")
+
+
+@router.post("/orders/{po_id}/send", response_model=PurchaseOrderResponse)
+def send_purchase_order(
+    po_id: uuid.UUID,
+    payload: SendToVendorPayload,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(purchase_desk),
+):
+    """Send to vendor. An unchanged scheduled draft becomes APPROVED on the Owner's schedule approval,
+    then SENT; a changed one is refused (409 NEEDS_APPROVAL) and goes Submit → Owner → Send."""
+    order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id, PurchaseOrder.plant_id == plant_id).with_for_update().first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    if order.version != payload.expected_version:
+        raise HTTPException(status_code=409, detail="Purchase order changed; reload before sending")
+    rm_calendar.send_order(db, order, channel=payload.channel, actor=_actor(current_user),
+                           actor_role=str((current_user.get("roles") or [""])[0]), note=payload.note)
+    db.commit()
+    db.refresh(order)
+    try:
+        emit_audit_event(token=current_user.get("token", ""), event_type="purchase_order_sent", entity_type="purchase_order",
+            entity_id=str(order.id), plant_id=str(plant_id), actor_role=str((current_user.get("roles") or ["?"])[0]),
+            actor_email=current_user.get("sub"), summary=f"Purchase order {order.po_no} sent to {order.supplier_name_snapshot} by {payload.channel.lower()}",
+            payload={"po_no": order.po_no, "channel": payload.channel, "approval_source": order.approval_source})
+    except Exception as exc:
+        _audit_logger.warning("audit emit failed for purchase_order_sent %s: %s", order.id, exc)
+    return _serialize_order(order)
+
+
+@router.post("/orders/{po_id}/vendor-confirm", response_model=PurchaseOrderResponse)
+def vendor_confirm_purchase_order(
+    po_id: uuid.UUID,
+    payload: VendorConfirmPayload,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(purchase_desk),
+):
+    """The vendor confirmed: the desk records the date per delivery row (rows become CONFIRMED)."""
+    order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id, PurchaseOrder.plant_id == plant_id).with_for_update().first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    if order.version != payload.expected_version:
+        raise HTTPException(status_code=409, detail="Purchase order changed; reload before confirming")
+    rm_calendar.confirm_vendor_dates(db, order, [row.model_dump() for row in payload.rows], _actor(current_user), payload.note)
     db.commit()
     db.refresh(order)
     return _serialize_order(order)
@@ -934,7 +1207,8 @@ def purchase_order_history(
     return {"po_id": str(order.id), "po_no": order.po_no, "items": [{
         "id": str(revision.id), "revision_no": revision.revision_no, "approval_state": revision.approval_state,
         "content_hash": revision.content_hash, "change_reason": revision.change_reason, "version": revision.version,
-        "created_by": revision.created_by, "submitted_by": revision.submitted_by,
+        "created_by": revision.created_by, "created_at": revision.created_at.isoformat() if revision.created_at else None,
+        "submitted_by": revision.submitted_by,
         "submitted_at": revision.submitted_at.isoformat() if revision.submitted_at else None,
         "approved_by": revision.approved_by, "approved_at": revision.approved_at.isoformat() if revision.approved_at else None,
         "rejected_by": revision.rejected_by, "rejected_at": revision.rejected_at.isoformat() if revision.rejected_at else None,
@@ -960,16 +1234,23 @@ def approve_purchase_order(
         raise HTTPException(status_code=404, detail="Purchase order not found")
     if order.version != payload.expected_version:
         raise HTTPException(status_code=409, detail="Purchase order changed; reload before approving")
-    if order.status != "SUBMITTED":
+    # A scheduled draft the desk changed goes straight to the Owner: he approves it from the PO page
+    # without a Submit step (the arrivals were his decision in the first place).
+    direct = order.status == "DRAFT" and _owner_may_decide_own(order)
+    if order.status != "SUBMITTED" and not direct:
         raise HTTPException(status_code=409, detail="Only submitted purchase orders can be approved")
     revision = _current_revision(db, order, lock=True)
-    if revision.approval_state != "SUBMITTED":
+    if revision.approval_state != ("DRAFT" if direct else "SUBMITTED"):
         raise HTTPException(status_code=409, detail="Current purchase revision is not awaiting approval")
     if payload.content_hash and payload.content_hash != revision.content_hash:
         raise HTTPException(status_code=409, detail="Purchase order content changed; reload before approving")
+    if _owner_may_decide_own(order):
+        missing = [rm_calendar.material_name(line) for line in order.lines or [] if float(line.unit_cost or 0) <= 0]
+        if missing:
+            raise HTTPException(status_code=422, detail=f"Fill the rate for {', '.join(missing)} first (Edit / vendor change).")
     actor = _actor(current_user).strip().lower()
     makers = {str(revision.created_by or "").strip().lower(), str(revision.submitted_by or "").strip().lower()}
-    if actor in makers:
+    if actor in makers and not _owner_may_decide_own(order):
         # Maker-checker: switching role on the same login is still the same person.
         raise HTTPException(
             status_code=403,
@@ -981,6 +1262,7 @@ def approve_purchase_order(
     order.status = "APPROVED"
     order.approved_by = _actor(current_user)
     order.approved_at = datetime.utcnow()
+    order.approval_source = "OWNER"
     order.version += 1
     revision.approval_state = "APPROVED"
     revision.approved_by = order.approved_by
@@ -1036,7 +1318,7 @@ def reject_purchase_order(
     if payload.content_hash and payload.content_hash != revision.content_hash:
         raise HTTPException(status_code=409, detail="Purchase order content changed; reload before rejecting")
     actor = _actor(current_user)
-    if actor.strip().lower() in {str(revision.created_by).lower(), str(revision.submitted_by).lower()}:
+    if actor.strip().lower() in {str(revision.created_by).lower(), str(revision.submitted_by).lower()} and not _owner_may_decide_own(order):
         raise HTTPException(status_code=403, detail="A different authorized person must decide this purchase order revision")
     revision.approval_state = "REJECTED"
     revision.rejected_by = actor
@@ -1082,23 +1364,23 @@ def short_close_purchase_order(
             raise HTTPException(status_code=422, detail=f"Short-close quantity exceeds open balance for line {line.id}")
         line.qty_short_closed = float(line.qty_short_closed or 0) + close_qty
         line.line_status = "CLOSED" if line.qty_received + line.qty_short_closed + 1e-9 >= line.qty_ordered else "PARTIAL"
-        revision_line = db.query(PurchaseOrderRevisionLine).filter(
-            PurchaseOrderRevisionLine.revision_id == _current_revision(db, order).id,
-            PurchaseOrderRevisionLine.source_order_line_id == line.id,
-        ).first()
         remaining_close = Decimal(str(close_qty))
-        if revision_line:
-            schedules = db.query(PurchaseDeliverySchedule).filter(
-                PurchaseDeliverySchedule.revision_line_id == revision_line.id,
-            ).order_by(PurchaseDeliverySchedule.delivery_date, PurchaseDeliverySchedule.created_at).with_for_update().all()
-            for schedule in schedules:
-                schedule_open = Decimal(schedule.planned_qty) - Decimal(schedule.received_qty or 0) - Decimal(schedule.cancelled_qty or 0)
-                if schedule_open <= 0 or remaining_close <= 0:
-                    continue
-                applied = min(schedule_open, remaining_close)
-                schedule.cancelled_qty = Decimal(schedule.cancelled_qty or 0) + applied
-                schedule.version += 1
-                remaining_close -= applied
+        # Delivery rows belong to the PO line (rows made before a revision keep an older revision link).
+        schedules = db.query(PurchaseDeliverySchedule).filter(
+            PurchaseDeliverySchedule.purchase_order_line_id == line.id,
+            PurchaseDeliverySchedule.confirmation_status != "CANCELLED",
+        ).order_by(PurchaseDeliverySchedule.delivery_date, PurchaseDeliverySchedule.created_at).with_for_update().all()
+        for schedule in schedules:
+            schedule_open = Decimal(str(schedule.planned_qty)) - Decimal(str(schedule.received_qty or 0)) - Decimal(str(schedule.cancelled_qty or 0))
+            if schedule_open <= 0 or remaining_close <= 0:
+                continue
+            applied = min(schedule_open, remaining_close)
+            schedule.cancelled_qty = float(Decimal(str(schedule.cancelled_qty or 0)) + applied)
+            if Decimal(str(schedule.received_qty or 0)) <= 0 and Decimal(str(schedule.planned_qty)) - Decimal(str(schedule.cancelled_qty)) <= Decimal("0.0005"):
+                schedule.confirmation_status = "CANCELLED"
+                schedule.cancelled_at = datetime.utcnow()
+            schedule.version += 1
+            remaining_close -= applied
         closed_any = True
     if not closed_any:
         raise HTTPException(status_code=409, detail="No open quantity was selected for short-close")
@@ -1129,14 +1411,17 @@ def cancel_purchase_order(
     if order.status in {"RECEIVED", "SHORT_CLOSED", "CANCELLED"} or any(float(line.qty_received or 0) > 0 for line in order.lines or []):
         raise HTTPException(status_code=409, detail="A PO with received quantity cannot be cancelled; use short-close or a controlled return")
     order.status = "CANCELLED"
-    revision = _current_revision(db, order)
-    schedules = db.query(PurchaseDeliverySchedule).join(
-        PurchaseOrderRevisionLine, PurchaseDeliverySchedule.revision_line_id == PurchaseOrderRevisionLine.id,
-    ).filter(PurchaseOrderRevisionLine.revision_id == revision.id).with_for_update().all()
+    line_ids = [line.id for line in order.lines or []]
+    schedules = db.query(PurchaseDeliverySchedule).filter(
+        PurchaseDeliverySchedule.purchase_order_line_id.in_(line_ids),
+        PurchaseDeliverySchedule.confirmation_status != "CANCELLED",
+    ).with_for_update().all() if line_ids else []
     for schedule in schedules:
-        remaining = Decimal(schedule.planned_qty) - Decimal(schedule.received_qty or 0) - Decimal(schedule.cancelled_qty or 0)
+        remaining = Decimal(str(schedule.planned_qty)) - Decimal(str(schedule.received_qty or 0)) - Decimal(str(schedule.cancelled_qty or 0))
         if remaining > 0:
-            schedule.cancelled_qty = Decimal(schedule.cancelled_qty or 0) + remaining
+            schedule.cancelled_qty = float(Decimal(str(schedule.cancelled_qty or 0)) + remaining)
+            schedule.confirmation_status = "CANCELLED"
+            schedule.cancelled_at = datetime.utcnow()
             schedule.version += 1
     order.metadata_json = {**(order.metadata_json or {}), "cancellation_reason": payload.reason.strip(),
         "cancelled_by": _actor(current_user), "cancelled_at": datetime.utcnow().isoformat()}
@@ -1217,7 +1502,7 @@ def reject_purchase_remainder(
             qty_received=0.0,
             qty_rejected=0.0,
             unit_cost=po_line.unit_cost,
-            incoming_qc_required=po_line.incoming_qc_required,
+            incoming_qc_required=True,
             line_status="OPEN",
             notes=f"Replacement for rejected remainder of line {po_line.id}",
             metadata_json={"replacement_of_line_id": str(po_line.id), "not_stock": True},
@@ -1354,7 +1639,8 @@ def commit_supplier_schedules(
     payload: SupplierScheduleCommit,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Store", "PlantManager", "Owner", "Planner"])),
+    # Dated deliveries are the purchase desk's (spec 2.8: same roles as vendor-confirm).
+    current_user: dict = Depends(purchase_desk),
 ):
     order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id, PurchaseOrder.plant_id == plant_id).with_for_update().first()
     if not order:
@@ -1367,8 +1653,12 @@ def commit_supplier_schedules(
         po_line = lines_by_id.get(row.purchase_order_line_id)
         if not po_line:
             raise HTTPException(status_code=404, detail=f"Purchase line not found for schedule row {idx}")
+        remainder = max(0, float(po_line.qty_ordered or 0) - float(po_line.qty_received or 0) - float(po_line.qty_short_closed or 0))
+        # Dated commitments the desk enters replace the line's PO-date placeholder row; any quantity
+        # they leave undated shows as "no dated row" again until it gets its own date.
+        _yield_default_rows(db, po_line, float("inf"), _actor(current_user))
         next_total = active_scheduled_qty(db, po_line.id) + float(row.scheduled_qty)
-        if next_total > max(0, float(po_line.qty_ordered or 0) - float(po_line.qty_received or 0) - float(po_line.qty_short_closed or 0)) + 1e-9:
+        if next_total > remainder + 1e-9:
             raise HTTPException(
                 status_code=400,
                 detail=f"Scheduled quantity for line {idx} exceeds unordered remainder of the PO line",
@@ -1391,6 +1681,40 @@ def commit_supplier_schedules(
     return {"purchase_order_id": str(order.id), "po_no": order.po_no, "ledger": False, "items": created}
 
 
+DEFAULT_ROW_NOTE = "Expected date on the PO"
+
+
+def _yield_default_rows(db: Session, po_line: PurchaseOrderLine, needed: float, actor: str) -> None:
+    """Free ``needed`` qty from the line's automatic PO-date rows (latest first, never a received
+    part): partly cancelled, or cancelled whole, with the change kept in their history."""
+    rows = db.query(PurchaseLineSchedule).filter(
+        PurchaseLineSchedule.purchase_order_line_id == po_line.id,
+        PurchaseLineSchedule.confirmation_status != "CANCELLED",
+        PurchaseLineSchedule.notes == DEFAULT_ROW_NOTE,
+        PurchaseLineSchedule.source_plan_entry_id.is_(None),
+    ).order_by(PurchaseLineSchedule.current_date.desc()).with_for_update().all()
+    for row in rows:
+        if needed <= 1e-9:
+            break
+        free = max(0.0, float(row.scheduled_qty or 0) - float(row.cancelled_qty or 0) - float(row.received_qty or 0))
+        take = min(free, needed)
+        if take <= 0:
+            continue
+        row.cancelled_qty = float(row.cancelled_qty or 0) + take
+        whole = float(row.scheduled_qty or 0) - float(row.cancelled_qty or 0) - float(row.received_qty or 0) <= 1e-9
+        row.change_history = [*(row.change_history or []), {
+            "version": int(row.version or 1) + 1, "previous_date": row.current_date.isoformat(), "current_date": row.current_date.isoformat(),
+            "previous_status": row.confirmation_status, "status": "CANCELLED" if whole and float(row.received_qty or 0) <= 0 else row.confirmation_status,
+            "reason": "Replaced by dated delivery commitments", "actor": actor, "changed_at": datetime.utcnow().isoformat() + "Z",
+        }]
+        if whole and float(row.received_qty or 0) <= 0:
+            row.confirmation_status = "CANCELLED"
+            row.cancelled_at = datetime.utcnow()
+        row.version = int(row.version or 1) + 1
+        needed -= take
+    db.flush()
+
+
 class SupplierScheduleUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     expected_version: int = Field(ge=1)
@@ -1402,7 +1726,8 @@ class SupplierScheduleUpdate(BaseModel):
 @router.patch("/schedules/{schedule_id}")
 def update_supplier_schedule(schedule_id: uuid.UUID, payload: SupplierScheduleUpdate,
     db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Owner", "Admin", "Store", "PlantManager", "Planner"]))):
+    current_user: dict = Depends(purchase_desk)):
+    # Confirming or moving a vendor date is vendor-confirm work (spec 2.8: the purchase desk and the Owner).
     row = db.query(PurchaseLineSchedule).filter_by(id=schedule_id, plant_id=plant_id).with_for_update().first()
     if not row:
         raise HTTPException(404, "Supplier schedule not found")
@@ -1412,6 +1737,10 @@ def update_supplier_schedule(schedule_id: uuid.UUID, payload: SupplierScheduleUp
         raise HTTPException(409, "Cancelled commitments remain in history; create a new schedule for remaining quantity")
     if row.order_line.order.status in {"CANCELLED", "SHORT_CLOSED"}:
         raise HTTPException(409, "This purchase order is closed")
+    if payload.confirmation_status != "CANCELLED" and payload.current_date < ist_today() and (
+            payload.current_date != row.current_date or payload.confirmation_status == "CONFIRMED"):
+        # Same rule as vendor-confirm and the calendar: a vendor's date is today or later.
+        raise HTTPException(422, f"{rm_calendar.indian_date(payload.current_date)} has passed. Pick today or a later day.")
     row.change_history = [*(row.change_history or []), {
         "version": row.version + 1, "previous_date": row.current_date.isoformat(),
         "current_date": payload.current_date.isoformat(), "previous_status": row.confirmation_status,
@@ -1425,6 +1754,13 @@ def update_supplier_schedule(schedule_id: uuid.UUID, payload: SupplierScheduleUp
     if payload.confirmation_status == "CANCELLED":
         row.cancelled_qty = max(0, row.scheduled_qty - row.received_qty)
         row.cancelled_at = datetime.utcnow()
+    # The calendar arrival follows its delivery row; a confirmation is the vendor's (spec 3).
+    for entry in db.query(ProcurementPlanEntry).filter(ProcurementPlanEntry.schedule_row_id == row.id).all():
+        entry.entry_date = payload.current_date
+        entry.updated_by, entry.updated_at = _actor(current_user), datetime.utcnow()
+    if payload.confirmation_status == "CONFIRMED":
+        order = row.order_line.order
+        order.vendor_confirmed_at, order.vendor_confirmed_by = datetime.utcnow(), _actor(current_user)
     db.commit()
     return serialize_schedule(row, db)
 

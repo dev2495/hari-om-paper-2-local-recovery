@@ -48,7 +48,8 @@ export function OrderStatusChip({ order, className, size }: { order: any; classN
 /** Due date with the risk in words: "Overdue 3 d", "Due today", "in 4 days". */
 export function DueCell({ order, due: given, compact }: { order?: any; due?: OrderDue; compact?: boolean }) {
   const due = given || orderDue(order)
-  if (!due.date) return <span className="text-muted-foreground">—</span>
+  // Delivery dates are optional (client 2026-10-28): no date is "No date", never overdue.
+  if (!due.date) return <span className="text-muted-foreground" data-testid="due-no-date">No date</span>
   const tone = due.risk === "overdue" ? "rose" : due.risk === "today" || due.risk === "soon" ? "amber" : "slate"
   const icon = due.risk === "overdue" ? AlertTriangle : due.risk === "today" || due.risk === "soon" ? Clock3 : undefined
   return (

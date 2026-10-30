@@ -31,6 +31,9 @@ tar --exclude='./.git' --exclude='./apps/web-ui/node_modules' --exclude='./apps/
 curl --fail --location --retry 3 --max-time 120 "https://github.com/dev2495/hari-om-paper-2-local-recovery/archive/$release.tar.gz" -o "$work/release.tar.gz"
 tar -xzf "$work/release.tar.gz" --strip-components=1 -C "$work/source"
 [[ -f "$work/source/deploy/aws-ec2/migrations/20260910-production.sql" ]]
+# Fail before anything changes when the release commit lacks a migration this script runs later.
+[[ -f "$work/source/deploy/aws-ec2/migrations/20261028-store-books-locks.sql" ]] \
+  || { echo 'Release commit lacks deploy/aws-ec2/migrations/20261028-store-books-locks.sql; commit it first' >&2; exit 1; }
 activated=0
 maintenance_started=0
 backup_timer_active=0
@@ -152,6 +155,12 @@ for attempt in $(seq 1 60); do
   sleep 5
 done
 [[ "$ready" == 1 ]]
+# Store books lock (spec 2.5): months closed under the old monthly close are locked in inventory too.
+# It runs after readiness because the new app creates inventory_books_locks on start. Until it runs the
+# BFF books guard (production's closed months) still refuses backdated store posts. The statements are
+# idempotent, and a failure here rolls back to the previous image like any other step.
+compose exec -T postgres psql -U "$db_user" -d productiondb -At -v ON_ERROR_STOP=1 < "$deploy/migrations/20261028-store-books-locks.sql" > "$work/store-books-locks.sql"
+compose exec -T postgres psql -U "$db_user" -d inventorydb -v ON_ERROR_STOP=1 -1 < "$work/store-books-locks.sql"
 compose exec -T caddy caddy validate --config /etc/caddy/Caddyfile
 compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile
 site_host="$(sed -n 's/^SITE_HOST=//p' "$deploy/.env" | tail -n 1)"

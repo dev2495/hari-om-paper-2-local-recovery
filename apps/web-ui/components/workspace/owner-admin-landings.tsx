@@ -176,8 +176,8 @@ export function AdminLandingPage() {
           <div className="space-y-3">
             {[
               { href: "/system/users", label: "Role matrix", icon: Users },
-              { href: "/system/tolerances", label: "Variance tolerances", icon: Wrench },
-              { href: "/system/scheduler", label: "Scheduler status", icon: Wrench },
+              { href: "/production/reconciliation/limits", label: "Usage limits", icon: Wrench },
+              { href: "/system/scheduler", label: "Background jobs", icon: Wrench },
               { href: "/masters/reason-codes", label: "Reason codes", icon: ClipboardCheck },
               { href: "/masters/employees", label: "Employees", icon: Users },
               { href: "/masters/shifts", label: "Shifts", icon: Wrench },

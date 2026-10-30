@@ -171,6 +171,11 @@ def _ensure_schema_compatibility():
         except Exception as exc:  # pragma: no cover - defensive migration guard
             print(f"[schema-compat] skipped statement: {_statement!r} ({exc})")
 
+    # Month-end close (client 2026-10-28): snapshot + close / re-open trail, close history, per-item
+    # notes and usage limits per material type (src/month_end_schema.py).
+    from .month_end_schema import run_month_end_close_migrations
+    run_month_end_close_migrations(engine)
+
 
 _ensure_schema_compatibility()
 

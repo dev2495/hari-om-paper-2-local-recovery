@@ -1,748 +1,521 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+// Stock counts & book (client 2026-10-28): one place for counts (spot any time, one month-end count per
+// month), corrections (anyone in the store raises, only the Owner approves), the stock book (per material,
+// per month: opening + received − sent back − issued + corrections = closing, in each item's own unit)
+// and a link to Locations. Query: ?tab=counts|corrections|book&month=YYYY-MM (old links land here too).
+
 import Link from "next/link"
-import { useQuery } from "@tanstack/react-query"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { Suspense, useMemo, useState } from "react"
 import {
-  ArrowRight,
-  BadgeCheck,
-  BookMarked,
-  CalendarDays,
-  Clock,
-  ClipboardCheck,
-  FileCheck2,
-  FilePlus2,
-  Landmark,
-  Scale,
-  ShieldAlert,
+  AlertTriangle, ArrowRight, BookOpenCheck, CalendarCheck2, CalendarClock, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Lock,
+  MapPin, PackageOpen, Plus, ScanLine, ShieldCheck, Wrench, XCircle,
 } from "lucide-react"
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 
-import { ChartCard, CompactTable, FilterChip, formatCompactCurrency, formatCompactNumber } from "@/components/erp/premium-dashboard"
-import { MetricCard, MetricRail } from "@/components/erp/shell"
+import { CorrectionSheet } from "@/components/inventory/correction-sheet"
+import { ChangedAfterCountNotice } from "@/components/inventory/changed-after-count"
+import { CountStartSheet } from "@/components/inventory/count-start-sheet"
+import { Chip, Count, EmptyBlock, Field, Notice, Panel, PickPlant, SegmentBar, Segmented, Sheet, TONE, fieldClass } from "@/components/inventory/stock-ui"
 import { PageHeader } from "@/components/workspace/page-header"
-import { CountSheet } from "@/components/inventory/count-sheet"
-import { useAuth } from "@/context/AuthContext"
-import { useRefreshStockCertification,
-  useAdjustmentVouchers,
-  useCarryForwards,
-  useCertifyStockCertification,
-  useCreateAdjustmentVoucher,
-  useCreateCarryForward,
-  useCreateOpeningLoad,
-  useCreateStockCertification,
-  useInventoryItems,
-  useInventoryStockStatement,
-  useOpeningLoads,
-  usePostOpeningFromCarryForward,
-  usePostStockCertificationVariance,
-  useStockCertifications,
-  useUpdateStockCertification,
-} from "@/hooks/use-inventory"
-import { useBooksState, usePeriodState } from "@/hooks/use-production"
-import { inventoryApi } from "@/lib/api"
-import { displayPlantScope } from "@/lib/plant-scope"
+import { ErrorState, LoadingState } from "@/components/workspace/query-state"
+import { useOpeningLoads } from "@/hooks/use-inventory"
+import { usePeopleVersion } from "@/hooks/use-people"
+import {
+  useApproveCorrection, useCorrections, useCounts, useItemSources, useMonthFigures, useRejectCorrection, useSinglePlant, useStartCount,
+} from "@/hooks/use-stock"
+import {
+  COUNT_STATUS_TONE, dayText, errorText, monthText, plural, qtyText, reasonWord, shiftMonth, signedQty, timeText, unitName, who,
+  type BookRow, type Correction, type CountListRow, type MonthEndState, type SourceRow,
+} from "@/lib/api-stock"
+import { businessDate } from "@/lib/business-date"
+import { cn } from "@/lib/utils"
 
-const today = () => new Date().toISOString().slice(0, 10)
-const dateTimeLocal = (value = new Date()) => {
-  const offset = value.getTimezoneOffset()
-  const local = new Date(value.getTime() - offset * 60_000)
-  return local.toISOString().slice(0, 16)
-}
-const endOfDayLocal = (day: string) => `${day || today()}T23:59`
-const monthStart = () => {
-  const now = new Date()
-  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
-}
-const formatNumber = (value: unknown, digits = 0) => Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: digits })
-const formatKg = (value: unknown) => `${formatNumber(value, 2)} kg`
-const formatDateTime = (value?: string | null) => {
-  if (!value) return "-"
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return String(value).replace("T", " ").slice(0, 16)
-  return parsed.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })
-}
-const toDateTimeInput = (value?: string | null, fallback = dateTimeLocal()) => {
-  if (!value) return fallback
-  return String(value).replace("Z", "").slice(0, 16)
-}
+type Tab = "counts" | "corrections" | "book"
+const TABS: Tab[] = ["counts", "corrections", "book"]
 
-function normalizeRows(raw: any) {
-  return Array.isArray(raw) ? raw : Array.isArray(raw?.items) ? raw.items : Array.isArray(raw?.rows) ? raw.rows : []
-}
-
-function certStatusTone(status: string) {
-  const normalized = String(status || "").toUpperCase()
-  if (normalized === "CARRIED_FORWARD") return "bg-signal-emerald-soft text-signal-emerald-ink border-signal-emerald-line"
-  if (normalized === "CERTIFIED") return "bg-signal-cyan-soft text-signal-cyan-ink border-signal-cyan-line"
-  return "bg-signal-amber-soft text-signal-amber-ink border-signal-amber-line"
-}
-
-export default function InventoryStockControlPage() {
-  const { activePlant } = useAuth()
-  const [startDate, setStartDate] = useState(monthStart())
-  const [endDate, setEndDate] = useState(today())
-  const [stockAsOfAt, setStockAsOfAt] = useState(() => endOfDayLocal(today()))
-  const [countTakenAt, setCountTakenAt] = useState(() => dateTimeLocal())
-  const [selectedCertificationId, setSelectedCertificationId] = useState<string | null>(null)
-  const [physicalDraft, setPhysicalDraft] = useState<Record<string, string>>({})
-  const [sessionDraft, setSessionDraft] = useState({
-    count_location_scope: "",
-    counted_by: "",
-    checked_by: "",
-    count_taken_at: "",
-    attachment_refs: "",
-  })
-  const [lineAuditDraft, setLineAuditDraft] = useState<Record<string, Record<string, any>>>({})
-  const [openingForm, setOpeningForm] = useState({
-    document_no: "",
-    effective_date: today(),
-    item_id: "",
-    qty: "",
-    batch_or_reel: "",
-    unit_cost: "",
-    notes: "",
-  })
-  const [adjustmentForm, setAdjustmentForm] = useState({
-    effective_date: today(),
-    effective_at: dateTimeLocal(),
-    item_id: "",
-    qty_delta: "",
-    reason_code: "MANUAL_CORRECTION",
-    notes: "",
-    unit_cost: "",
-    post_now: true,
-  })
-  const writeBlocked = !activePlant || activePlant === "ALL"
-
-  const statementQuery = useInventoryStockStatement({ start_date: startDate, end_date: endDate, stock_as_of_at: stockAsOfAt })
-  const itemsQuery = useInventoryItems()
-  const openingLoadsQuery = useOpeningLoads()
-  const certificationsQuery = useStockCertifications()
-  const carryForwardsQuery = useCarryForwards()
-  const createOpeningLoad = useCreateOpeningLoad()
-  const createCertification = useCreateStockCertification()
-  const updateCertification = useUpdateStockCertification()
-  const certifyCertification = useCertifyStockCertification()
-  const refreshCertification = useRefreshStockCertification()
-  const postCertificationVariance = usePostStockCertificationVariance()
-  const createCarryForward = useCreateCarryForward()
-  const adjustmentVouchersQuery = useAdjustmentVouchers()
-  const createAdjustmentVoucher = useCreateAdjustmentVoucher()
-  const postOpeningFromCf = usePostOpeningFromCarryForward()
-  const booksStateQuery = useBooksState(activePlant || "", true)
-  const currentMonthIso = monthStart().slice(0, 7)
-  const periodStateQuery = usePeriodState(currentMonthIso, activePlant || "", true)
-
-  const certificationDetailQuery = useQuery({
-    queryKey: ["inventory-stock-certification", selectedCertificationId],
-    queryFn: async () => {
-      if (!selectedCertificationId) return null
-      const { data } = await inventoryApi.getStockCertification(selectedCertificationId)
-      return data
-    },
-    enabled: Boolean(selectedCertificationId),
-  })
-
-  const statementRows = normalizeRows(statementQuery.data)
-  const items = normalizeRows(itemsQuery.data)
-  const openingLoads = normalizeRows(openingLoadsQuery.data)
-  const certifications = normalizeRows(certificationsQuery.data)
-  const carryForwards = normalizeRows(carryForwardsQuery.data)
-  const adjustmentVouchers = normalizeRows(adjustmentVouchersQuery.data)
-  const selectedCertification = certificationDetailQuery.data
-  const certificationLines = normalizeRows(selectedCertification?.lines)
-  const manualOpeningLocked = openingLoads.length > 0
-  const certificationVarianceQty = certificationLines.reduce(
-    (sum: number, line: any) => sum + Math.abs(Number(line.variance_qty || 0)),
-    0,
+export default function StockControlPage() {
+  return (
+    <Suspense fallback={<LoadingState label="Opening stock counts & book…" />}>
+      <StockHub />
+    </Suspense>
   )
+}
 
-  const totals = statementQuery.data?.totals || {}
-  const topMovementRows = statementRows
-    .map((row: any) => ({
-      label: row.item_code || row.item_name,
-      opening: Number(row.opening_qty || 0),
-      in: Number(row.inward_qty || 0) + Number(row.adjustment_qty || 0),
-      out: Number(row.outward_qty || 0),
-      close: Number(row.closing_qty || 0),
-    }))
-    .sort((left: any, right: any) => right.close - left.close)
-    .slice(0, 8)
-
-  const latestCertification = certifications[0]
-  const draftCert = certifications.find((row: any) => String(row.status || "").toUpperCase() === "DRAFT")
-
-  useEffect(() => {
-    if (!selectedCertification?.id) return
-    const selectedCountTakenAt = toDateTimeInput(selectedCertification.count_taken_at || selectedCertification.counted_at, dateTimeLocal())
-    setSessionDraft({
-      count_location_scope: selectedCertification.count_location_scope || "",
-      counted_by: selectedCertification.counted_by || "",
-      checked_by: selectedCertification.checked_by || "",
-      count_taken_at: selectedCountTakenAt,
-      attachment_refs: Array.isArray(selectedCertification.attachment_refs) ? selectedCertification.attachment_refs.join(", ") : "",
-    })
-    if (selectedCertification.stock_as_of_at) {
-      setStockAsOfAt(toDateTimeInput(selectedCertification.stock_as_of_at, endOfDayLocal(selectedCertification.period_end || endDate)))
-    }
-    if (selectedCertification.count_taken_at) {
-      setCountTakenAt(selectedCountTakenAt)
-    }
-    setLineAuditDraft({})
-  }, [
-    endDate,
-    selectedCertification?.id,
-    selectedCertification?.attachment_refs,
-    selectedCertification?.checked_by,
-    selectedCertification?.count_location_scope,
-    selectedCertification?.count_taken_at,
-    selectedCertification?.counted_at,
-    selectedCertification?.counted_by,
-    selectedCertification?.period_end,
-    selectedCertification?.stock_as_of_at,
-  ])
-  const riskRows = statementRows.filter((row: any) => row.risk_level && row.risk_level !== "OK")
-  const policyMissingRows = statementRows.filter((row: any) => row.policy_missing)
-
-  const selectedItem = useMemo(() => {
-    const item = items.find((row: any) => String(row.id) === openingForm.item_id)
-    return item || null
-  }, [items, openingForm.item_id])
-  const selectedAdjustmentItem = useMemo(() => {
-    return items.find((row: any) => String(row.id) === adjustmentForm.item_id) || null
-  }, [items, adjustmentForm.item_id])
-
-  async function postOpeningLoad(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (manualOpeningLocked) return
-    if (!openingForm.item_id || !openingForm.qty) return
-    const codeField = selectedItem?.tracking_mode === "REEL" ? "reel_code" : "batch_no"
-    await createOpeningLoad.mutateAsync({
-      document_no: openingForm.document_no || undefined,
-      effective_date: openingForm.effective_date,
-      notes: openingForm.notes || undefined,
-      lines: [
-        {
-          item_id: openingForm.item_id,
-          qty: Number(openingForm.qty),
-          [codeField]: openingForm.batch_or_reel || undefined,
-          unit_cost: openingForm.unit_cost ? Number(openingForm.unit_cost) : undefined,
-          notes: openingForm.notes || undefined,
-        },
-      ],
-    })
-    setOpeningForm((current) => ({ ...current, document_no: "", qty: "", batch_or_reel: "", unit_cost: "", notes: "" }))
+function StockHub() {
+  // Names arrive with the people directory, sometimes after the page first shows: show them at once.
+  usePeopleVersion()
+  const router = useRouter()
+  const pathname = usePathname()
+  const search = useSearchParams()
+  const single = useSinglePlant()
+  const thisMonth = businessDate().slice(0, 7)
+  const tab: Tab = TABS.includes(search.get("tab") as Tab) ? (search.get("tab") as Tab) : "counts"
+  const wanted = /^\d{4}-(0[1-9]|1[0-2])$/.test(search.get("month") || "") ? String(search.get("month")) : thisMonth
+  const month = wanted > thisMonth ? thisMonth : wanted
+  const counts = useCounts()
+  const corrections = useCorrections("ALL")
+  const [starting, setStarting] = useState(false)
+  const go = (next: Partial<{ tab: Tab; month: string }>) => {
+    const query = new URLSearchParams(search.toString())
+    if (next.tab) query.set("tab", next.tab)
+    if (next.month) query.set("month", next.month)
+    router.replace(`${pathname}?${query.toString()}`, { scroll: false })
   }
-
-  async function draftCertification() {
-    const result = await createCertification.mutateAsync({
-      period_start: startDate,
-      period_end: endDate,
-      stock_as_of_at: stockAsOfAt,
-      count_taken_at: countTakenAt,
-      count_location_scope: "ALL_LOCATIONS",
-      notes: "Generated from stock-control statement.",
-    })
-    const id = result?.data?.id
-    if (id) {
-      setSelectedCertificationId(id)
-      setPhysicalDraft({})
-    }
-  }
-
-  async function savePhysicalCounts() {
-    if (!selectedCertification?.id) return
-    const lines = certificationLines.map((line: any) => {
-      const draft = lineAuditDraft[line.id] || {}
-      return {
-        line_id: line.id,
-        physical_qty: Number(physicalDraft[line.id] ?? line.physical_qty ?? line.closing_qty ?? 0),
-        stock_status: draft.stock_status ?? line.stock_status ?? "UNRESTRICTED",
-        bin_code: draft.bin_code ?? line.bin_code ?? undefined,
-        count_state: draft.count_state ?? line.count_state ?? "COUNTED",
-        counted_by: (draft.counted_by ?? line.counted_by ?? sessionDraft.counted_by) || undefined,
-        checked_by: (draft.checked_by ?? line.checked_by ?? sessionDraft.checked_by) || undefined,
-        recount_required: Boolean(draft.recount_required ?? line.recount_required ?? false),
-        recount_notes: draft.recount_notes ?? line.recount_notes ?? undefined,
-        notes: line.notes || undefined,
-      }
-    })
-    await updateCertification.mutateAsync({
-      id: selectedCertification.id,
-      data: {
-        count_location_scope: sessionDraft.count_location_scope || undefined,
-        count_taken_at: sessionDraft.count_taken_at || countTakenAt,
-        counted_by: sessionDraft.counted_by || undefined,
-        checked_by: sessionDraft.checked_by || undefined,
-        attachment_refs: sessionDraft.attachment_refs.split(",").map((value) => value.trim()).filter(Boolean),
-        lines,
-      },
-    })
-  }
-
-  async function certifySelected() {
-    if (!selectedCertification?.id) return
-    await certifyCertification.mutateAsync({ id: selectedCertification.id, data: { notes: selectedCertification.notes || "Certified from stock-control workspace." } })
-  }
-
-  async function carryForwardSelected() {
-    if (!selectedCertification?.id) return
-    await createCarryForward.mutateAsync({ id: selectedCertification.id, data: {} })
-  }
-
-  async function postVarianceSelected() {
-    if (!selectedCertification?.id) return
-    await postCertificationVariance.mutateAsync(selectedCertification.id)
-  }
-
-  async function postManualAdjustment(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!adjustmentForm.item_id || !adjustmentForm.qty_delta) return
-    await createAdjustmentVoucher.mutateAsync({
-      effective_date: adjustmentForm.effective_date,
-      effective_at: adjustmentForm.effective_at,
-      reason_code: adjustmentForm.reason_code || "MANUAL_CORRECTION",
-      reason_notes: adjustmentForm.notes || undefined,
-      source_type: "MANUAL",
-      post_now: adjustmentForm.post_now,
-      lines: [
-        {
-          item_id: adjustmentForm.item_id,
-          qty_delta: Number(adjustmentForm.qty_delta),
-          unit_cost: adjustmentForm.unit_cost ? Number(adjustmentForm.unit_cost) : undefined,
-          stock_status: "UNRESTRICTED",
-          reason_code: adjustmentForm.reason_code || "MANUAL_CORRECTION",
-          notes: adjustmentForm.notes || undefined,
-        },
-      ],
-    })
-    setAdjustmentForm((current) => ({ ...current, item_id: "", qty_delta: "", notes: "", unit_cost: "" }))
-  }
-
-  const certStatus = String(periodStateQuery.data?.stock_cert_status || latestCertification?.status || "").toUpperCase()
-  const recoStatus = String(periodStateQuery.data?.reco_status || "").toUpperCase()
-  const closeSteps: Array<{ label: string; detail: string; state: "done" | "active" | "todo" }> = (() => {
-    const hasStatement = statementRows.length > 0
-    const drafted = Boolean(draftCert) || ["CERTIFIED", "CARRIED_FORWARD"].includes(certStatus)
-    const counted = ["CERTIFIED", "CARRIED_FORWARD"].includes(certStatus) || certificationLines.some((line: any) => line.physical_qty !== null && line.physical_qty !== undefined)
-    const certified = ["CERTIFIED", "CARRIED_FORWARD"].includes(certStatus)
-    const carried = certStatus === "CARRIED_FORWARD" || carryForwards.length > 0
-    const reconciled = ["APPROVED", "LOCKED", "CLOSED"].includes(recoStatus) || Boolean(booksStateQuery.data?.locked_through)
-    const flags = [hasStatement, drafted, counted, certified, carried, reconciled]
-    const firstOpen = flags.findIndex((flag) => !flag)
-    const state = (index: number) => (flags[index] ? "done" : index === firstOpen ? "active" : "todo") as "done" | "active" | "todo"
-    return [
-      { label: "Book statement", detail: hasStatement ? `${statementRows.length} items in the statement` : "No stock lines for this window", state: state(0) },
-      { label: "Draft count", detail: drafted ? "Count sheet drafted from book stock" : "Draft a certificate below", state: state(1) },
-      { label: "Physical count", detail: counted ? "Counts entered" : "Enter counted qty per line", state: state(2) },
-      { label: "Certify", detail: certified ? "Closing stock certified" : "Certify once counts are checked", state: state(3) },
-      { label: "Carry forward", detail: carried ? `${carryForwards.length} opening proof(s)` : "Generate next-period opening", state: state(4) },
-      { label: "Monthly reco", detail: reconciled ? "Reconciliation approved" : recoStatus ? `Reco ${recoStatus.toLowerCase().replaceAll("_", " ")}` : "Open reconciliation", state: state(5) },
-    ]
-  })()
+  const openCounts = (counts.data?.items || []).filter((row) => row.status === "DRAFT" || row.status === "SUBMITTED").length
+  const waiting = corrections.data?.waiting_count || 0
 
   return (
-    <div className="space-y-5" data-testid="inventory-stock-control-page">
+    <div className="space-y-4" data-testid="stock-hub">
       <PageHeader
-        badge="Stock close control"
-        title="Stock control"
-        description="Book stock, physical counts, certification and next-period carry-forward in one place. The running ledger is never double-posted."
-        actions={
-          <>
-            <FilterChip>{displayPlantScope(activePlant, "No plant selected")}</FilterChip>
-            <Link href="/inventory/lifecycle" className="erp-btn-secondary !h-9">← Lifecycle</Link>
-            <Link href="/inventory/ledger" className="erp-btn-secondary !h-9">Ledger <ArrowRight className="h-3.5 w-3.5" /></Link>
-            <Link href="/production/reconciliation" className="erp-btn-primary !h-9">Monthly reco <ArrowRight className="h-3.5 w-3.5" /></Link>
-          </>
-        }
+        badge="Stores"
+        title="Stock counts & book"
+        description="Count racks, correct stock with the Owner's approval, and read the stock book month by month."
+        actions={<>
+          <Link href="/inventory/locations" className="erp-btn-secondary !h-11" data-testid="hub-locations"><MapPin className="h-4 w-4" aria-hidden="true" />Locations</Link>
+          {single ? <button type="button" className="erp-btn-primary !h-11" onClick={() => setStarting(true)} data-testid="hub-start-spot"><ScanLine className="h-4 w-4" aria-hidden="true" />Start a spot count</button> : null}
+        </>}
       />
-
-      <MetricRail className="xl:grid-cols-3 2xl:grid-cols-6">
-        <MetricCard label="Book closing" value={formatCompactCurrency(Number(totals.closing_value || 0))} detail={`${formatKg(totals.kg_closing_qty)} plus ${formatNumber(totals.pcs_closing_qty)} pcs`} icon={Scale} tone="cyan" />
-        <MetricCard label="Opening value" value={formatCompactCurrency(Number(totals.opening_value || 0))} detail="Derived from transactions before the period" icon={BookMarked} tone="slate" />
-        <MetricCard label="Risk lines" value={formatCompactNumber(riskRows.length)} detail="Reorder, safety, or missing policy attention" icon={ShieldAlert} tone={riskRows.length ? "amber" : "emerald"} />
-        <MetricCard label="Certificates" value={formatCompactNumber(certifications.length)} detail={draftCert ? "Draft awaiting count review" : "No open draft"} icon={FileCheck2} tone={draftCert ? "amber" : "emerald"} />
-        <MetricCard label="Count coverage" value={`${formatCompactNumber(statementRows.length)}/${formatCompactNumber(items.length)}`} detail="Active item masters included in count sheet" icon={ClipboardCheck} tone={statementRows.length === items.length ? "emerald" : "amber"} />
-        <MetricCard label="Carry-forward proofs" value={formatCompactNumber(carryForwards.length)} detail="Formal next-period opening proof documents" icon={Landmark} tone="violet" />
-      </MetricRail>
-
-      <section className="erp-panel rounded-xl p-4 sm:p-5" aria-label="Close progress">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-[15px] font-semibold tracking-tight">Period close · {currentMonthIso}</h2>
-          <span className="text-[12.5px] text-muted-foreground">
-            {booksStateQuery.data?.locked_through ? `Books locked through ${String(booksStateQuery.data.locked_through)}${booksStateQuery.data.locked_by ? ` · ${booksStateQuery.data.locked_by}` : ""}` : "Books open"}
-            {periodStateQuery.data?.blockers?.length ? ` · ${periodStateQuery.data.blockers.length} blocker(s)` : ""}
-          </span>
-        </div>
-        <ol className="mt-4 grid gap-2 sm:grid-cols-3 xl:grid-cols-6">
-          {closeSteps.map((step, index) => (
-            <li key={step.label} className={`relative rounded-lg border px-3 py-2.5 transition-colors ${step.state === "done" ? "border-signal-emerald-line bg-signal-emerald-soft/60" : step.state === "active" ? "border-primary/40 bg-primary/5 shadow-[0_0_0_3px_hsl(var(--primary)/.08)]" : "border-border bg-[hsl(var(--surface-2))]"}`}>
-              <div className="flex items-center gap-2">
-                <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10.5px] font-bold ${step.state === "done" ? "bg-signal-emerald-soft text-signal-emerald-ink ring-1 ring-inset ring-signal-emerald-line" : step.state === "active" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>{step.state === "done" ? "✓" : index + 1}</span>
-                <span className="truncate text-[12.5px] font-semibold">{step.label}</span>
-              </div>
-              <p className="mt-1 line-clamp-2 text-[11.5px] leading-4 text-muted-foreground">{step.detail}</p>
-            </li>
-          ))}
-        </ol>
-        {writeBlocked ? (
-          <p className="mt-3 rounded-lg border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-[12.5px] font-medium text-signal-amber-ink">
-            Select one plant before posting opening stock, certifying closing stock or generating carry-forward. All-plant scope is read-only for audit review.
-          </p>
-        ) : null}
-      </section>
-
-      <section className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-3 py-2.5" aria-label="Statement window">
-        <span className="mr-1 text-[12.5px] font-semibold">Statement window</span>
-        <label className="flex h-9 items-center gap-1.5 rounded-lg border border-input bg-card px-2.5 text-[12.5px] text-muted-foreground">
-          From
-          <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className="bg-transparent text-[13px] text-foreground outline-none" />
-        </label>
-        <label className="flex h-9 items-center gap-1.5 rounded-lg border border-input bg-card px-2.5 text-[12.5px] text-muted-foreground">
-          To
-          <input
-            type="date"
-            value={endDate}
-            onChange={(event) => {
-              const nextDate = event.target.value
-              setEndDate(nextDate)
-              setStockAsOfAt((current) => current.startsWith(endDate) ? endOfDayLocal(nextDate) : current)
-            }}
-            className="bg-transparent text-[13px] text-foreground outline-none"
-          />
-        </label>
-        <label className="flex h-9 items-center gap-1.5 rounded-lg border border-signal-cyan-line bg-signal-cyan-soft/50 px-2.5 text-[12.5px] text-signal-cyan-ink">
-          <Clock className="h-3.5 w-3.5" />
-          Stock as of
-          <input type="datetime-local" value={stockAsOfAt} onChange={(event) => setStockAsOfAt(event.target.value)} className="w-[170px] bg-transparent text-[13px] text-foreground outline-none" />
-        </label>
-        <label className="flex h-9 items-center gap-1.5 rounded-lg border border-input bg-card px-2.5 text-[12.5px] text-muted-foreground">
-          Count taken
-          <input type="datetime-local" value={countTakenAt} onChange={(event) => setCountTakenAt(event.target.value)} className="w-[170px] bg-transparent text-[13px] text-foreground outline-none" />
-        </label>
-        <span className="ml-auto text-[12px] text-muted-foreground">Last certified: <strong className="text-foreground">{latestCertification?.period_end || "never"}</strong>{latestCertification?.status ? ` · ${String(latestCertification.status).replaceAll("_", " ").toLowerCase()}` : ""}</span>
-      </section>
-
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_430px]">
-        <ChartCard eyebrow="Book statement" title="Opening + receipts - issues + adjustments = closing" description={`Bulk items use stock transactions. Reel-tracked paper uses reel inward weight minus closed consumed weight. Snapshot: ${formatDateTime(statementQuery.data?.stock_as_of_at || stockAsOfAt)}.`}>
-          <div className="h-[320px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={topMovementRows}>
-                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="hsl(var(--chart-grid))" />
-                <XAxis dataKey="label" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
-                <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                <Tooltip formatter={(value: any) => formatKg(value)} contentStyle={{ borderRadius: 14, border: "1px solid hsl(var(--chart-grid))" }} />
-                <Bar dataKey="opening" fill="hsl(var(--chart-axis))" radius={[7, 7, 0, 0]} />
-                <Bar dataKey="in" fill="hsl(var(--chart-1))" radius={[7, 7, 0, 0]} />
-                <Bar dataKey="out" fill="hsl(var(--chart-6))" radius={[7, 7, 0, 0]} />
-                <Bar dataKey="close" fill="#15803d" radius={[7, 7, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="mt-4">
-            <div className="max-h-[420px] overflow-auto">
-            <CompactTable
-              rows={statementRows}
-              columns={[
-                { key: "item_code", label: "Item", render: (row) => <div><p className="font-semibold text-foreground">{row.item_code}</p><p className="text-xs text-muted-foreground">{row.item_name}</p></div> },
-                { key: "opening_qty", label: "Opening", render: (row) => `${formatNumber(row.opening_qty, 2)} ${row.uom}` },
-                { key: "inward_qty", label: "In", render: (row) => `${formatNumber(Number(row.inward_qty || 0) + Number(row.adjustment_qty || 0), 2)} ${row.uom}` },
-                { key: "outward_qty", label: "Out", render: (row) => `${formatNumber(row.outward_qty, 2)} ${row.uom}` },
-                { key: "closing_qty", label: "Closing", render: (row) => <span className="font-semibold text-foreground">{formatNumber(row.closing_qty, 2)} {row.uom}</span> },
-                { key: "risk_level", label: "Risk", render: (row) => <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${row.risk_level === "OK" ? "bg-signal-emerald-soft text-signal-emerald-ink" : "bg-signal-amber-soft text-signal-amber-ink"}`}>{row.risk_level}</span> },
-              ]}
-              emptyLabel="No statement rows for this period."
-            />
-            </div>
-          </div>
-        </ChartCard>
-
-        <div className="space-y-4">
-          <ChartCard eyebrow="Certification" title="Physical count close" description="Draft from book stock at the selected timestamp, enter the physical count taken time, then certify.">
-            <button
-              type="button"
-              disabled={writeBlocked || createCertification.isPending}
-              onClick={draftCertification}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-45"
-            >
-              <FilePlus2 className="h-4 w-4" />
-              Draft certification for period
-            </button>
-            <div className="mt-4 space-y-2">
-              {certifications.slice(0, 4).map((cert: any) => (
-                <button
-                  key={cert.id}
-                  type="button"
-                  onClick={() => {
-                    setSelectedCertificationId(cert.id)
-                    setPhysicalDraft({})
-                  }}
-                  className="w-full rounded-2xl border border-border bg-card px-3 py-3 text-left transition hover:border-signal-cyan-line hover:bg-signal-cyan-soft/50"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="font-semibold text-foreground">{cert.period_start} to {cert.period_end}</p>
-                    <span className={`rounded-full border px-2 py-1 text-[10px] font-bold ${certStatusTone(cert.status)}`}>{cert.status}</span>
-                  </div>
-                  <p className="mt-1 text-xs text-muted-foreground">{formatDateTime(cert.stock_as_of_at)} · {formatCompactCurrency(Number(cert.totals?.closing_value || 0))} · {cert.line_count || 0} lines</p>
-                </button>
-              ))}
-              {!certifications.length ? <p className="rounded-2xl border border-dashed border-border p-4 text-sm text-muted-foreground">No stock certificates yet.</p> : null}
-            </div>
-          </ChartCard>
-
-          <ChartCard eyebrow="Opening load" title="Bootstrap opening stock" description="Use once at go-live for the first plant opening. Later openings come from certified carry-forward or adjustment vouchers.">
-            {manualOpeningLocked ? (
-              <p className="mb-3 rounded-2xl border border-signal-emerald-line bg-signal-emerald-soft px-3 py-2 text-xs font-semibold text-signal-emerald-ink">
-                Opening stock already initialized for this plant. Use carry-forward posting for the next period or a dated adjustment voucher for corrections.
-              </p>
-            ) : null}
-            <form onSubmit={postOpeningLoad} className="space-y-3">
-              <div className="grid gap-2 sm:grid-cols-2">
-                <input disabled={manualOpeningLocked} value={openingForm.document_no} onChange={(event) => setOpeningForm((current) => ({ ...current, document_no: event.target.value }))} placeholder="Document no optional" className="h-11 rounded-xl border border-border px-3 text-sm outline-none focus:border-signal-cyan-ink/40 disabled:bg-muted" />
-                <input disabled={manualOpeningLocked} type="date" value={openingForm.effective_date} onChange={(event) => setOpeningForm((current) => ({ ...current, effective_date: event.target.value }))} className="h-11 rounded-xl border border-border px-3 text-sm outline-none focus:border-signal-cyan-ink/40 disabled:bg-muted" />
-              </div>
-              <select disabled={manualOpeningLocked} required value={openingForm.item_id} onChange={(event) => setOpeningForm((current) => ({ ...current, item_id: event.target.value }))} className="h-11 w-full rounded-xl border border-border px-3 text-sm outline-none focus:border-signal-cyan-ink/40 disabled:bg-muted">
-                <option value="">Select item</option>
-                {items.map((item: any) => <option key={item.id} value={item.id}>{item.item_code} · {item.name}</option>)}
-              </select>
-              <div className="grid gap-2 sm:grid-cols-3">
-                <input disabled={manualOpeningLocked} required type="number" step="0.001" value={openingForm.qty} onChange={(event) => setOpeningForm((current) => ({ ...current, qty: event.target.value }))} placeholder="Qty" className="h-11 rounded-xl border border-border px-3 text-sm outline-none focus:border-signal-cyan-ink/40 disabled:bg-muted" />
-                <input disabled={manualOpeningLocked} value={openingForm.batch_or_reel} onChange={(event) => setOpeningForm((current) => ({ ...current, batch_or_reel: event.target.value }))} placeholder={selectedItem?.tracking_mode === "REEL" ? "Reel code" : "Batch no"} className="h-11 rounded-xl border border-border px-3 text-sm outline-none focus:border-signal-cyan-ink/40 disabled:bg-muted" />
-                <input disabled={manualOpeningLocked} type="number" step="0.01" value={openingForm.unit_cost} onChange={(event) => setOpeningForm((current) => ({ ...current, unit_cost: event.target.value }))} placeholder="Unit cost" className="h-11 rounded-xl border border-border px-3 text-sm outline-none focus:border-signal-cyan-ink/40 disabled:bg-muted" />
-              </div>
-              <input disabled={manualOpeningLocked} value={openingForm.notes} onChange={(event) => setOpeningForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Audit note" className="h-11 w-full rounded-xl border border-border px-3 text-sm outline-none focus:border-signal-cyan-ink/40 disabled:bg-muted" />
-              <button disabled={writeBlocked || manualOpeningLocked || createOpeningLoad.isPending} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-primary px-4 py-3 text-sm font-semibold text-foreground transition hover:bg-primary/90 hover:text-primary-foreground disabled:opacity-45">
-                <BookMarked className="h-4 w-4" />
-                {manualOpeningLocked ? "Opening already initialized" : "Post opening load"}
-              </button>
-            </form>
-          </ChartCard>
-        </div>
-      </section>
-
-      {selectedCertification ? (
-        <CountSheet
-          certification={selectedCertification}
-          editable={selectedCertification.status === "DRAFT" && !writeBlocked}
-          busy={{ save: updateCertification.isPending, refresh: refreshCertification.isPending, certify: certifyCertification.isPending }}
-          onSave={(lines) => updateCertification.mutateAsync({ id: selectedCertification.id, data: {
-            count_location_scope: sessionDraft.count_location_scope || undefined,
-            count_taken_at: sessionDraft.count_taken_at || countTakenAt,
-            counted_by: sessionDraft.counted_by || undefined,
-            checked_by: sessionDraft.checked_by || undefined,
-            lines: lines.map((line) => ({ ...line, counted_by: sessionDraft.counted_by || undefined, checked_by: sessionDraft.checked_by || undefined })),
-          } })}
-          onRefresh={() => refreshCertification.mutateAsync(selectedCertification.id)}
-          onCertify={certifySelected}
-        />
-      ) : null}
-
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
-        <ChartCard eyebrow="Selected certificate" title={selectedCertification ? `${selectedCertification.period_start} to ${selectedCertification.period_end}` : "Select or draft a certificate"} description="Count rows stay editable only while the certificate is draft.">
-          {selectedCertification ? (
-            <>
-              <div className="mb-4 flex flex-wrap items-center gap-2">
-                <span className={`rounded-full border px-3 py-1.5 text-xs font-bold ${certStatusTone(selectedCertification.status)}`}>{selectedCertification.status}</span>
-                <FilterChip>{selectedCertification.fiscal_year_label || "FY not set"}</FilterChip>
-                <FilterChip>{selectedCertification.count_session_no || "Count session"}</FilterChip>
-                <FilterChip>{selectedCertification.count_state || "DRAFT"}</FilterChip>
-                <FilterChip>As of {formatDateTime(selectedCertification.stock_as_of_at)}</FilterChip>
-                <FilterChip>Count {formatDateTime(selectedCertification.count_taken_at || selectedCertification.counted_at)}</FilterChip>
-                <button type="button" disabled={!["CERTIFIED", "CARRIED_FORWARD"].includes(String(selectedCertification.status)) || createCarryForward.isPending} onClick={carryForwardSelected} className="rounded-full border border-signal-emerald-ink/40 px-3 py-1.5 text-[12px] font-semibold text-signal-emerald-ink disabled:opacity-45">
-                  Carry forward
-                </button>
-                <button type="button" disabled={!["CERTIFIED", "CARRIED_FORWARD"].includes(String(selectedCertification.status)) || certificationVarianceQty <= 0 || postCertificationVariance.isPending} onClick={postVarianceSelected} className="rounded-full border border-signal-amber-ink/40 px-3 py-1.5 text-[12px] font-semibold text-signal-amber-ink disabled:opacity-45">
-                  Post variance
-                </button>
-                {certificationVarianceQty > 0 ? (
-                  <span className="rounded-full bg-signal-amber-soft px-2.5 py-1 text-[11px] font-semibold text-signal-amber-ink">
-                    {formatNumber(certificationVarianceQty, 2)} qty variance
-                  </span>
-                ) : null}
-              </div>
-              <div className="mb-4 grid gap-2 rounded-2xl border border-border bg-muted p-3 md:grid-cols-2 xl:grid-cols-5">
-                <input
-                  value={sessionDraft.count_location_scope}
-                  onChange={(event) => setSessionDraft((current) => ({ ...current, count_location_scope: event.target.value }))}
-                  placeholder="Count scope / location"
-                  disabled={selectedCertification.status !== "DRAFT"}
-                  className="h-10 rounded-xl border border-border bg-card px-3 text-sm outline-none focus:border-signal-cyan-ink/40 disabled:bg-muted"
-                />
-                <input
-                  value={sessionDraft.counted_by}
-                  onChange={(event) => setSessionDraft((current) => ({ ...current, counted_by: event.target.value }))}
-                  placeholder="Counted by"
-                  disabled={selectedCertification.status !== "DRAFT"}
-                  className="h-10 rounded-xl border border-border bg-card px-3 text-sm outline-none focus:border-signal-cyan-ink/40 disabled:bg-muted"
-                />
-                <input
-                  value={sessionDraft.checked_by}
-                  onChange={(event) => setSessionDraft((current) => ({ ...current, checked_by: event.target.value }))}
-                  placeholder="Checked by"
-                  disabled={selectedCertification.status !== "DRAFT"}
-                  className="h-10 rounded-xl border border-border bg-card px-3 text-sm outline-none focus:border-signal-cyan-ink/40 disabled:bg-muted"
-                />
-                <label className="flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-3 text-xs font-semibold text-muted-foreground">
-                  Count
-                  <input
-                    type="datetime-local"
-                    value={sessionDraft.count_taken_at}
-                    onChange={(event) => setSessionDraft((current) => ({ ...current, count_taken_at: event.target.value }))}
-                    disabled={selectedCertification.status !== "DRAFT"}
-                    className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none disabled:text-muted-foreground"
-                  />
-                </label>
-                <input
-                  value={sessionDraft.attachment_refs}
-                  onChange={(event) => setSessionDraft((current) => ({ ...current, attachment_refs: event.target.value }))}
-                  placeholder="Proof refs comma-separated"
-                  disabled={selectedCertification.status !== "DRAFT"}
-                  className="h-10 rounded-xl border border-border bg-card px-3 text-sm outline-none focus:border-signal-cyan-ink/40 disabled:bg-muted"
-                />
-              </div>
-              <p className="rounded-lg bg-[hsl(var(--surface-2))] px-3 py-2 text-[12.5px] text-muted-foreground">Counts are entered in the count sheet below — every active material, book vs live stock, variance per line.</p>
-            </>
-          ) : (
-            <div className="rounded-[1.5rem] border border-dashed border-border bg-muted p-8 text-center text-sm text-muted-foreground">
-              Draft a certification from the current statement or select an existing certificate. After certification, use Post variance to create the formal adjustment voucher.
-            </div>
-          )}
-        </ChartCard>
-
-        <div className="space-y-4">
-          <ChartCard eyebrow="Adjustment voucher" title="Manual stock correction" description="Use for approved count correction, scrap discovery, or store correction. Reel items create adjustment reels for gains and scan reductions for losses.">
-            <form onSubmit={postManualAdjustment} className="space-y-3">
-              <div className="grid gap-2 sm:grid-cols-2">
-                <input
-                  type="date"
-                  value={adjustmentForm.effective_date}
-                  onChange={(event) => {
-                    const nextDate = event.target.value
-                    setAdjustmentForm((current) => ({
-                      ...current,
-                      effective_date: nextDate,
-                      effective_at: current.effective_at.startsWith(current.effective_date) ? `${nextDate}T23:59` : current.effective_at,
-                    }))
-                  }}
-                  className="h-11 rounded-xl border border-border px-3 text-sm outline-none focus:border-signal-cyan-ink/40"
-                />
-                <select value={adjustmentForm.reason_code} onChange={(event) => setAdjustmentForm((current) => ({ ...current, reason_code: event.target.value }))} className="h-11 rounded-xl border border-border px-3 text-sm outline-none focus:border-signal-cyan-ink/40">
-                  <option value="MANUAL_CORRECTION">Manual correction</option>
-                  <option value="PHYSICAL_COUNT_VARIANCE">Physical count variance</option>
-                  <option value="SCRAP_DISCOVERY">Scrap discovery</option>
-                  <option value="REWORK_RECOVERY">Rework recovery</option>
-                </select>
-              </div>
-              <label className="flex h-11 items-center gap-2 rounded-xl border border-signal-cyan-line bg-card px-3 text-xs font-semibold text-signal-cyan-ink">
-                Effective time
-                <input
-                  type="datetime-local"
-                  value={adjustmentForm.effective_at}
-                  onChange={(event) => setAdjustmentForm((current) => ({ ...current, effective_at: event.target.value }))}
-                  className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none"
-                />
-              </label>
-              <select required value={adjustmentForm.item_id} onChange={(event) => setAdjustmentForm((current) => ({ ...current, item_id: event.target.value }))} className="h-11 w-full rounded-xl border border-border px-3 text-sm outline-none focus:border-signal-cyan-ink/40">
-                <option value="">Select item</option>
-                {items.map((item: any) => <option key={item.id} value={item.id}>{item.item_code} · {item.name}</option>)}
-              </select>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <input required type="number" step="0.001" value={adjustmentForm.qty_delta} onChange={(event) => setAdjustmentForm((current) => ({ ...current, qty_delta: event.target.value }))} placeholder="+ gain / - loss" className="h-11 rounded-xl border border-border px-3 text-sm outline-none focus:border-signal-cyan-ink/40" />
-                <input type="number" step="0.01" value={adjustmentForm.unit_cost} onChange={(event) => setAdjustmentForm((current) => ({ ...current, unit_cost: event.target.value }))} placeholder="Unit cost optional" className="h-11 rounded-xl border border-border px-3 text-sm outline-none focus:border-signal-cyan-ink/40" />
-              </div>
-              <input value={adjustmentForm.notes} onChange={(event) => setAdjustmentForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Approval note / reason" className="h-11 w-full rounded-xl border border-border px-3 text-sm outline-none focus:border-signal-cyan-ink/40" />
-              {selectedAdjustmentItem ? (
-                <p className="rounded-xl border border-border bg-muted px-3 py-2 text-xs text-muted-foreground">
-                  {selectedAdjustmentItem.tracking_mode === "REEL" ? "Reel correction will preserve reel traceability through scan events and generated adjustment reels." : "Bulk correction will post a ledger ADJUSTMENT transaction."}
-                </p>
-              ) : null}
-              <button disabled={writeBlocked || createAdjustmentVoucher.isPending} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-45">
-                <FilePlus2 className="h-4 w-4" />
-                {createAdjustmentVoucher.isPending ? "Posting adjustment..." : "Post adjustment voucher"}
-              </button>
-            </form>
-            <div className="mt-4 space-y-2">
-              {adjustmentVouchers.slice(0, 4).map((row: any) => (
-                <div key={row.id} className="rounded-2xl border border-border bg-card px-3 py-2.5">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="font-semibold text-foreground">{row.voucher_no}</p>
-                    <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${String(row.status).toUpperCase() === "POSTED" ? "bg-signal-emerald-soft text-signal-emerald-ink" : "bg-signal-amber-soft text-signal-amber-ink"}`}>{row.status}</span>
-                  </div>
-                  <p className="mt-1 text-xs text-muted-foreground">{row.effective_at ? formatDateTime(row.effective_at) : row.effective_date} · {row.reason_code} · {formatNumber(row.total_abs_qty, 2)} qty</p>
-                </div>
-              ))}
-              {!adjustmentVouchers.length ? <p className="rounded-2xl border border-dashed border-border p-4 text-sm text-muted-foreground">No adjustment vouchers yet.</p> : null}
-            </div>
-          </ChartCard>
-
-          <ChartCard eyebrow="Formal proof trail" title="Opening loads and year carry-forward" description="Prior closing becomes next-period opening through the continuous ledger. Activation records the audit proof without adding stock again.">
-            <div className="space-y-3">
-              {carryForwards.slice(0, 4).map((row: any) => {
-                const cfStatus = String(row.status || "").toUpperCase()
-                const isPosted = cfStatus === "POSTED"
-                return (
-                  <div key={row.id} className="rounded-2xl border border-signal-emerald-line bg-signal-emerald-soft px-3 py-3 text-signal-emerald-ink">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="font-semibold">{row.document_no}</p>
-                      <BadgeCheck className="h-4 w-4" />
-                    </div>
-                    <p className="mt-1 text-xs opacity-75">Opening {row.opening_date} · {formatCompactCurrency(Number(row.opening_value || 0))} · {row.line_count} lines</p>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] ${
-                        isPosted
-                          ? "border-signal-emerald-ink/40 bg-card text-signal-emerald-ink"
-                          : "border-signal-amber-line bg-card text-signal-amber-ink"
-                      }`}>
-                        {cfStatus}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => postOpeningFromCf.mutate({ cfId: row.id, plantId: activePlant || "" })}
-                        disabled={isPosted || writeBlocked || postOpeningFromCf.isPending}
-                        className={`ml-auto inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] shadow-sm transition ${
-                          isPosted || writeBlocked
-                            ? "cursor-not-allowed bg-muted text-muted-foreground"
-                            : "bg-emerald-700 text-white hover:bg-emerald-800"
-                        }`}
-                        title={isPosted ? "Next-period opening proof is active" : "Activate next-period opening proof without creating another stock movement"}
-                      >
-                        <FilePlus2 className="h-3 w-3" />
-                        {isPosted ? "Active" : postOpeningFromCf.isPending ? "Activating…" : "Activate opening"}
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
-              {!carryForwards.length ? <p className="rounded-2xl border border-dashed border-border p-4 text-sm text-muted-foreground">No carry-forward documents generated yet.</p> : null}
-            </div>
-            <div className="mt-4 space-y-2">
-              {openingLoads.slice(0, 4).map((row: any) => (
-                <div key={row.id} className="rounded-2xl border border-border bg-card px-3 py-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="font-semibold text-foreground">{row.document_no}</p>
-                    <CalendarDays className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                  <p className="mt-1 text-xs text-muted-foreground">{row.effective_date} · {row.line_count} lines · {formatKg(row.total_qty)}</p>
-                </div>
-              ))}
-              {!openingLoads.length ? <p className="rounded-2xl border border-dashed border-border p-4 text-sm text-muted-foreground">No opening load documents posted yet.</p> : null}
-            </div>
-          </ChartCard>
-
-          <ChartCard eyebrow="Policy clean-up" title="Missing reorder/safety policy" description="MRP alerts are now driven by item master policy, not hidden defaults.">
-            <div className="space-y-2">
-              {policyMissingRows.slice(0, 5).map((row: any) => (
-                <Link key={row.item_id} href="/inventory/items" className="flex items-center justify-between gap-3 rounded-2xl border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-sm text-signal-amber-ink transition hover:bg-signal-amber-soft">
-                  <span className="font-semibold">{row.item_code}</span>
-                  <span className="text-xs">Set policy</span>
-                </Link>
-              ))}
-              {!policyMissingRows.length ? <p className="rounded-2xl border border-signal-emerald-line bg-signal-emerald-soft p-4 text-sm text-signal-emerald-ink">All statement rows have reorder or safety controls.</p> : null}
-            </div>
-          </ChartCard>
-        </div>
-      </section>
+      {!single ? <PickPlant what="the stock book" /> : (
+        <>
+          <Segmented<Tab> label="Stock sections" value={tab} onChange={(value) => go({ tab: value })} testId="hub-tabs" fill
+            options={[
+              { value: "counts", label: <><ClipboardList className="hidden h-4 w-4 sm:block" aria-hidden="true" />Counts</>, badge: <Count value={openCounts} tone="blue" /> },
+              { value: "corrections", label: <><Wrench className="hidden h-4 w-4 sm:block" aria-hidden="true" />Corrections</>, badge: <Count value={waiting} tone="amber" /> },
+              { value: "book", label: <><BookOpenCheck className="hidden h-4 w-4 sm:block" aria-hidden="true" />Stock book</> },
+            ]} />
+          {tab === "counts" ? <CountsTab query={counts} onStartSpot={() => setStarting(true)} /> : null}
+          {tab === "corrections" ? <CorrectionsTab query={corrections} /> : null}
+          {tab === "book" ? <BookTab month={month} thisMonth={thisMonth} onMonth={(value) => go({ month: value })} /> : null}
+          <CountStartSheet open={starting} onOpenChange={setStarting} />
+        </>
+      )}
     </div>
+  )
+}
+
+// ------------------------------------------------------------------------------------------------ Counts
+
+function MonthEndCard({ state }: { state: MonthEndState }) {
+  const router = useRouter()
+  const start = useStartCount()
+  const [error, setError] = useState("")
+  const count = state.count
+  const begin = async () => {
+    setError("")
+    try {
+      const row = await start.mutateAsync({ kind: "MONTH_END", month: state.month })
+      router.push(`/inventory/counts/${row.id}`)
+    } catch (cause) {
+      setError(errorText(cause))
+    }
+  }
+  const done = count && ["APPROVED", "CERTIFIED"].includes(count.status)
+  const word = monthText(state.month).split(" ")[0]
+  // The server decides which month the store counts now (the oldest month not yet counted, never one before
+  // a closed month, the running month only in its last days); the card says why when it cannot start yet.
+  return (
+    <article className={cn("flex flex-col rounded-2xl border bg-card p-4 shadow-[var(--shadow-premium)]", done ? "border-signal-emerald-line" : count?.status === "SUBMITTED" ? "border-signal-amber-line" : "border-border")} data-testid={`month-end-${state.month}`}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-[12px] font-semibold uppercase tracking-[.08em] text-muted-foreground">Month-end count</p>
+          <h3 className="mt-0.5 text-[18px] font-bold tracking-tight text-foreground">{state.month_label}</h3>
+        </div>
+        {state.closed ? <Chip tone="slate" icon={Lock}>Month closed</Chip> : count ? <Chip tone={COUNT_STATUS_TONE[count.status]}>{count.status_word}</Chip> : state.can_start ? <Chip tone="blue">Ready to count</Chip> : <Chip tone="slate" icon={CalendarClock}>Not open yet</Chip>}
+      </div>
+      {count ? (
+        <>
+          <SegmentBar className="mt-3" label={`${count.racks_done} of ${plural(count.racks_total, "rack")} done`} parts={[{ value: count.racks_done, tone: done ? "emerald" : "blue" }, { value: count.racks_total - count.racks_done, tone: "slate" }]} />
+          <p className="mt-2 text-[12.5px] leading-5 text-muted-foreground">
+            {done ? `Approved by ${who(count.approved_by)} · ${dayText(count.approved_at)}${state.closed ? "" : " · the Owner closes the month on Month-end close"}` : count.status === "SUBMITTED" ? `Sent by ${who(count.submitted_by)} · waiting for the Owner` : `${count.racks_done} of ${plural(count.racks_total, "rack")} done${count.counters.length ? ` · counted by ${count.counters.map(who).join(", ")}` : ""}`}
+          </p>
+          <Link href={`/inventory/counts/${count.id}`} className="erp-btn-secondary mt-3 !h-11 w-full" data-testid={`month-end-open-${state.month}`}>{done ? "See the certificate" : count.status === "DRAFT" ? `Continue the ${word} count` : "Open the count"}<ArrowRight className="h-4 w-4" aria-hidden="true" /></Link>
+        </>
+      ) : state.closed ? <p className="mt-2 text-[12.5px] text-muted-foreground">This month is closed; it cannot be counted again.</p> : state.can_start ? (
+        <>
+          <p className="mt-2 text-[12.5px] leading-5 text-muted-foreground">Count every rack and the stock with no location. When the Owner approves it, it becomes the closing stock of {state.month_label}.</p>
+          <button type="button" className="erp-btn-secondary mt-3 !h-11 w-full" onClick={begin} disabled={start.isPending} data-testid={`month-end-start-${state.month}`}><CalendarCheck2 className="h-4 w-4" aria-hidden="true" />{start.isPending ? "Starting…" : `Start the ${word} count`}</button>
+        </>
+      ) : (
+        <p className="mt-2 flex items-start gap-2 rounded-xl bg-[hsl(var(--surface-2))] px-3 py-2.5 text-[12.5px] leading-5 text-muted-foreground" data-testid={`month-end-wait-${state.month}`}>
+          <CalendarClock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />{state.note || `The ${word} count opens near the month end.`} Spot counts can run any time.
+        </p>
+      )}
+      {error ? <Notice tone="rose" className="mt-2">{error}</Notice> : null}
+    </article>
+  )
+}
+
+type CountFilter = "OPEN" | "DONE" | "CANCELLED"
+const COUNT_FILTER: Record<CountFilter, (row: CountListRow) => boolean> = {
+  OPEN: (row) => row.status === "DRAFT" || row.status === "SUBMITTED",
+  DONE: (row) => row.status === "APPROVED" || row.status === "CERTIFIED",
+  CANCELLED: (row) => row.status === "CANCELLED",
+}
+const COUNT_PAGE = 20
+
+function CountsTab({ query, onStartSpot }: { query: ReturnType<typeof useCounts>; onStartSpot: () => void }) {
+  const [filter, setFilter] = useState<CountFilter>("OPEN")
+  const [shown, setShown] = useState(COUNT_PAGE)
+  if (query.isLoading) return <LoadingState label="Loading counts…" />
+  if (query.isError || !query.data) return <ErrorState title="Counts could not be loaded" message={errorText(query.error)} onRetry={() => void query.refetch()} />
+  const all = query.data.items
+  const tally = { OPEN: all.filter(COUNT_FILTER.OPEN).length, DONE: all.filter(COUNT_FILTER.DONE).length, CANCELLED: all.filter(COUNT_FILTER.CANCELLED).length }
+  const rows = all.filter(COUNT_FILTER[filter])
+  const pick = (value: CountFilter) => { setFilter(value); setShown(COUNT_PAGE) }
+  const emptyWords: Record<CountFilter, { title: string; message: string }> = {
+    OPEN: { title: "No count running", message: all.length ? "Every count is approved or cancelled. Start a spot count of a few racks any time." : "Start a spot count of a few racks, or the month-end count when it opens." },
+    DONE: { title: "No approved counts yet", message: "Counts the Owner approved show here, with what they changed." },
+    CANCELLED: { title: "No cancelled counts", message: "Counts the Owner or their starter cancelled show here." },
+  }
+  return (
+    <div className="space-y-4" data-testid="hub-counts">
+      <div className={cn("grid gap-3", query.data.month_end.length > 1 && "md:grid-cols-2")}>
+        {query.data.month_end.map((state) => <MonthEndCard key={state.month} state={state} />)}
+      </div>
+      <Panel title="All counts" description="Spot counts any time; one month-end count per month. Anyone can count; only the Owner approves." bodyClassName="p-0"
+        action={<Segmented<CountFilter> label="Which counts" value={filter} onChange={pick} testId="count-filter" options={[
+          { value: "OPEN", label: "Open", badge: <Count value={tally.OPEN} tone="blue" /> },
+          { value: "DONE", label: "Approved", badge: <Count value={tally.DONE} tone="emerald" /> },
+          { value: "CANCELLED", label: "Cancelled", badge: <Count value={tally.CANCELLED} tone="slate" /> },
+        ]} />}>
+        {rows.length ? (
+          <>
+            <ul className="divide-y divide-border">
+              {rows.slice(0, shown).map((row) => <CountRow key={row.id} row={row} />)}
+            </ul>
+            {rows.length > shown ? (
+              <div className="border-t border-border p-3 text-center">
+                <button type="button" className="erp-btn-secondary !h-11 w-full sm:w-auto" onClick={() => setShown((value) => value + COUNT_PAGE)} data-testid="count-more">Show {Math.min(COUNT_PAGE, rows.length - shown)} more of {rows.length}</button>
+              </div>
+            ) : null}
+          </>
+        ) : <div className="p-4"><EmptyBlock icon={filter === "CANCELLED" ? XCircle : filter === "DONE" ? CheckCircle2 : ClipboardList} title={emptyWords[filter].title} message={emptyWords[filter].message} action={filter === "OPEN" ? <button type="button" className="erp-btn-secondary !h-11" onClick={onStartSpot}><Plus className="h-4 w-4" aria-hidden="true" />Start a spot count</button> : null} /></div>}
+      </Panel>
+    </div>
+  )
+}
+
+function CountRow({ row }: { row: CountListRow }) {
+  return (
+    <li>
+      <Link href={`/inventory/counts/${row.id}`} className="grid gap-x-4 gap-y-2 px-4 py-3.5 hover:bg-muted/50 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,0.9fr)_minmax(0,1fr)_auto] lg:items-center" data-testid="count-row">
+        <div className="min-w-0">
+          <p className="flex flex-wrap items-center gap-2"><span className="text-[14px] font-semibold text-foreground">{row.kind_word}</span><Chip tone={COUNT_STATUS_TONE[row.status]}>{row.status_word}</Chip></p>
+          <p className="text-[12.5px] leading-5 text-muted-foreground">{row.count_no} · started {dayText(row.created_at)} by {who(row.created_by)}</p>
+          {row.counters.length ? <p className="text-[12.5px] leading-5 text-muted-foreground">Counted by {row.counters.map(who).join(", ")}</p> : null}
+        </div>
+        {row.status === "CANCELLED" ? <p className="text-[12.5px] text-muted-foreground">Cancelled · stock did not change</p> : (
+          <div>
+            <SegmentBar label={`${row.racks_done} of ${plural(row.racks_total, "rack")} done`} parts={[{ value: row.racks_done, tone: "emerald" }, { value: row.racks_total - row.racks_done, tone: "slate" }]} />
+            <p className="mt-1 text-[12px] tabular-nums text-muted-foreground">{row.racks_done} of {plural(row.racks_total, "rack")} done</p>
+          </div>
+        )}
+        <p className="text-[12.5px] tabular-nums text-muted-foreground"><b className="text-foreground">{row.found}</b> found · <span className={row.missing ? "text-signal-rose-ink" : ""}>{row.missing} not found</span> · {row.extra} extra{row.issued_found ? ` · ${row.issued_found} issued, found` : ""}</p>
+        <span className="inline-flex items-center gap-1 text-[13px] font-semibold text-primary">Open <ChevronRight className="h-4 w-4" aria-hidden="true" /></span>
+      </Link>
+    </li>
+  )
+}
+
+// ------------------------------------------------------------------------------------------- Corrections
+
+/** What the line does to the lot, from its real status: a new lot is on QC hold unless the line says otherwise. */
+function correctionLotWords(line: Correction["lines"][number]): string {
+  if (!line.lot_code && line.qty_delta < 0) return " · takes stock off the material, not a lot"
+  if (!line.new_lot) return ""
+  return line.stock_status === "QC_HOLD" ? " · new lot on QC hold" : line.stock_status === "UNRESTRICTED" ? " · new lot, cleared (not on QC hold)" : ` · new lot, ${line.stock_status.toLowerCase().replace(/_/g, " ")}`
+}
+
+/**
+ * Why a waiting correction would post less than it asks (or nothing): another count or correction changed
+ * the lot, or it was issued / used since (book now 0). "" when approving posts exactly what it says.
+ */
+function changedNote(line: Correction["lines"][number]): string {
+  if (line.still_to_post === undefined) return ""
+  const still = line.still_to_post
+  // Nothing returns from the floor: a lot issued since this was raised cannot be put back by approving.
+  if (line.issued_since) return `Since this was raised, ${line.reel_id ? "this reel" : "this lot"} was issued to the floor on ${dayText(line.issued_since)} (book now ${qtyText(line.live_qty ?? 0, line.uom)}). Nothing comes back from the floor: reject this one.`
+  const changed = Math.abs(line.changed_since || 0) > 0.0005
+  if (!changed && Math.abs(still - line.qty_delta) < 0.0005) return ""
+  const what = changed
+    ? `Since this was raised, a count or correction changed this lot by ${signedQty(line.changed_since || 0, line.uom)}.`
+    : `Since this was raised, ${line.reel_id ? "this reel" : "this lot"} was issued or used (book now ${qtyText(line.live_qty ?? 0, line.uom)}).`
+  return `${what} ${Math.abs(still) > 0.0005 ? `Approving now changes it by ${signedQty(still, line.uom)}.` : "Approving changes nothing: reject this one."}`
+}
+
+function CorrectionCard({ row, canApprove }: { row: Correction; canApprove: boolean }) {
+  const approve = useApproveCorrection()
+  const reject = useRejectCorrection()
+  const [rejecting, setRejecting] = useState(false)
+  const [note, setNote] = useState("")
+  const [error, setError] = useState("")
+  const tone = row.status === "DRAFT" ? "amber" : row.status === "POSTED" ? "emerald" : "slate"
+  const statusWord = row.status === "DRAFT" ? "Waiting for the Owner" : row.status === "POSTED" ? "Approved" : "Rejected"
+  // Every named lot already changed (issued, counted or corrected) so approving would post nothing: Reject leads.
+  const nothingLeft = row.status === "DRAFT" && row.lines.length > 0 && row.lines.every((line) => line.still_to_post !== undefined && Math.abs(line.still_to_post) < 0.0005)
+  const rejectClass = nothingLeft ? "erp-btn-primary" : "erp-btn-secondary"
+  const approveClass = nothingLeft ? "erp-btn-secondary" : "erp-btn-primary"
+  return (
+    <li className="px-4 py-3.5" data-testid="correction-row">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="flex flex-wrap items-center gap-2"><span className="text-[14px] font-semibold text-foreground">{row.reason_label}</span><Chip tone={tone}>{statusWord}</Chip>{row.kind !== "CORRECTION" ? <Chip tone="slate">{row.kind === "COUNT" ? "From a count" : "System"}</Chip> : null}</p>
+          <p className="text-[12.5px] text-muted-foreground">{row.voucher_no} · raised by {who(row.created_by)} · {timeText(row.created_at)}{row.approved_by && row.status === "POSTED" ? ` · approved by ${who(row.approved_by)}` : ""}</p>
+        </div>
+        {row.status === "DRAFT" && canApprove ? (
+          <div className="flex gap-2 max-sm:hidden">
+            <button type="button" className={`${rejectClass} !h-11 flex-1`} onClick={() => setRejecting(true)} data-testid="correction-reject"><XCircle className="h-4 w-4" aria-hidden="true" />Reject</button>
+            <button type="button" className={`${approveClass} !h-11 flex-1`} disabled={approve.isPending} onClick={() => approve.mutateAsync({ id: row.id }).catch((cause) => setError(errorText(cause)))} data-testid="correction-approve"><CheckCircle2 className="h-4 w-4" aria-hidden="true" />Approve</button>
+          </div>
+        ) : null}
+      </div>
+      <ul className="mt-2 space-y-1">
+        {row.lines.map((line) => (
+          <li key={line.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-[hsl(var(--surface-2))] px-3 py-2 text-[13px]">
+            <span className="font-mono font-semibold text-foreground">{line.lot_code || (line.qty_delta < 0 ? "No lot named" : "New lot")}</span>
+            {/* Phone: the material gets its own full line (never cut to a letter); desk: one row. */}
+            <span className="min-w-0 flex-1 text-muted-foreground max-sm:order-first max-sm:basis-full max-sm:font-medium max-sm:text-foreground sm:truncate">{line.item_name}{line.location_code ? ` · ${line.location_code}` : ""}{correctionLotWords(line)}</span>
+            <span className={cn("font-bold tabular-nums", line.qty_delta < 0 ? "text-signal-rose-ink" : "text-signal-emerald-ink")}>{signedQty(line.qty_delta, line.uom)}</span>
+            {line.live_qty !== undefined ? <span className="text-[12px] text-muted-foreground">book now {qtyText(line.live_qty, line.uom)}</span> : null}
+            {changedNote(line) ? (
+              <span className="basis-full rounded-md bg-signal-amber-soft px-2 py-1 text-[12px] text-signal-amber-ink" data-testid="correction-changed-since">{changedNote(line)}</span>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+      {row.status === "DRAFT" && canApprove ? (
+        // Phone: Reject / Approve come after the lines they decide on.
+        <div className="mt-2.5 flex w-full gap-2 sm:hidden">
+          <button type="button" className={`${rejectClass} !h-11 flex-1`} onClick={() => setRejecting(true)} data-testid="correction-reject-phone"><XCircle className="h-4 w-4" aria-hidden="true" />Reject</button>
+          <button type="button" className={`${approveClass} !h-11 flex-1`} disabled={approve.isPending} onClick={() => approve.mutateAsync({ id: row.id }).catch((cause) => setError(errorText(cause)))} data-testid="correction-approve-phone"><CheckCircle2 className="h-4 w-4" aria-hidden="true" />Approve</button>
+        </div>
+      ) : null}
+      {row.reason_notes ? <p className="mt-1.5 text-[12.5px] text-muted-foreground">“{row.reason_notes}”</p> : null}
+      {row.status === "CANCELLED" && row.cancel_note ? <p className="mt-1.5 text-[12.5px] text-muted-foreground">Rejected by {who(row.cancelled_by)}: {row.cancel_note}</p> : null}
+      {error ? <Notice tone="rose" className="mt-2">{error}</Notice> : null}
+      <Sheet open={rejecting} onOpenChange={setRejecting} title="Reject this correction?" description="Stock does not change. The person who raised it sees your note."
+        footer={<><button type="button" className="erp-btn-secondary !h-11" onClick={() => setRejecting(false)}>Cancel</button><button type="button" className="erp-btn-primary !h-11" disabled={note.trim().length < 3 || reject.isPending} onClick={() => reject.mutateAsync({ id: row.id, note: note.trim() }).then(() => setRejecting(false)).catch((cause) => setError(errorText(cause)))} data-testid="correction-reject-confirm">Reject</button></>}>
+        <Field label="Why (needed)"><textarea className={`${fieldClass} !h-20 py-2`} value={note} onChange={(event) => setNote(event.target.value)} maxLength={500} /></Field>
+      </Sheet>
+    </li>
+  )
+}
+
+function CorrectionsTab({ query }: { query: ReturnType<typeof useCorrections> }) {
+  const [raising, setRaising] = useState(false)
+  const [filter, setFilter] = useState<"WAITING" | "DONE">("WAITING")
+  if (query.isLoading) return <LoadingState label="Loading corrections…" />
+  if (query.isError || !query.data) return <ErrorState title="Corrections could not be loaded" message={errorText(query.error)} onRetry={() => void query.refetch()} />
+  const { items, can } = query.data
+  const waiting = items.filter((row) => row.status === "DRAFT")
+  const done = items.filter((row) => row.status !== "DRAFT")
+  const rows = filter === "WAITING" ? waiting : done
+  return (
+    <div className="space-y-4" data-testid="hub-corrections">
+      <Notice tone="blue" icon={ShieldCheck} title="Only the Owner approves stock corrections" action={can.raise ? <button type="button" className="erp-btn-primary !h-11" onClick={() => setRaising(true)} data-testid="correction-raise"><Plus className="h-4 w-4" aria-hidden="true" />Raise a correction</button> : null}>
+        Store, raw-material issue, GRN and the plant head raise one for a lot that is short, extra, damaged or weighed wrong. Stock changes only when the Owner approves it.
+      </Notice>
+      <Panel bodyClassName="p-0" title={<Segmented<"WAITING" | "DONE"> label="Correction list" value={filter} onChange={setFilter} options={[{ value: "WAITING", label: "Waiting for the Owner", badge: <Count value={waiting.length} tone="amber" /> }, { value: "DONE", label: "Approved & rejected" }]} />}>
+        {rows.length ? <ul className="divide-y divide-border">{rows.map((row) => <CorrectionCard key={row.id} row={row} canApprove={can.approve} />)}</ul>
+          : <div className="p-4"><EmptyBlock icon={CheckCircle2} title={filter === "WAITING" ? "Nothing waiting" : "No corrections yet"} message={filter === "WAITING" ? "Corrections raised by the store show here for the Owner." : "Approved and rejected corrections, and count postings, show here."} /></div>}
+      </Panel>
+      <CorrectionSheet open={raising} onOpenChange={setRaising} />
+    </div>
+  )
+}
+
+// -------------------------------------------------------------------------------------------- Stock book
+
+type BookFigures = Pick<BookRow, "opening" | "received" | "opening_loads" | "sent_back" | "issued" | "corrections" | "closing">
+type BookColumn = { key: keyof BookFigures | "grn"; label: string; sign?: string }
+
+const COLUMNS: BookColumn[] = [
+  { key: "opening", label: "Opening" },
+  { key: "received", label: "Received", sign: "+" },
+  { key: "sent_back", label: "Sent back", sign: "−" },
+  { key: "issued", label: "Issued", sign: "−" },
+  { key: "corrections", label: "Corrections", sign: "±" },
+  { key: "closing", label: "Closing", sign: "=" },
+]
+// Go-live stock is part of Received on the server; when a month has any, it shows as its own line
+// "Opening loads" and Received shows the GRNs only, so the sum still reads across (spec 2.1 / C3.7).
+const COLUMNS_WITH_LOADS: BookColumn[] = [
+  { key: "opening", label: "Opening" },
+  { key: "opening_loads", label: "Opening loads", sign: "+" },
+  { key: "grn", label: "Received", sign: "+" },
+  ...COLUMNS.slice(2),
+]
+
+const hasLoads = (row: Pick<BookFigures, "opening_loads">) => Math.abs(Number(row.opening_loads || 0)) > 0.0005
+
+function bookValue(row: Partial<BookFigures>, key: BookColumn["key"]): number {
+  if (key === "grn") return Number(row.received || 0) - Number(row.opening_loads || 0)
+  return Number(row[key] || 0)
+}
+
+function BookTab({ month, thisMonth, onMonth }: { month: string; thisMonth: string; onMonth: (month: string) => void }) {
+  const query = useMonthFigures(month)
+  const loads = useOpeningLoads()
+  const corrections = useCorrections("ALL")
+  const [showAll, setShowAll] = useState(false)
+  const [search, setSearch] = useState("")
+  const [drawer, setDrawer] = useState<BookRow | null>(null)
+  const data = query.data
+  const rows = useMemo(() => {
+    const needle = search.trim().toLowerCase()
+    return (data?.items || []).filter((row) => (showAll || row.has_movement || Math.abs(row.closing) > 0.0005 || Math.abs(row.opening) > 0.0005) && (!needle || `${row.item_code} ${row.item_name}`.toLowerCase().includes(needle)))
+  }, [data, showAll, search])
+  // A material that opens below zero did not balance last month either: never call that book balanced.
+  const mismatches = (data?.items || []).filter((row) => !row.identity_ok || row.opening < -0.0005)
+  // useOpeningLoads returns the batch list itself.
+  const goLiveDone = Array.isArray(loads.data) && loads.data.length > 0
+  const count = data?.month_end_count
+  const columns = (data?.items || []).some(hasLoads) || (data?.units || []).some(hasLoads) ? COLUMNS_WITH_LOADS : COLUMNS
+  // The table drops "Sent back" when nothing went back all month (the cards above still show it), so
+  // Used fits beside Closing at 1280 with the sidebar open, with no hidden sideways scroll.
+  const tableColumns = (data?.items || []).some((row) => Math.abs(Number(row.sent_back || 0)) > 0.0005) ? columns : columns.filter((column) => column.key !== "sent_back")
+
+  return (
+    <div className="space-y-4" data-testid="hub-book">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center rounded-xl border border-border bg-card" role="group" aria-label="Month">
+          <button type="button" className="grid h-11 w-11 place-items-center rounded-l-xl hover:bg-muted" onClick={() => onMonth(shiftMonth(month, -1))} aria-label="Previous month"><ChevronLeft className="h-4 w-4" aria-hidden="true" /></button>
+          <span className="min-w-36 px-2 text-center text-[14px] font-semibold text-foreground" data-testid="book-month">{monthText(month)}</span>
+          <button type="button" className="grid h-11 w-11 place-items-center rounded-r-xl hover:bg-muted disabled:opacity-40" onClick={() => onMonth(shiftMonth(month, 1))} disabled={month >= thisMonth} aria-label="Next month"><ChevronRight className="h-4 w-4" aria-hidden="true" /></button>
+        </div>
+        {data ? <>
+          {data.closed ? <Chip tone="slate" icon={Lock}>Month closed</Chip> : data.running ? <Chip tone="blue">Running month · figures so far</Chip> : <Chip tone="amber">Not closed yet</Chip>}
+          <Chip tone="slate">{data.opening_source === "PREVIOUS_CLOSE" ? "Opens from last month's close" : "Opens from the book on the 1st"}</Chip>
+          {count ? <Link href={`/inventory/counts/${count.id}`} className="inline-flex min-h-11 items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="book-count-link"><Chip tone={count.changed_after_count ? "amber" : COUNT_STATUS_TONE[count.status]}>Month-end count: {count.status === "CERTIFIED" ? (count.changed_after_count ? "approved · stock changed since" : "approved") : count.status === "SUBMITTED" ? "waiting for the Owner" : "counting"}<ChevronRight className="h-3 w-3" aria-hidden="true" /></Chip></Link> : <Chip tone="slate">No month-end count yet</Chip>}
+        </> : null}
+      </div>
+
+      {query.isLoading ? <LoadingState label="Working out the stock book…" /> : query.isError || !data ? <ErrorState title="The stock book could not be loaded" message={errorText(query.error)} onRetry={() => void query.refetch()} /> : (
+        <>
+          <section className="space-y-3" data-testid="book-units">
+            {data.units.length ? data.units.map((unit) => (
+              <article key={unit.uom} className={cn("rounded-2xl border bg-card p-4 shadow-[var(--shadow-premium)]", unit.problem_items || unit.opening < -0.0005 ? "border-signal-rose-line" : "border-border")} data-testid={`book-unit-${unit.uom}`}>
+                <p className="flex flex-wrap items-center justify-between gap-2 text-[12px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
+                  <span>Materials in {unitName(unit.uom)} · {unit.item_count}</span>
+                  <span className="normal-case tracking-normal">{unit.problem_items ? <Chip tone="rose" icon={AlertTriangle}>{plural(unit.problem_items, "material")} not balancing</Chip> : <>Used this month <b className="text-foreground">{qtyText(unit.actual_used, unit.uom, 1)}</b></>}</span>
+                </p>
+                <dl className={cn("mt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-3", columns.length > 6 ? "lg:grid-cols-4 2xl:grid-cols-7" : "xl:grid-cols-6")}>
+                  {columns.map((column) => (
+                    <div key={column.key} className={cn("min-w-0 rounded-xl px-3 py-2.5", column.key === "closing" ? "bg-primary/10 ring-1 ring-primary/25" : "bg-[hsl(var(--surface-2))]")}>
+                      <dt className="flex items-center gap-1 text-[11.5px] font-semibold text-muted-foreground">{column.sign ? <span className="grid h-4 w-4 place-items-center rounded-full bg-card text-[11px] font-bold text-foreground ring-1 ring-border">{column.sign}</span> : null}{column.label}</dt>
+                      <dd className={cn("mt-1 truncate text-[16px] font-bold tabular-nums", (column.key === "closing" || column.key === "opening") && bookValue(unit, column.key) < -0.0005 ? "text-signal-rose-ink" : "text-foreground")}>{qtyText(bookValue(unit, column.key), unit.uom, 1)}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </article>
+            )) : <EmptyBlock icon={PackageOpen} title="No stock movement" message={`Nothing was received, issued or corrected in ${data.month_label}.`} />}
+          </section>
+          {mismatches.length ? (
+            <Notice tone="rose" title={`${plural(mismatches.length, "material")} ${mismatches.length === 1 ? "does" : "do"} not balance`} testId="book-problems">
+              <ul className="mt-1 space-y-0.5">
+                {mismatches.slice(0, 5).map((row) => <li key={row.item_id}><b>{row.item_name}</b> ({row.item_code}): {!row.identity_ok ? `${row.book_problem_word || "the book and the stock records differ"}${row.closing < -0.0005 ? `, closing ${qtyText(row.closing, row.uom)}` : ""}` : `opens below zero (${qtyText(row.opening, row.uom)}): last month closed below zero`}.</li>)}
+              </ul>
+              <p className="mt-1.5">Tell the Owner; month-end waits until this is fixed.</p>
+            </Notice>
+          ) : <Notice tone="emerald" title="The book balances" testId="book-balances">For every material: no opening or closing stock below zero, no lot below zero, and opening{columns.length > COLUMNS.length ? " + opening loads" : ""} + received − sent back − issued + corrections = closing{data.running ? ", which matches the stock in the store now" : ""}.</Notice>}
+          {count?.changed_items?.length ? <ChangedAfterCountNotice items={count.changed_items} monthLabel={data.month_label} countHref={`/inventory/counts/${count.id}`} closed={data.closed} testId="book-changed-after-count" /> : null}
+
+          <Panel bodyClassName="p-0" title="Materials" description="Tap a material to see the receipts, issues and corrections behind its numbers."
+            action={<>
+              <input className={cn(fieldClass, "!h-11 w-full sm:w-56")} placeholder="Search materials" value={search} onChange={(event) => setSearch(event.target.value)} data-testid="book-search" />
+              <label className="inline-flex min-h-11 items-center gap-2 text-[13px] text-muted-foreground"><input type="checkbox" className="h-4 w-4 accent-[hsl(var(--primary))]" checked={showAll} onChange={(event) => setShowAll(event.target.checked)} />Show materials with no stock</label>
+            </>}>
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full min-w-[720px] text-[13px]" data-testid="book-table">
+                <thead className="bg-[hsl(var(--surface-2))] text-left text-[11.5px] font-semibold uppercase tracking-[.05em] text-muted-foreground">
+                  <tr>
+                    <th className="px-3 py-2.5 lg:px-4">Material</th>
+                    {tableColumns.map((column) => <th key={column.key} className="px-2 py-2.5 text-right xl:px-3">{column.label}</th>)}
+                    <th className="px-3 py-2.5 text-right lg:px-4">Used</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {rows.map((row) => (
+                    <tr key={row.item_id} className="cursor-pointer hover:bg-muted/50" onClick={() => setDrawer(row)} data-testid="book-row">
+                      <td className="max-w-[220px] px-3 py-2.5 lg:px-4"><button type="button" className="block w-full text-left" onClick={() => setDrawer(row)}><span className="block truncate font-semibold text-foreground">{row.item_name}</span><span className="block truncate font-mono text-[11.5px] text-muted-foreground">{row.item_code}</span>{!row.identity_ok ? <span className="mt-0.5 block text-[11.5px] font-semibold text-signal-rose-ink">{row.book_problem_word || "Does not balance"}</span> : null}{row.changed_after_count != null ? <span className="mt-0.5 block text-[11.5px] font-semibold text-signal-amber-ink">Changed after the month-end count</span> : null}</button></td>
+                      {tableColumns.map((column) => <td key={column.key} className={cn("whitespace-nowrap px-2 py-2.5 text-right tabular-nums xl:px-3", column.key === "closing" ? (row.closing < -0.0005 ? "font-bold text-signal-rose-ink" : "font-bold text-foreground") : Math.abs(bookValue(row, column.key)) > 0.0005 ? "text-foreground" : "text-muted-foreground")}>{qtyText(bookValue(row, column.key), row.uom)}</td>)}
+                      <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-muted-foreground lg:px-4">{qtyText(row.actual_used, row.uom)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <ul className="divide-y divide-border md:hidden" data-testid="book-cards">
+              {rows.map((row) => (
+                <li key={row.item_id}>
+                  <button type="button" onClick={() => setDrawer(row)} className="block w-full px-4 py-3 text-left" data-testid="book-card">
+                    <p className="flex items-start justify-between gap-2">
+                      <span className="min-w-0"><span className="block truncate text-[14px] font-semibold text-foreground">{row.item_name}</span><span className="block truncate font-mono text-[11.5px] text-muted-foreground">{row.item_code}</span></span>
+                      <span className={cn("shrink-0 text-[14px] font-bold tabular-nums", row.closing < -0.0005 ? "text-signal-rose-ink" : "text-foreground")}>{qtyText(row.closing, row.uom)}</span>
+                    </p>
+                    {!row.identity_ok ? <p className="mt-1"><Chip tone="rose" icon={AlertTriangle}>{row.book_problem_word || "Does not balance"}</Chip></p> : null}
+                    {row.changed_after_count != null ? <p className="mt-1"><Chip tone="amber">Changed after the month-end count</Chip></p> : null}
+                    <p className="mt-1 text-[12.5px] leading-5 tabular-nums text-muted-foreground">{qtyText(row.opening, row.uom)}{hasLoads(row) ? ` + ${qtyText(row.opening_loads, row.uom)} opening loads` : ""} + {qtyText(bookValue(row, "grn"), row.uom)} received{row.sent_back ? ` − ${qtyText(row.sent_back, row.uom)} sent back` : ""} − {qtyText(row.issued, row.uom)} issued{row.corrections ? ` ${row.corrections < 0 ? "−" : "+"} ${qtyText(Math.abs(row.corrections), row.uom)} corrected` : ""}</p>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {!rows.length ? <div className="p-4"><EmptyBlock icon={PackageOpen} title="No materials to show" message={search ? "No material matches the search." : "No material had stock or movement this month."} /></div> : null}
+          </Panel>
+
+          {corrections.data?.can.opening_load ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-dashed border-border px-4 py-2.5 text-[12.5px] text-muted-foreground" data-testid="book-go-live">
+              <span><b className="text-foreground">Go-live opening stock</b> · {goLiveDone ? "Stock already in the plant on the go-live date, with its labels. More can be added on the same date until that month is closed." : "Owner and Admin enter the stock already in the plant, rack by rack, all on one go-live date. Later months open from the book by themselves."}</span>
+              <Link href="/inventory/opening-stock" className="erp-btn-secondary !h-11" data-testid="book-opening-load">{goLiveDone ? "See opening stock" : "Enter opening stock"}</Link>
+            </div>
+          ) : null}
+          <SourcesDrawer row={drawer} month={month} onClose={() => setDrawer(null)} />
+        </>
+      )}
+    </div>
+  )
+}
+
+/** The lot, document, shift, reason (in words), place and note behind one book line. */
+function sourceDetail(source: SourceRow): string {
+  const parts = [source.lot, source.doc && source.doc !== source.lot ? source.doc : "", source.shift ? `shift ${source.shift}` : "", reasonWord(source.reason),
+    source.location_name || source.location_code ? `at ${source.location_name || source.location_code}` : "", source.note]
+  return parts.filter((part, index) => part && parts.indexOf(part) === index).join(" · ")
+}
+
+const KIND_TONE: Record<string, "emerald" | "rose" | "amber" | "violet" | "blue" | "slate"> = { RECEIVED: "emerald", OPENING_LOAD: "blue", SENT_BACK: "amber", ISSUED: "rose", CORRECTION: "violet", COUNT_VARIANCE: "violet" }
+
+function SourcesDrawer({ row, month, onClose }: { row: BookRow | null; month: string; onClose: () => void }) {
+  const query = useItemSources(row?.item_id, month)
+  return (
+    <Sheet open={Boolean(row)} onOpenChange={(open) => !open && onClose()} wide title={row?.item_name || "Material"} description={row ? `${monthText(month)} · ${row.item_code}` : undefined} testId="book-sources">
+      {row ? (
+        <div className="space-y-3">
+          <div className={cn("grid grid-cols-3 gap-2", hasLoads(row) ? "sm:grid-cols-4" : "sm:grid-cols-6")}>
+            {(hasLoads(row) ? COLUMNS_WITH_LOADS : COLUMNS).map((column) => (
+              <div key={column.key} className={cn("rounded-xl px-2.5 py-2", column.key === "closing" ? "bg-primary/10" : "bg-[hsl(var(--surface-2))]")}>
+                <p className="text-[11px] font-semibold text-muted-foreground">{column.label}</p>
+                <p className="truncate text-[13.5px] font-bold tabular-nums text-foreground">{qtyText(bookValue(row, column.key), row.uom)}</p>
+              </div>
+            ))}
+          </div>
+          {query.isLoading ? <LoadingState label="Loading the movements…" /> : query.isError || !query.data ? <ErrorState title="Movements could not be loaded" message={errorText(query.error)} onRetry={() => void query.refetch()} /> : query.data.rows.length ? (
+            <ul className="divide-y divide-border rounded-xl border border-border">
+              {query.data.rows.map((source, index) => (
+                <li key={`${source.day}-${index}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-[13px]" data-testid="book-source-row">
+                  <span className="w-24 shrink-0 tabular-nums text-muted-foreground">{dayText(source.day)}</span>
+                  <Chip tone={KIND_TONE[source.kind] || "slate"}>{source.label}</Chip>
+                  <span className={cn("ml-auto shrink-0 font-bold tabular-nums sm:order-last", source.qty < 0 ? "text-signal-rose-ink" : "text-signal-emerald-ink")}>{signedQty(source.qty, row.uom)}</span>
+                  {/* Phone: the detail gets its own wrapped line; wider screens keep one line with the full text on hover. */}
+                  <span className="min-w-0 basis-full break-words text-[12.5px] leading-5 text-muted-foreground sm:flex-1 sm:basis-0 sm:truncate" title={sourceDetail(source)}>{sourceDetail(source)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : <EmptyBlock title="No movements this month" message={`${row.item_name} only carried its opening stock.`} />}
+          <p className="text-[12px] text-muted-foreground">Issued counts every issue to the floor on its issue day: a reel issued whole is consumed that day, whatever its slitting card says.</p>
+        </div>
+      ) : null}
+    </Sheet>
   )
 }

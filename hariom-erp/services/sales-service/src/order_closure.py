@@ -18,6 +18,7 @@ every "open order" query already leaves it out) and reports itself as ``cancelle
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Iterable, Optional
 
 CANCELLED = "CANCELLED"
@@ -114,13 +115,22 @@ def closure_options(order: Any) -> dict[str, Any]:
     }
 
 
+# OTHER / OTHERS as a whole word of the code (SO-OTHER, OTHER_REASON), not inside a word such as
+# ANOTHER or MOTHER (SO-CUSTOMER-CHOSE-ANOTHER-SUPPLIER needs no note).
+_OTHER_WORD = re.compile(r"(?<![A-Z0-9])OTHERS?(?![A-Z0-9])")
+
+
+def reason_needs_note(reason_code: Optional[str]) -> bool:
+    return bool(_OTHER_WORD.search((reason_code or "").strip().upper()))
+
+
 def validate_reason(reason_code: Optional[str], note: Optional[str]) -> tuple[str, str]:
     """Reason code is required; a code meaning "other" also needs a short note."""
     code = (reason_code or "").strip().upper()
     text = (note or "").strip()
     if not code:
         raise ValueError("Choose a reason code.")
-    if "OTHER" in code and len(text) < 5:
+    if reason_needs_note(code) and len(text) < 5:
         raise ValueError("Write a short note for the reason 'Other'.")
     return code, text
 

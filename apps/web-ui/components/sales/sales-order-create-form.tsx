@@ -3,7 +3,8 @@
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Plus, Trash2 } from "lucide-react"
+import { History, Plus, Trash2 } from "lucide-react"
+import { useQuery } from "@tanstack/react-query"
 
 import { Panel } from "@/components/erp/shell"
 import { useApp } from "@/context/AppContext"
@@ -15,9 +16,11 @@ import {
   ORDER_ORIGIN_INTERNAL,
   addCalendarDays,
   deliveryDateMustFollowCustomerPoDate,
+  formatCustomerPoDate,
   isCustomerPoOrigin,
 } from "@/lib/sales-order-entry"
 import { describeErrorDetail } from "@/lib/api-error"
+import { api } from "@/lib/api"
 
 /** One parchment colour of a line. Blank rate = the line's Rate / Pc applies. */
 type ColorRow = { key: string; color_id: string; color: string; qty: string; rate: string }
@@ -58,10 +61,12 @@ function createLine(seed = 1): SalesLineForm {
     approved_spec_id: "",
     product_code: "",
     size_label: "",
-    parchment_required: false,
+    // Every job card needs a parchment colour ("there is no none", client 28 Oct): each line is a
+    // parchment line; its colour is picked now or at release.
+    parchment_required: true,
     parchment_color_id: "",
     parchment_color: "",
-    color_rows: [],
+    color_rows: [{ key: `c-${Date.now()}-${seed}`, color_id: "", color: "", qty: "", rate: "" }],
     rate_per_pc: "",
     qty: "",
     due_date: "",
@@ -231,20 +236,19 @@ export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: s
             approved_spec_id: String(line.approved_spec_id || ""),
             product_code: String(line.product_code || ""),
             size_label: String(line.size_label || ""),
-            parchment_required: Boolean(line.parchment_required),
+            // An older line saved "without parchment" opens as a parchment line with its colour undecided.
+            parchment_required: true,
             parchment_color_id: line.parchment_required ? String(line.parchment_color_id || "") : "",
             parchment_color: line.parchment_required ? String(line.parchment_color || "") : "",
-            color_rows: line.parchment_required
-              ? (Array.isArray(line.color_splits) && line.color_splits.length
-                  ? line.color_splits.map((split: any, splitIndex: number) => ({
-                      key: `c-${index}-${splitIndex}`,
-                      color_id: String(split.color_id || ""),
-                      color: String(split.color || ""),
-                      qty: split.qty == null ? "" : String(Math.round(Number(split.qty))),
-                      rate: split.rate_per_pc == null ? "" : String(split.rate_per_pc),
-                    }))
-                  : [{ key: `c-${index}-0`, color_id: "", color: "", qty: "", rate: "" }])
-              : [],
+            color_rows: line.parchment_required && Array.isArray(line.color_splits) && line.color_splits.length
+              ? line.color_splits.map((split: any, splitIndex: number) => ({
+                  key: `c-${index}-${splitIndex}`,
+                  color_id: String(split.color_id || ""),
+                  color: String(split.color || ""),
+                  qty: split.qty == null ? "" : String(Math.round(Number(split.qty))),
+                  rate: split.rate_per_pc == null ? "" : String(split.rate_per_pc),
+                }))
+              : [{ key: `c-${index}-0`, color_id: "", color: "", qty: "", rate: "" }],
             rate_per_pc: line.rate_per_pc == null ? "" : String(line.rate_per_pc),
             qty: line.qty == null ? "" : String(line.qty),
             due_date: copying ? "" : isoDate(line.due_date),
@@ -413,7 +417,8 @@ export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: s
     }
 
     form.lines.forEach((line, index) => {
-      const dateError = deliveryDateMustFollowCustomerPoDate(line.due_date, form.po_date, form.origin)
+      // Delivery date is optional (client 2026-10-28); a date that is given must follow the PO date.
+      const dateError = line.due_date ? deliveryDateMustFollowCustomerPoDate(line.due_date, form.po_date, form.origin) : null
       if (dateError) errors[`due_date:${line.localId}`] = `Line ${index + 1}: ${dateError}`
       if (line.parchment_required) {
         const colored = line.color_rows.filter((row) => row.color)
@@ -421,11 +426,11 @@ export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: s
         if (line.color_rows.some((row) => row.rate.trim() !== "" && !(Number(row.rate) >= 0))) {
           errors[`parchment_color:${line.localId}`] = `Line ${index + 1}: a colour rate must be 0 or more.`
         } else if (line.color_rows.some((row) => Number(row.qty) > 0 && !row.color)) {
-          errors[`parchment_color:${line.localId}`] = `Line ${index + 1}: pick a color for every quantity row.`
+          errors[`parchment_color:${line.localId}`] = `Line ${index + 1}: pick a colour for every quantity row.`
         } else if (colored.length > 1 && colored.some((row) => !Number(row.qty))) {
-          errors[`parchment_color:${line.localId}`] = `Line ${index + 1}: with more than one color, enter the qty of each color.`
+          errors[`parchment_color:${line.localId}`] = `Line ${index + 1}: with more than one colour, enter the qty of each colour.`
         } else if (assigned > Number(line.qty || 0)) {
-          errors[`parchment_color:${line.localId}`] = `Line ${index + 1}: colors add up to ${assigned.toLocaleString("en-IN")} pcs, more than the ${Number(line.qty || 0).toLocaleString("en-IN")} ordered.`
+          errors[`parchment_color:${line.localId}`] = `Line ${index + 1}: colours add up to ${assigned.toLocaleString("en-IN")} pcs, more than the ${Number(line.qty || 0).toLocaleString("en-IN")} ordered.`
         }
       }
     })
@@ -461,7 +466,7 @@ export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: s
         color_splits: line.parchment_required ? colorSplitsFor(line) : [],
         rate_per_pc: line.rate_per_pc ? Number(line.rate_per_pc) : null,
         qty: Number(line.qty),
-        due_date: line.due_date,
+        due_date: line.due_date || null,
       })),
     }
     try {
@@ -508,13 +513,13 @@ export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: s
             {editing ? "Edit sales order" : "New sales order"}
           </h1>
         </div>
-        <Link href="/sales-orders" className="text-sm font-semibold text-muted-foreground hover:text-foreground">
+        <Link href="/sales-orders" className="inline-flex min-h-11 items-center text-sm font-semibold text-muted-foreground hover:text-foreground">
           Back to sales queue
         </Link>
       </header>
 
       <form data-testid="sales-orders:create-form" onSubmit={handleSubmit} className="space-y-6">
-        <Panel title="Order header" subtitle="Customer stays on both customer PO and internal orders. External PO fields stay empty for internal orders.">
+        <Panel title="Order header" subtitle="Who is ordering and against which PO. An internal order has no customer PO yet — add it later to confirm the order.">
           <div className="space-y-4">
             <fieldset>
               <legend className="text-[12px] font-semibold text-muted-foreground">Order source</legend>
@@ -524,7 +529,7 @@ export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: s
                   data-testid="sales-orders:origin-customer-po"
                   aria-pressed={customerPoMode}
                   onClick={() => setOrigin(ORDER_ORIGIN_CUSTOMER_PO)}
-                  className={`rounded-lg px-3 py-2 text-sm font-semibold ${customerPoMode ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
+                  className={`min-h-11 rounded-lg px-3 py-2 text-sm font-semibold sm:min-h-9 ${customerPoMode ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
                 >
                   Customer PO
                 </button>
@@ -533,18 +538,26 @@ export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: s
                   data-testid="sales-orders:origin-internal"
                   aria-pressed={!customerPoMode}
                   onClick={() => setOrigin(ORDER_ORIGIN_INTERNAL)}
-                  className={`rounded-lg px-3 py-2 text-sm font-semibold ${!customerPoMode ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
+                  className={`min-h-11 rounded-lg px-3 py-2 text-sm font-semibold sm:min-h-9 ${!customerPoMode ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
                 >
-                  Internal sales order
+                  Internal order (no customer PO yet)
                 </button>
               </div>
+              {!customerPoMode ? (
+                <p className="mt-2 text-[12px] text-muted-foreground" data-testid="sales-orders:internal-hint">
+                  Saved as <strong className="font-semibold text-signal-amber-ink">Internal order · waiting for customer PO</strong>. When the customer&apos;s PO arrives, add it from the order page to make it a confirmed customer order.
+                </p>
+              ) : null}
             </fieldset>
 
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div className="space-y-1">
-                <label className="text-[12px] font-semibold text-muted-foreground">Customer</label>
+                <label htmlFor="sales-order-customer" className="text-[12px] font-semibold text-muted-foreground">Customer</label>
                 <select
+                  id="sales-order-customer"
                   data-testid="sales-orders:customer"
+                  aria-invalid={Boolean(fieldErrors.customer_id)}
+                  aria-describedby={fieldErrors.customer_id ? "sales-order-customer-error" : undefined}
                   required
                   value={form.customer_id}
                   onChange={(event) => updateHeader("customer_id", event.target.value)}
@@ -557,47 +570,56 @@ export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: s
                     </option>
                   ))}
                 </select>
-                {fieldErrors.customer_id ? <p className="text-xs text-signal-rose-ink">{fieldErrors.customer_id}</p> : null}
+                {fieldErrors.customer_id ? <p id="sales-order-customer-error" className="text-xs text-signal-rose-ink">{fieldErrors.customer_id}</p> : null}
               </div>
               {customerPoMode ? (
                 <>
                   <div className="space-y-1">
-                    <label className="text-[12px] font-semibold text-muted-foreground">Customer PO number</label>
+                    <label htmlFor="sales-order-po-number" className="text-[12px] font-semibold text-muted-foreground">Customer PO number</label>
                     <input
+                      id="sales-order-po-number"
                       data-testid="sales-orders:po-number"
+                      aria-invalid={Boolean(fieldErrors.po_number)}
+                      aria-describedby={fieldErrors.po_number ? "sales-order-po-number-error" : undefined}
                       required={customerPoMode}
                       value={form.po_number}
                       onChange={(event) => updateHeader("po_number", event.target.value)}
                       className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm"
                       placeholder="Customer PO number"
                     />
-                    {fieldErrors.po_number ? <p className="text-xs text-signal-rose-ink">{fieldErrors.po_number}</p> : null}
+                    {fieldErrors.po_number ? <p id="sales-order-po-number-error" className="text-xs text-signal-rose-ink">{fieldErrors.po_number}</p> : null}
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[12px] font-semibold text-muted-foreground">Customer PO Date</label>
+                    <label htmlFor="sales-order-po-date" className="text-[12px] font-semibold text-muted-foreground">Customer PO date</label>
                     <input
+                      id="sales-order-po-date"
                       data-testid="sales-orders:po-date"
+                      aria-invalid={Boolean(fieldErrors.po_date)}
+                      aria-describedby={fieldErrors.po_date ? "sales-order-po-date-error" : undefined}
                       type="date"
                       required={customerPoMode}
                       value={form.po_date}
                       onChange={(event) => updateHeader("po_date", event.target.value)}
                       className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm"
                     />
-                    {fieldErrors.po_date ? <p className="text-xs text-signal-rose-ink">{fieldErrors.po_date}</p> : null}
+                    {fieldErrors.po_date ? <p id="sales-order-po-date-error" className="text-xs text-signal-rose-ink">{fieldErrors.po_date}</p> : null}
                   </div>
                 </>
               ) : (
                 <div className="space-y-1">
-                  <label className="text-[12px] font-semibold text-muted-foreground">Internal order date</label>
+                  <label htmlFor="sales-order-internal-date" className="text-[12px] font-semibold text-muted-foreground">Internal order date</label>
                   <input
+                    id="sales-order-internal-date"
                     data-testid="sales-orders:internal-order-date"
+                    aria-invalid={Boolean(fieldErrors.internal_order_date)}
+                    aria-describedby={fieldErrors.internal_order_date ? "sales-order-internal-date-error" : undefined}
                     type="date"
                     required={!customerPoMode}
                     value={form.internal_order_date}
                     onChange={(event) => updateHeader("internal_order_date", event.target.value)}
                     className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm"
                   />
-                  {fieldErrors.internal_order_date ? <p className="text-xs text-signal-rose-ink">{fieldErrors.internal_order_date}</p> : null}
+                  {fieldErrors.internal_order_date ? <p id="sales-order-internal-date-error" className="text-xs text-signal-rose-ink">{fieldErrors.internal_order_date}</p> : null}
                 </div>
               )}
               <div className="space-y-1">
@@ -618,8 +640,9 @@ export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: s
                 </p>
               </div>
               <div className="space-y-1 md:col-span-2 xl:col-span-1">
-                <label className="text-[12px] font-semibold text-muted-foreground">Notes</label>
+                <label htmlFor="sales-order-notes" className="text-[12px] font-semibold text-muted-foreground">Notes</label>
                 <textarea
+                  id="sales-order-notes"
                   data-testid="sales-orders:notes"
                   rows={1}
                   value={form.notes}
@@ -632,7 +655,7 @@ export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: s
           </div>
         </Panel>
 
-        <Panel title="Order lines" subtitle="Each line keeps a stable identity. Add or remove lines without using the row number as the database key.">
+        <Panel title="Order lines" subtitle="One line per product. Pick the parchment colours now, or when you release each job card.">
           <div className="space-y-4">
             {form.lines.map((line, index) => {
               const lineNumber = index + 1
@@ -649,7 +672,7 @@ export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: s
                       onClick={() => removeLine(line.localId)}
                       disabled={form.lines.length === 1}
                       aria-label={`Remove line ${lineNumber}`}
-                      className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-muted disabled:opacity-40"
+                      className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-muted disabled:opacity-40 sm:min-h-9"
                     >
                       <Trash2 className="h-4 w-4" />
                       Remove
@@ -658,8 +681,9 @@ export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: s
 
                   <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
                     <div className="space-y-1 xl:col-span-2">
-                      <label className="text-[12px] font-semibold text-muted-foreground">Approved Specification</label>
+                      <label htmlFor={`spec-${line.localId}`} className="text-[12px] font-semibold text-muted-foreground">Approved specification</label>
                       <select
+                        id={`spec-${line.localId}`}
                         data-testid={index === 0 ? "sales-orders:spec" : undefined}
                         required
                         value={line.approved_spec_id}
@@ -713,7 +737,7 @@ export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: s
                           <p className="text-[11.5px] text-muted-foreground">
                             {approvedCount} approved for this customer · {approvedSpecs.length} approved in total{pendingCount ? <> · <Link href="/specifications" className="font-semibold text-signal-amber-ink underline-offset-2 hover:underline">{pendingCount} not approved yet</Link></> : null}
                             {" · "}
-                            <button type="button" className="font-semibold text-primary underline-offset-2 hover:underline" onClick={() => setShowAllCustomerSpecs((value) => !value)}>
+                            <button type="button" className="inline-flex min-h-11 items-center font-semibold text-primary underline-offset-2 hover:underline sm:min-h-0" onClick={() => setShowAllCustomerSpecs((value) => !value)}>
                               {showAllCustomerSpecs ? "Group by customer" : "Flat list"}
                             </button>
                           </p>
@@ -721,8 +745,9 @@ export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: s
                       })()}
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[12px] font-semibold text-muted-foreground">Product Code</label>
+                      <label htmlFor={`product-${line.localId}`} className="text-[12px] font-semibold text-muted-foreground">Product code</label>
                       <input
+                        id={`product-${line.localId}`}
                         required
                         value={line.product_code}
                         onChange={(event) => updateLine(line.localId, "product_code", event.target.value.toUpperCase())}
@@ -731,8 +756,9 @@ export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: s
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[12px] font-semibold text-muted-foreground">Size Label</label>
+                      <label htmlFor={`size-${line.localId}`} className="text-[12px] font-semibold text-muted-foreground">Size <span className="font-normal">(from the spec)</span></label>
                       <input
+                        id={`size-${line.localId}`}
                         value={line.size_label}
                         readOnly
                         className="h-11 w-full rounded-xl border border-border bg-muted px-3 text-sm text-muted-foreground"
@@ -740,20 +766,34 @@ export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: s
                       />
                     </div>
                     <div className="space-y-1 xl:col-span-2">
-                      <label className="text-[12px] font-semibold text-muted-foreground">Rate / Pc</label>
+                      <label htmlFor={`rate-${line.localId}`} className="text-[12px] font-semibold text-muted-foreground">Rate per pc (₹)</label>
                       <input
+                        id={`rate-${line.localId}`}
+                        data-testid={index === 0 ? "sales-orders:rate" : undefined}
                         type="number"
                         step="0.01"
                         min="0"
                         value={line.rate_per_pc}
                         onChange={(event) => updateLine(line.localId, "rate_per_pc", event.target.value)}
+                        aria-describedby={`last-rate-${line.localId}`}
                         className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm"
-                        placeholder="12.60"
+                        placeholder="Type the rate"
+                      />
+                      <LastRateHint
+                        id={`last-rate-${line.localId}`}
+                        testId={index === 0 ? "sales-orders:last-rate" : undefined}
+                        customerId={form.customer_id}
+                        specId={line.approved_spec_id}
+                        sizeLabel={line.size_label}
+                        excludeOrderId={orderId}
+                        currentRate={line.rate_per_pc}
+                        onUse={(rate) => updateLine(line.localId, "rate_per_pc", String(rate))}
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[12px] font-semibold text-muted-foreground">Order Qty</label>
+                      <label htmlFor={`qty-${line.localId}`} className="text-[12px] font-semibold text-muted-foreground">Order qty (pcs)</label>
                       <input
+                        id={`qty-${line.localId}`}
                         data-testid={index === 0 ? "sales-orders:qty" : undefined}
                         required
                         type="number"
@@ -761,40 +801,33 @@ export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: s
                         value={line.qty}
                         onChange={(event) => updateLine(line.localId, "qty", event.target.value)}
                         className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm"
-                        placeholder="2000"
+                        placeholder="Type the pcs"
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[12px] font-semibold text-muted-foreground">Delivery Date</label>
+                      <label htmlFor={`due-${line.localId}`} className="text-[12px] font-semibold text-muted-foreground">Delivery date <span className="font-normal">(optional)</span></label>
                       <input
+                        id={`due-${line.localId}`}
                         data-testid={index === 0 ? "sales-orders:due-date" : `sales-orders:due-date-${index}`}
-                        required
                         type="date"
                         min={deliveryMinDate}
                         value={line.due_date}
                         onChange={(event) => updateLine(line.localId, "due_date", event.target.value)}
+                        aria-invalid={Boolean(dueError)}
+                        aria-describedby={`due-help-${line.localId}`}
                         className={`h-11 w-full rounded-xl border bg-card px-3 text-sm ${dueError ? "border-signal-rose-line" : "border-border"}`}
                       />
-                      {dueError ? <p className="text-xs text-signal-rose-ink">{dueError}</p> : null}
+                      {dueError ? <p id={`due-help-${line.localId}`} className="text-xs text-signal-rose-ink">{dueError}</p> : <p id={`due-help-${line.localId}`} className="text-[11.5px] text-muted-foreground">{line.due_date ? <button type="button" className="font-medium text-primary underline-offset-2 hover:underline" onClick={() => updateLine(line.localId, "due_date", "")}>Clear date</button> : "Leave blank if not known yet — shown as No date."}</p>}
                     </div>
-                    <label className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
-                      <input
-                        data-testid={index === 0 ? "sales-orders:parchment-required" : undefined}
-                        type="checkbox"
-                        checked={line.parchment_required}
-                        onChange={(event) => updateLine(line.localId, "parchment_required", event.target.checked)}
-                      />
-                      Parchment required
-                    </label>
-                    {line.parchment_required ? (() => {
+                    {(() => {
                       const lineQty = Number(line.qty || 0)
                       const splits = colorSplitsFor(line)
                       const assigned = splits.reduce((sum, row) => sum + row.qty, 0)
                       const open = Math.max(0, lineQty - assigned)
                       return (
-                        <div className="space-y-2 rounded-lg border border-border bg-[hsl(var(--surface-2))] p-3 md:col-span-2 xl:col-span-5">
+                        <div className="min-w-0 space-y-2 rounded-lg border border-border bg-[hsl(var(--surface-2))] p-3 md:col-span-2 xl:col-span-5" data-testid={index === 0 ? "sales-orders:parchment-section" : undefined}>
                           <div className="flex flex-wrap items-center justify-between gap-2">
-                            <p className="text-[12.5px] font-semibold">Parchment colors</p>
+                            <p className="text-[12.5px] font-semibold">Parchment colours</p>
                             <span className="text-[12px] tabular-nums text-muted-foreground">
                               {assigned.toLocaleString("en-IN")} assigned · <span className={open ? "font-semibold text-signal-amber-ink" : ""}>{open.toLocaleString("en-IN")} not decided yet</span>
                             </span>
@@ -807,47 +840,59 @@ export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: s
                             </div>
                           ) : null}
                           {line.color_rows.length ? (
-                            <div className="grid grid-cols-[minmax(0,1fr)_96px_96px_36px] gap-2 px-0.5 text-[11px] font-semibold text-muted-foreground sm:grid-cols-[minmax(0,1fr)_110px_110px_120px_36px]" aria-hidden="true">
-                              <span>Colour</span><span className="text-right">Qty</span><span className="text-right">Rate / Pc</span><span className="hidden text-right sm:block">Amount</span><span />
+                            <div className="hidden gap-2 px-0.5 text-[11px] font-semibold text-muted-foreground sm:grid sm:grid-cols-[minmax(0,1fr)_110px_110px_120px_40px]" aria-hidden="true">
+                              <span>Colour</span><span className="text-right">Qty (pcs)</span><span className="text-right">Rate per pc</span><span className="text-right">Amount</span><span />
                             </div>
                           ) : null}
                           {line.color_rows.map((row, rowIndex) => (
-                            <div key={row.key} className="grid grid-cols-[minmax(0,1fr)_96px_96px_36px] items-center gap-2 sm:grid-cols-[minmax(0,1fr)_110px_110px_120px_36px]">
-                              <select
-                                data-testid={index === 0 && rowIndex === 0 ? "sales-orders:parchment" : undefined}
-                                aria-label={`Line ${lineNumber} color ${rowIndex + 1}`}
-                                value={row.color_id}
-                                onChange={(event) => pickColor(line.localId, row.key, event.target.value)}
-                                className="h-10 w-full rounded-lg border border-input bg-card px-2.5 text-[13px]"
-                              >
-                                <option value="">{rowIndex === 0 ? "Color (can decide later)" : "Select color"}</option>
-                                {parchmentOptions.map((parchment: any) => (
-                                  <option key={parchment.id} value={parchment.id}>{colorLabel(parchment)}</option>
-                                ))}
-                              </select>
-                              <input
-                                type="number"
-                                min="0"
-                                inputMode="numeric"
-                                aria-label={`Line ${lineNumber} color ${rowIndex + 1} qty`}
-                                value={row.qty}
-                                placeholder={line.color_rows.length === 1 ? "All" : "Qty"}
-                                onChange={(event) => updateColorRow(line.localId, row.key, { qty: event.target.value })}
-                                className="h-10 w-full rounded-lg border border-input bg-card px-2.5 text-right text-[13px] tabular-nums"
-                              />
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                inputMode="decimal"
-                                aria-label={`Line ${lineNumber} color ${rowIndex + 1} rate per piece`}
-                                title="Rate / Pc of this colour. Leave blank to use the line rate."
-                                value={row.rate}
-                                placeholder={line.rate_per_pc ? `₹${line.rate_per_pc}` : "Rate"}
-                                onChange={(event) => updateColorRow(line.localId, row.key, { rate: event.target.value })}
-                                className="h-10 w-full rounded-lg border border-input bg-card px-2.5 text-right text-[13px] tabular-nums"
-                              />
-                              <span className="hidden text-right text-[12.5px] font-semibold tabular-nums text-foreground sm:block" aria-label={`Line ${lineNumber} color ${rowIndex + 1} amount`}>
+                            <div
+                              key={row.key}
+                              className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_44px] items-end gap-2 rounded-lg border border-border bg-card p-2 sm:grid-cols-[minmax(0,1fr)_110px_110px_120px_40px] sm:items-center sm:border-0 sm:bg-transparent sm:p-0"
+                            >
+                              <label className="col-span-3 grid min-w-0 gap-1 sm:col-span-1">
+                                <span className="text-[11px] font-semibold text-muted-foreground sm:sr-only">Colour {line.color_rows.length > 1 ? rowIndex + 1 : ""}</span>
+                                <select
+                                  data-testid={index === 0 && rowIndex === 0 ? "sales-orders:parchment" : undefined}
+                                  aria-label={`Line ${lineNumber} colour ${rowIndex + 1}`}
+                                  value={row.color_id}
+                                  onChange={(event) => pickColor(line.localId, row.key, event.target.value)}
+                                  className="h-11 w-full min-w-0 rounded-lg border border-input bg-card px-2.5 text-sm sm:h-10 sm:text-[13px]"
+                                >
+                                  <option value="">{rowIndex === 0 ? "Decide at release" : "Choose colour"}</option>
+                                  {parchmentOptions.map((parchment: any) => (
+                                    <option key={parchment.id} value={parchment.id}>{colorLabel(parchment)}</option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label className="grid min-w-0 gap-1">
+                                <span className="text-[11px] font-semibold text-muted-foreground sm:sr-only">Qty (pcs)</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  inputMode="numeric"
+                                  aria-label={`Line ${lineNumber} colour ${rowIndex + 1} qty`}
+                                  value={row.qty}
+                                  placeholder={line.color_rows.length === 1 ? "All" : "Qty"}
+                                  onChange={(event) => updateColorRow(line.localId, row.key, { qty: event.target.value })}
+                                  className="h-11 w-full min-w-0 rounded-lg border border-input bg-card px-2.5 text-right text-sm tabular-nums sm:h-10 sm:text-[13px]"
+                                />
+                              </label>
+                              <label className="grid min-w-0 gap-1">
+                                <span className="text-[11px] font-semibold text-muted-foreground sm:sr-only">Rate per pc</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  inputMode="decimal"
+                                  aria-label={`Line ${lineNumber} colour ${rowIndex + 1} rate per piece`}
+                                  title="Rate per pc of this colour. Leave blank to use the line rate."
+                                  value={row.rate}
+                                  placeholder={line.rate_per_pc ? `₹${Number(line.rate_per_pc).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} line` : "Rate"}
+                                  onChange={(event) => updateColorRow(line.localId, row.key, { rate: event.target.value })}
+                                  className="h-11 w-full min-w-0 rounded-lg border border-input bg-card px-2.5 text-right text-sm tabular-nums sm:h-10 sm:text-[13px]"
+                                />
+                              </label>
+                              <span className="hidden text-right text-[12.5px] font-semibold tabular-nums text-foreground sm:block" aria-label={`Line ${lineNumber} colour ${rowIndex + 1} amount`}>
                                 {(() => {
                                   const rowQty = Number(row.qty || (line.color_rows.length === 1 ? line.qty : 0) || 0)
                                   const rowRate = row.rate.trim() !== "" ? Number(row.rate) : line.rate_per_pc.trim() !== "" ? Number(line.rate_per_pc) : null
@@ -856,24 +901,24 @@ export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: s
                               </span>
                               <button
                                 type="button"
-                                aria-label={`Remove color ${rowIndex + 1}`}
+                                aria-label={`Remove colour ${rowIndex + 1}`}
                                 onClick={() => removeColorRow(line.localId, row.key)}
-                                className="grid h-9 w-9 place-items-center rounded-lg text-muted-foreground hover:bg-signal-rose-soft hover:text-signal-rose-ink"
+                                className="grid h-11 w-11 place-items-center rounded-lg text-muted-foreground hover:bg-signal-rose-soft hover:text-signal-rose-ink sm:h-10 sm:w-10"
                               >
                                 <Trash2 className="h-4 w-4" />
                               </button>
                             </div>
                           ))}
                           <div className="flex flex-wrap items-center justify-between gap-2">
-                            <button type="button" onClick={() => addColorRow(line.localId)} className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-primary hover:underline">
-                              <Plus className="h-3.5 w-3.5" />Add color
+                            <button type="button" onClick={() => addColorRow(line.localId)} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-1 text-[13px] font-semibold text-primary hover:underline">
+                              <Plus className="h-4 w-4" />Add colour
                             </button>
-                            <p className="text-[11.5px] text-muted-foreground">Colors may stay undecided now. Every release picks one color — one job card is one color.</p>
+                            <p className="text-[11.5px] text-muted-foreground">Colours can be decided later. Every release needs one colour — one job card is one colour.</p>
                           </div>
                           {parchmentError ? <p className="text-xs text-signal-rose-ink">{parchmentError}</p> : null}
                         </div>
                       )
-                    })() : null}
+                    })()}
                   </div>
                   {(() => {
                     const value = lineValue(line)
@@ -892,7 +937,7 @@ export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: s
               type="button"
               onClick={addLine}
               data-testid="sales-orders:add-line"
-              className="inline-flex items-center gap-2 rounded-xl border border-border px-4 py-2.5 text-sm font-semibold text-muted-foreground transition hover:bg-card"
+              className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-border px-4 py-2.5 text-sm font-semibold text-muted-foreground transition hover:bg-card"
             >
               <Plus className="h-4 w-4" />
               Add line
@@ -918,5 +963,63 @@ export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: s
         </div>
       </form>
     </div>
+  )
+}
+
+type LastRate = { found: boolean; rate_per_pc?: number; order_no?: string; order_date?: string | null; match?: "spec" | "size" }
+
+/**
+ * Last rate of the same customer and product (client 2026-10-28, corrected): a suggestion beside
+ * Rate / Pc with a one-click "Use". It never fills the rate by itself; no history = no suggestion.
+ */
+function LastRateHint({ id, testId, customerId, specId, sizeLabel, excludeOrderId, currentRate, onUse }: {
+  id: string
+  testId?: string
+  customerId: string
+  specId: string
+  sizeLabel: string
+  excludeOrderId?: string
+  currentRate: string
+  onUse: (rate: number) => void
+}) {
+  const enabled = Boolean(customerId && (specId || sizeLabel.trim()))
+  const lastRate = useQuery({
+    queryKey: ["sales", "last-rate", customerId, specId, sizeLabel.trim().toLowerCase(), excludeOrderId || null],
+    enabled,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data } = await api.get("/api/sales/orders/last-rate", {
+        params: { customer_id: customerId, approved_spec_id: specId || undefined, size_label: sizeLabel.trim() || undefined, exclude_order_id: excludeOrderId || undefined },
+      })
+      return data as LastRate
+    },
+  })
+  const data = lastRate.data
+  if (!enabled || !data?.found || data.rate_per_pc == null) return <span id={id} className="sr-only">No earlier rate for this customer and product.</span>
+  const rate = Number(data.rate_per_pc)
+  const money = `₹${rate.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const same = currentRate.trim() !== "" && Math.abs(Number(currentRate) - rate) < 0.0001
+  return (
+    <p id={id} data-testid={testId} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-muted-foreground">
+      <History className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <span>
+        Last rate <strong className="font-semibold text-foreground tabular-nums">{money}</strong> on {data.order_no}
+        {data.order_date ? ` · ${formatCustomerPoDate(data.order_date)}` : ""}
+        {data.match === "size" ? " (same size)" : ""}
+      </span>
+      {same ? (
+        <span className="text-signal-emerald-ink">· in use</span>
+      ) : (
+        <button
+          type="button"
+          onClick={() => onUse(rate)}
+          className="inline-flex h-11 items-center rounded-lg border border-border bg-card px-3 text-[12px] font-semibold text-primary transition hover:bg-muted sm:h-7 sm:px-2"
+          aria-label={`Use last rate ${money}`}
+          data-testid={testId ? `${testId}-use` : undefined}
+        >
+          Use
+        </button>
+      )}
+    </p>
   )
 }

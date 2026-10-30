@@ -18,6 +18,7 @@ import { PageHeader } from "@/components/workspace/page-header"
 import { MetricCard, MetricRail } from "@/components/erp/shell"
 import { Donut } from "@/components/erp/viz"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
+import { useAuth } from "@/context/AuthContext"
 
 const formatNumber = (value: unknown, digits = 0) =>
   Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: digits })
@@ -37,6 +38,32 @@ function rowValue(row: any) {
 
 function itemType(row: any) {
   return String(row.type || row.category || "UNKNOWN").toUpperCase()
+}
+
+function rowUom(row: any) {
+  return String(row.uom || (itemType(row) === "RAW_PAPER" ? "KG" : "")).toUpperCase()
+}
+
+// Plain words for codes (client rule: no codes on screen). Totals stay per unit: kg never includes pieces.
+const TYPE_WORD: Record<string, string> = { RAW_PAPER: "Paper", ADHESIVE: "Adhesive", PARCHMENT: "Parchment", PACKAGING: "Packing", FINISHED_GOOD: "Finished tubes", TOOL: "Tools", UNKNOWN: "Other" }
+const PURPOSE_WORD: Record<string, string> = { STORAGE: "Store rack", QC: "QC bay", SCRAP: "Scrap area", DISPATCH: "Dispatch bay", WIP: "Production floor" }
+const MOVE_WORD: Record<string, string> = { INWARD: "Received", ISSUE_PRODUCTION: "Issued to floor", ISSUE: "Issued", ADJUSTMENT: "Correction", MOVE: "Moved", DISPATCH: "Dispatched", FG_INWARD: "Finished tubes in", OPENING: "Opening load", RETURN_TO_SUPPLIER: "Sent back", SCRAP: "Scrapped" }
+const typeWord = (code: string) => TYPE_WORD[code] || code.replace(/_/g, " ").toLowerCase().replace(/^./, (c) => c.toUpperCase())
+const sentence = (text: unknown) => String(text || "").toLowerCase().replace(/^./, (c) => c.toUpperCase())
+const unitWord = (uom: string) => (uom === "KG" ? "kg" : uom === "PCS" ? "pcs" : uom.toLowerCase())
+const formatDay = (value: unknown) => {
+  const text = String(value || "")
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(text) ? new Date(`${text}T00:00:00+05:30`) : new Date(text)
+  return Number.isNaN(day.getTime()) ? "—" : day.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" })
+}
+// A ledger reference people can read: a document number, never a raw id.
+function referenceText(txn: any) {
+  const meta = txn.movement_metadata || {}
+  const named = meta.dispatch_ref || meta.voucher_no || meta.grn_no || meta.document_no || meta.job_card_no
+  if (named) return String(named)
+  const ref = String(txn.reference || txn.external_ref || "")
+  const tail = ref.includes(":") ? ref.split(":").slice(1).join(":") : ref
+  return !tail || /[0-9a-f]{8}-[0-9a-f]{4}-/i.test(tail) || tail.length > 32 ? "—" : tail
 }
 
 function normalizeRows(raw: any) {
@@ -60,7 +87,13 @@ function Kpi({ label, value, hint, tone = "slate" }: { label: string; value: str
   )
 }
 
+// Stock value and ageing live in the inventory report (Owner, Admin, Plant Manager, Planner, Store).
+const VALUE_REPORT_ROLES = ["Owner", "Admin", "PlantManager", "Planner", "Store"]
+
 export default function InventoryOverviewPage() {
+  const { user, activeRole } = useAuth()
+  const myRoles = new Set([activeRole, user?.role, ...(user?.roles || [])].filter(Boolean) as string[])
+  const valueHref = VALUE_REPORT_ROLES.some((role) => myRoles.has(role)) ? "/reports/inventory" : undefined
   const balancesQuery = useInventoryBalances()
   const valuationQuery = useInventoryValuationSummary()
   const statusQuery = useInventoryStatusSummary()
@@ -80,9 +113,10 @@ export default function InventoryOverviewPage() {
   const reels = normalizeRows(reelsQuery.data)
   const locations = normalizeRows(locationsQuery.data)
 
+  const uomById = new Map<string, string>(inventoryRows.map((row: any) => [String(row.item_id || row.id), rowUom(row)]))
   const categoryRows = Object.values(
-    inventoryRows.reduce((acc: Record<string, any>, row: any) => {
-      const key = itemType(row)
+    inventoryRows.filter((row: any) => rowUom(row) === "KG").reduce((acc: Record<string, any>, row: any) => {
+      const key = typeWord(itemType(row))
       const current = acc[key] || { type: key, qty: 0, value: 0, count: 0 }
       current.qty += rowQty(row)
       current.value += rowValue(row)
@@ -102,7 +136,8 @@ export default function InventoryOverviewPage() {
     .sort((left, right) => right.kg - left.kg)
     .slice(0, 8)
 
-  const totalKg = inventoryRows.reduce((sum: number, row: any) => sum + rowQty(row), 0)
+  const totalKg = inventoryRows.filter((row: any) => rowUom(row) === "KG").reduce((sum: number, row: any) => sum + rowQty(row), 0)
+  const totalPcs = inventoryRows.filter((row: any) => rowUom(row) === "PCS").reduce((sum: number, row: any) => sum + rowQty(row), 0)
   const totalValue = Number(valuationQuery.data?.totals?.inventory_value) || inventoryRows.reduce((sum: number, row: any) => sum + rowValue(row), 0)
   const blockedKg = statusRows
     .filter((row: any) => ["BLOCKED", "QC_HOLD", "SCRAP"].includes(String(row.stock_status || "").toUpperCase()))
@@ -129,11 +164,11 @@ export default function InventoryOverviewPage() {
     { href: "/purchase/inward", title: "Goods inward", copy: "Receive PO or manual paper with one AT label per reel/coil.", icon: Warehouse },
     { href: "/inventory/reels/issue", title: "Issue reel by scan", copy: "Scan a reel/coil label and issue it to winder or slitting.", icon: Boxes },
     { href: "/purchase/receipts", title: "Reprint labels", copy: "Open a GRN and reprint reel or lot QR labels.", icon: ReceiptText },
-    { href: "/inventory/stock-control", title: "Scrap / adjust stock", copy: "Approved count correction or scrap discovery with reasons.", icon: FileCheck2 },
+    { href: "/inventory/stock-control?tab=corrections", title: "Correct stock", copy: "Damaged, short or a wrong GRN weight: raise it with a reason; the Owner approves.", icon: FileCheck2 },
     { href: "/inventory/production-issue", title: "Production issue", copy: "Issue RM against job card and lot/reel truth.", icon: PackageCheck },
 
     { href: "/inventory/ledger", title: "Ledger and balances", copy: "Audit physical, reserved, available, and transactions.", icon: ClipboardCheck },
-    { href: "/analytics/mrp", title: "MRP coverage", copy: "Reorder policy and demand/BOM coverage are separate views.", icon: LineChart },
+    { href: "/purchase/scheduler", title: "RM inward calendar", copy: "Forward demand against stock and arrivals, day by day.", icon: LineChart },
   ]
 
   return (
@@ -147,10 +182,10 @@ export default function InventoryOverviewPage() {
       />
 
       <MetricRail className="xl:grid-cols-4">
-        <MetricCard label="Inventory value" value={formatCurrency(totalValue)} detail="RM + tracked batch valuation" icon={Warehouse} tone="violet" href="/inventory/valuation" />
-        <MetricCard label="Stock on hand" value={formatKg(totalKg)} detail={`${inventoryRows.length} stocked items`} icon={Boxes} tone="teal" href="/inventory/ledger" />
+        <MetricCard label="Inventory value" value={formatCurrency(totalValue)} detail="RM + tracked batch valuation" icon={Warehouse} tone="violet" href={valueHref} />
+        <MetricCard label="Stock on hand" value={formatKg(totalKg)} detail={`${inventoryRows.length} stocked items${totalPcs ? ` · ${formatNumber(totalPcs)} pcs` : ""}`} icon={Boxes} tone="teal" href="/inventory/ledger" />
         <MetricCard label="Held / blocked" value={formatKg(blockedKg)} detail="QC hold, blocked and scrap" icon={FileCheck2} tone={blockedKg ? "rose" : "slate"} href="/quality/results" />
-        <MetricCard label="Locations used" value={`${occupiedLocations}/${totalLocations}`} detail="Warehouse occupancy" icon={ClipboardCheck} tone="amber" progress={totalLocations ? (occupiedLocations / totalLocations) * 100 : null} href="/system/locations" />
+        <MetricCard label="Locations used" value={`${occupiedLocations}/${totalLocations}`} detail="Warehouse occupancy" icon={ClipboardCheck} tone="amber" progress={totalLocations ? (occupiedLocations / totalLocations) * 100 : null} href="/inventory/locations" />
       </MetricRail>
 
       <section className="stagger grid grid-cols-2 gap-2.5 xl:grid-cols-6" aria-label="Quick actions">
@@ -170,18 +205,18 @@ export default function InventoryOverviewPage() {
           <div className="flex items-end justify-between gap-4">
             <div>
               <p className="text-[11.5px] font-semibold text-muted-foreground">Material split</p>
-              <h2 className="mt-1 text-xl font-semibold text-foreground">Stock by category and kg</h2>
+              <h2 className="mt-1 text-xl font-semibold text-foreground">Stock in kg by material type</h2>
             </div>
-            <p className="text-xs text-muted-foreground">Raw paper, adhesive, parchment, FG, and packing pressure.</p>
+            <p className="text-xs text-muted-foreground">{totalPcs ? `Materials counted in pieces are left out: ${formatNumber(totalPcs)} pcs in stock.` : "Materials counted in kg."}</p>
           </div>
           <div className="mt-4 h-[310px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={categoryRows}>
                 <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="hsl(var(--chart-grid))" />
-                <XAxis dataKey="type" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                <Tooltip formatter={(value: any, name: string) => (name === "value" ? formatCurrency(value) : formatKg(value))} />
-                <Bar dataKey="qty" fill="hsl(var(--chart-1))" radius={[8, 8, 0, 0]} />
+                <XAxis dataKey="type" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickLine={false} axisLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickLine={false} axisLine={false} width={56} tickFormatter={(value) => `${formatNumber(value)} kg`} />
+                <Tooltip cursor={{ fill: "hsl(var(--muted) / .6)" }} formatter={(value: any) => [formatKg(value), "In stock"]} />
+                <Bar dataKey="qty" name="In stock" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} maxBarSize={56} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -238,15 +273,15 @@ export default function InventoryOverviewPage() {
         </div>
 
         <div className="rounded-xl border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
-          <p className="text-[11.5px] font-semibold text-muted-foreground">MRP actions</p>
+          <p className="text-[11.5px] font-semibold text-muted-foreground">Buying</p>
           <h2 className="mt-1 text-xl font-semibold text-foreground">Shortage and purchase queue</h2>
           <div className="mt-4 space-y-2">
             <Kpi label="Critical items" value={`${criticalRows.length}`} hint="At/below reorder point where configured" tone={criticalRows.length ? "rose" : "emerald"} />
             <Kpi label="Reels tracked" value={`${reels.length}`} hint="Reel records visible in current scope" tone="cyan" />
             <Kpi label="Locations" value={`${locations.length}`} hint="Created warehouse/bin locations" tone="amber" />
           </div>
-          <Link href="/analytics/mrp" className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90">
-            Open MRP reorder and demand views
+          <Link href="/purchase/scheduler" className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90">
+            Open the RM inward calendar
             <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
@@ -254,28 +289,34 @@ export default function InventoryOverviewPage() {
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
         <div className="rounded-xl border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
-          <p className="text-[11.5px] font-semibold text-muted-foreground">Location pressure</p>
-          <h2 className="mt-1 text-xl font-semibold text-foreground">Occupied bins and staging</h2>
+          <p className="text-[11.5px] font-semibold text-muted-foreground">Locations</p>
+          <h2 className="mt-1 text-xl font-semibold text-foreground">Racks in use</h2>
           <div className="mt-4 max-h-[320px] space-y-2 overflow-y-auto pr-1">
             {locationRows.slice(0, 10).map((row: any) => (
               <div key={row.location_id || row.code} className="rounded-2xl border border-border bg-muted px-3 py-2">
                 <div className="flex items-center justify-between gap-3 text-sm">
                   <span className="font-semibold text-foreground">{row.code}</span>
-                  <span className="text-muted-foreground">{row.purpose}</span>
+                  <span className="text-muted-foreground">{PURPOSE_WORD[String(row.purpose || "").toUpperCase()] || sentence(row.purpose)}</span>
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">{row.warehouse} · {row.zone || "-"} / {row.bin || "-"} · {formatKg(row.weight_kg)} · {formatNumber(row.qty, 2)} qty</p>
+                <p className="mt-1 text-xs text-muted-foreground">{[sentence(row.warehouse), `${formatNumber(row.reel_count)} reels`, `${formatNumber(row.batch_count)} lots`, Number(row.weight_kg) > 0 ? formatKg(row.weight_kg) : null].filter(Boolean).join(" · ")}</p>
                 {Array.isArray(row.items) && row.items.length ? (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {row.items.slice(0, 3).map((item: any) => (
                       <span key={`${row.location_id}-${item.item_id}`} className="rounded-full border border-signal-cyan-line bg-card px-2 py-1 text-[10px] font-semibold text-signal-cyan-ink">
-                        {item.item_code} · {Number(item.weight_kg || 0) > 0 ? formatKg(item.weight_kg) : `${formatNumber(item.qty, 2)} qty`}
+                        {item.item_name || item.item_code} · {Number(item.weight_kg || 0) > 0 ? formatKg(item.weight_kg) : `${formatNumber(item.qty, 2)} ${unitWord(uomById.get(String(item.item_id)) || "")}`.trim()}
                       </span>
                     ))}
                   </div>
                 ) : null}
               </div>
             ))}
-            {!locationRows.length ? <p className="text-sm text-muted-foreground">Create locations from System to start occupancy tracking.</p> : null}
+            {!locationRows.length ? (
+              <p className="text-sm text-muted-foreground">
+                No stock is on a rack yet.{" "}
+                <Link href="/inventory/locations" className="font-semibold text-signal-cyan-ink underline-offset-4 hover:underline">Open Locations</Link>{" "}
+                to add racks and print their labels.
+              </p>
+            ) : null}
           </div>
         </div>
 
@@ -287,23 +328,23 @@ export default function InventoryOverviewPage() {
             </div>
             <Link href="/inventory/ledger" className="text-xs font-semibold text-signal-cyan-ink">Full ledger</Link>
           </div>
-          <div className="mt-4 overflow-hidden rounded-2xl border border-border">
+          <div className="mt-4 overflow-x-auto rounded-2xl border border-border">
             <table className="w-full text-left text-sm">
               <thead className="bg-muted text-[11.5px] text-muted-foreground">
                 <tr>
                   <th className="px-3 py-3">Date</th>
-                  <th className="px-3 py-3">Type</th>
-                  <th className="px-3 py-3">Qty</th>
-                  <th className="px-3 py-3">Reference</th>
+                  <th className="px-3 py-3">What happened</th>
+                  <th className="px-3 py-3 text-right">Change</th>
+                  <th className="px-3 py-3">Document</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {recentTransactions.map((txn: any) => (
                   <tr key={txn.transaction_id || txn.id}>
-                    <td className="px-3 py-3 text-muted-foreground">{txn.date ? new Date(txn.date).toLocaleDateString("en-GB") : "-"}</td>
-                    <td className="px-3 py-3 font-semibold text-foreground">{txn.type || txn.transaction_type}</td>
-                    <td className="px-3 py-3">{formatNumber(txn.qty_change ?? txn.quantity, 2)}</td>
-                    <td className="px-3 py-3 text-muted-foreground">{txn.reference || txn.external_ref || "-"}</td>
+                    <td className="whitespace-nowrap px-3 py-3 text-muted-foreground">{formatDay(txn.date || txn.created_at)}</td>
+                    <td className="whitespace-nowrap px-3 py-3 font-semibold text-foreground">{MOVE_WORD[String(txn.type || txn.transaction_type || "").toUpperCase()] || sentence(String(txn.type || txn.transaction_type || "").replace(/_/g, " "))}</td>
+                    <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums">{(() => { const change = Number(txn.qty_change ?? txn.quantity ?? 0); const unit = unitWord(uomById.get(String(txn.item_id)) || ""); return `${change > 0 ? "+" : ""}${formatNumber(change, 2)}${unit ? ` ${unit}` : ""}` })()}</td>
+                    <td className="max-w-[180px] truncate px-3 py-3 text-muted-foreground">{referenceText(txn)}</td>
                   </tr>
                 ))}
                 {!recentTransactions.length ? (
@@ -319,34 +360,30 @@ export default function InventoryOverviewPage() {
         <div className="rounded-xl border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
           <div className="flex items-end justify-between gap-4">
             <div>
-              <p className="text-[11.5px] font-semibold text-muted-foreground">Location-wise stock</p>
-              <h2 className="mt-1 text-xl font-semibold text-foreground">All visible item load by bin</h2>
+              <p className="text-[11.5px] font-semibold text-muted-foreground">By rack</p>
+              <h2 className="mt-1 text-xl font-semibold text-foreground">Stock on each rack</h2>
             </div>
             <Link href="/inventory/ledger" className="text-xs font-semibold text-signal-cyan-ink">Open balances</Link>
           </div>
-          <div className="mt-4 overflow-hidden rounded-2xl border border-border">
+          <div className="mt-4 overflow-x-auto rounded-2xl border border-border">
             <table className="w-full text-left text-sm">
               <thead className="bg-[hsl(var(--surface-2))] text-[11.5px] text-muted-foreground">
                 <tr>
                   <th className="px-3 py-3">Location</th>
-                  <th className="px-3 py-3">Item</th>
-                  <th className="px-3 py-3">Purpose</th>
-                  <th className="px-3 py-3">Kg</th>
-                  <th className="px-3 py-3">Qty</th>
+                  <th className="px-3 py-3">Material</th>
+                  <th className="px-3 py-3 text-right">In stock</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {locationItemRows.slice(0, 12).map((row: any) => (
                   <tr key={`${row.location_code}-${row.item_id}`}>
-                    <td className="px-3 py-3 font-semibold text-foreground">{row.location_code}<span className="block text-xs font-normal text-muted-foreground">{row.warehouse}</span></td>
-                    <td className="px-3 py-3 text-muted-foreground">{row.item_code}<span className="block text-xs text-muted-foreground">{row.item_name}</span></td>
-                    <td className="px-3 py-3 text-muted-foreground">{row.purpose}</td>
-                    <td className="px-3 py-3 font-semibold text-foreground">{formatKg(row.weight_kg)}</td>
-                    <td className="px-3 py-3">{formatNumber(row.qty, 2)}</td>
+                    <td className="whitespace-nowrap px-3 py-3 font-semibold text-foreground">{row.location_code}<span className="block text-xs font-normal text-muted-foreground">{PURPOSE_WORD[String(row.purpose || "").toUpperCase()] || sentence(row.warehouse)}</span></td>
+                    <td className="min-w-[160px] px-3 py-3 text-foreground">{row.item_name || row.item_code}<span className="block text-xs text-muted-foreground">{row.item_code}</span></td>
+                    <td className="whitespace-nowrap px-3 py-3 text-right font-semibold tabular-nums text-foreground">{Number(row.weight_kg) > 0 ? formatKg(row.weight_kg) : `${formatNumber(row.qty, 2)} ${unitWord(uomById.get(String(row.item_id)) || "")}`.trim()}</td>
                   </tr>
                 ))}
                 {!locationItemRows.length ? (
-                  <tr><td colSpan={5} className="px-3 py-8 text-center text-muted-foreground">No location-level item load yet. Post inward with a location to populate this view.</td></tr>
+                  <tr><td colSpan={3} className="px-3 py-8 text-center text-muted-foreground">No stock on a rack yet. Goods inward puts each lot on a rack.</td></tr>
                 ) : null}
               </tbody>
             </table>
@@ -354,16 +391,16 @@ export default function InventoryOverviewPage() {
         </div>
 
         <div className="rounded-xl border border-signal-amber-line bg-signal-amber-soft p-5 shadow-xl shadow-amber-900/5">
-          <p className="text-[11.5px] font-semibold text-signal-amber-ink">Stock close logic</p>
-          <h2 className="mt-1 text-xl font-semibold text-foreground">Opening, alerts, and closing in one audit chain</h2>
+          <p className="text-[11.5px] font-semibold text-signal-amber-ink">Counts and month-end</p>
+          <h2 className="mt-1 text-xl font-semibold text-foreground">Count any time, close once a month</h2>
           <div className="mt-4 space-y-3 text-sm leading-6 text-muted-foreground">
-            <p><b>Opening load</b> is only for go-live or year carry-forward. It posts an auditable OPENING transaction and should not be used for daily GRN.</p>
-            <p><b>Daily GRN / inward</b> creates receipt batches or reels against vendor and location, then issues consume the same ledger.</p>
-            <p><b>Close certification</b> freezes book stock for a period, records physical count variance, and carries certified closing into next period opening.</p>
-            <p><b>Alerts</b> come from item master reorder level, safety stock, aging, blocked stock, and location pressure. Configure these in item/location masters.</p>
+            <p><b className="text-foreground">Spot counts</b> check a few racks or items whenever you like. Anyone may count; the Owner approves, and the difference is posted to stock.</p>
+            <p><b className="text-foreground">Month-end count</b> counts every rack once a month. Its approved figures are the month&apos;s closing stock and the next month&apos;s opening.</p>
+            <p><b className="text-foreground">Corrections</b> fix damaged, short or wrongly weighed stock between counts, with a reason; the Owner approves each one.</p>
+            <p><b className="text-foreground">Goods inward</b> always puts stock on a rack (the RM store unless you choose another).</p>
           </div>
-          <Link href="/inventory/stock-control" className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-amber-800">
-            Open stock close control <ArrowRight className="h-4 w-4" />
+          <Link href="/inventory/stock-control" className="mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90">
+            Open stock counts &amp; book <ArrowRight className="h-4 w-4" aria-hidden="true" />
           </Link>
         </div>
       </section>

@@ -255,8 +255,8 @@ export default function InventoryItemsPage() {
               <p className="text-[11.5px] font-semibold text-muted-foreground">Catalog</p>
               <h2 className="mt-1 text-xl font-semibold text-foreground">Inventory item master</h2>
             </div>
-            <Link href="/analytics/mrp" className="inline-flex items-center gap-1 text-sm font-semibold text-signal-cyan-ink">
-              MRP <ArrowRight className="h-4 w-4" />
+            <Link href="/purchase/scheduler" className="inline-flex items-center gap-1 text-sm font-semibold text-signal-cyan-ink">
+              RM inward calendar <ArrowRight className="h-4 w-4" />
             </Link>
           </div>
           <div className="mt-4 overflow-x-auto rounded-2xl border border-border">

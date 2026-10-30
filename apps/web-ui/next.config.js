@@ -86,6 +86,19 @@ const nextConfig = {
         destination: "/reports/dispatch",
         permanent: true,
       },
+      // Retired pages (client 2026-10-28). Redirected here, before any page or role gate renders, so every
+      // role's old bookmark works; the query string is passed through. Each route also keeps a server
+      // redirect page (lib/retired-routes.ts) as a fallback. Not permanent: browsers must not cache them.
+      ...[
+        ["/system/locations", "/inventory/locations"],
+        ["/system/tolerances", "/production/reconciliation/limits"],
+        ["/inventory/lifecycle", "/inventory/stock-control"],
+        ["/inventory/counts", "/inventory/stock-control?tab=counts"],
+        ["/production/reconciliation/actuals", "/production/reconciliation?tab=month"],
+        ["/production/reconciliation/drift", "/production/reconciliation?tab=month"],
+        ["/production/reconciliation/history", "/production/reconciliation?tab=past"],
+        ["/analytics/mrp", "/purchase/scheduler?view=list"],
+      ].map(([source, destination]) => ({ source, destination, permanent: false })),
     ]
   },
   async rewrites() {

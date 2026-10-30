@@ -11,6 +11,7 @@ from ..database import get_db
 from ..config import get_settings
 from ..models import InventoryLocation, ItemMaster, PaperReel, ReferenceType, StockBatch, StockTransaction, TrackingMode, TransactionType
 from ..services import get_batch_balance, get_item_balance
+from ..services.books import assert_books_open, ist_today
 from ..services.labels import batch_label_payload
 from ..utils.audit_client import emit_audit_event
 from ..utils.auth import get_current_plant, get_current_plant_scope, get_current_user, require_role
@@ -339,7 +340,8 @@ def create_inward(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid reference_type")
 
-    effective_date_value = inward.effective_date or date.today()
+    effective_date_value = inward.effective_date or ist_today()
+    assert_books_open(db, plant_id, effective_date_value)
 
     transaction = StockTransaction(
         item_id=inward.item_id,

@@ -11,12 +11,13 @@ import { IssueDeskTabs } from "@/components/procurement/issue-desk-tabs"
 import { Chip } from "@/components/sales/order-chips"
 import { RoleGate } from "@/components/workspace/role-gate"
 import { useAuth } from "@/context/AuthContext"
-import { useCloseReelIssue, useCreateReelIssue, useInventoryItems, usePendingInventoryQuality, useRecordSlittingCard, useReelIssues, useReels } from "@/hooks/use-inventory"
+import { useCloseReelIssue, useCreateReelIssue, useInventoryItems, useInventoryLocations, usePendingInventoryQuality, useRecordSlittingCard, useReelIssues, useReels } from "@/hooks/use-inventory"
 import { usePlants } from "@/hooks/use-system"
 import { inventoryApi } from "@/lib/api"
 import { businessDate } from "@/lib/business-date"
 import { canonicalPlantScopeValue, displayPlantScope } from "@/lib/plant-scope"
 import { parseScanCode } from "@/lib/scan-code"
+import { pickFromText } from "@/lib/stock-format"
 import { cn } from "@/lib/utils"
 
 const ISSUABLE = ["UNRESTRICTED", "WIP"]
@@ -70,6 +71,9 @@ function Stat({ icon: Icon, label, value, hint, tone }: { icon: any; label: stri
   )
 }
 
+/** Fields are 44 px tall on a phone (thumb targets), compact on a desk. */
+const phoneField = `${fieldClass} max-sm:h-11`
+
 export default function ReelAndCoilIssuePage() {
   const { user, activePlant, activeRole, setActivePlant } = useAuth()
   const router = useRouter()
@@ -96,6 +100,12 @@ export default function ReelAndCoilIssuePage() {
 
   const stockQuery = useReels({ status: "IN_STOCK", limit: 500 })
   const itemsQuery = useInventoryItems()
+  // "Pick from <rack>" beside each reel (client 2026-10-28): where the store keeps it, read-only.
+  const locationsQuery = useInventoryLocations()
+  const placeOf = useMemo(() => {
+    const map = new Map((Array.isArray(locationsQuery.data) ? locationsQuery.data : []).map((row: any) => [String(row.id), row]))
+    return (row: any) => pickFromText(row?.location_id ? map.get(String(row.location_id)) : null)
+  }, [locationsQuery.data])
   const plantsQuery = usePlants()
   const pendingQc = usePendingInventoryQuality()
   const openQuery = useReelIssues({ status: "OPEN", limit: 300 })
@@ -205,6 +215,7 @@ export default function ReelAndCoilIssuePage() {
     if (!parsed.raw) return setNotice({ tone: "error", text: "Scan the reel or coil label, or type its AT number." })
     if (parsed.kind === "BATCH") return setNotice({ tone: "error", text: "That is a material lot label. Adhesive, packing and parchment are issued on the Adhesive / parchment / packing tab.", action: { label: "Open material issue", href: `/inventory/production-issue?scan=${encodeURIComponent(parsed.raw)}` } })
     if (parsed.kind === "JOB_CARD" || parsed.kind === "TOOL") return setNotice({ tone: "error", text: `That is a ${parsed.kind === "TOOL" ? "tool" : "job card"} label. Scan the reel or coil label.` })
+    if (parsed.kind === "LOCATION") return setNotice({ tone: "error", text: `That is a rack label (${parsed.code || "location"}). Scan the reel or coil label.`, action: { label: `See what is on ${parsed.code || "the rack"}`, href: `/inventory/locations/${parsed.id}` } })
     if (!stockReady) {
       setQueuedScan(value)
       return setNotice({ tone: "info", text: "Stock is still loading. The label is checked as soon as it is ready." })
@@ -344,19 +355,19 @@ export default function ReelAndCoilIssuePage() {
             <div className="flex flex-wrap gap-2">
               <label className="flex min-w-[200px] flex-1 items-center gap-2">
                 <Barcode className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                <input aria-label="Scan reel or coil label" className={fieldClass} value={scanCode} placeholder="Scan QR or type AT number" onChange={(e) => setScanCode(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void resolveScan() } }} />
+                <input aria-label="Scan reel or coil label" className={cn(phoneField, "max-sm:h-11")} value={scanCode} placeholder="Scan QR or type AT number" onChange={(e) => setScanCode(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void resolveScan() } }} />
               </label>
               <button type="button" className={secondaryButton} onClick={() => void resolveScan()}><PackageCheck className="h-4 w-4" />Add</button>
-              <QrScanner onScan={(value) => { setScanCode(parseScanCode(value).code || value); void resolveScan(value) }} label="Camera" title="Scan reel label" hint="Point the camera at the reel or coil QR label." />
+              <QrScanner className={secondaryButton} onScan={(value) => { setScanCode(parseScanCode(value).code || value); void resolveScan(value) }} label="Camera" title="Scan reel label" hint="Point the camera at the reel or coil QR label." />
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <label className="relative min-w-[180px] flex-1">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <input aria-label="Find reel" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Find paper, AT no., vendor reel…" className={cn(fieldClass, "pl-9")} />
+                <input aria-label="Find reel" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Find paper, AT no., vendor reel…" className={cn(phoneField, "pl-9 max-sm:h-11")} />
               </label>
               <div role="radiogroup" aria-label="Form" className="flex gap-1 rounded-lg bg-muted p-1">
                 {([["ALL", "All"], ["REEL", "Reels → slitter"], ["COIL", "Coils → winders"]] as const).map(([value, label]) => (
-                  <button key={value} type="button" role="radio" aria-checked={form === value} onClick={() => setForm(value)} className={cn("h-8 rounded-md px-3 text-[12.5px] font-semibold", form === value ? "bg-card shadow-sm ring-1 ring-border" : "text-muted-foreground")}>{label}</button>
+                  <button key={value} type="button" role="radio" aria-checked={form === value} onClick={() => setForm(value)} className={cn("h-11 rounded-md px-3 text-[12.5px] font-semibold sm:h-8", form === value ? "bg-card shadow-sm ring-1 ring-border" : "text-muted-foreground")}>{label}</button>
                 ))}
               </div>
             </div>
@@ -384,7 +395,8 @@ export default function ReelAndCoilIssuePage() {
                           <span className="truncate text-[12.5px] text-muted-foreground">{item?.item_code || ""}{item?.name ? ` · ${item.name}` : ""}</span>
                         </span>
                         <span className="block text-[12px] text-muted-foreground">
-                          {[manyPlants ? displayPlantScope(row.plant_id) : null, row.width_mm ? `${row.width_mm} mm` : null, row.gsm ? `${row.gsm} GSM` : null, row.source_reel_no ? `vendor ${row.source_reel_no}` : null, row.supplier_name_snapshot || row.supplier_name].filter(Boolean).join(" · ")}
+                          <span className="font-semibold text-foreground" data-testid="pick-from">{placeOf(row)}</span>{" · "}
+                          {[manyPlants ? displayPlantScope(row.plant_id) : null, row.width_mm ? `${row.width_mm} mm` : null, row.gsm ? `${row.gsm} GSM` : null, row.source_reel_no ? `${row.genealogy_metadata?.source_document_type === "OPENING_LOAD" ? "old mark" : "vendor"} ${row.source_reel_no}` : null, row.supplier_name_snapshot || row.supplier_name].filter(Boolean).join(" · ")}
                         </span>
                       </span>
                       <span className="shrink-0 text-right">
@@ -405,10 +417,10 @@ export default function ReelAndCoilIssuePage() {
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Shift">
                   <div role="radiogroup" aria-label="Shift" className="flex gap-1 rounded-lg bg-muted p-1">
-                    {SHIFTS.map((item) => <button key={item.value} type="button" role="radio" aria-checked={shift === item.value} onClick={() => setShift(item.value)} className={cn("min-h-8 flex-1 rounded-md text-[13px] font-semibold", shift === item.value ? "bg-card shadow-sm ring-1 ring-border" : "text-muted-foreground")}>{item.label}</button>)}
+                    {SHIFTS.map((item) => <button key={item.value} type="button" role="radio" aria-checked={shift === item.value} onClick={() => setShift(item.value)} className={cn("min-h-11 flex-1 rounded-md text-[13px] font-semibold sm:min-h-9", shift === item.value ? "bg-card shadow-sm ring-1 ring-border" : "text-muted-foreground")}>{item.label}</button>)}
                   </div>
                 </Field>
-                <Field label="Issue date"><input className={fieldClass} type="date" value={issueDate} max={businessDate()} onChange={(e) => setIssueDate(e.target.value)} /></Field>
+                <Field label="Issue date"><input className={phoneField} type="date" value={issueDate} max={businessDate()} onChange={(e) => setIssueDate(e.target.value)} /></Field>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {selected.length ? (
@@ -473,11 +485,11 @@ export default function ReelAndCoilIssuePage() {
                       </div>
                       {cardFor === row.id ? (
                         <div className="grid gap-3 border-t border-border bg-muted/30 p-3 sm:grid-cols-2" data-testid="slitting-card-form">
-                          <Field label="Coils made"><input autoFocus className={fieldClass} type="number" min="1" step="1" inputMode="numeric" value={card.coils_made} onChange={(e) => setCard({ ...card, coils_made: e.target.value })} /></Field>
-                          <Field label="Wastage kg" hint={`of ${kg(row.issued_weight_kg)}`}><input className={fieldClass} type="number" min="0" step="0.001" inputMode="decimal" value={card.wastage_kg} onChange={(e) => setCard({ ...card, wastage_kg: e.target.value })} /></Field>
-                          <Field label="Coil width mm" hint="optional"><input className={fieldClass} type="number" min="0" step="0.1" value={card.coil_width_mm} onChange={(e) => setCard({ ...card, coil_width_mm: e.target.value })} /></Field>
-                          <Field label="Slitter operator" hint="optional"><input className={fieldClass} value={card.operator_name} onChange={(e) => setCard({ ...card, operator_name: e.target.value })} /></Field>
-                          <div className="sm:col-span-2"><Field label="Notes" hint="optional"><input className={fieldClass} value={card.notes} onChange={(e) => setCard({ ...card, notes: e.target.value })} /></Field></div>
+                          <Field label="Coils made"><input autoFocus className={phoneField} type="number" min="1" step="1" inputMode="numeric" value={card.coils_made} onChange={(e) => setCard({ ...card, coils_made: e.target.value })} /></Field>
+                          <Field label="Wastage kg" hint={`of ${kg(row.issued_weight_kg)}`}><input className={phoneField} type="number" min="0" step="0.001" inputMode="decimal" value={card.wastage_kg} onChange={(e) => setCard({ ...card, wastage_kg: e.target.value })} /></Field>
+                          <Field label="Coil width mm" hint="optional"><input className={phoneField} type="number" min="0" step="0.1" value={card.coil_width_mm} onChange={(e) => setCard({ ...card, coil_width_mm: e.target.value })} /></Field>
+                          <Field label="Slitter operator" hint="optional"><input className={phoneField} value={card.operator_name} onChange={(e) => setCard({ ...card, operator_name: e.target.value })} /></Field>
+                          <div className="sm:col-span-2"><Field label="Notes" hint="optional"><input className={phoneField} value={card.notes} onChange={(e) => setCard({ ...card, notes: e.target.value })} /></Field></div>
                           {card.coils_made && card.wastage_kg !== "" ? <p className="text-[12.5px] text-muted-foreground sm:col-span-2">Good paper {kg(Number(row.issued_weight_kg) - Number(card.wastage_kg))} · wastage {((100 * Number(card.wastage_kg)) / Number(row.issued_weight_kg || 1)).toFixed(1)}% · about {kg((Number(row.issued_weight_kg) - Number(card.wastage_kg)) / Math.max(1, Number(card.coils_made)))} per coil</p> : null}
                           <button type="button" className={cn(primaryButton, "justify-center sm:col-span-2")} disabled={busy} onClick={() => void saveCard(row)}>Save slitting card</button>
                         </div>
@@ -486,7 +498,7 @@ export default function ReelAndCoilIssuePage() {
                   ))}
                 </ul>
               ) : <p className="text-sm text-muted-foreground">No reel is waiting for its slitting card.</p>}
-              <Link href="/reports/slitting" className="mt-3 inline-flex items-center gap-1 text-[13px] font-semibold text-primary hover:underline">Slitting report<ArrowUpRight className="h-3.5 w-3.5" /></Link>
+              <Link href="/reports/slitting" className="mt-3 inline-flex min-h-11 items-center gap-1 text-[13px] font-semibold text-primary hover:underline sm:min-h-0">Slitting report<ArrowUpRight className="h-3.5 w-3.5" /></Link>
             </WorkPanel>
           </div>
         </div>
@@ -544,7 +556,7 @@ export default function ReelAndCoilIssuePage() {
                     <button type="button" className={secondaryButton} disabled={busy} onClick={() => void closeOld(row, 0)} title="The reel comes back into stock unchanged; issue it to the floor again from above">Back to stock, then issue to floor</button>
                   ) : (
                     <div className="flex items-end gap-2">
-                      <Field label="Used kg"><input className={cn(fieldClass, "w-28")} type="number" min="0" step="0.001" value={legacyWeights[row.id] ?? String(row.issued_weight_kg)} onChange={(e) => setLegacyWeights({ ...legacyWeights, [row.id]: e.target.value })} /></Field>
+                      <Field label="Used kg"><input className={cn(phoneField, "w-28")} type="number" min="0" step="0.001" value={legacyWeights[row.id] ?? String(row.issued_weight_kg)} onChange={(e) => setLegacyWeights({ ...legacyWeights, [row.id]: e.target.value })} /></Field>
                       <button type="button" className={secondaryButton} disabled={busy} onClick={() => void closeOld(row)}>Close</button>
                     </div>
                   )}

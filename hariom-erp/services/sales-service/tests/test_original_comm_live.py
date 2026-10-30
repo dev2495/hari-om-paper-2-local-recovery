@@ -411,7 +411,7 @@ def test_rel03_zero_negative_excess_and_unapproved_release_rejected():
         with pytest.raises(HTTPException) as unapproved:
             release_sales_order_line(
                 created.lines[0].id,
-                SalesOrderLineReleasePayload(release_qty=1, winder_machine_id=uuid.uuid4()),
+                SalesOrderLineReleasePayload(release_qty=1, winder_machine_id=uuid.uuid4(), parchment_color="Natural"),
                 db=db,
                 plant_id=PLANT,
                 current_user=_user("sales-a", roles=("Sales",)),
@@ -421,7 +421,7 @@ def test_rel03_zero_negative_excess_and_unapproved_release_rejected():
         with pytest.raises(HTTPException) as excess:
             release_sales_order_line(
                 created.lines[0].id,
-                SalesOrderLineReleasePayload(release_qty=11, winder_machine_id=uuid.uuid4()),
+                SalesOrderLineReleasePayload(release_qty=11, winder_machine_id=uuid.uuid4(), parchment_color="Natural"),
                 db=db,
                 plant_id=PLANT,
                 current_user=_user("planner-1", roles=("Planner",)),
@@ -429,7 +429,7 @@ def test_rel03_zero_negative_excess_and_unapproved_release_rejected():
         assert excess.value.status_code == 400
         ok = release_sales_order_line(
             created.lines[0].id,
-            SalesOrderLineReleasePayload(release_qty=4, winder_machine_id=uuid.uuid4()),
+            SalesOrderLineReleasePayload(release_qty=4, winder_machine_id=uuid.uuid4(), parchment_color="Natural"),
             db=db,
             plant_id=PLANT,
             current_user=_user("planner-1", roles=("Planner",)),
@@ -470,7 +470,7 @@ def test_rel06_concurrent_releases_stay_bounded():
             barrier.wait(timeout=10)
             release_sales_order_line(
                 line_id,
-                SalesOrderLineReleasePayload(release_qty=qty, winder_machine_id=uuid.uuid4(), release_lot_id=uuid.uuid4()),
+                SalesOrderLineReleasePayload(release_qty=qty, winder_machine_id=uuid.uuid4(), release_lot_id=uuid.uuid4(), parchment_color="Natural"),
                 db=session,
                 plant_id=PLANT,
                 current_user=_user(f"planner-{qty}", roles=("Planner",)),

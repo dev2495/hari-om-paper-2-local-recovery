@@ -3,17 +3,19 @@
 // Log output: one run of one stage, as written on the printed card. No QC fields here — QC is its own
 // short form. Every rule of the older entry desk is kept: drafts for operators and straight save for
 // supervisors, the upstream QC gate with a supervisor override and reason, +10% over the plan needs a
-// reason, a rejection needs a code (and a note for "Other"), the Process balance works out the cutting
-// loss and needs a reason, held pieces carried in or out need a reason, and the same command is resent
-// on a retry (request_id + expected_version).
+// reason, a rejection needs a code (and a note for "Other"), cutting loss written needs a reason, held
+// pieces carried in or out need a reason, and the same command is resent on a retry (request_id +
+// expected_version). The Process count (bamboo × pcs per bamboo) is a check, never a gate (client
+// 2026-10-28): a gap saves and is flagged on the run. What is typed is kept on the device until saved.
 
-import { CalendarRange, CheckCircle2, ChevronDown, Clock3, Plus } from "lucide-react"
+import { CalendarRange, CheckCircle2, ChevronDown, Clock3, Flag, Plus } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { useCardMasters, useCardMutation, useEntryApi, useStableCommand } from "./data"
+import { DraftRestoredBar, draftKey, useFormDraft } from "./draft"
 import { Chips, FormStageTabs, Segmented, bigNumberClass, fieldLabel, selectClass, type StageTab } from "./EntrySheet"
 import {
   REJECT_CODES,
@@ -29,6 +31,7 @@ import {
   memoryKey,
   neededText,
   planMatchFor,
+  plannerSlots,
   previousStage,
   rejectCodeText,
   remember,
@@ -39,7 +42,10 @@ import {
   stamp,
   today,
   toneClass,
+  savedRunPlanMatch,
   useCardRoles,
+  waitingRunsBadge,
+  waitingRunsTitle,
   yesterday,
 } from "./model"
 
@@ -55,7 +61,8 @@ export function outputStageTabs(stages: any[]): StageTab[] {
       good: s.accepted_total,
       target: s.target,
       unit: s.unit,
-      badge: s.draft_count ? `${s.draft_count} draft` : undefined,
+      badge: waitingRunsBadge(Number(s.draft_count || 0)),
+      badgeTitle: waitingRunsTitle(Number(s.draft_count || 0)),
       disabled:
         s.status === "COMPLETED"
           ? `Closed · ${fmt(s.accepted_total)} ${s.unit}`
@@ -126,6 +133,46 @@ export function LogOutputForm({
   // Process: bamboo in and pieces out fill themselves from the card until the operator types over them.
   const inputTouched = useRef(false)
   const outputTouched = useRef(false)
+  // Kept on the device as it is typed (card · stage · draft run), restored when the form opens again.
+  const typed = { businessDate, shift, machine, operator, helper, output, rejected, rejectCode, rejectNote, overNote, input, loss, carryIn, carryOut, remark, lossNote, showTimes, startTime, endTime, gateOverride, gateReason, inputTouched: inputTouched.current, outputTouched: outputTouched.current }
+  // A server draft being revised counts as typed only once a value differs from the saved draft.
+  const savedDraftValues: Record<string, string> | null = editing
+    ? { businessDate: editing.business_date || today(), shift: editing.shift_code || clockShift(), machine: editing.machine_id || "", operator: editing.operator_id || "", helper: editing.details?.helper_name || "", output: editing.produced ? String(editing.produced) : "", rejected: editing.rejected ? String(editing.rejected) : "", rejectCode: editing.details?.reject_code || "", rejectNote: editing.details?.reject_reason || "", overNote: editing.details?.overproduction_reason || "", input: editing.input_quantity ? String(editing.input_quantity) : "", loss: editing.cutting_loss_pcs ? String(editing.cutting_loss_pcs) : "", carryIn: editing.carry_in_pcs ? String(editing.carry_in_pcs) : "", carryOut: editing.carry_out_pcs ? String(editing.carry_out_pcs) : "", remark: editing.details?.carryover_reason || "", lossNote: editing.details?.cutting_loss_reason || "" }
+    : null
+  const typedSomething = savedDraftValues
+    ? Object.entries(savedDraftValues).some(([k, v]) => String((typed as any)[k] ?? "") !== v)
+    : Boolean(rejected || rejectNote || overNote || loss || carryIn || carryOut || remark || lossNote || startTime || endTime || gateReason.trim()) ||
+      (Boolean(output) && (stage !== "PROCESS" || outputTouched.current)) ||
+      (Boolean(input) && (stage !== "PROCESS" || inputTouched.current)) ||
+      businessDate !== today()
+  const draft = useFormDraft(draftKey("output", card.id, stage, editing?.id), typed, !saved && typedSomething)
+  const applyDraft = (d: any) => {
+    if (!d) return
+    setBusinessDate(d.businessDate || today())
+    setShift(d.shift || clockShift())
+    if (d.machine) setMachine(d.machine)
+    if (d.operator) setOperator(d.operator)
+    setHelper(d.helper || "")
+    setOutput(d.output || "")
+    setRejected(d.rejected || "")
+    setRejectCode(d.rejectCode || "")
+    setRejectNote(d.rejectNote || "")
+    setOverNote(d.overNote || "")
+    setInput(d.input || "")
+    setLoss(d.loss || "")
+    setCarryIn(d.carryIn || "")
+    setCarryOut(d.carryOut || "")
+    setRemark(d.remark || "")
+    setLossNote(d.lossNote || "")
+    setShowTimes(Boolean(d.showTimes))
+    setStartTime(d.startTime || "")
+    setEndTime(d.endTime || "")
+    setGateOverride(Boolean(d.gateOverride))
+    setGateReason(d.gateReason || "")
+    if (d.gateOverride) setForceOpen(true)
+    inputTouched.current = Boolean(d.inputTouched)
+    outputTouched.current = Boolean(d.outputTouched)
+  }
 
   const worksHere = (e: any) =>
     String(e.department || "").toUpperCase() === stage ||
@@ -138,10 +185,7 @@ export function LogOutputForm({
   const operatorOptions = useMemo(() => [...activeEmployees].sort((a: any, b: any) => operatorRank(a) - operatorRank(b) || String(a.name).localeCompare(String(b.name))), [activeEmployees, stage]) // eslint-disable-line react-hooks/exhaustive-deps
   const stageMachines = useMemo(() => (machines.data || []).filter((m: any) => m.is_active !== false && String(m.department || "").toUpperCase() === stage), [machines.data, stage])
   const openSegments = (state?.segments || []).filter((s: any) => !["COMPLETED", "CANCELLED"].includes(s.status))
-  const plannedParts = openSegments
-    .filter((s: any) => s.machine_id && s.plan_date && s.shift_code)
-    .sort((a: any, b: any) => String(a.plan_date).localeCompare(String(b.plan_date)) || String(a.shift_code).localeCompare(String(b.shift_code)))
-  const slotReady = !(state?.segments || []).length || plannedParts.length > 0 || openSegments.some((s: any) => s.planner_gate_ready)
+  const plannedParts = plannerSlots(state, true).sort((a: any, b: any) => String(a.plan_date).localeCompare(String(b.plan_date)) || String(a.shift_code).localeCompare(String(b.shift_code)))
   // Input taken from the previous stage equals what this stage made, except Process (bamboo in → pieces out).
   const inputFollowsOutput = stage !== "PROCESS" && Boolean(prevStage) && prevStage !== "SLITTING"
   const loggable = isLoggable(state)
@@ -214,8 +258,36 @@ export function LogOutputForm({
       setMachine(defaultMachine() || "")
       clearNumbers()
     }
+    // What was typed here before (reload, closed tab, form closed) comes back; it is never sent by itself.
+    applyDraft(draft.restore())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage, card.id, editing?.id])
+  const discardDraft = () => {
+    draft.discard()
+    if (editing) {
+      setBusinessDate(editing.business_date || today())
+      setShift(editing.shift_code || clockShift())
+      setMachine(editing.machine_id || "")
+      setOperator(editing.operator_id || "")
+      setHelper(editing.details?.helper_name || "")
+      setOutput(editing.produced ? String(editing.produced) : "")
+      setRejected(editing.rejected ? String(editing.rejected) : "")
+      setRejectCode(editing.details?.reject_code || "")
+      setRejectNote(editing.details?.reject_reason || "")
+      setOverNote(editing.details?.overproduction_reason || "")
+      setInput(editing.input_quantity ? String(editing.input_quantity) : "")
+      setLoss(editing.cutting_loss_pcs ? String(editing.cutting_loss_pcs) : "")
+      setCarryIn(editing.carry_in_pcs ? String(editing.carry_in_pcs) : "")
+      setCarryOut(editing.carry_out_pcs ? String(editing.carry_out_pcs) : "")
+      setRemark(editing.details?.carryover_reason || "")
+      setLossNote(editing.details?.cutting_loss_reason || "")
+    } else {
+      setBusinessDate(today())
+      setShift(clockShift())
+      setMachine(defaultMachine() || "")
+      clearNumbers()
+    }
+  }
   // Machines and the stage plan load after the first paint; fill the machine once they arrive.
   useEffect(() => {
     if (!machine && !editing && state) setMachine(defaultMachine() || "")
@@ -228,13 +300,16 @@ export function LogOutputForm({
   const takenIn = inputFollowsOutput ? made : count(input)
   const carryInQty = count(carryIn)
   const carryOutQty = count(carryOut)
-  // Process balance (client 2026-10-26): bamboo × pieces per bamboo + held carry-in = made + cutting loss
-  // + held carry-out. Cutting loss is whatever the made and held pieces leave, never typed by hand.
+  // Process count (client 2026-10-26, relaxed 2026-10-28): bamboo × pieces per bamboo + held carry-in should
+  // equal made + cutting loss + held carry-out. A gap never stops the save: the run is flagged and nothing has
+  // to be written for it. Cutting loss is what the operator writes (one tap fills the gap as cutting loss).
   const pcsPerBamboo = stage === "PROCESS" ? Number(state?.pcs_per_bamboo || 0) : 0
   const possiblePcs = takenIn * pcsPerBamboo + carryInQty
-  const lossQty = pcsPerBamboo ? Math.max(0, possiblePcs - made - carryOutQty) : count(loss)
-  const overPcs = pcsPerBamboo ? Math.max(0, made + carryOutQty - possiblePcs) : 0
+  // Writing off held pieces (nothing made) books them all as cutting loss, as before.
   const disposition = stage === "PROCESS" && made === 0 && carryInQty > 0
+  const lossQty = disposition ? carryInQty : count(loss)
+  const countedPcs = made + lossQty + carryOutQty
+  const countGap = pcsPerBamboo && !disposition && (takenIn || carryInQty) ? possiblePcs - countedPcs : 0
   const readyFromOven = Number(state?.available_from_upstream || 0)
   useEffect(() => {
     if (stage !== "PROCESS" || editing || inputTouched.current) return
@@ -264,7 +339,6 @@ export function LogOutputForm({
     bad > 0 && rejectCode === "OT" && !rejectNote.trim() ? "what the 'Other' rejection was" : "",
     stage === "PROCESS" && !takenIn && !disposition ? `how many ${state?.input_unit || "bamboo"} were taken from ${stageLabel(prevStage || "OVEN")}` : "",
     stage === "PROCESS" && !pcsPerBamboo ? "pieces per bamboo on the spec (ask the planner)" : "",
-    overPcs > 0 ? `an output the bamboo can give (at most ${fmt(possiblePcs - carryOutQty)} pcs)` : "",
     lossQty && !disposition && !lossPart ? "why pieces were lost in cutting" : "",
     disposition && !rejectReason ? "the reason for the cutting loss" : "",
     (carryInQty || carryOutQty) && !remark.trim() ? "the reason for the held carryover" : "",
@@ -272,6 +346,8 @@ export function LogOutputForm({
     gateOverride && !gateReason.trim() ? "why the batch is taken before its QC" : "",
   ].filter(Boolean)
   const planMatch = planMatchFor(state, businessDate, shift, machine)
+  // One truth with the Plan match tile (and the server): no machine + date + shift slot means not on the planner.
+  const slotReady = !planMatch.unplanned
 
   const saveRun = (submit: boolean) => {
     const details: any = {
@@ -315,6 +391,7 @@ export function LogOutputForm({
       const result = editing ? await entryApi.edit(card.id, editing.id, stableCommand({ ...body, submit: false })) : await entryApi.create(card.id, stableCommand(body))
       const savedEntry = result?.data?.entry
       const done = { entry: savedEntry, submitted: Boolean(savedEntry?.status === "SUBMITTED"), stage }
+      draft.clear()
       setSaved(done)
       onSaved?.(done)
       return result
@@ -322,10 +399,12 @@ export function LogOutputForm({
   }
 
   const tabs = outputStageTabs(stages)
-  const stageTabs = onStage ? <FormStageTabs tabs={tabs} value={stage} onChange={(next) => (made && !window.confirm("Discard the run you are typing?") ? undefined : onStage(next))} /> : null
+  const stageTabs = onStage ? <FormStageTabs tabs={tabs} value={stage} onChange={(next) => onStage(next)} /> : null
 
   if (saved) {
     const e = saved.entry || {}
+    // What the server recorded for this run (run before planning is its flag), not the form's live guess.
+    const savedMatch = savedRunPlanMatch(e, state)
     return (
       <div className="space-y-4" data-testid="log-output-saved">
         <div className="flex flex-col items-center gap-2 py-4 text-center" role="status">
@@ -357,12 +436,20 @@ export function LogOutputForm({
             </p>
           </div>
         </div>
-        <p className={cn("flex items-center gap-2 rounded-lg border px-3 py-2 text-[13px] font-medium", toneClass(planMatch.tone))}>
+        <p className={cn("flex items-center gap-2 rounded-lg border px-3 py-2 text-[13px] font-medium", toneClass(savedMatch.tone))}>
           <CalendarRange className="h-4 w-4 shrink-0" aria-hidden="true" />
-          {planMatch.label}
+          {savedMatch.label}
         </p>
+        {e.details?.count_gap ? (
+          <p className={cn("flex items-start gap-2 rounded-lg border px-3 py-2 text-[13px]", toneClass("amber"))} data-testid="log-output-count-gap">
+            <Flag className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            <span>
+              <b>Count gap:</b> {e.details.count_gap.message}
+            </span>
+          </p>
+        ) : null}
         <p className="rounded-lg bg-muted px-3 py-2 text-[12.5px] text-muted-foreground">
-          {saved.submitted ? "The run is posted." : "A supervisor checks and submits this draft; it does not count until then."} No QC readings were asked for here — QC is its own short form and can be added to this run now or later.
+          {saved.submitted ? "The run is posted." : "The run is with the supervisor, who checks and submits it; it does not count until then."} No QC readings were asked for here — QC is its own short form and can be added to this run now or later.
         </p>
         <div className="grid gap-2 sm:grid-cols-2">
           {onLogQc && e.id ? (
@@ -384,12 +471,13 @@ export function LogOutputForm({
   return (
     <div className="space-y-4" data-testid="log-output-form">
       {stageTabs}
+      <DraftRestoredBar savedAt={draft.restoredAt} onDiscard={discardDraft} testId="log-output-draft" />
       {state ? (
         <div className="flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/[.05] px-3 py-2.5">
           <div className="min-w-0 flex-1">
             <p className="text-[14px] font-semibold">
               {card.job_card_no} · {stageLabel(stage)}
-              {editing ? ` · draft ${runNo(editing)}` : ""}
+              {editing ? ` · run ${runNo(editing)} (with supervisor)` : ""}
             </p>
             <p className="truncate text-[12.5px] text-muted-foreground">
               {fmt(state.accepted_total)} of {fmt(state.target)} {state.unit} good so far
@@ -477,7 +565,7 @@ export function LogOutputForm({
                     </label>
                   </div>
                 ) : (
-                  <Input type="date" className="h-11 text-[15px]" value={businessDate} max={today()} onChange={(e) => setBusinessDate(e.target.value)} aria-label="Date" />
+                  <Input type="date" className="h-11 min-h-11 text-[15px]" value={businessDate} max={today()} onChange={(e) => setBusinessDate(e.target.value)} aria-label="Date" />
                 )}
               </div>
               <div>
@@ -535,22 +623,22 @@ export function LogOutputForm({
                 <span className={fieldLabel}>
                   {helperLabelFor(stage)} <span className="font-normal">(optional)</span>
                 </span>
-                <Input className="h-11 text-[15px]" value={helper} onChange={(e) => setHelper(e.target.value)} />
+                <Input className="h-11 min-h-11 text-[15px]" value={helper} onChange={(e) => setHelper(e.target.value)} />
               </label>
               {showTimes ? (
                 <div className="grid grid-cols-2 gap-2">
                   <label className="block">
                     <span className={fieldLabel}>Start time</span>
-                    <Input type="time" className="h-11 text-[15px]" value={startTime} onChange={(e) => setStartTime(e.target.value)} aria-label="Start time" />
+                    <Input type="time" className="h-11 min-h-11 text-[15px]" value={startTime} onChange={(e) => setStartTime(e.target.value)} aria-label="Start time" />
                   </label>
                   <label className="block">
                     <span className={fieldLabel}>End time</span>
-                    <Input type="time" className="h-11 text-[15px]" value={endTime} onChange={(e) => setEndTime(e.target.value)} aria-label="End time" />
+                    <Input type="time" className="h-11 min-h-11 text-[15px]" value={endTime} onChange={(e) => setEndTime(e.target.value)} aria-label="End time" />
                   </label>
                   <p className="col-span-2 text-[12px] text-muted-foreground">{cycleText(startStamp, endStamp) ? `Cycle ${cycleText(startStamp, endStamp)}` : "Times are optional"}</p>
                 </div>
               ) : (
-                <button type="button" className="self-end justify-self-start text-[13px] font-medium text-primary underline-offset-2 hover:underline" onClick={() => setShowTimes(true)}>
+                <button type="button" className="inline-flex min-h-11 items-center self-end justify-self-start text-[13px] font-medium text-primary underline-offset-2 hover:underline" onClick={() => setShowTimes(true)}>
                   <Clock3 className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />
                   Add start / end time (optional)
                 </button>
@@ -566,7 +654,7 @@ export function LogOutputForm({
                   {(state.input_unit || "bamboo").replace(/^./, (c: string) => c.toUpperCase())} taken from {stageLabel(prevStage || "OVEN")}
                 </span>
                 <div className="relative">
-                  <input inputMode="numeric" type="number" min="0" step="1" className={bigNumberClass} value={input} onChange={(e) => { inputTouched.current = true; setInput(e.target.value) }} data-testid="season-entry-input" />
+                  <input inputMode="numeric" type="number" min="0" step="1" className={bigNumberClass} style={{ paddingRight: "5.5rem" }} value={input} onChange={(e) => { inputTouched.current = true; setInput(e.target.value) }} data-testid="season-entry-input" />
                   <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[12px] text-muted-foreground">{state.input_unit || "bamboo"}</span>
                 </div>
                 <span className="mt-1 block text-[12px] text-muted-foreground" data-testid="process-ready-from-oven">
@@ -607,48 +695,71 @@ export function LogOutputForm({
                 <p className="rounded-lg border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-sm text-signal-amber-ink" data-testid="process-balance">
                   This card&apos;s spec has no pieces per bamboo, so Process pieces cannot be checked. Ask the planner to correct the spec.
                 </p>
-              ) : overPcs > 0 ? (
-                <p className="rounded-lg border border-signal-rose-line bg-signal-rose-soft px-3 py-2 text-sm text-signal-rose-ink" data-testid="process-balance">
-                  {fmt(takenIn)} bamboo × {fmt(pcsPerBamboo)} pcs{carryInQty ? ` + ${fmt(carryInQty)} held` : ""} = <b>{fmt(possiblePcs)} pcs at most</b>. Output {fmt(made)}{carryOutQty ? ` + ${fmt(carryOutQty)} held` : ""} is {fmt(overPcs)} more: check the bamboo count or the output.
-                </p>
-              ) : lossQty > 0 ? (
-                <div className="space-y-2 rounded-lg border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-sm" data-testid="process-balance">
-                  <p className="text-signal-amber-ink">
-                    {fmt(takenIn)} bamboo × {fmt(pcsPerBamboo)} pcs{carryInQty ? ` + ${fmt(carryInQty)} held` : ""} = {fmt(possiblePcs)} pcs · {fmt(made)} made{carryOutQty ? ` · ${fmt(carryOutQty)} held` : ""} → <b>{fmt(lossQty)} pcs cutting loss</b>
-                  </p>
-                  <Input className="h-11 bg-card text-[15px]" aria-label="Cutting loss reason" placeholder={`Why were ${fmt(lossQty)} pcs lost in cutting? (required)`} value={lossNote} onChange={(e) => setLossNote(e.target.value)} data-testid="process-loss-reason" />
-                </div>
               ) : (
-                <p className="text-sm text-muted-foreground" data-testid="process-balance">
-                  {fmt(takenIn)} bamboo × {fmt(pcsPerBamboo)} pcs{carryInQty ? ` + ${fmt(carryInQty)} held` : ""} = {fmt(possiblePcs)} pcs · all pieces accounted for
-                </p>
+                <div className={cn("space-y-2 rounded-lg border px-3 py-2.5 text-sm", countGap ? toneClass("amber") : "border-border bg-muted/40")} data-testid="process-balance" data-gap={countGap || undefined}>
+                  <p className={countGap ? "" : "text-muted-foreground"}>
+                    {fmt(takenIn)} bamboo × {fmt(pcsPerBamboo)} pcs{carryInQty ? ` + ${fmt(carryInQty)} held` : ""} = <b>{fmt(possiblePcs)} pcs</b>
+                    {countGap ? (
+                      <>
+                        {" "}
+                        · this run counts <b>{fmt(countedPcs)} pcs</b> ({fmt(made)} made{lossQty ? ` + ${fmt(lossQty)} cutting loss` : ""}{carryOutQty ? ` + ${fmt(carryOutQty)} held` : ""})
+                      </>
+                    ) : (
+                      " · all pieces accounted for"
+                    )}
+                  </p>
+                  {countGap ? (
+                    <p className="flex items-start gap-1.5 font-medium" data-testid="process-count-gap">
+                      <Flag className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                      <span>
+                        {countGap > 0 ? `${fmt(countGap)} pcs short` : `${fmt(-countGap)} pcs more than the bamboo can give`} — it still saves and the run is flagged for the owner. Nothing has to be written for it.
+                      </span>
+                    </p>
+                  ) : null}
+                  <div className="grid gap-2 sm:grid-cols-[minmax(0,10rem)_1fr] sm:items-end">
+                    <label className="block">
+                      <span className={fieldLabel}>
+                        Cutting loss <span className="font-normal">(pcs, if any)</span>
+                      </span>
+                      <Input inputMode="numeric" type="number" min="0" step="1" className="h-11 min-h-11 bg-card text-[15px]" value={loss} onChange={(e) => setLoss(e.target.value)} aria-label="Cutting loss pcs" data-testid="process-loss" />
+                    </label>
+                    {countGap > 0 ? (
+                      <Button type="button" variant="outline" className="h-11 justify-self-start bg-card" onClick={() => setLoss(String(lossQty + countGap))} data-testid="process-gap-as-loss">
+                        Count the {fmt(countGap)} pcs as cutting loss
+                      </Button>
+                    ) : null}
+                  </div>
+                  {lossQty > 0 ? (
+                    <Input className="h-11 min-h-11 bg-card text-[15px]" aria-label="Cutting loss reason" placeholder={`Why were ${fmt(lossQty)} pcs lost in cutting? (required)`} value={lossNote} onChange={(e) => setLossNote(e.target.value)} data-testid="process-loss-reason" />
+                  ) : null}
+                </div>
               )
             ) : null}
             {bad > 0 ? (
               <div className="space-y-2" data-testid="season-entry-reject">
                 <span className={fieldLabel}>Why rejected?</span>
                 <Chips label="Rejection code" tone="rose" value={rejectCode} onChange={setRejectCode} options={REJECT_CODES.map(([code, text]) => ({ value: code, label: code, sub: text }))} allowClear={false} />
-                <Input className="h-11 text-[15px]" aria-label="Entry reason" placeholder={rejectCode === "OT" ? "What was wrong? (required)" : "Note (optional)"} value={rejectNote} onChange={(e) => setRejectNote(e.target.value)} />
+                <Input className="h-11 min-h-11 text-[15px]" aria-label="Entry reason" placeholder={rejectCode === "OT" ? "What was wrong? (required)" : "Note (optional)"} value={rejectNote} onChange={(e) => setRejectNote(e.target.value)} />
               </div>
             ) : null}
             {overTarget ? (
               <label className="block text-sm text-signal-amber-ink">
                 Output goes above the planned quantity +10%. Why?
-                <Input className="mt-1 h-11 text-[15px]" value={overNote} onChange={(e) => setOverNote(e.target.value)} aria-label="Overproduction reason" />
+                <Input className="mt-1 h-11 min-h-11 text-[15px]" value={overNote} onChange={(e) => setOverNote(e.target.value)} aria-label="Overproduction reason" />
               </label>
             ) : null}
             {canSubmit && Number(state.awaiting_qc_from_upstream) > 0 ? (
               <div className="rounded-lg border border-border bg-muted p-3 text-sm">
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" checked={gateOverride} onChange={(e) => setGateOverride(e.target.checked)} /> Supervisor override: take batches whose QC is not recorded yet
+                <label className="flex min-h-11 items-center gap-2">
+                  <input type="checkbox" className="h-5 w-5 shrink-0" checked={gateOverride} onChange={(e) => setGateOverride(e.target.checked)} /> Supervisor override: take batches whose QC is not recorded yet
                 </label>
-                {gateOverride ? <Input className="mt-2 h-11" placeholder="Why this batch is taken before its QC (kept on the entry)" aria-label="QC gate override reason" value={gateReason} onChange={(e) => setGateReason(e.target.value)} /> : null}
+                {gateOverride ? <Input className="mt-2 h-11 min-h-11" placeholder="Why this batch is taken before its QC (kept on the entry)" aria-label="QC gate override reason" value={gateReason} onChange={(e) => setGateReason(e.target.value)} /> : null}
               </div>
             ) : null}
             {stage === "PROCESS" ? (
-              <details className="rounded-lg border border-border p-3 text-sm" open={Boolean((!pcsPerBamboo && lossQty) || carryInQty || carryOutQty)}>
-                <summary className="cursor-pointer font-medium">
-                  <ChevronDown className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />
+              <details className="group rounded-lg border border-border p-3 text-sm" open={Boolean((!pcsPerBamboo && lossQty) || carryInQty || carryOutQty)}>
+                <summary className="-my-1 flex min-h-11 cursor-pointer list-none items-center font-medium [&::-webkit-details-marker]:hidden">
+                  <ChevronDown className="mr-1.5 h-4 w-4 shrink-0 -rotate-90 transition-transform group-open:rotate-0 motion-reduce:transition-none" aria-hidden="true" />
                   More: {pcsPerBamboo ? "held pieces (carry to the next run)" : "cutting loss, held carryover"}
                 </summary>
                 <div className="mt-3 grid gap-3 sm:grid-cols-3">
@@ -661,12 +772,12 @@ export function LogOutputForm({
                   ).map(([title, value, setter]) => (
                     <label className="text-sm" key={title}>
                       {title}
-                      <Input inputMode="numeric" type="number" min="0" step="1" className="h-11" value={value} onChange={(e) => setter(e.target.value)} />
+                      <Input inputMode="numeric" type="number" min="0" step="1" className="h-11 min-h-11" value={value} onChange={(e) => setter(e.target.value)} />
                     </label>
                   ))}
                   <label className="text-sm sm:col-span-3">
                     {pcsPerBamboo ? "Reason for held pieces" : "Reason for loss or carryover"}
-                    <Input className="h-11" value={remark} onChange={(e) => setRemark(e.target.value)} aria-label="Loss or carryover reason" />
+                    <Input className="h-11 min-h-11" value={remark} onChange={(e) => setRemark(e.target.value)} aria-label="Loss or carryover reason" />
                   </label>
                 </div>
               </details>
@@ -685,7 +796,7 @@ export function LogOutputForm({
                 {neededText(missing)}
               </p>
             ) : (
-              <p className="text-[12.5px] text-muted-foreground">{editing ? "Saves the draft with these values." : canSubmit ? "Saving posts the run straight away." : "Your run is saved as a draft; a supervisor checks and submits it."}</p>
+              <p className="text-[12.5px] text-muted-foreground">{editing ? "Saves the run with these values; it stays with the supervisor." : canSubmit ? "Saving posts the run straight away." : "Your run goes to the supervisor, who checks and submits it."}</p>
             )}
             <div className="flex gap-2">
               {onCancel ? (
@@ -695,7 +806,7 @@ export function LogOutputForm({
               ) : null}
               {editing ? (
                 <Button size="lg" className="h-12 min-w-0 flex-1" disabled={mutation.isPending || missing.length > 0} onClick={() => saveRun(false)} data-testid="season-entry-save">
-                  {mutation.isPending ? "Saving…" : "Save draft changes"}
+                  {mutation.isPending ? "Saving…" : "Save changes"}
                 </Button>
               ) : (
                 <Button size="lg" className="h-12 min-w-0 flex-1" disabled={mutation.isPending || missing.length > 0} onClick={() => saveRun(canSubmit)} data-testid="season-entry-save">

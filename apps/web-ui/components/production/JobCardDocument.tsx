@@ -5,10 +5,12 @@ import { SpecSheetDocument } from "@/components/specs/SpecSheetDocument"
 import Link from "next/link"
 import { ArrowLeftRight, CheckCircle2, ExternalLink, Printer, Save, Smartphone } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
-import { Fragment, useEffect, useMemo, useRef, useState } from "react"
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
+import { usePeopleVersion } from "@/hooks/use-people"
+import { personLabel } from "@/lib/people"
 import { useIssueToolAsset, useReelIssues, useToolAssets } from "@/hooks/use-inventory"
 import { useEmployees, useMandrels, useShifts } from "@/hooks/use-master-data"
 import { displayPlantScope } from "@/lib/plant-scope"
@@ -25,6 +27,7 @@ import { ContinuousJobCard } from "./ContinuousJobCard"
 import { BatchEntrySwitch, OldFormDrafts } from "./BatchEntrySwitch"
 import { CardPlanPanel } from "./CardPlanPanel"
 import { SeasonPrintLog, compactLimit } from "./SeasonPrintLog"
+import { DraftRestoredBar, draftKey, draftKeysFor, readDraft, removeDraft, writeDraft } from "./card/draft"
 import { entryApiForPlant } from "@/lib/season-api"
 import { useQuery } from "@tanstack/react-query"
 import { StageQcFields } from "@/components/qc/StageQcFields"
@@ -43,6 +46,9 @@ type DocumentMode = "view" | "print" | "supervisor"
 type StageName = "SLITTING" | "WINDER" | "OVEN" | "PROCESS" | "PACKING" | "QC" | "DISPATCH"
 
 const STAGES: StageName[] = ["SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING", "QC", "DISPATCH"]
+// Stages in plain words for the floor ("Winding", "Final QC"), never the codes.
+const STAGE_NAME: Record<string, string> = { SLITTING: "Slitting", WINDER: "Winding", OVEN: "Oven", PROCESS: "Process", PACKING: "Packing", QC: "Final QC", DISPATCH: "Dispatch" }
+const stageWord = (stage: string) => STAGE_NAME[String(stage || "").toUpperCase()] || String(stage || "")
 const PLANNER_GATED_STAGES: StageName[] = ["SLITTING", "WINDER", "OVEN", "PROCESS"]
 const STAGES_REQUIRING_SHIFT: StageName[] = ["WINDER", "PROCESS"]
 const LATE_ENTRY_THRESHOLD_HOURS = 6
@@ -80,6 +86,23 @@ function formatStageTime(value: any, naiveIsUtc = false) {
   const parsed = parseStageTime(value, naiveIsUtc)
   if (!parsed) return ""
   return `${padTwo(parsed.getDate())}-${padTwo(parsed.getMonth() + 1)} ${padTwo(parsed.getHours())}:${padTwo(parsed.getMinutes())}`
+}
+
+// A plan date (YYYY-MM-DD) in Indian form: "28 Oct 2026".
+function indianDay(value: any) {
+  const text = String(value || "").slice(0, 10)
+  const [y, m, d] = text.split("-").map(Number)
+  if (!y || !m || !d) return ""
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })
+}
+
+// A stage close on the printed card in Indian form: "28 Oct, 5:50 pm".
+function formatCloseTime(value: any) {
+  const parsed = parseStageTime(value, true)
+  if (!parsed) return ""
+  const day = parsed.toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" })
+  const time = parsed.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata" })
+  return `${day}, ${time}`
 }
 
 function formatMinutes(minutes: any) {
@@ -138,6 +161,12 @@ function formatNumber(value: any, digits = 2) {
 }
 
 const printValue = formatNumber
+
+// The sales order number people know (SO/26/10/208). sales_order_ref is only a short id hash
+// (SO-2B773238), so it is the last fallback.
+function salesOrderNoOf(card: any, header: any = {}) {
+  return card?.sales_order?.order_no || card?.spec_snapshot?.sales_order_order_no || header?.sales_order_no || card?.sales_order_ref || ""
+}
 
 function formatYesNo(value: any) {
   const normalized = String(value ?? "").trim().toLowerCase()
@@ -229,6 +258,10 @@ function blankOvenEntry() {
     qc_readings: {},
     qc_reasons: {},
     qc_sample_id: "",
+    // The second weighed sample (at least 2 readings per check).
+    qc_readings_2: {},
+    qc_reasons_2: {},
+    qc_sample_id_2: "",
   }
 }
 
@@ -259,6 +292,10 @@ function blankProcessEntry() {
     qc_readings: {},
     qc_reasons: {},
     qc_sample_id: "",
+    // The second measured sample (at least 2 readings per check).
+    qc_readings_2: {},
+    qc_reasons_2: {},
+    qc_sample_id_2: "",
   }
 }
 
@@ -285,6 +322,93 @@ function blankQcEntry() {
     disposition: "",
     release_reference: "",
   }
+}
+
+// Old-form Final QC (client 2026-10-28): the QC section takes the final specification readings itself —
+// 2 samples of every limit on the card (I.D., O.D., length, weight, C.S.) — so the QC stage can close from
+// the card (it used to fail "Final QC requires full spec readings" with nowhere to type them).
+const FINAL_QC_FIELDS = [
+  { code: "id", label: "I.D.", unit: "mm", lo: "id_min_mm", hi: "id_max_mm" },
+  { code: "od", label: "O.D.", unit: "mm", lo: "od_min_mm", hi: "od_max_mm" },
+  { code: "length", label: "Length", unit: "mm", lo: "length_min_mm", hi: "length_max_mm" },
+  { code: "weight", label: "Weight", unit: "g", lo: "weight_min_g", hi: "weight_max_g" },
+  { code: "cs", label: "C.S.", unit: "N", lo: "cs_min_n", hi: "cs_max_n" },
+] as const
+const FINAL_QC_SAMPLES = 2
+function finalQcLimits(snapshot: any) {
+  return FINAL_QC_FIELDS.map((f) => ({ ...f, min: snapshot?.[f.lo] ?? null, max: snapshot?.[f.hi] ?? null })).filter((f) => f.min != null || f.max != null)
+}
+function finalQcSamples(entry: any): Array<{ sample_id: string; readings: Record<string, string> }> {
+  const rows = Array.isArray(entry?.final_samples) ? entry.final_samples : []
+  return Array.from({ length: Math.max(FINAL_QC_SAMPLES, rows.length) }, (_, index) => ({ sample_id: rows[index]?.sample_id || `FQ-${index + 1}`, readings: { ...(rows[index]?.readings || {}) } }))
+}
+
+const OPTIONAL_QC_CODES = new Set(["pre_moisture", "post_moisture", "moisture"])
+/**
+ * Old-form Oven QC: two weighed samples, each before and after the oven (at least 2 readings per check, the
+ * batch-entry rule, client 2026-10-18). Sample 1 is the card's own Oven readings; sample 2 is qc_readings_2.
+ */
+function ovenQcSamples(entry: any) {
+  const first = collectStageQualityChecks("OVEN", entry)
+  const firstId = String(first.sample_id || first.samples[0]?.sample_id || "OVEN-1")
+  const secondId = String(entry?.qc_sample_id_2 || "").trim() || `${firstId}-2`
+  const second = collectStageQualityChecks("OVEN", { qc_readings: entry?.qc_readings_2 || {}, qc_reasons: entry?.qc_reasons_2 || {}, qc_sample_id: secondId })
+  // collectStageQualityChecks reads only the weights and moisture for Oven; checks such as C.S. that the card's
+  // Oven QC also carries were dropped, so they are added from what was typed for each sample.
+  const withOtherChecks = (checks: ReturnType<typeof collectStageQualityChecks>, typed: Record<string, any>, sampleId: string) => {
+    const extra = Object.fromEntries(
+      Object.entries(typed || {}).filter(([code, value]) => !["pre_weight", "post_weight", "pre_moisture", "post_moisture"].includes(code) && value !== "" && value != null && Number.isFinite(Number(value))).map(([code, value]) => [code, Number(value)]),
+    )
+    if (!Object.keys(extra).length) return checks.samples
+    if (!checks.samples.length) return [{ sample_id: sampleId, readings: extra }]
+    return checks.samples.map((sample, index) => (index === 0 ? { ...sample, readings: { ...sample.readings, ...extra } } : sample))
+  }
+  const firstSamples = withOtherChecks(first, entry?.qc_readings || {}, firstId)
+  const secondSamples = withOtherChecks(second, entry?.qc_readings_2 || {}, secondId)
+  return {
+    first,
+    samples: [...firstSamples, ...secondSamples],
+    reasons: { ...(second.reasons || {}), ...(first.reasons || {}) },
+    hasReadings: first.hasReadings || second.hasReadings || firstSamples.length + secondSamples.length > 0,
+  }
+}
+/**
+ * Old-form Process QC: two measured samples (at least 2 readings per check, as on batch-entry cards). Sample 1 is
+ * the card's own Process readings (I.D. and O.D. included); sample 2 is qc_readings_2.
+ */
+function processQcSamples(entry: any) {
+  const first = collectStageQualityChecks("PROCESS", entry)
+  const firstId = String(first.sample_id || first.samples[0]?.sample_id || "P1")
+  const secondId = String(entry?.qc_sample_id_2 || "").trim() || `${firstId}-2`
+  const second = collectStageQualityChecks("PROCESS", { qc_readings: entry?.qc_readings_2 || {}, qc_reasons: entry?.qc_reasons_2 || {}, qc_sample_id: secondId })
+  return {
+    first,
+    samples: [...first.samples, ...second.samples],
+    reasons: { ...(second.reasons || {}), ...(first.reasons || {}) },
+    hasReadings: first.hasReadings || second.hasReadings,
+  }
+}
+
+/** Every QC sample an old-form stage save sends. */
+function stageQcSamples(stage: "WINDER" | "OVEN" | "PROCESS", entry: any): Array<{ sample_id: string; readings: Record<string, any> }> {
+  if (stage === "OVEN") return ovenQcSamples(entry).samples
+  if (stage === "PROCESS") return processQcSamples(entry).samples
+  return collectStageQualityChecks("WINDER", entry).samples
+}
+
+/** Required checks with fewer than 2 readings: this save's samples plus the stage's earlier inspections (QC page). */
+function stageReadingsShort(stage: "WINDER" | "OVEN" | "PROCESS", profile: any, entry: any, inspections: any[]) {
+  const rules: any[] = (profile?.stages?.[stage]?.parameters || []).filter((r: any) => (r.applicable === undefined || Boolean(r.applicable)) && !OPTIONAL_QC_CODES.has(String(r.code || r.parameter)))
+  if (!rules.length) return []
+  const seen = new Map<string, Set<string>>(rules.map((r: any) => [String(r.code || r.parameter), new Set<string>()]))
+  const absorb = (key: string, readings: Record<string, any>) => seen.forEach((keys, code) => (readings?.[code] != null && String(readings[code]).trim() !== "" ? keys.add(key) : undefined))
+  stageQcSamples(stage, entry).forEach((sample, index) => absorb(sample.sample_id ? `s:${String(sample.sample_id).trim().toUpperCase()}` : `r:${index}`, sample.readings))
+  inspections
+    .filter((row: any) => String(row?.stage_type || "").toUpperCase() === stage && row?.evaluation?.workflow_status !== "SUPERSEDED")
+    .forEach((row: any) => absorb(row.sample_id ? `s:${String(row.sample_id).trim().toUpperCase()}` : `i:${row.id}`, row.readings || {}))
+  return rules
+    .map((r: any) => ({ label: String(r.label || r.code), have: seen.get(String(r.code || r.parameter))?.size || 0 }))
+    .filter((row) => row.have < 2)
 }
 
 function blankDispatchEntry() {
@@ -574,6 +698,8 @@ function MatrixBlock({
 export default function JobCardDocument({ jobCardId, mode, materialPreparationOnly = false }: Props) {
   const { showToast } = useApp()
   const { user } = useAuth()
+  // Re-render when the people directory arrives, so stage closes print names instead of logins.
+  usePeopleVersion()
   const jobCardQuery = usePlanningJobCard(jobCardId)
   // Print: a card from another plant is found in the user's other plants and printed there.
   const printPlant = useCardPlantFallback(jobCardId, jobCardQuery, mode === "print")
@@ -582,6 +708,9 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
   const completeStageMutation = useCompleteStageEntry()
   const completeBatchMutation = useCompleteStagesBatch()
   const [wholeCard, setWholeCard] = useState(false)
+  // Saving several stages at once (stage-outputs/batch) is for a plant supervisor, Admin or Owner; an Operator
+  // fills one stage at a time, so the whole-card switch is not offered to them (it was refused with 403).
+  const canSaveWholeCard = [user?.role, ...(user?.roles || [])].some((role) => ["Owner", "Admin", "PlantManager"].includes(String(role)))
   const [batchRequestId, setBatchRequestId] = useState<string | null>(null)
   const machineLabelMap = useMachineLabelMap()
   const mandrelsQuery = useMandrels()
@@ -666,11 +795,100 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
     )
   }, [mandrelsQuery.data])
 
+  // Old-form drafts on the device (client 2026-10-28: "auto draft save at the time of job card filling"): what
+  // is typed in a stage is kept per card and stage until that stage is saved, and comes back after a reload,
+  // a closed tab or a refresh of the card ("Draft restored from 4:52 pm · Discard"). Never sent by itself.
+  const keepDrafts = mode === "supervisor" && Boolean(card?.id) && card?.spec_snapshot?.entry_model !== "V2"
+  const formBaseline = useRef<Record<string, string>>({})
+  const latestForms = useRef<Record<string, any>>({})
+  latestForms.current = stageForms
+  const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const draftShownFor = useRef<string | null>(null)
+  const [oldDraftAt, setOldDraftAt] = useState<number | null>(null)
+  const writeOldDrafts = useCallback(() => {
+    if (!keepDrafts) return
+    for (const stage of STAGES) {
+      const key = draftKey("oldform", card?.id, stage)
+      const form = latestForms.current[stage]
+      if (!form || formBaseline.current[stage] === undefined) continue
+      if (stageStatus(card?.stages || [], stage) === "COMPLETED") removeDraft(key)
+      else if (JSON.stringify(form) !== formBaseline.current[stage]) writeDraft(key, form)
+      else removeDraft(key)
+    }
+  }, [keepDrafts, card])
+  const flushOldDrafts = useCallback(() => {
+    if (!draftTimer.current) return
+    clearTimeout(draftTimer.current)
+    draftTimer.current = null
+    writeOldDrafts()
+  }, [writeOldDrafts])
+  /** A stage saved on the server: its device draft is done with. */
+  const forgetOldDraft = (stage: StageName) => {
+    flushOldDrafts()
+    removeDraft(draftKey("oldform", card?.id, stage))
+    formBaseline.current[stage] = JSON.stringify(latestForms.current[stage])
+  }
+
   useEffect(() => {
     if (card) {
-      setStageForms(parseStageForms(card, machineLabelMap, userDefaultShift))
+      flushOldDrafts()
+      const parsed = parseStageForms(card, machineLabelMap, userDefaultShift)
+      formBaseline.current = Object.fromEntries(STAGES.map((stage) => [stage, JSON.stringify(parsed[stage])]))
+      let restoredAt: number | null = null
+      if (keepDrafts) {
+        for (const stage of STAGES) {
+          const key = draftKey("oldform", card.id, stage)
+          if (stageStatus(card.stages || [], stage) === "COMPLETED") {
+            removeDraft(key)
+            continue
+          }
+          const saved = readDraft<any>(key)
+          if (saved?.value) {
+            parsed[stage] = saved.value
+            restoredAt = Math.max(restoredAt || 0, saved.savedAt)
+          }
+        }
+      }
+      setStageForms(parsed)
+      // The bar shows when the card opens with a draft; a later refresh keeps typed values without a new bar.
+      if (draftShownFor.current !== String(card.id)) {
+        draftShownFor.current = String(card.id)
+        setOldDraftAt(restoredAt)
+      } else if (!restoredAt) setOldDraftAt(null)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [card, machineLabelMap, userDefaultShift])
+  useEffect(() => {
+    if (!keepDrafts) return
+    if (draftTimer.current) clearTimeout(draftTimer.current)
+    draftTimer.current = setTimeout(() => {
+      draftTimer.current = null
+      writeOldDrafts()
+    }, 300)
+  }, [stageForms, keepDrafts, writeOldDrafts])
+  useEffect(() => {
+    const hidden = () => {
+      if (document.visibilityState === "hidden") flushOldDrafts()
+    }
+    window.addEventListener("pagehide", flushOldDrafts)
+    document.addEventListener("visibilitychange", hidden)
+    return () => {
+      window.removeEventListener("pagehide", flushOldDrafts)
+      document.removeEventListener("visibilitychange", hidden)
+      flushOldDrafts()
+    }
+  }, [flushOldDrafts])
+  const discardOldDrafts = () => {
+    if (draftTimer.current) clearTimeout(draftTimer.current)
+    draftTimer.current = null
+    for (const key of draftKeysFor("oldform", card?.id)) removeDraft(key)
+    if (card) {
+      const parsed = parseStageForms(card, machineLabelMap, userDefaultShift)
+      formBaseline.current = Object.fromEntries(STAGES.map((stage) => [stage, JSON.stringify(parsed[stage])]))
+      setStageForms(parsed)
+    }
+    setOldDraftAt(null)
+  }
 
   const availableReelIssues = useMemo(() => {
     const rows = Array.isArray(reelIssuesQuery.data) ? reelIssuesQuery.data : []
@@ -767,7 +985,6 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
     }
   }, [mode, card?.id, seasonEntries.length])
   const plannerGateReady = Boolean(card?.planner_gate_ready ?? true)
-  const plannerGateReason = card?.planner_gate_reason || ""
   const currentStageSegments = stageSegments.filter((segment: any) => segment.stage_type === currentStage && segment.status !== "COMPLETED" && segment.status !== "CANCELLED")
   const selectedSegmentId = stageForms[currentStage]?.segment_id || card?.active_segment_id || currentStageSegments[0]?.id || null
   const activeSegment = currentStageSegments.find((segment: any) => segment.id === selectedSegmentId) || currentStageSegments[0] || null
@@ -843,7 +1060,14 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
     return qty != null && Number.isFinite(qty) && qty > 0 ? formatNumber(qty, 2) : ""
   }
   const parchmentFamily = documentSnapshot?.header?.parchment_family || "-"
-  const parchmentPattern = documentSnapshot?.header?.parchment_pattern || documentSnapshot?.header?.color || "-"
+  // Same order as the card header's Colour (fixed 2026-10-30: the old form said "-" while the header said RED).
+  const parchmentPattern =
+    documentSnapshot?.header?.parchment_pattern ||
+    documentSnapshot?.header?.color ||
+    documentSnapshot?.header?.approved_parchment_color ||
+    card?.spec_snapshot?.parchment_color ||
+    card?.spec_snapshot?.sales_order_line_parchment_color ||
+    "-"
   const parchmentResolution = String(documentSnapshot?.header?.parchment_resolution || card?.spec_snapshot?.parchment_resolution || "").toUpperCase()
   const parchmentConflict = documentSnapshot?.header?.parchment_conflict || card?.spec_snapshot?.parchment_conflict || null
   const approvedParchmentColor = documentSnapshot?.header?.approved_parchment_color || card?.spec_snapshot?.parchment_color || parchmentPattern
@@ -916,7 +1140,10 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
   const currentMachineLabel =
     (activeSegment?.machine_id ? machineLabelMap.get(activeSegment.machine_id) : null) ||
     selectedWinderLabel
-  const currentShiftLabel = [activeSegment?.shift_code || "--", activeSegment?.plan_date || "--"].join(" · ")
+  // "Shift A · 28 Oct 2026", not "SHIFT_A · 2026-10-28".
+  const currentShiftLabel = activeSegment?.shift_code || activeSegment?.plan_date
+    ? [activeSegment?.shift_code ? String(activeSegment.shift_code).replace(/^SHIFT_/, "Shift ") : "No shift", indianDay(activeSegment?.plan_date) || "no date"].join(" · ")
+    : "Not planned yet"
   const primaryStageAssignment = stageAssignment(card?.requires_slitting ? "SLITTING" : "WINDER")
   const parchmentLabel =
     documentSnapshot?.header?.color ||
@@ -991,7 +1218,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
   }
 
   /** Blocks a save whose accepted quantity is more than what was produced. */
-  function quantityProblem(stage: StageName): string | null {
+  function quantityProblem(stage: StageName, saveMode: "draft" | "complete" = "complete"): string | null {
     const entry: any = stageForms[stage]?.entry_snapshot || {}
     if (stage === "WINDER" && derivedReject(winderQty(entry.bamboo_count_produced, entry.winding_meters_produced), winderQty(entry.accepted_bamboo_count, entry.accepted_winding_meters)) === "over") {
       return "WINDER: accepted quantity cannot be more than produced."
@@ -1001,6 +1228,27 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
     }
     if (stage === "PROCESS" && derivedReject(processProduced(entry), entry.process_qty) === "over") {
       return "PROCESS: accepted quantity cannot be more than produced."
+    }
+    if ((stage === "WINDER" || stage === "OVEN" || stage === "PROCESS") && saveMode === "complete") {
+      const short = stageReadingsShort(stage, frozenQcProfile(), entry, Array.isArray(card?.quality_inspections) ? card.quality_inspections : [])
+      if (short.length) {
+        const word = stage === "WINDER" ? "Winder" : stage === "OVEN" ? "Oven" : "Process"
+        const next = stage === "WINDER" ? "Fill at least two sample rows" : "Type sample 2 (its own ID)"
+        return `${word}: at least 2 readings per check before it closes — ${short.map((row) => `${row.label} ${row.have} of 2`).join(", ")}. ${next}, then save.`
+      }
+    }
+    if (stage === "PROCESS" && saveMode === "complete") {
+      // Rejected pieces need a reason, as on the batch-entry Process run (the server refuses the save without one).
+      const rejected = derivedReject(processProduced(entry), entry.process_qty)
+      if (typeof rejected === "number" && rejected > 0 && !String(entry.reject_reason || "").trim()) {
+        return `Process: ${formatNumber(rejected, 0)} pcs were rejected. Write the reject reason, then save.`
+      }
+    }
+    if (stage === "QC") {
+      const limits = finalQcLimits(card?.spec_snapshot || documentSnapshot || {})
+      const samples = finalQcSamples(entry)
+      const missing = limits.filter((f) => samples.slice(0, FINAL_QC_SAMPLES).some((sample) => !(Number(sample.readings?.[f.code]) > 0)))
+      if (missing.length) return `Final QC: type ${missing.map((f) => f.label).join(", ")} for both samples (the final specification readings).`
     }
     return null
   }
@@ -1131,6 +1379,10 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
           Object.entries(inspection?.reasons || entry.qc_reasons || {}).map(([key, value]) => [key, value == null ? "" : String(value)]),
         )
       : entry.qc_reasons || {}
+    // Old-form Oven and Process on screen: two samples (at least 2 readings per check before the stage closes).
+    const ovenPair = (stage === "OVEN" || stage === "PROCESS") && !options?.print && (stageEditable(stage) || Object.keys(entry.qc_readings_2 || {}).length > 0)
+    const pairKey = stage === "OVEN" ? "oven" : "process"
+    const firstSampleDefault = stage === "OVEN" ? "OVEN-1" : "P1"
     return (
       <div
         className="mt-3 rounded-xl border border-signal-cyan-line bg-signal-cyan-soft/50 p-3"
@@ -1151,7 +1403,18 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             </Link>
           </div>
         ) : null}
+        {ovenPair ? (
+          <p className="mt-2 text-[12px] text-foreground" data-testid={`stage-qc-${pairKey}-two-samples`}>
+            {stage === "OVEN" ? (
+              <>Weigh <b>two samples</b> before and after the oven — at least 2 readings per check before Oven closes.</>
+            ) : (
+              <>Measure <b>two samples</b> — at least 2 readings per check before Process closes.</>
+            )}{" "}
+            Moisture is optional. A reading outside its band still saves; it is flagged.
+          </p>
+        ) : null}
         <div className="mt-3">
+          {ovenPair ? <div className="mb-2 text-[12px] font-bold uppercase tracking-wide text-muted-foreground">Sample 1</div> : null}
           <StageQcFields
             rules={rules}
             readings={readings}
@@ -1167,6 +1430,65 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             onSampleIdChange={(value) => updateSnapshotField(stage, "qc_sample_id", value)}
           />
         </div>
+        {/* The print lists every sample Oven and Process recorded (sample 2 too); Winder rows print in their own table. */}
+        {options?.print && stage !== "WINDER"
+          ? (Array.isArray(card?.quality_inspections) ? card.quality_inspections : [])
+              .filter((row: any) => String(row?.stage_type || "").toUpperCase() === stage && row?.evaluation?.workflow_status !== "SUPERSEDED" && row?.id !== inspection?.id)
+              .map((row: any) => (
+                <div key={String(row.id)} className="mt-3 border-t border-signal-cyan-line pt-2" data-testid={`print-qc-${stage.toLowerCase()}-sample`}>
+                  <StageQcFields
+                    rules={rules}
+                    readings={Object.fromEntries(Object.entries(row?.readings || {}).map(([key, value]) => [key, value == null ? "" : String(value)]))}
+                    reasons={Object.fromEntries(Object.entries(row?.reasons || {}).map(([key, value]) => [key, value == null ? "" : String(value)]))}
+                    sampleId={row?.sample_id || ""}
+                    paired={stage === "OVEN"}
+                    editable={false}
+                    printLayout
+                    profileRevision={revision}
+                    checkpoint={checkpoint}
+                    onReadingChange={() => undefined}
+                    onReasonChange={() => undefined}
+                    onSampleIdChange={() => undefined}
+                  />
+                </div>
+              ))
+          : null}
+        {ovenPair ? (
+          <div className="mt-4 border-t border-signal-cyan-line pt-3" data-testid={`stage-qc-${pairKey}-sample-2`}>
+            <div className="mb-2 text-[12px] font-bold uppercase tracking-wide text-muted-foreground">Sample 2</div>
+            {/* Plain fields with their own ids, so the labels and test ids never clash with sample 1. */}
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              <label className="block space-y-1">
+                <span className="text-[12px] font-semibold text-muted-foreground">Sample / pair ID</span>
+                {stageEditable(stage) ? (
+                  <>
+                    <TextInput value={entry.qc_sample_id_2 || ""} testId={`${pairKey}-s2-sample-id`} onChange={(next) => updateSnapshotField(stage, "qc_sample_id_2", next)} />
+                    <span className="block text-[11px] text-muted-foreground">Left blank, it is saved as {`${entry.qc_sample_id || firstSampleDefault}-2`}.</span>
+                  </>
+                ) : (
+                  <div className="text-sm font-semibold text-foreground">{entry.qc_sample_id_2 || "—"}</div>
+                )}
+              </label>
+              {rules
+                .filter((rule) => rule.applicable !== false)
+                .map((rule) => (
+                  <label key={rule.code} className="block space-y-1">
+                    <span className="text-[12px] font-semibold text-muted-foreground">
+                      {rule.label}
+                      {rule.unit ? ` (${rule.unit})` : ""}
+                      {OPTIONAL_QC_CODES.has(String(rule.code)) ? " — optional" : ""}
+                    </span>
+                    {stageEditable(stage) ? (
+                      <TextInput type="number" rule={rule} value={(entry.qc_readings_2 || {})[rule.code] ?? ""} testId={`${pairKey}-s2-${rule.code}`} onChange={(next) => updateNestedSnapshotField(stage, "qc_readings_2", rule.code, next)} />
+                    ) : (
+                      <div className="text-sm font-semibold tabular-nums text-foreground">{(entry.qc_readings_2 || {})[rule.code] ?? "—"}</div>
+                    )}
+                    <span className="block text-[11px] text-muted-foreground">Allowed: {formatAllowedRange(rule).replace(/^Allowed:\s*/i, "")}</span>
+                  </label>
+                ))}
+            </div>
+          </div>
+        ) : null}
       </div>
     )
   }
@@ -1268,7 +1590,8 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
       }
     }
     if (stage === "OVEN") {
-      const checks = collectStageQualityChecks("OVEN", entry)
+      // Both weighed samples go to the server (each is recorded as an inspection; 2 readings per check).
+      const oven = ovenQcSamples(entry)
       return {
         ...base,
         input_qty: entry.bamboo_count_in !== "" ? Number(entry.bamboo_count_in) : base.input_qty,
@@ -1276,46 +1599,49 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
         ...(typeof derivedReject(entry.bamboo_count_in, entry.bamboo_count_out) === "number"
           ? { scrap_qty: derivedReject(entry.bamboo_count_in, entry.bamboo_count_out) as number }
           : {}),
-        ...(checks.hasReadings
+        ...(oven.hasReadings
           ? {
               quality_checks: {
-                samples: checks.samples,
-                reasons: checks.reasons,
-                sample_id: checks.sample_id,
-                unit_conflicts: checks.unit_conflicts,
+                samples: oven.samples,
+                reasons: oven.reasons,
+                sample_id: oven.first.sample_id,
+                unit_conflicts: oven.first.unit_conflicts,
               },
             }
           : {}),
       }
     }
     if (stage === "PROCESS") {
-      const checks = collectStageQualityChecks("PROCESS", entry)
+      // Both measured samples go to the server (each is recorded as an inspection; 2 readings per check).
+      const process = processQcSamples(entry)
       return {
         ...base,
         output_qty: entry.process_qty !== "" ? Number(entry.process_qty) : 0,
         scrap_qty: entry.reject_qty !== "" ? Number(entry.reject_qty) : 0,
-        ...(checks.hasReadings
+        ...(process.hasReadings
           ? {
               quality_checks: {
-                samples: checks.samples,
-                reasons: checks.reasons,
-                sample_id: checks.sample_id,
-                unit_conflicts: checks.unit_conflicts,
+                samples: process.samples,
+                reasons: process.reasons,
+                sample_id: process.first.sample_id,
+                unit_conflicts: process.first.unit_conflicts,
               },
             }
           : {}),
       }
     }
     if (stage === "QC") {
+      // The final specification readings are the QC record (2 samples, each recorded as an inspection);
+      // accepted / hold / disposition stay on the stage entry, where they always were.
+      const limits = finalQcLimits(card?.spec_snapshot || documentSnapshot || {})
+      const samples = finalQcSamples(entry)
+        .map((sample) => ({ sample_id: sample.sample_id, readings: Object.fromEntries(limits.filter((f) => sample.readings?.[f.code] !== "" && sample.readings?.[f.code] != null).map((f) => [f.code, Number(sample.readings[f.code])])) }))
+        .filter((sample) => Object.keys(sample.readings).length)
       return {
         ...base,
         output_qty: entry.accepted_qty !== "" ? Number(entry.accepted_qty) : 0,
         scrap_qty: entry.hold_qty !== "" ? Number(entry.hold_qty) : 0,
-        quality_checks: {
-          accepted_qty: entry.accepted_qty !== "" ? Number(entry.accepted_qty) : 0,
-          hold_qty: entry.hold_qty !== "" ? Number(entry.hold_qty) : 0,
-          disposition: entry.disposition || "",
-        },
+        quality_checks: samples.length ? { ...samples[0].readings, sample_id: samples[0].sample_id, samples } : {},
       }
     }
     if (stage === "DISPATCH") {
@@ -1330,18 +1656,21 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
     }
   }
 
-  function showStageWarnings(response: any) {
+  /** One toast per save: what was saved, then any notes from the server (e.g. no card times), so the
+   *  confirmation is never replaced by a note. */
+  function stageWarnings(response: any): string[] {
     const warnings = response?.data?.warnings ?? response?.warnings
-    if (Array.isArray(warnings) && warnings.length) {
-      showToast(warnings.join(" "), "info")
-    }
+    return Array.isArray(warnings) ? warnings.filter(Boolean) : []
+  }
+  function showStageSaved(message: string, warnings: string[]) {
+    showToast(warnings.length ? `${message}. Note: ${Array.from(new Set(warnings)).join(" ")}` : message, "success")
   }
 
   async function saveStage(stage: StageName, saveMode: "draft" | "complete") {
     if (!jobCardId) return
     const assignment = stageAssignment(stage)
     if (["SLITTING", "WINDER", "OVEN", "PROCESS"].includes(stage) && !assignment.machineId) {
-      showToast(`Choose the ${stage.toLowerCase()} machine this ran on — the stage is not planned yet.`, "error")
+      showToast(`Choose the ${stageWord(stage).toLowerCase()} machine this ran on — the stage is not planned yet.`, "error")
       return
     }
     if (STAGES_REQUIRING_SHIFT.includes(stage)) {
@@ -1354,7 +1683,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
     }
     // Card times never block an entry (client decision 2026-10-11); the server returns
     // odd times as warnings for time reconciliation instead.
-    const qtyProblem = quantityProblem(stage)
+    const qtyProblem = quantityProblem(stage, saveMode)
     if (qtyProblem) {
       showToast(qtyProblem, "error")
       return
@@ -1365,15 +1694,15 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
           jobCardId,
           data: draftPayload(stage),
         })
-        showToast(`${stage} draft saved`, "success")
-        showStageWarnings(response)
+        forgetOldDraft(stage)
+        showStageSaved(`${stageWord(stage)} draft saved`, stageWarnings(response))
       } else {
         const response: any = await completeStageMutation.mutateAsync({
           jobCardId,
           data: completePayload(stage),
         })
-        showToast(`${stage} saved as completed`, "success")
-        showStageWarnings(response)
+        forgetOldDraft(stage)
+        showStageSaved(`${stageWord(stage)} saved as completed`, stageWarnings(response))
       }
       jobCardQuery.refetch()
     } catch (error: any) {
@@ -1448,9 +1777,9 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
         entries: queue.map((stage) => ({ ...completePayload(stage), stage })),
       })
       setBatchRequestId(null)
+      for (const stage of queue) forgetOldDraft(stage)
       const result = response?.data || {}
-      showToast(`${(result.saved_stages || queue).join(" → ")} saved as completed${result.replayed ? " (already saved earlier)" : ""}`, "success")
-      for (const row of result.results || []) showStageWarnings({ warnings: row.warnings })
+      showStageSaved(`${(result.saved_stages || queue).map((stage: string) => stageWord(stage)).join(" → ")} saved as completed${result.replayed ? " (already saved earlier)" : ""}`, (result.results || []).flatMap((row: any) => stageWarnings({ warnings: row.warnings })))
       if (Array.isArray(result.external_pending) && result.external_pending.length) showToast(result.external_pending.join(" "), "error")
       setWholeCard(false)
     } catch (error: any) {
@@ -1463,7 +1792,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
   }
 
   function renderWholeCardEntry() {
-    if (mode !== "supervisor") return null
+    if (mode !== "supervisor" || !canSaveWholeCard) return null
     const rows = openBulkStages()
     if (rows.length < 2) return null
     const filled = rows.filter((row) => row.filled).length
@@ -1480,7 +1809,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             <div className="mt-2 flex flex-wrap gap-1.5">
               {rows.map((row) => (
                 <span key={row.stage} className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${row.filled ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink" : "border-border bg-muted text-muted-foreground"}`}>
-                  {row.filled ? <CheckCircle2 className="h-3 w-3" /> : null}{row.stage}
+                  {row.filled ? <CheckCircle2 className="h-3 w-3" /> : null}{stageWord(row.stage)}
                 </span>
               ))}
             </div>
@@ -1488,7 +1817,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
         </div>
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={() => setWholeCard((value) => !value)} aria-pressed={wholeCard} data-testid="toggle-whole-card"
-            className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground">
+            className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground">
             {wholeCard ? "Current stage only" : `Enter whole card (${rows.length} stages)`}
           </button>
           {wholeCard ? (
@@ -1497,7 +1826,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
               onClick={saveAllFilledStages}
               disabled={!filled || completeBatchMutation.isPending}
               data-testid="save-all-filled-stages"
-              className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
               <CheckCircle2 className="h-4 w-4" />
               {completeBatchMutation.isPending ? "Saving card…" : filled ? `Save ${filled} stage${filled === 1 ? "" : "s"} together` : "Save stages together"}
@@ -1512,7 +1841,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
     return openBulkStages().map((row) => (
       <div key={row.stage} className="space-y-3" data-testid={`whole-card-stage-${row.stage}`}>
         <div className="flex items-center justify-between rounded-xl border border-border bg-muted px-4 py-2">
-          <span className="text-sm font-semibold text-foreground">{row.stage}</span>
+          <span className="text-sm font-semibold text-foreground">{stageWord(row.stage)}</span>
           <span className="text-xs text-muted-foreground">{stageAssignment(row.stage).unplanned ? "Not planned yet — entry allowed, flagged as run before planning" : stageAssignment(row.stage).shiftLabel || ""}</span>
         </div>
         {renderCurrentStageSection(row.stage)}
@@ -1529,7 +1858,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
           type="button"
           onClick={() => saveStage(stage, "draft")}
           disabled={disabled}
-          className="inline-flex items-center gap-2 border border-slate-900 px-3 py-2 text-sm font-semibold text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex min-h-11 items-center gap-2 border border-slate-900 px-3 py-2 text-sm font-semibold text-foreground disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Save className="h-4 w-4" />
           Save Draft
@@ -1539,7 +1868,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
           onClick={() => saveStage(stage, "complete")}
           disabled={disabled}
           data-testid={`complete-stage-${stage}`}
-          className="inline-flex items-center gap-2 bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex min-h-11 items-center gap-2 bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
         >
           <CheckCircle2 className="h-4 w-4" />
           Complete Stage
@@ -1654,6 +1983,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
         ) : null}
         {seasonalCard ? null : renderRestrictedPhysicalOutput()}
         {seasonalCard ? null : renderLateQualityException()}
+        {!seasonalCard && keepDrafts ? <DraftRestoredBar savedAt={oldDraftAt} onDiscard={discardOldDrafts} testId="old-form-draft" className="no-print" /> : null}
         {seasonalCard ? null : renderWholeCardEntry()}
         {seasonalCard ? (
           <section className="rounded-xl border border-border bg-card p-4" data-testid="season-card-head">
@@ -1695,10 +2025,10 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
               <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
                 Shop-floor view driven from the saved manufacturing matrix. Assigned winder, bamboo target, recipe path, and current stage logging stay on one card so the operator and supervisor are reading the same truth.
               </p>
-              <div className="mt-5 grid gap-3 md:grid-cols-3 xl:grid-cols-4">
+              <div className="mt-5 grid gap-3 [&>div]:min-w-0 [&>div>div:last-child]:break-words sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
                 <div><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Customer</div><div className="mt-1 text-sm font-semibold">{documentSnapshot?.header?.customer_name || "-"}</div></div>
                 <div><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Product</div><div className="mt-1 text-sm font-semibold">{documentSnapshot?.header?.product_code || card?.product_code || "-"}</div></div>
-                <div><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Spec Ref</div><div className="mt-1 text-sm font-semibold">{specReference}</div></div>
+                <div><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Spec Ref</div><div className="mt-1 break-all text-sm font-semibold">{specReference}</div></div>
                 <div><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Size</div><div className="mt-1 text-sm font-semibold">{documentSnapshot?.header?.product_size_label || "-"}</div></div>
                 <div><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Current Stage</div><div className="mt-1 text-sm font-semibold">{currentStage}</div></div>
                 <div><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Release Qty</div><div className="mt-1 text-sm font-semibold">{formatNumber(card?.released_qty || card?.planned_qty, 0)} pcs</div></div>
@@ -1719,14 +2049,16 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
               </div>
               {PLANNER_GATED_STAGES.includes(currentStage) ? (
                 <div className={`rounded-2xl border px-4 py-3 ${plannerGateReady ? "border-signal-emerald-line bg-signal-emerald-soft" : "border-signal-amber-line bg-signal-amber-soft"}`}>
-                  <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Planner Gate</div>
+                  <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Planner</div>
                   <div className="mt-1 text-sm font-semibold text-foreground">
-                    {plannerGateReady ? "Winding" : "Not planned — entry allowed and flagged"}
+                    {plannerGateReady ? "Planned" : "Not planned — entry allowed and flagged"}
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">
+                    {/* Planning never blocks the floor (client 2026-10-25/26): the stored planner reason is the old gate
+                        instruction, so say what happens instead. */}
                     {plannerGateReady
-                      ? `Scheduled ${card?.active_segment_plan_date || activeSegment?.plan_date || "-"} · ${currentMachineLabel}`
-                      : `${plannerGateReason || "This stage is not in the planner window."} Enter the run with the machine and shift written on the card; it is flagged for the owner.`}
+                      ? `Planned for ${indianDay(card?.active_segment_plan_date || activeSegment?.plan_date) || "-"} · ${currentMachineLabel}`
+                      : "This stage has no planner slot yet. Enter the run with the machine and shift written on the card; it is saved and flagged for the owner, never blocked."}
                   </div>
                 </div>
               ) : null}
@@ -2045,7 +2377,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
           <span className="font-semibold">Not planned yet.</span>{" "}
           {assignment.unplanned
             ? "You can still enter this run: choose the machine and shift written on the card. The stage is placed on that shift and the run is flagged for the owner as run before planning."
-            : `${plannerGateReason || "This stage is outside the planner window."} The run can still be entered; it is flagged for the owner.`}
+            : "Its planner slot is old or missing. The run can still be entered on the machine and shift written on the card; it is flagged for the owner, never blocked."}
         </p>
         {editable && !assignment.plannedMachineId ? (
           <label className="flex flex-wrap items-center gap-2 text-[13px] font-semibold">
@@ -2054,7 +2386,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
               data-testid={`unplanned-machine-${stage.toLowerCase()}`}
               value={stageForms[stage]?.entry_snapshot?.machine_pick || ""}
               onChange={(event) => updateSnapshotField(stage, "machine_pick", event.target.value)}
-              className="h-9 min-w-[200px] rounded-lg border border-border bg-card px-2 text-[13px] font-medium text-foreground"
+              className="h-11 w-full min-w-0 rounded-lg border border-border bg-card px-2 text-[13px] font-medium text-foreground sm:w-auto sm:min-w-[200px]"
             >
               <option value="">Choose machine</option>
               {options.map((machine: any) => <option key={machine.id} value={machine.id}>{machine.name || machine.code}</option>)}
@@ -2172,15 +2504,16 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
           <select
             value={selectedId}
             onChange={(event) => setToolSelection((current) => ({ ...current, [stage]: event.target.value }))}
-            className="h-9 min-w-0 flex-1 border border-border bg-card px-2 text-sm"
+            aria-label={`Physical tool for ${stageWord(stage).toLowerCase()}`}
+            className="h-11 min-h-11 w-full min-w-0 shrink-0 border border-border bg-card px-2 text-sm sm:w-auto sm:flex-1"
           >
             <option value="">Scan or select an available QR asset</option>
             {available.map((asset: any) => (
               <option key={asset.id} value={asset.id}>{asset.asset_no} · {asset.definition_name} · {asset.location_label || "Unlocated"}</option>
             ))}
           </select>
-          <button type="button" onClick={issueSelected} disabled={!selectedId || issueToolMutation.isPending} className="h-9 bg-slate-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">
-            Issue to {stage.toLowerCase()}
+          <button type="button" onClick={issueSelected} disabled={!selectedId || issueToolMutation.isPending} className="min-h-11 shrink-0 bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">
+            Issue to {stageWord(stage).toLowerCase()}
           </button>
         </div>
         <div className="mt-2 flex flex-wrap gap-1.5">
@@ -2662,7 +2995,15 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
                     {derivedReject(processProduced(entry), entry.process_qty) === "over" ? <p className="mt-1 text-xs font-semibold text-signal-rose-ink">Accepted cannot be more than produced.</p> : null}
                   </td>
                   <td className="border border-border bg-muted px-2 py-2 font-semibold tabular-nums text-foreground" data-testid="process-rejected-qty">{rejectText(processProduced(entry), entry.process_qty)}</td>
-                  <td className="border border-border px-2 py-2"><TextInput value={entry.reject_reason} onChange={(next) => updateSnapshotField(stage, "reject_reason", next)} /></td>
+                  <td className="border border-border px-2 py-2">
+                    <TextInput value={entry.reject_reason} testId="process-reject-reason" onChange={(next) => updateSnapshotField(stage, "reject_reason", next)} />
+                    {(() => {
+                      const rejected = derivedReject(processProduced(entry), entry.process_qty)
+                      return typeof rejected === "number" && rejected > 0 && !String(entry.reject_reason || "").trim() ? (
+                        <p className="mt-1 text-xs font-semibold text-signal-amber-ink" data-testid="process-reject-reason-needed">Needed for the {formatNumber(rejected, 0)} rejected pcs.</p>
+                      ) : null
+                    })()}
+                  </td>
                 </>
               ) : (
                 <>
@@ -2744,6 +3085,68 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
     )
   }
 
+  function renderFinalQcReadings() {
+    const limits = finalQcLimits(card?.spec_snapshot || documentSnapshot || {})
+    if (!limits.length) return null
+    const entry = stageForms.QC?.entry_snapshot || normalizeStageEntry("QC", {})
+    const samples = finalQcSamples(entry)
+    const band = (f: any) => (f.min != null && f.max != null ? `${formatNumber(f.min)}–${formatNumber(f.max)}` : f.min != null ? `≥ ${formatNumber(f.min)}` : `≤ ${formatNumber(f.max)}`)
+    const setReading = (index: number, code: string, value: string) =>
+      updateStageForm("QC", (current) => {
+        const rows = finalQcSamples(current.entry_snapshot || {})
+        rows[index] = { ...rows[index], readings: { ...rows[index].readings, [code]: value } }
+        return { ...current, entry_snapshot: { ...(current.entry_snapshot || {}), final_samples: rows } }
+      })
+    return (
+      <div className="mt-3 rounded-xl border border-border bg-card p-3" data-testid="final-qc-readings">
+        <p className="text-sm font-semibold text-foreground">Final specification readings · {FINAL_QC_SAMPLES} samples</p>
+        <p className="text-xs text-muted-foreground">Measure {FINAL_QC_SAMPLES} finished tubes against the card&apos;s limits. Each sample is recorded as a final QC inspection when the stage is saved.</p>
+        <div className="mt-2 overflow-x-auto">
+          <table className="w-full min-w-[30rem] border-collapse text-sm">
+            <thead>
+              <tr className="bg-muted text-left">
+                <th className="border border-border px-2 py-1.5">Sample</th>
+                {limits.map((f) => (
+                  <th key={f.code} className="border border-border px-2 py-1.5">
+                    {f.label} <span className="font-normal text-muted-foreground">({f.unit})</span>
+                    <span className="block text-[11px] font-normal text-muted-foreground">{band(f)}</span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {samples.slice(0, FINAL_QC_SAMPLES).map((sample, index) => (
+                <tr key={sample.sample_id}>
+                  <td className="border border-border px-2 py-1.5 font-semibold">S{index + 1}</td>
+                  {limits.map((f) => {
+                    const value = sample.readings?.[f.code] ?? ""
+                    const n = Number(value)
+                    const out = value !== "" && Number.isFinite(n) && ((f.min != null && n < Number(f.min)) || (f.max != null && n > Number(f.max)))
+                    return (
+                      <td key={f.code} className="border border-border px-1 py-1">
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          step="any"
+                          min="0"
+                          aria-label={`Final sample ${index + 1} ${f.label}`}
+                          data-testid={`final-qc-${f.code}-${index}`}
+                          className={`h-11 w-full rounded-lg border bg-background px-2 text-[15px] ${out ? "border-signal-rose-line text-signal-rose-ink" : "border-border"}`}
+                          value={value}
+                          onChange={(event) => setReading(index, f.code, event.target.value)}
+                        />
+                      </td>
+                    )
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
+  }
+
   function renderFinalQcSummary() {
     const snapshot = card?.spec_snapshot || documentSnapshot || {}
     const limits = [
@@ -2801,7 +3204,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
           <Link
             href={`/quality/stage?job=${encodeURIComponent(String(jobId))}&stage=QC`}
             data-testid="final-qc-record-link"
-            className="no-print mt-2 inline-flex rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground"
+            className="no-print mt-2 inline-flex min-h-11 items-center rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground"
           >
             {verdict ? "Record new final QC" : "Record final QC"}
           </Link>
@@ -2824,6 +3227,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
         </div>
 
         {renderFinalQcSummary()}
+        {stageEditable(stage) ? renderFinalQcReadings() : null}
 
         <div className="mt-3 grid gap-2 md:grid-cols-3">
           {renderOperatorPicker(stage, "Inspector", "inspector_name", "inspector_employee_id")}
@@ -2891,7 +3295,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
 
   function renderPrintLayout() {
     const customerName = documentSnapshot?.header?.customer_name || card?.sales_order?.customer_name || "-"
-    const salesOrderNumber = card?.sales_order_ref || card?.sales_order?.order_no || "-"
+    const salesOrderNumber = salesOrderNoOf(card, documentSnapshot?.header) || "-"
     const jobCardNumber = card?.job_card_ref || card?.job_card_no || String(card?.id || "").slice(0, 8)
     const sizeLabel = documentSnapshot?.header?.product_size_label || "-"
     const parchmentColor = documentSnapshot?.header?.color || card?.spec_snapshot?.parchment_color || "-"
@@ -2912,7 +3316,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
           <button
             type="button"
             onClick={() => window.print()}
-            className="inline-flex items-center gap-2 bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
+            className="inline-flex min-h-11 items-center gap-2 bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
           >
             <Printer className="h-4 w-4" />
             Print Job Card
@@ -3161,7 +3565,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
     const header = documentSnapshot?.header || {}
     const setup = documentSnapshot?.setup_tooling || {}
     const customerName = header.customer_name || card?.sales_order?.customer_name || ""
-    const salesOrderNumber = card?.sales_order_ref || header.sales_order_no || card?.sales_order?.order_no || ""
+    const salesOrderNumber = salesOrderNoOf(card, header)
     const jobCardNumber = card?.job_card_ref || header.job_card_number || card?.job_card_no || String(card?.id || "").slice(0, 8)
     const lotNumber = header.lot_number || String(card?.id || "").slice(0, 10)
     const releaseQty = Number(header.release_qty_pcs || card?.released_qty || card?.planned_qty || 0)
@@ -3191,6 +3595,39 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
     // Run rows: the run's date and shift are in the cycle cell, so times print as HH:MM only.
     const runClock = (value: any) => (value ? String(value).slice(11, 16) : "")
     const dayMonth = (value: any) => dateOnly(value).slice(0, 5)
+    // Each stage's close on the printed card (client 2026-10-28): who closed it and when, short or with Process.
+    // Batch-entry closes keep closed_at / closed_by; old-form completes keep entered_by / actual_end.
+    const STAGE_WORD: Record<string, string> = { SLITTING: "Slitting", WINDER: "Winding", OVEN: "Oven", PROCESS: "Process", PACKING: "Packing", QC: "Final QC" }
+    const closeOf = (stage: StageName) => {
+      const row = stageRow(stage)
+      if (!row || String(row.status || "").toUpperCase() !== "COMPLETED") return null
+      const a = row.actuals_snapshot || {}
+      const kind = String(a.close_kind || "")
+      const withStage = kind.startsWith("AUTO_AFTER_") ? STAGE_WORD[kind.replace("AUTO_AFTER_", "")] || kind.replace("AUTO_AFTER_", "") : ""
+      // The person's name, not the login ("PlantManager E2E", not "pm.e2e"), from the people directory.
+      const by = personLabel(a.supervisor_name || a.closed_by || row.entered_by || "", "")
+      const at = formatCloseTime(a.closed_at || row.actual_end || row.entered_at)
+      const short = kind === "SHORT_CLOSE" || (kind === "CLOSED_WITH_WINDING" ? false : Boolean(a.short_close))
+      // Flags saved with the stage (never a block): Process count gap, Final QC out of band, other machine.
+      // Old-form cards keep the gap on the stage; batch-entry (V2) cards keep it on each run (details.count_gap).
+      const runGaps = seasonalCard ? v2Rows(stage).map((e: any) => e.details?.count_gap).filter(Boolean) : []
+      const countGap = a.count_gap || (runGaps.length ? { gap: runGaps.reduce((sum: number, g: any) => sum + Number(g.gap || 0), 0) } : null)
+      const gap = Number(countGap?.gap || 0)
+      const gapRuns = runGaps.length > 1 ? ` over ${runGaps.length} runs` : ""
+      const flags = [
+        countGap ? `count ${gap > 0 ? `${gap} pcs short` : gap < 0 ? `${-gap} pcs over` : "gap"}${gapRuns} (flagged)` : "",
+        a.qc_flag ? `QC out of band: ${(a.qc_flag.parameters || []).join(", ")} (flagged)` : "",
+        a.machine_changed ? "other machine than planned (flagged)" : "",
+      ].filter(Boolean).join(" · ")
+      return { by, at, withStage, short, flags, slittingWithWinding: kind === "CLOSED_WITH_WINDING" }
+    }
+    const closeSign = (stage: StageName) => {
+      const c = closeOf(stage)
+      if (!c) return ""
+      if (c.withStage) return `Closed with ${c.withStage}`
+      return `✓ ${[c.by, c.at].filter(Boolean).join(" ")}${c.short ? " · short" : ""}`
+    }
+    const closeStages = (["SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING", "QC"] as StageName[]).filter((stage) => Boolean(stageRow(stage)) && (stage !== "SLITTING" || card?.requires_slitting))
 
     function planFor(stage: StageName) {
       const row = stageRow(stage)
@@ -3431,7 +3868,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
                   <div className="jc-heading-title">Job Card <span className="jc-hi">जॉब कार्ड</span></div>
                   <div className="jc-heading-refs">
                     <span>JC No. <strong className="jc-jcno">{jobCardNumber}</strong></span>
-                    {salesOrderNumber ? <span>SO <strong>{salesOrderNumber}</strong></span> : null}
+                    {salesOrderNumber ? <span>{/^SO[/-]/i.test(salesOrderNumber) ? "" : "SO "}<strong>{salesOrderNumber}</strong></span> : null}
                     {jobColor ? <span>Color <strong>{jobColor}</strong></span> : null}
                   </div>
                 </td>
@@ -3477,7 +3914,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
               />
               <PeopleRows
                 labels={[["Operator Name", "ऑपरेटर नेम"], ["Pattiwala Name", "पट्टीवाला नेम"], ["Supervisor Sign", "सुपरवाइजर साइन"], ["QC Sign", "क्यूसी साइन"]]}
-                values={seasonalCard ? [v2People("WINDER").operator, v2People("WINDER").helper, "", ""] : [winderPrintEntry.operator_name, winderPrintEntry.pattiwala_name || winderPrintEntry.helper_name, winderPrintEntry.supervisor_sign, winderPrintEntry.qc_sign]}
+                values={seasonalCard ? [v2People("WINDER").operator, v2People("WINDER").helper, closeSign("WINDER"), ""] : [winderPrintEntry.operator_name, winderPrintEntry.pattiwala_name || winderPrintEntry.helper_name, winderPrintEntry.supervisor_sign || closeSign("WINDER"), winderPrintEntry.qc_sign]}
               />
               <tr className="jc-row-label">
                 <td className="jc-label"><L en="Output Qty" hi="आउटपुट क्वांटिटी" /></td>
@@ -3602,7 +4039,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
                     <tr key={`oven-row-${index}`} className="jc-row-entry" data-testid={run ? "print-oven-run" : undefined}>
                       <td className="jc-value jc-actual">{run ? `${num(run.accepted, 0)}${run.rejected ? ` (−${num(run.rejected, 0)})` : ""}${(run.details?.unscheduled_entry || run.details?.machine_changed || run.details?.material_prep_pending) ? " †" : ""}` : ""}</td>
                       <td className="jc-value jc-actual jc-name">{run ? run.operator_name || "" : ""}</td>
-                      <td className="jc-value jc-actual"></td>
+                      <td className="jc-value jc-actual jc-name">{index === 0 ? closeSign("OVEN") : ""}</td>
                       <td className="jc-value jc-actual"></td>
                       <td className="jc-value jc-actual">{run ? runClock(run.details?.start_time) : ""}</td>
                       <td className="jc-value jc-actual">{run ? runClock(run.details?.end_time) : ""}</td>
@@ -3614,7 +4051,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
                   <tr key={`oven-row-${index}`} className="jc-row-entry">
                     <td className="jc-value jc-actual">{first ? ovenPrintEntry.bamboo_count_out || ovenPrintEntry.bamboo_count_in || num(ovenPrintStage?.output_qty, 0) : ""}</td>
                     <td className="jc-value jc-actual">{first ? ovenPrintEntry.operator_name || "" : ""}</td>
-                    <td className="jc-value jc-actual">{first ? ovenPrintEntry.supervisor_sign || "" : ""}</td>
+                    <td className="jc-value jc-actual">{first ? ovenPrintEntry.supervisor_sign || closeSign("OVEN") : ""}</td>
                     <td className="jc-value jc-actual">{first ? ovenPrintEntry.qc_sign || "" : ""}</td>
                     <td className="jc-value jc-actual">{first ? cardTime(ovenPrintEntry.start_time) : ""}</td>
                     <td className="jc-value jc-actual">{first ? cardTime(ovenPrintEntry.end_time) : ""}</td>
@@ -3639,7 +4076,9 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
                 const first = index === 0 && ovenReadingEntered
                 const slot = ovenSlots.shown[index]
                 const sample = seasonalCard ? slot?.reading || {} : null
-                const value = (key: keyof typeof ovenReading) => (sample ? mark(sample[key] ?? "", slot?.fails, key) : first ? ovenReading[key] : "")
+                // Old form: the second weighed sample prints on the next row (both samples count for the 2-reading rule).
+                const second = !seasonalCard && index === 1 ? ovenPrintEntry.qc_readings_2 || {} : null
+                const value = (key: keyof typeof ovenReading) => (sample ? mark(sample[key] ?? "", slot?.fails, key) : first ? ovenReading[key] : second ? String(second[key] ?? "") : "")
                 return (
                   <tr key={`oven-sample-${index}`} className="jc-row-sample" data-testid={index === 0 ? "print-oven-pair" : undefined}>
                     <td className="jc-value" colSpan={2}><W value={value("pre_weight")} testId={index === 0 ? "oven-pre-weight" : undefined} /></td>
@@ -3657,7 +4096,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             <p className="jc-footnote">† Run entered before the planner placed this stage, on another machine, or before the slitting record (shown to the owner under Reports › Exceptions).</p>
           ) : null}
           {seasonalCard && seasonEntries.some((e: any) => e.evaluation?.verdict === "FAIL") ? (
-            <p className="jc-footnote">✗ Reading outside its allowed limit — that batch is held for QC.</p>
+            <p className="jc-footnote">✗ Reading outside its allowed limit — saved and flagged for QC, not held.</p>
           ) : null}
           </div>
           <div className="jc-col">
@@ -3672,7 +4111,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
               />
               <PeopleRows
                 labels={[["Operator Name", "ऑपरेटर नेम"], ["Packing Name", "पैकिंग नेम"], ["Supervisor Sign", "सुपरवाइजर साइन"], ["QC Sign", "क्यूसी साइन"]]}
-                values={seasonalCard ? [v2People("PROCESS").operator, v2People("PROCESS").helper || v2People("PACKING").operator, "", ""] : [processPrintEntry.operator_name, packingPrintEntry.packer_name || packingPrintEntry.operator_name, packingPrintEntry.supervisor_sign || processPrintEntry.supervisor_sign, qcPrintEntry.qc_sign || processPrintEntry.qc_sign]}
+                values={seasonalCard ? [v2People("PROCESS").operator, v2People("PROCESS").helper || v2People("PACKING").operator, closeSign("PROCESS"), ""] : [processPrintEntry.operator_name, packingPrintEntry.packer_name || packingPrintEntry.operator_name, packingPrintEntry.supervisor_sign || processPrintEntry.supervisor_sign || closeSign("PROCESS"), qcPrintEntry.qc_sign || processPrintEntry.qc_sign]}
               />
               <tr className="jc-row-label">
                 <td className="jc-label"><L en="Total Oven Qty" hi="ओवन क्वांटिटी" /></td>
@@ -3737,7 +4176,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
               {Array.from({ length: 6 }, (_, index) => {
                 if (processSlots.restCount && index === 5) return <MoreSamples key="process-more-samples" count={processSlots.restCount} colSpan={8} />
                 const slot = processSlots.shown[index]
-                const reading = seasonalCard ? slot?.reading || {} : index === 0 && hasProcessReading ? processReading : {}
+                const reading = seasonalCard ? slot?.reading || {} : index === 0 && hasProcessReading ? processReading : index === 1 ? processPrintEntry.qc_readings_2 || {} : {}
                 const fails = slot?.fails
                 return (
                   <tr key={`process-sample-${index}`} className="jc-row-sample" data-testid="print-process-sample">
@@ -3811,6 +4250,22 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
               })}
             </tbody>
           </table>
+
+          {/* Stage close strip: every stage's close (who · when, short, or closed with Process). */}
+          <div className="jc-tolerance jc-closes" data-testid="print-stage-closes">
+            <strong>Stage close</strong>
+            {closeStages.map((stage) => {
+              const c = closeOf(stage)
+              return (
+                <span key={stage} data-testid={`print-close-${stage.toLowerCase()}`}>
+                  {STAGE_WORD[stage]}{" "}
+                  <b>{!c ? "open" : c.withStage ? `with ${c.withStage}` : c.slittingWithWinding ? "with Winding" : [c.at, c.by].filter(Boolean).join(" · ") || "closed"}</b>
+                  {c?.short ? " · short" : ""}
+                  {c?.flags ? ` · ${c.flags}` : ""}
+                </span>
+              )
+            })}
+          </div>
 
           {/* Tolerance strip: the allowed ranges the floor checks against */}
           <div className="jc-tolerance" data-testid="print-tolerance-strip">
@@ -3905,12 +4360,12 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             gap: 10px 16px;
             max-width: 210mm;
             margin: 0 auto 12px;
-            border: 1px solid #e2e8f0;
+            border: 1px solid hsl(var(--border));
             border-radius: 12px;
-            background: #fff;
+            background: hsl(var(--card));
             padding: 10px 14px;
             font-size: 13px;
-            color: #475569;
+            color: hsl(var(--muted-foreground));
           }
           .jc-structure {
             display: grid;
@@ -3920,7 +4375,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             list-style: none;
           }
           .jc-structure strong {
-            color: #0f172a;
+            color: hsl(var(--foreground));
           }
           .jc-toolbar-actions {
             display: flex;
@@ -3929,23 +4384,34 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             gap: 8px 12px;
             font-size: 12px;
           }
+          /* 44 px tap targets on the phone (client quality bar): the whole label is the tap area. */
           .jc-qc-toggle {
             display: inline-flex;
             align-items: center;
-            gap: 6px;
+            gap: 10px;
+            min-height: 44px;
+            cursor: pointer;
             font-size: 13px;
-            color: #334155;
+            color: hsl(var(--foreground));
+          }
+          .jc-qc-toggle input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            flex-shrink: 0;
+            accent-color: hsl(var(--primary));
           }
           .jc-print-btn {
             display: inline-flex;
             align-items: center;
+            justify-content: center;
             gap: 8px;
+            min-height: 44px;
             border-radius: 12px;
-            background: #0f172a;
+            background: hsl(var(--primary));
             padding: 8px 16px;
             font-size: 14px;
             font-weight: 600;
-            color: #fff;
+            color: hsl(var(--primary-foreground));
           }
           .jc-page {
             box-sizing: border-box;
@@ -4440,7 +4906,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
         <div className="mt-4 grid gap-2 md:grid-cols-4">
           <LabeledValue label="Planned Machine" value={lineMachineLabel} />
           <LabeledValue label="Job Card Number" value={card.job_card_ref} />
-          <LabeledValue label="Sales Order Number" value={card.sales_order_ref} />
+          <LabeledValue label="Sales Order Number" value={salesOrderNoOf(card, documentSnapshot?.header)} />
           <LabeledValue label="Customer Name" value={documentSnapshot?.header?.customer_name || ""} />
           <LabeledValue label="Product Size" value={documentSnapshot?.header?.product_size_label || ""} />
           <LabeledValue label="Parchment" value={parchmentLabel} />

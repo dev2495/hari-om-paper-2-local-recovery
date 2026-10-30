@@ -10,8 +10,8 @@ export type WorkspaceJumpItem = {
 
 export const WORKSPACE_JUMP_ITEMS: WorkspaceJumpItem[] = [
   { name: "Inbox", href: "/inbox", description: "Notifications, handoffs, QC holds and your role work queue.", group: "Overview" },
-  { name: "Supplier deliveries", href: "/purchase/supplier-deliveries", description: "Confirmed arrivals and receipt allocations.", group: "Purchasing" },
-  { name: "RM & PM Schedule", href: "/purchase/scheduler", description: "Monthly paper, chemical and packing schedule with vendor PO position.", group: "Purchasing", keywords: ["calendar", "excel", "workbook"] },
+  { name: "Expected arrivals", href: "/purchase/supplier-deliveries", description: "Overdue, today, this week and later vendor deliveries, each with Make GRN.", group: "Purchasing", keywords: ["supplier deliveries", "arrivals", "delivery", "grn"] },
+  { name: "RM inward calendar", href: "/purchase/scheduler", description: "Forward RM demand against stock and arrivals; the Owner approves arrivals into draft POs.", group: "Purchasing", keywords: ["calendar", "schedule", "mrp", "shortage", "arrivals", "excel", "workbook"] },
   { name: "Goods inward", href: "/purchase/inward", description: "Measured receipt and distinct physical lot labels.", group: "Stores & inventory", keywords: ["grn", "receipt"] },
   { name: "GRN register", href: "/purchase/receipts", description: "Receipts, invoice status and saved labels.", group: "Stores & inventory" },
   { name: "Dashboard", href: "/dashboard", description: "Control room overview, alerts, and operating posture.", group: "Overview" },
@@ -28,13 +28,15 @@ export const WORKSPACE_JUMP_ITEMS: WorkspaceJumpItem[] = [
   { name: "Incoming QC", href: "/quality/incoming", description: "Inspect receipt lots against the item quality profile.", group: "Operations" },
   { name: "Stage QC", href: "/quality/stage", description: "Winding, oven, and process measurements against frozen ranges.", group: "Operations" },
   { name: "QC results", href: "/quality/results", description: "Inspections, holds, and dispositions.", group: "Operations" },
-  { name: "Reconciliation", href: "/production/reconciliation", description: "Material retally, close posture, and monthly actuals.", group: "Operations" },
-  { name: "Stock Lifecycle", href: "/inventory/lifecycle", description: "Opening → daily → cert → carry-forward → reco → lock.", group: "Supply Chain" },
+  { name: "Month-end close", href: "/production/reconciliation", description: "Spec, issued and counted use per material; notes and the Owner's close.", group: "Operations", keywords: ["reconciliation", "close", "variance", "financial year"] },
+  { name: "Usage limits", href: "/production/reconciliation/limits", description: "Normal wastage %, allowed gap % and minimum gap per material type.", group: "Operations", keywords: ["tolerance", "wastage", "variance limits", "gap"] },
+  { name: "Stock counts & book", href: "/inventory/stock-control", description: "Spot and month-end counts, corrections and the stock book.", group: "Supply Chain", keywords: ["stock count", "certification", "lifecycle", "correction", "adjustment", "stock book"] },
+  { name: "Locations", href: "/inventory/locations", description: "Racks and stores: stock on each, put-away, moves and QR labels.", group: "Supply Chain", keywords: ["rack", "bin", "put away", "move stock", "qr"] },
+  { name: "Location labels", href: "/inventory/locations/labels", description: "Print QR labels for racks and stores.", group: "Supply Chain", keywords: ["rack label", "qr", "print"] },
   { name: "Inventory", href: "/inventory", description: "Raw material inward, reel issue, balances, and valuation.", group: "Supply Chain" },
   { name: "Purchase", href: "/purchase", description: "Supplier purchase orders, GRN receipts, and delivery schedules.", group: "Supply Chain", keywords: ["po", "grn", "vendor"] },
   { name: "Genealogy", href: "/inventory/genealogy", description: "Reel lineage, slit children, issue scans, and trace exceptions.", group: "Supply Chain" },
   { name: "Manual FG", href: "/inventory/fg-inward", description: "Rework yield, returns, and adjustments.", group: "Supply Chain" },
-  { name: "MRP", href: "/analytics/mrp", description: "Reorder-policy review and demand/BOM coverage.", group: "Supply Chain" },
   { name: "Dispatch", href: "/logistics/dispatch", description: "Packing handoff, challans, and finished-goods release.", group: "Supply Chain" },
   { name: "Specifications", href: "/specifications", description: "Spec sheet workspace, recipe truth, and print-ready outputs.", group: "Design" },
   { name: "Intelligence", href: "/analytics", description: "Live KPIs and finished reports in one intelligence home.", group: "Intelligence", keywords: ["analytics", "reports", "kpis"] },
@@ -58,7 +60,7 @@ export function searchWorkspaceJumps(query: string, limit = 8) {
   const needle = query.trim().toLowerCase()
   if (!needle) return []
   const entries: WorkspaceJumpItem[] = [...WORKSPACE_JUMP_ITEMS]
-  for (const child of Object.values(MODULE_NAVIGATION).flat()) if (!entries.some(item => item.href === child.href)) entries.push({ ...child, description: "Open " + child.name.toLowerCase(), group: "Workspace" })
+  for (const child of Object.values(MODULE_NAVIGATION).flat()) if (!entries.some(item => item.href === child.href)) entries.push({ name: child.name, href: child.href, description: "Open " + child.name.toLowerCase(), group: "Workspace" })
   return entries.filter((item) => {
     const haystack = `${item.name} ${item.href} ${item.description} ${item.group} ${(item.keywords || []).join(" ")}`.toLowerCase()
     return haystack.includes(needle)

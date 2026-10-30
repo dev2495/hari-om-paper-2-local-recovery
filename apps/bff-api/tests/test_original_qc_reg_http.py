@@ -159,7 +159,7 @@ def test_reg01_closed_period_grn_is_books_locked():
         },
         headers=headers,
     )
-    assert grn.status_code == 422, grn.text
+    assert grn.status_code == 409, grn.text
     body = grn.json()
     detail = body.get("detail") if isinstance(body.get("detail"), dict) else body
     assert detail.get("code") == "BOOKS_LOCKED" or "BOOKS_LOCKED" in str(body)

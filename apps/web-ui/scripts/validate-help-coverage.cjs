@@ -12,10 +12,11 @@ const routePatterns = [
   { pattern: /^\/sales-orders(?:\/.*)?$/, guideId: "sales" },
   { pattern: /^\/(?:specs|specifications)(?:\/.*)?$/, guideId: "specifications" },
   { pattern: /^\/purchase\/scheduler(?:\/.*)?$/, guideId: "purchase-scheduler" },
+  { pattern: /^\/purchase\/supplier-deliveries(?:\/.*)?$/, guideId: "supplier-promises" },
   { pattern: /^\/purchase\/(?:inward|receipts)(?:\/.*)?$/, guideId: "purchase-inward" },
   { pattern: /^\/purchase\/(?:discrepancies|debit-notes)(?:\/.*)?$/, guideId: "purchase-commercial" },
   { pattern: /^\/purchase(?:\/.*)?$/, guideId: "purchase" },
-  { pattern: /^\/analytics\/mrp(?:\/.*)?$/, guideId: "mrp" },
+  { pattern: /^\/analytics\/mrp(?:\/.*)?$/, guideId: "purchase-scheduler" },
   { pattern: /^\/analytics(?:-|\/|$)/, guideId: "reports" },
   { pattern: /^\/reports(?:\/.*)?$/, guideId: "reports" },
   { pattern: /^\/inventory-rm-inward(?:\/.*)?$/, guideId: "raw-inward" },
@@ -26,14 +27,16 @@ const routePatterns = [
   { pattern: /^\/inventory\/stock-alert(?:-policies|s)(?:\/.*)?$/, guideId: "stock-alerts" },
   { pattern: /^\/inventory\/rm-costing(?:\/.*)?$/, guideId: "rm-costing" },
   { pattern: /^\/inventory\/(?:reels\/issue|production-issue)(?:\/.*)?$/, guideId: "production-issue" },
-  { pattern: /^\/inventory\/(?:lifecycle|ledger|stock-control)(?:\/.*)?$/, guideId: "stock-lifecycle" },
+  { pattern: /^\/inventory\/(?:lifecycle|ledger|stock-control|counts)(?:\/.*)?$/, guideId: "stock-counts" },
+  { pattern: /^\/inventory\/locations(?:\/.*)?$/, guideId: "locations" },
   { pattern: /^\/inventory\/genealogy(?:\/.*)?$/, guideId: "genealogy" },
   { pattern: /^\/inventory\/fg-inward(?:\/.*)?$/, guideId: "manual-fg" },
   { pattern: /^\/inventory(?:\/.*)?$/, guideId: "inventory" },
   { pattern: /^\/(?:planning|planning\/board|production\/planner)(?:\/.*)?$/, guideId: "planning" },
   { pattern: /^\/(?:job-cards|production\/job-cards|production\/entry|production\/eod-entry|production\/supervisor-entry)(?:\/.*)?$/, guideId: "job-cards" },
   { pattern: /^\/operations(?:\/.*)?$/, guideId: "job-cards" },
-  { pattern: /^\/production\/reconciliation(?:\/.*)?$/, guideId: "reconciliation" },
+  { pattern: /^\/production\/reconciliation\/limits(?:\/.*)?$/, guideId: "usage-limits" },
+  { pattern: /^\/production\/reconciliation(?:\/.*)?$/, guideId: "month-end-close" },
   { pattern: /^\/quality(?:\/.*)?$/, guideId: "quality" },
   { pattern: /^\/(?:dispatch|logistics\/dispatch)(?:\/.*)?$/, guideId: "dispatch" },
   { pattern: /^\/masters?(?:\/.*)?$/, guideId: "masters" },
@@ -69,6 +72,26 @@ const missingGuideIds = Array.from(new Set(routePatterns.map((entry) => entry.gu
 
 if (missingGuideIds.length) {
   console.error(`Missing guide content for ids: ${missingGuideIds.join(", ")}`)
+  process.exit(1)
+}
+
+// Routes of the Stock / Month-end / RM calendar build (client 2026-10-28) must keep their own guide.
+const requiredGuides = {
+  "/inventory/stock-control": "stock-counts",
+  "/inventory/counts/[id]": "stock-counts",
+  "/inventory/counts/[id]/rack/[locationId]": "stock-counts",
+  "/inventory/locations": "locations",
+  "/inventory/locations/[id]": "locations",
+  "/inventory/locations/labels": "locations",
+  "/production/reconciliation": "month-end-close",
+  "/production/reconciliation/limits": "usage-limits",
+  "/purchase/scheduler": "purchase-scheduler",
+  "/purchase/supplier-deliveries": "supplier-promises",
+}
+const wrongGuides = Object.entries(requiredGuides).filter(([route, guideId]) => guideIdForRoute(route) !== guideId || !guideIds.has(guideId))
+if (wrongGuides.length) {
+  console.error("Routes without their own guide:")
+  for (const [route, guideId] of wrongGuides) console.error(`- ${route} should use ${guideId}`)
   process.exit(1)
 }
 

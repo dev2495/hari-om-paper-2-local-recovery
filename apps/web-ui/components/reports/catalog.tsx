@@ -70,9 +70,9 @@ export const INTELLIGENCE_REPORTS: Array<{
     audience: "inventory",
   },
   {
-    href: "/analytics/mrp",
-    title: "MRP: reorder policy and demand coverage",
-    description: "Two separate views: item-master reorder/safety policy, and demand/BOM coverage from all open sales lines.",
+    href: "/purchase/scheduler?view=list",
+    title: "RM inward calendar: demand and cover",
+    description: "Forward RM demand from orders and planned job cards against stock, QC-pending lots and dated arrivals; first shortage per material.",
     audience: "inventory",
   },
   {

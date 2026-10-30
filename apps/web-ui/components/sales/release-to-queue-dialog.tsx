@@ -37,14 +37,21 @@ type ReleaseDraftRow = {
   winder_machine_id: string
   mode: "new" | "resume"
   parchment_required: boolean
+  /** Line ordered without parchment: the colour is still compulsory at release (client 2026-10-28). */
+  plain_line: boolean
   color: string
   color_id: string | null
+  /** The colour is already recorded on the saved lot in sales and cannot change here. */
+  color_locked: boolean
   color_options: ColorOption[]
   unassigned_qty: number
   authorized_winders: ReleaseMachine[]
   compatibility_warning: string | null
   blocker: string | null
 }
+
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`
+const MISSING_COLOUR = "Pick the parchment colour to release this card — every job card needs one"
 
 const fmt = (value: number) => Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })
 
@@ -73,6 +80,8 @@ function newRow(line: any, overrides: Partial<ReleaseDraftRow> = {}): ReleaseDra
   const lineOpen = Number(line.release_remaining_qty ?? line.remaining_qty ?? line.qty ?? 0)
   const firstOpen = options.find((option) => option.open > 0)
   const parchment = Boolean(line.parchment_required)
+  // Every job card needs a parchment colour ("there is no none"): a plain line picks one here,
+  // from the whole open balance.
   return {
     key: crypto.randomUUID(),
     sales_order_line_id: String(line.id),
@@ -83,11 +92,13 @@ function newRow(line: any, overrides: Partial<ReleaseDraftRow> = {}): ReleaseDra
     release_qty: (parchment ? Math.min(lineOpen, firstOpen?.open ?? lineOpen) : lineOpen).toFixed(0),
     winder_machine_id: "",
     mode: "new",
-    parchment_required: parchment,
+    parchment_required: true,
+    plain_line: !parchment,
     color: parchment ? firstOpen?.color || "" : "",
     color_id: parchment ? firstOpen?.color_id || null : null,
+    color_locked: false,
     color_options: options,
-    unassigned_qty: unassigned,
+    unassigned_qty: parchment ? unassigned : lineOpen,
     authorized_winders: [],
     compatibility_warning: null,
     blocker: null,
@@ -113,6 +124,9 @@ function buildReleaseRows(order: any, selectedLineIds: string[]) {
             mode: "resume",
             color: String(lot.parchment_color || ""),
             color_id: lot.parchment_color_id ? String(lot.parchment_color_id) : null,
+            // A lot saved before 28 Oct has no colour: the colour is picked here and recorded in sales
+            // first (Release to queue resends the lot with it), then the job card is made.
+            color_locked: Boolean(String(lot.parchment_color || "").trim()),
           }),
         )
       }
@@ -173,6 +187,10 @@ export function ReleaseToQueueDialog({
     } catch (error: any) {
       const detail = error?.response?.data?.detail
       const text = typeof detail === "string" ? detail : detail?.message || error?.message || "Planning service did not respond."
+      if (/not permitted for your role/i.test(text)) {
+        // Sales, Owner, Admin, Planner and Plant Manager may make the card (user answer 30 Oct 2026).
+        return { pending: true, error: "Your sign-in cannot make the job card. Ask the Owner or an Admin to open this order and press Release lines — the saved release is picked up and nothing is released twice." }
+      }
       return { pending: true, error: text }
     }
   }
@@ -241,7 +259,7 @@ export function ReleaseToQueueDialog({
     setRows((current) => {
       const index = current.map((row) => row.sales_order_line_id).lastIndexOf(template.sales_order_line_id)
       const next = [...current]
-      next.splice(index + 1, 0, { ...template, key: crypto.randomUUID(), release_lot_id: crypto.randomUUID(), mode: "new", release_qty: remaining.toFixed(0), color: "", color_id: null, blocker: null })
+      next.splice(index + 1, 0, { ...template, key: crypto.randomUUID(), release_lot_id: crypto.randomUUID(), mode: "new", release_qty: remaining.toFixed(0), color: "", color_id: null, color_locked: false, blocker: null })
       return next
     })
   }
@@ -264,7 +282,7 @@ export function ReleaseToQueueDialog({
       if (row.blocker) byRow.set(row.key, row.blocker)
       else if (!row.winder_machine_id) byRow.set(row.key, "Pick a winder queue")
       else if (qty <= 0) byRow.set(row.key, "Enter a quantity")
-      else if (row.parchment_required && !row.color) byRow.set(row.key, "Pick the parchment color — one job card is one color")
+      else if (!row.color) byRow.set(row.key, MISSING_COLOUR)
       else if ((lineTotals.get(row.sales_order_line_id) || 0) > row.line_open_qty + 0.001) byRow.set(row.key, `${row.line_label} has only ${fmt(row.line_open_qty)} pcs open`)
       else if (row.parchment_required && row.mode === "new") {
         const option = row.color_options.find((entry) => entry.color === row.color)
@@ -295,8 +313,8 @@ export function ReleaseToQueueDialog({
           winder_machine_id: row.winder_machine_id,
           product_code: row.product_code || null,
           release_lot_id: row.release_lot_id,
-          parchment_color: row.parchment_required ? row.color : null,
-          parchment_color_id: row.parchment_required ? row.color_id : null,
+          parchment_color: row.color || null,
+          parchment_color_id: row.color_id || null,
         })),
       })
       lots = Array.isArray(response?.data?.lots) ? response.data.lots : []
@@ -318,7 +336,7 @@ export function ReleaseToQueueDialog({
         release_qty: row.qty,
         winder_machine_id: row.winder_machine_id,
         product_code: row.product_code || null,
-        parchment_color: row.parchment_required ? row.color || null : null,
+        parchment_color: row.color || null,
       })),
     }
     const { pending: syncPending, error: syncError } = await runSync(syncPayload)
@@ -326,7 +344,7 @@ export function ReleaseToQueueDialog({
     if (plantId) setActivePlant(plantId)
     setOutcome({ winderMachineId: String(persisted[0]?.winder_machine_id || ""), lotIds: persisted.map((row) => String(row.release_lot_id)), syncPending, syncError, syncPayload })
     onReleased?.({ lotIds: persisted.map((row) => String(row.release_lot_id)), jobCardIds: [], syncPending })
-    showToast(syncPending ? `Release recorded — planning sync pending: ${syncError}` : `${persisted.length} job card(s) created in the winder queue.`, syncPending ? "error" : "success")
+    showToast(syncPending ? `Release recorded — planning sync pending: ${syncError}` : `${plural(persisted.length, "job card")} created in the winder queue.`, syncPending ? "error" : "success")
   }
 
   const totalQty = rows.reduce((sum, row) => sum + Number(row.release_qty || 0), 0)
@@ -347,18 +365,18 @@ export function ReleaseToQueueDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent data-testid={tid("release-dialog")} className="max-h-[calc(100vh-2rem)] overflow-hidden rounded-xl border-border bg-muted p-0" style={{ width: "min(1120px, calc(100vw - 2rem))", maxWidth: "none" }}>
-        <DialogHeader className="border-b border-border bg-card px-6 py-4">
+      <DialogContent data-testid={tid("release-dialog")} className="max-h-[calc(100dvh-1.5rem)] !flex flex-col gap-0 overflow-hidden rounded-xl border-border bg-muted p-0" style={{ width: "min(1120px, calc(100vw - 1.5rem))", maxWidth: "none" }}>
+        <DialogHeader className="shrink-0 border-b border-border bg-card px-4 py-3 pr-12 text-left sm:px-6 sm:py-4">
           <div className="flex items-start gap-3">
-            <div className="rounded-xl bg-primary/10 p-2.5 text-primary ring-1 ring-inset ring-primary/20"><Factory className="h-5 w-5" /></div>
+            <div className="hidden rounded-xl bg-primary/10 p-2.5 text-primary ring-1 ring-inset ring-primary/20 sm:block"><Factory className="h-5 w-5" /></div>
             <div>
               <DialogTitle>Release to winder queue</DialogTitle>
-              <DialogDescription>Each row becomes one job card — one color, one lot. Split a line across colors or winders with “Add row”.</DialogDescription>
+              <DialogDescription>Each row becomes one job card — one parchment colour, one lot. The parchment colour is compulsory. Split a line across colours or winders with “Add another colour / card”.</DialogDescription>
             </div>
           </div>
         </DialogHeader>
-        <div className="grid max-h-[64vh] gap-0 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_300px]">
-          <div className="px-6 py-5">
+        <div className="grid min-h-0 flex-1 gap-0 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="min-w-0 px-4 py-5 sm:px-6">
             {outcome ? (
               <div className="space-y-4" data-testid={tid("release-next-step")}>
                 <div className={`rounded-2xl border px-4 py-3 text-sm ${outcome.syncPending ? "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink" : "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink"}`}>
@@ -366,15 +384,15 @@ export function ReleaseToQueueDialog({
                     <>
                       <p className="font-semibold">Release recorded, but the job card is not in planning yet.</p>
                       {outcome.syncError ? <p className="mt-1" data-testid={tid("release-sync-error")}>Reason: {outcome.syncError}</p> : null}
-                      <button type="button" onClick={() => { void retrySync() }} disabled={releaseSync.isPending} className="mt-2 rounded-lg border border-signal-amber-line bg-card px-3 py-1.5 text-xs font-semibold text-foreground" data-testid={tid("release-sync-retry")}>
+                      <button type="button" onClick={() => { void retrySync() }} disabled={releaseSync.isPending} className="erp-btn-secondary mt-2 !h-11 min-w-11" data-testid={tid("release-sync-retry")}>
                         {releaseSync.isPending ? "Retrying…" : "Retry planning sync"}
                       </button>
                     </>
                   ) : (
-                    `${outcome.lotIds.length} job card(s) created. The release winder is a hint; schedule on any available winder.`
+                    `${plural(outcome.lotIds.length, "job card")} created. The release winder is a hint; schedule on any available winder.`
                   )}
                 </div>
-                <a href={`/planning/board?section=winder&machine_id=${outcome.winderMachineId}&order_id=${order.id}`} className="erp-btn-primary" data-testid={tid("open-winder-queue")}>
+                <a href={`/planning/board?section=winder&machine_id=${outcome.winderMachineId}&order_id=${order.id}`} className="erp-btn-primary !h-11 sm:!h-9" data-testid={tid("open-winder-queue")}>
                   Open planning queue
                 </a>
               </div>
@@ -396,20 +414,22 @@ export function ReleaseToQueueDialog({
                         <div className="flex items-center gap-2">
                           <StatusBadge value={row.mode === "resume" ? "PENDING" : "NEW"} />
                           {!firstOfLine && row.mode === "new" ? (
-                            <button type="button" aria-label="Remove row" onClick={() => setRows((current) => current.filter((entry) => entry.key !== row.key))} className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-signal-rose-soft hover:text-signal-rose-ink">
+                            <button type="button" aria-label="Remove row" onClick={() => setRows((current) => current.filter((entry) => entry.key !== row.key))} className="grid h-11 w-11 place-items-center rounded-md text-muted-foreground hover:bg-signal-rose-soft hover:text-signal-rose-ink sm:h-7 sm:w-7">
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
                           ) : null}
                         </div>
                       </div>
-                      <div className={cn("mt-3 grid gap-3", row.parchment_required ? "md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)]" : "md:grid-cols-2")}>
+                      <div className={cn("mt-3 grid grid-cols-[minmax(0,1fr)] gap-3", row.parchment_required ? "md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)]" : "md:grid-cols-2")}>
                         {row.parchment_required ? (
-                          <label className="space-y-1">
-                            <span className="text-[12px] font-medium text-muted-foreground">Parchment color</span>
+                          <label className="min-w-0 space-y-1">
+                            <span className="text-[12px] font-medium text-muted-foreground">Parchment colour <span className="text-signal-rose-ink" aria-hidden="true">*</span></span>
                             <select
-                              aria-label="Parchment color"
+                              aria-label="Parchment colour"
+                              aria-required="true"
+                              aria-invalid={!row.color}
                               value={row.color_id || row.color}
-                              disabled={row.mode === "resume"}
+                              disabled={row.color_locked}
                               onChange={(event) => {
                                 const value = event.target.value
                                 const known = row.color_options.find((option) => (option.color_id || option.color) === value)
@@ -419,7 +439,8 @@ export function ReleaseToQueueDialog({
                               className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm font-semibold"
                               data-testid={tid("release-color")}
                             >
-                              <option value="">Choose color</option>
+                              <option value="">Choose colour</option>
+                              {row.color_locked && !row.color_options.some((option) => option.color === row.color) ? <option value={row.color_id || row.color}>{row.color}</option> : null}
                               {row.color_options.length ? (
                                 <optgroup label="On this order">
                                   {row.color_options.map((option) => (
@@ -429,8 +450,8 @@ export function ReleaseToQueueDialog({
                                   ))}
                                 </optgroup>
                               ) : null}
-                              {row.unassigned_qty > 0 ? (
-                                <optgroup label={`New color from ${fmt(row.unassigned_qty)} unassigned`}>
+                              {row.unassigned_qty > 0 || (row.mode === "resume" && !row.color_locked) ? (
+                                <optgroup label={row.plain_line || row.mode === "resume" ? "Parchment colours" : `New colour from ${fmt(row.unassigned_qty)} not decided`}>
                                   {masterColors.filter((option) => !row.color_options.some((known) => known.color_id === option.id)).map((option) => (
                                     <option key={option.id} value={option.id}>{option.label}</option>
                                   ))}
@@ -440,9 +461,15 @@ export function ReleaseToQueueDialog({
                             {row.color ? (
                               <span className="flex items-center justify-between text-[11.5px] text-muted-foreground">
                                 <ColorChip color={row.color} className="!text-[11.5px]" />
-                                <span className="tabular-nums">{Number.isFinite(capacity) ? `${fmt(capacity)} available` : ""}</span>
+                                <span className="tabular-nums">{Number.isFinite(capacity) && !row.plain_line ? `${fmt(capacity)} available` : ""}</span>
                               </span>
-                            ) : null}
+                            ) : (
+                              <span className="block text-[11.5px] text-signal-amber-ink" data-testid={tid("release-color-needed")}>
+                                {row.mode === "resume"
+                                  ? "Saved before the colour became compulsory — pick the colour now. It is saved on the order, then the job card is made."
+                                  : row.plain_line ? "Ordered without parchment — pick the colour to wind." : "Colour not decided on the order — pick it now."}
+                              </span>
+                            )}
                           </label>
                         ) : null}
                         <label className="space-y-1">
@@ -473,10 +500,10 @@ export function ReleaseToQueueDialog({
                         </label>
                       </div>
                       {row.compatibility_warning ? <p className="mt-2 text-xs text-signal-amber-ink">{row.compatibility_warning}</p> : null}
-                      {problem ? <p data-testid={tid("release-blocker")} className="mt-2 flex items-center gap-1.5 text-xs text-signal-amber-ink"><AlertTriangle className="h-3.5 w-3.5" />{problem}</p> : null}
+                      {problem && !(problem === MISSING_COLOUR && row.parchment_required) ? <p data-testid={tid("release-blocker")} className="mt-2 flex items-center gap-1.5 text-xs text-signal-amber-ink"><AlertTriangle className="h-3.5 w-3.5" />{problem}</p> : null}
                       {lastOfLine && row.mode === "new" ? (
-                        <button type="button" onClick={() => addColorRow(row)} className="mt-3 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-primary hover:underline">
-                          <Plus className="h-3.5 w-3.5" />{row.parchment_required ? "Add another color / card" : "Add another card"}
+                        <button type="button" onClick={() => addColorRow(row)} className="mt-2 inline-flex min-h-11 items-center gap-1.5 text-[13px] font-semibold text-primary hover:underline sm:min-h-9 sm:text-[12.5px]">
+                          <Plus className="h-3.5 w-3.5" />Add another colour / card
                         </button>
                       ) : null}
                     </div>
@@ -495,8 +522,9 @@ export function ReleaseToQueueDialog({
                 return (
                   <div key={row.id} className={cn("rounded-lg p-2 transition-colors", selected && "bg-primary/5 ring-1 ring-inset ring-primary/20")}>
                     <div className="flex items-baseline justify-between gap-2 text-[12.5px]">
-                      <span className="font-semibold">{row.label}</span>
-                      <span className="tabular-nums text-muted-foreground">{fmt(total)} pcs{row.adding ? <span className="font-semibold text-primary"> +{fmt(row.adding)}</span> : null}</span>
+                      {/* A long winder name wraps; the pcs figure stays inside the card. */}
+                      <span className="min-w-0 break-all font-semibold">{row.label}</span>
+                      <span className="shrink-0 whitespace-nowrap tabular-nums text-muted-foreground">{fmt(total)} pcs{row.adding ? <span className="font-semibold text-primary"> +{fmt(row.adding)}</span> : null}</span>
                     </div>
                     <div className="mt-1.5 flex h-3 overflow-hidden rounded-full bg-muted">
                       <div className="h-full origin-left animate-[bar-grow_700ms_var(--ease-workspace)_both] bg-signal-amber-ink/80" style={{ width: `${(row.running / maxLoad) * 100}%` }} title={`Running ${fmt(row.running)}`} />
@@ -504,7 +532,7 @@ export function ReleaseToQueueDialog({
                       <div className="h-full origin-left animate-[bar-grow_700ms_var(--ease-workspace)_both] bg-[hsl(var(--chart-2))]" style={{ width: `${(row.queued / maxLoad) * 100}%` }} title={`In queue ${fmt(row.queued)}`} />
                       <div className="h-full bg-[repeating-linear-gradient(45deg,hsl(var(--primary))_0_4px,hsl(var(--primary)/.45)_4px_8px)] transition-[width] duration-300" style={{ width: `${(row.adding / maxLoad) * 100}%` }} />
                     </div>
-                    <p className="mt-1 text-[11px] tabular-nums text-muted-foreground">{fmt(row.openM)} m · {row.cards} cards · {fmt(row.queued)} pcs queue · {fmt(row.scheduled)} scheduled{row.days !== null ? ` · ≈ ${row.days} days` : ""}</p>
+                    <p className="mt-1 text-[11px] tabular-nums text-muted-foreground">{fmt(row.openM)} m · {plural(row.cards, "card")} · {fmt(row.queued)} pcs queue · {fmt(row.scheduled)} scheduled{row.days !== null ? ` · ≈ ${row.days} days` : ""}</p>
                   </div>
                 )
               }) : <p className="text-[12px] text-muted-foreground">{winderLoad.isLoading ? "Loading queues…" : "No winder queues yet."}</p>}
@@ -516,7 +544,10 @@ export function ReleaseToQueueDialog({
             </div>
             {rows.some((row) => row.parchment_required) ? (
               <div className="mt-5 border-t border-border pt-4">
-                <p className="text-[13px] font-semibold">Colors in this release</p>
+                <p className="text-[13px] font-semibold">Colours in this release</p>
+                {rows.some((row) => row.color) ? null : (
+                  <p className="mt-1 text-[11.5px] text-muted-foreground" data-testid={tid("release-colours-empty")}>No colour picked yet. Pick a parchment colour on each card and the pcs per colour show here.</p>
+                )}
                 <ul className="mt-2 space-y-1">
                   {Object.entries(rows.reduce((acc: Record<string, number>, row) => { if (row.color) acc[row.color] = (acc[row.color] || 0) + Number(row.release_qty || 0); return acc }, {})).map(([color, qty]) => (
                     <li key={color} className="flex items-center justify-between text-[12.5px]"><span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full" style={{ background: swatchFor(color) }} />{color}</span><span className="tabular-nums">{fmt(qty)}</span></li>
@@ -526,14 +557,17 @@ export function ReleaseToQueueDialog({
             ) : null}
           </aside>
         </div>
-        <DialogFooter className="border-t border-border bg-card px-6 py-4">
+        <DialogFooter className="shrink-0 border-t border-border bg-card px-4 py-3 sm:px-6 sm:py-4">
           {outcome ? (
-            <button type="button" onClick={() => onOpenChange(false)} className="erp-btn-secondary">Close</button>
+            <button type="button" onClick={() => onOpenChange(false)} className="erp-btn-secondary !h-11 sm:!h-9">Close</button>
           ) : (
-            <div className="flex w-full items-center justify-between gap-3">
-              <span className="text-sm text-muted-foreground">{fmt(totalQty)} pcs · {rows.length} card(s) · {problems.size ? `${problems.size} to fix` : "ready"}</span>
-              <div className="flex gap-2">
-                <button type="button" onClick={() => onOpenChange(false)} className="erp-btn-secondary">Cancel</button>
+            <div className="flex w-full flex-wrap items-center justify-between gap-3">
+              <span className="text-sm text-muted-foreground" data-testid={tid("release-summary")}>
+                {!hydrated ? "Loading lines…" : <>{fmt(totalQty)} pcs · {plural(rows.length, "job card")} ·{" "}
+                {problems.size ? <span className="font-medium text-signal-amber-ink">{problems.size === 1 ? "1 thing to fix" : `${problems.size} things to fix`}</span> : "ready"}</>}
+              </span>
+              <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+                <button type="button" onClick={() => onOpenChange(false)} className="erp-btn-secondary !h-11 sm:!h-9">Cancel</button>
                 <button
                   type="button"
                   data-testid={tid("confirm-release")}
@@ -542,7 +576,7 @@ export function ReleaseToQueueDialog({
                     const detail = error?.response?.data?.detail || error?.message || "Release failed."
                     showToast(describeErrorDetail(detail), "error")
                   })}
-                  className="erp-btn-primary disabled:opacity-50"
+                  className="erp-btn-primary !h-11 disabled:opacity-50 sm:!h-9"
                 >
                   <CheckCircle2 className="h-4 w-4" />
                   Release to queue

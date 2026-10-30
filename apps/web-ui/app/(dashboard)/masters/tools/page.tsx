@@ -50,6 +50,7 @@ import { usePlanningJobCards } from "@/hooks/use-production"
 import { TOOL_CATEGORY_LABELS, formatToolMasterSpecText } from "@/lib/spec-sheet"
 import { buildScanUrl } from "@/lib/app-url"
 import { parseScanCode } from "@/lib/scan-code"
+import { RackLabelHint } from "@/components/inventory/rack-label-hint"
 
 const CATEGORY_LABELS = TOOL_CATEGORY_LABELS
 const CATEGORY_ORDER = Object.keys(TOOL_CATEGORY_LABELS)
@@ -77,6 +78,7 @@ function formatDate(value: any) {
 /** A scanned or pasted tool label (/scan link, hariom://tool/<no> or the bare asset number) searches by asset number. */
 function toolSearchText(value: string) {
   const parsed = parseScanCode(value)
+  // A rack label is kept as scanned so the box can say "That is a rack label" (RackLabelHint); it matches no tool.
   return parsed.kind === "TOOL" ? parsed.code : value.trim()
 }
 
@@ -543,6 +545,7 @@ export default function ToolsPage() {
               <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input value={assetSearch} onChange={(event) => { setAssetSearch(event.target.value); setLinkedAsset("") }} placeholder="Search QR / asset no." className="h-9 w-64 pl-9" />
             </label>
+            <RackLabelHint value={assetSearch} expected="tool's QR" className="w-full" />
             <Button type="button" variant="outline" size="sm" onClick={() => setIsScanOpen(true)} title="Scan a physical tool QR code">
               <ScanLine className="mr-1.5 h-4 w-4" /> Scan QR
             </Button>

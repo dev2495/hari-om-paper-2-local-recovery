@@ -106,7 +106,7 @@ export function Donut({ slices, centerLabel, centerValue, size = 168, format = (
           const className = cn("flex items-center gap-2 rounded-md px-1.5 py-1 text-[12.5px] transition-colors", focus === index && "bg-foreground/[.04]")
           return (
             <li key={slice.label} onMouseEnter={() => setFocus(index)} onMouseLeave={() => setFocus(null)}>
-              {slice.href ? <a href={slice.href} className={cn(className, "hover:bg-foreground/[.04]")}>{content}</a> : <div className={className}>{content}</div>}
+              {slice.href ? <a href={slice.href} className={cn(className, "hover:bg-foreground/[.04] max-sm:min-h-11")}>{content}</a> : <div className={className}>{content}</div>}
             </li>
           )
         })}

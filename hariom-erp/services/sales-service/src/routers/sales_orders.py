@@ -12,6 +12,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, joinedload
 
 from ..database import get_db
+from ..parchment_master import check_master_colour, refuse_placeholder
 from ..open_demand import collect_open_demand
 from ..due_risk import plant_today
 from ..models import (
@@ -22,6 +23,7 @@ from ..models import (
     SalesOrderStatus,
     SalesOrderDispatchLog,
     SalesOrderLineColor,
+    SalesOrderPoChange,
 )
 from ..color_allocation import (
     ColorAllocationError,
@@ -36,6 +38,7 @@ from ..color_allocation import (
 )
 from ..commercial import (
     ORIGIN_CUSTOMER_PO,
+    ORIGIN_INTERNAL,
     ORIGIN_REVIEW,
     SalesCommercialError,
     validate_delivery_schedule_input,
@@ -107,7 +110,8 @@ class SalesOrderLineInput(BaseModel):
     color_splits: Optional[List[LineColorInput]] = None
     rate_per_pc: Optional[float] = Field(default=None, ge=0)
     qty: float = Field(..., gt=0)
-    due_date: date
+    # Optional everywhere (client 2026-10-28): blank = "No date"; a given date must follow the PO date.
+    due_date: Optional[date] = None
 
     @field_validator("qty")
     @classmethod
@@ -282,7 +286,7 @@ class SalesOrderLineResponse(BaseModel):
     line_value: Optional[float] = None
     effective_rate_per_pc: Optional[float] = None
     qty: float
-    due_date: date
+    due_date: Optional[date] = None
     earliest_delivery_date: Optional[date] = None
     released_qty: float
     fulfilled_qty: float
@@ -332,6 +336,11 @@ class SalesOrderResponse(BaseModel):
     closure_at: Optional[datetime] = None
     # What the order allows now (cancel / short close), with the reason when not allowed.
     closure_options: dict = Field(default_factory=dict)
+    # Internal order still waiting for the customer's PO (client 2026-10-28).
+    awaiting_customer_po: bool = False
+    # Whether the customer PO number may be changed now: free before release, once after release.
+    po_change_options: dict = Field(default_factory=dict)
+    po_changes: List[dict] = Field(default_factory=list)
     lines: List[SalesOrderLineResponse]
 
 
@@ -446,9 +455,84 @@ def _serialize_line(line: SalesOrderLine) -> dict:
     }
 
 
+PO_CHANGE_CONFIRMED = "CONFIRMED"
+PO_CHANGE_EDITED = "EDITED"
+
+
+def _order_ever_released(order: SalesOrder) -> bool:
+    """Has this order EVER been released to the floor?
+
+    The once-only PO change is for the order's whole life (client 2026-10-28), so a force-closed
+    card that made nothing (its lot cancelled, the order back to approved) must not reopen free
+    PO editing. ``released_at`` is stamped on the first release and never cleared; any release
+    lot, cancelled or not, also counts.
+    """
+    if getattr(order, "released_at", None) is not None:
+        return True
+    status = getattr(order.status, "value", order.status)
+    if str(status or "").lower() in {"released", "partially_released", "partially_dispatched"}:
+        return True
+    return any(
+        True
+        for line in (order.lines or [])
+        for _lot in (getattr(line, "release_lots", None) or [])
+    )
+
+
+def awaiting_customer_po(order: SalesOrder) -> bool:
+    """An order made without a customer PO number: "Internal order · waiting for customer PO"."""
+    origin = str(getattr(order, "origin", None) or ORIGIN_CUSTOMER_PO).upper()
+    return origin != ORIGIN_CUSTOMER_PO and not (order.po_number or "").strip()
+
+
+def po_change_options(order: SalesOrder) -> dict:
+    """Customer PO number rules (client 2026-10-28): free before release, ONCE after release, then locked."""
+    status = display_status(order)
+    if status in {"closed", "cancelled"}:
+        return {"allowed": False, "mode": "locked", "reason": "The order is closed, so its customer PO cannot change."}
+    # The one change after release is for the order's whole life: once used it stays locked, even
+    # if every job card is later cancelled and the order is back to "not released".
+    used = next((row for row in (getattr(order, "po_changes", None) or []) if row.after_release), None)
+    if used is None and not _order_ever_released(order):
+        return {"allowed": True, "mode": "free", "reason": None}
+    if used is not None:
+        when = used.changed_at.strftime("%d %b %Y").lstrip("0") if used.changed_at else "earlier"
+        return {
+            "allowed": False,
+            "mode": "locked",
+            # The login stays out of the sentence (it reaches the user as a 409 too); the page names the person.
+            "reason": f"The customer PO was already changed once after release ({when}); it is now locked.",
+            "changed_by": used.changed_by,
+            "changed_at": used.changed_at.isoformat() if used.changed_at else None,
+        }
+    return {
+        "allowed": True,
+        "mode": "once",
+        "reason": "Job cards are released: the customer PO can be changed only once from now on, then it locks.",
+    }
+
+
+def _po_change_row(row: SalesOrderPoChange) -> dict:
+    return {
+        "id": str(row.id),
+        "kind": row.kind,
+        "old_po_number": row.old_po_number,
+        "new_po_number": row.new_po_number,
+        "old_po_date": row.old_po_date.isoformat() if row.old_po_date else None,
+        "new_po_date": row.new_po_date.isoformat() if row.new_po_date else None,
+        "after_release": bool(row.after_release),
+        "note": row.note,
+        "changed_by": row.changed_by,
+        "changed_at": row.changed_at,
+    }
+
+
 def _serialize_order(order: SalesOrder) -> dict:
     origin = str(getattr(order, "origin", None) or ORIGIN_CUSTOMER_PO)
     return {
+        "awaiting_customer_po": awaiting_customer_po(order),
+        "po_change_options": po_change_options(order),
+        "po_changes": [_po_change_row(row) for row in (getattr(order, "po_changes", None) or [])],
         "id": order.id,
         "order_no": order.order_no,
         "customer_id": order.customer_id,
@@ -602,21 +686,55 @@ def _resolve_release_color(
     *,
     exclude_lot_id: Optional[uuid.UUID] = None,
 ) -> tuple[Optional[str], Optional[uuid.UUID]]:
-    """One release lot = one color. Validates the color balance and tops it up from unassigned."""
-    if not bool(getattr(line, "parchment_required", False)):
-        return None, None
-    splits = _line_splits(line)
+    """One release lot = one color. Validates the color balance and tops it up from unassigned.
+
+    Parchment is compulsory at release (client 2026-10-28, "there is no none"): a line ordered
+    without parchment, or with its colour still undecided, must get a colour here. A plain line
+    becomes a parchment line with that colour; a release without a colour is refused.
+    """
     name = (color or "").strip()
+    if not bool(getattr(line, "parchment_required", False)):
+        if not name and color_id is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Line {int(line.line_no or 0)}: choose the parchment colour for this release — every job card needs a parchment colour",
+            )
+        line.parchment_required = True
+    splits = _line_splits(line)
     if not name and color_id is not None:
         name = next((split.color for split in splits if split.color_id == color_id), "")
+    if not name and color_id is not None:
+        # Only the master colour id was sent: take the master's name for it.
+        name, color_id = check_master_colour("", color_id, line_no=int(line.line_no or 0) or None)
     if not name and len(splits) == 1 and splits[0].qty + 1e-6 >= float(line.qty or 0.0):
         # Whole line is one color: releasing it needs no extra choice.
         name, color_id = splits[0].color, splits[0].color_id
     if not name:
         raise HTTPException(
             status_code=400,
-            detail=f"Line {int(line.line_no or 0)}: choose the parchment color for this release — one job card is one color",
+            detail=f"Line {int(line.line_no or 0)}: choose the parchment colour for this release — one job card is one colour",
         )
+    # "There is no none": a placeholder word is never a colour, and a colour that is not on the
+    # order yet must be an active parchment master colour (the dialog only offers those).
+    line_no = int(line.line_no or 0) or None
+    refuse_placeholder(name, line_no)
+    on_line = next(
+        (
+            split
+            for split in splits
+            if split.key == color_key(color_id, name)
+            or (color_id is None and (split.color or "").strip().lower() == name.lower())
+        ),
+        None,
+    )
+    if on_line is None:
+        name, color_id = check_master_colour(name, color_id, line_no=line_no)
+        # The same master colour may already be on the line under its id: release from that split.
+        same = next((split for split in splits if color_id is not None and split.color_id == color_id), None)
+        if same is not None:
+            name = same.color
+    elif color_id is None and on_line.color_id is not None:
+        name, color_id = on_line.color, on_line.color_id
     lots = [lot for lot in (line.release_lots or []) if exclude_lot_id is None or lot.id != exclude_lot_id]
     try:
         extra = plan_color_release(
@@ -701,9 +819,15 @@ def _write_line_splits(line: SalesOrderLine, splits: list[ColorSplit]) -> None:
     for key, row in existing.items():
         if key not in wanted:
             line.color_splits.remove(row)
+    known_names = {(row.color or "").strip().lower() for row in existing.values()}
     for key, split in wanted.items():
         row = existing.get(key)
         if row is None:
+            # A colour new on this line must be a real parchment master colour (never "none").
+            if (split.color or "").strip().lower() in known_names:
+                refuse_placeholder(split.color, int(line.line_no or 0) or None)
+            else:
+                check_master_colour(split.color, split.color_id, line_no=int(line.line_no or 0) or None)
             line.color_splits.append(SalesOrderLineColor(color=split.color, color_id=split.color_id, qty=round(split.qty, 4), rate_per_pc=split.rate_per_pc))
         else:
             row.qty = round(split.qty, 4)
@@ -1585,7 +1709,7 @@ def bulk_release_sales_order_lines(
                     current_user,
                 ))
             except HTTPException as exc:
-                raise HTTPException(status_code=exc.status_code, detail=f"Row {index}: {exc.detail}. Nothing was released.") from exc
+                raise HTTPException(status_code=exc.status_code, detail=f"Row {index}: {str(exc.detail).rstrip('. ')}. Nothing was released.") from exc
         db.commit()
     except Exception:
         db.rollback()
@@ -1784,6 +1908,65 @@ def get_delivery_calendar(
     return {"date_from": date_from.isoformat(), "date_to": date_to.isoformat(), "items": rows}
 
 
+@router.get("/last-rate")
+def get_last_rate(
+    customer_id: uuid.UUID = Query(...),
+    approved_spec_id: Optional[uuid.UUID] = Query(None),
+    size_label: Optional[str] = Query(None, max_length=160),
+    exclude_order_id: Optional[uuid.UUID] = Query(None),
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(get_current_user),
+):
+    """The last rate this customer was charged for the same product (client 2026-10-28).
+
+    Same product = same approved spec, else the same size. Draft, submitted and cancelled orders
+    and lines without a rate are skipped. Only a suggestion: the screen shows it beside Rate / Pc with a "Use" button
+    and never fills it in by itself. No history = ``found: false``.
+    """
+    size = (size_label or "").strip()
+    if approved_spec_id is None and not size:
+        return {"found": False}
+
+    def newest(match_clause):
+        query = apply_plant_scope(
+            db.query(SalesOrderLine, SalesOrder).join(SalesOrder, SalesOrderLine.sales_order_id == SalesOrder.id),
+            SalesOrder.plant_id,
+            plant_scope,
+        ).filter(
+            SalesOrder.customer_id == customer_id,
+            # Only rates the order was approved with: a draft may still be mistyped or dropped.
+            SalesOrder.status.notin_([SalesOrderStatus.DRAFT, SalesOrderStatus.SUBMITTED]),
+            or_(SalesOrder.closure_kind.is_(None), SalesOrder.closure_kind != CLOSURE_CANCELLED),
+            SalesOrderLine.rate_per_pc.isnot(None),
+            match_clause,
+        )
+        if exclude_order_id is not None:
+            query = query.filter(SalesOrder.id != exclude_order_id)
+        return query.order_by(SalesOrder.created_at.desc(), SalesOrderLine.line_no.asc()).first()
+
+    match = "spec"
+    row = newest(SalesOrderLine.approved_spec_id == approved_spec_id) if approved_spec_id is not None else None
+    if row is None and size:
+        match = "size"
+        row = newest(func.lower(func.btrim(SalesOrderLine.size_label)) == size.lower())
+    if row is None:
+        return {"found": False}
+    line, order = row
+    order_date = order.po_date or order.internal_order_date or (order.created_at.date() if order.created_at else None)
+    return {
+        "found": True,
+        "rate_per_pc": float(line.rate_per_pc),
+        "order_id": str(order.id),
+        "order_no": order.order_no,
+        "po_number": order.po_number,
+        "order_date": order_date.isoformat() if order_date else None,
+        "line_no": int(line.line_no or 1),
+        "size_label": line.size_label,
+        "match": match,
+    }
+
+
 @router.get("/open-demand")
 def list_open_demand(
     db: Session = Depends(get_db),
@@ -1818,12 +2001,18 @@ def get_sales_order_timeline(
     if not order:
         raise HTTPException(status_code=404, detail="Sales order not found")
 
+    po_changes = list(getattr(order, "po_changes", None) or [])
+    made_internal = awaiting_customer_po(order) or any(row.kind == PO_CHANGE_CONFIRMED for row in po_changes)
     events = [
         _timeline_event(
             event_id=f"{order.id}:created",
             event_type="SALES_ORDER_CREATED",
-            title="Sales order created",
-            message="Commercial demand entered into the queue.",
+            title="Sales order created" + (" · internal order" if made_internal else ""),
+            message=(
+                "Made without a customer PO number — internal order, waiting for the customer PO."
+                if made_internal
+                else "Commercial demand entered into the queue."
+            ),
             created_at=order.created_at,
             actor=order.created_by,
             metadata={
@@ -1880,6 +2069,49 @@ def get_sales_order_timeline(
             )
         )
 
+    for row in po_changes:
+        old_label = row.old_po_number or "no PO number"
+        new_label = row.new_po_number or "no PO number"
+        date_part = f" dated {row.new_po_date.strftime('%d %b %Y').lstrip('0')}" if row.new_po_date else ""
+        if row.kind == PO_CHANGE_CONFIRMED:
+            title = "Confirmed as a customer order"
+            message = f"Customer PO {new_label}{date_part} added — the internal order is now a confirmed customer order."
+            event_type = "SALES_ORDER_PO_CONFIRMED"
+        elif row.old_po_number == row.new_po_number and row.old_po_date != row.new_po_date:
+            title = "Customer PO date changed after release (one-time)" if row.after_release else "Customer PO date changed"
+            old_date = row.old_po_date.strftime("%d %b %Y").lstrip("0") if row.old_po_date else "no date"
+            new_date = row.new_po_date.strftime("%d %b %Y").lstrip("0") if row.new_po_date else "no date"
+            message = f"PO {new_label} date {old_date} → {new_date}." + (
+                " This was the one change allowed after release; the PO number is now locked." if row.after_release else ""
+            )
+            event_type = "SALES_ORDER_PO_CHANGED"
+        else:
+            title = "Customer PO changed after release (one-time)" if row.after_release else "Customer PO changed"
+            message = f"PO {old_label} → {new_label}{date_part}." + (
+                " This was the one change allowed after release; the PO number is now locked." if row.after_release else ""
+            )
+            event_type = "SALES_ORDER_PO_CHANGED"
+        if row.after_release and row.kind == PO_CHANGE_CONFIRMED:
+            message += " Added after release; the PO number is now locked."
+        if row.note:
+            message += f" Note: {row.note}"
+        events.append(
+            _timeline_event(
+                event_id=f"{row.id}:po",
+                event_type=event_type,
+                title=title,
+                message=message,
+                created_at=row.changed_at,
+                actor=row.changed_by,
+                metadata={
+                    "po_number": row.new_po_number,
+                    "po_date": row.new_po_date.isoformat() if row.new_po_date else None,
+                    "previous_po_number": row.old_po_number,
+                    "after_release": bool(row.after_release),
+                },
+            )
+        )
+
     if not order.lines:
         warnings.append("Sales order has no lines.")
 
@@ -1899,7 +2131,7 @@ def get_sales_order_timeline(
                     "product_code": line.product_code,
                     "parchment_required": bool(getattr(line, "parchment_required", False)),
                     "parchment_color": line.parchment_color if getattr(line, "parchment_required", False) else None,
-                    "due_date": str(line.due_date),
+                    "due_date": line.due_date.isoformat() if line.due_date else "No date",
                 },
             )
         )
@@ -2035,6 +2267,14 @@ def update_sales_order(
 
     proposed_customer_id = payload.customer_id if payload.customer_id is not None else order.customer_id
     proposed_origin = payload.origin if payload.origin is not None else order.origin
+    if (
+        payload.origin is None
+        and (payload.po_number or "").strip()
+        and str(order.origin or "").upper() == ORIGIN_INTERNAL
+    ):
+        # A customer PO number added to an internal order confirms it (client 2026-10-28); without
+        # this the number was dropped silently because an internal order keeps no PO number.
+        proposed_origin = ORIGIN_CUSTOMER_PO
     proposed_po_number = payload.po_number if payload.po_number is not None else order.po_number
     proposed_po_date = payload.po_date if payload.po_date is not None else order.po_date
     proposed_internal_date = (
@@ -2091,6 +2331,31 @@ def update_sales_order(
             raise HTTPException(status_code=400, detail="Cannot edit lines after approval")
         _upsert_order_lines(order, payload.lines)
 
+    # Before release the customer PO is freely editable; every change of the number is kept in
+    # the order history, and adding one to an internal order confirms it (client 2026-10-28).
+    was_waiting = awaiting_customer_po(order)
+    previous_number, previous_date = (order.po_number or "").strip() or None, order.po_date
+    number_changed = (po_number or None) != previous_number and bool(po_number or previous_number)
+    # A date-only change of an existing customer PO is history too, the same as the PO dialog.
+    date_changed = bool(po_number or previous_number) and po_date != previous_date
+    if number_changed or date_changed:
+        confirmed = was_waiting and bool(po_number) and origin == ORIGIN_CUSTOMER_PO
+        order.po_changes.append(
+            SalesOrderPoChange(
+                kind=PO_CHANGE_CONFIRMED if confirmed else PO_CHANGE_EDITED,
+                old_po_number=previous_number,
+                new_po_number=po_number,
+                old_po_date=previous_date,
+                new_po_date=po_date,
+                after_release=False,
+                changed_by=current_user.get("sub", "unknown"),
+                changed_at=datetime.utcnow(),
+            )
+        )
+        if confirmed and internal_order_date is None:
+            # Keep the date the internal order was made; the PO date now leads.
+            internal_order_date = order.internal_order_date
+
     order.origin = origin
     order.origin_review_required = origin == ORIGIN_REVIEW
     order.po_number = po_number
@@ -2100,6 +2365,103 @@ def update_sales_order(
     db.commit()
     db.refresh(order)
     return _serialize_order(order)
+
+
+class CustomerPoPayload(BaseModel):
+    """Add or change the customer PO number of an order (client 2026-10-28)."""
+
+    po_number: str = Field(..., min_length=1, max_length=100)
+    # Needed when the order has no PO date yet (an internal order being confirmed).
+    po_date: Optional[date] = None
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+@router.post("/{order_id}/customer-po", response_model=SalesOrderResponse)
+def set_customer_po(
+    order_id: uuid.UUID,
+    payload: CustomerPoPayload,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "Sales"])),
+):
+    """Customer PO number: free before release, changeable ONCE after release (recorded with who
+    and when), then locked. Adding it to an internal order turns it into a confirmed customer order."""
+    _load_scoped_order(db, order_id, plant_id)
+    db.query(SalesOrder).filter(SalesOrder.id == order_id).with_for_update().first()
+    order = (
+        db.query(SalesOrder)
+        .options(
+            joinedload(SalesOrder.lines).joinedload(SalesOrderLine.release_lots),
+            joinedload(SalesOrder.lines).joinedload(SalesOrderLine.delivery_schedules),
+        )
+        .filter(SalesOrder.id == order_id, SalesOrder.plant_id == plant_id)
+        .populate_existing()
+        .first()
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Sales order not found")
+    options = po_change_options(order)
+    if not options["allowed"]:
+        raise HTTPException(status_code=409, detail=options["reason"])
+    number = payload.po_number.strip()
+    if not number:
+        raise HTTPException(status_code=422, detail="Enter the customer PO number.")
+    new_date = payload.po_date or order.po_date
+    if new_date is None:
+        raise HTTPException(status_code=422, detail="Enter the customer PO date.")
+    if payload.po_date is not None and payload.po_date > plant_today():
+        raise HTTPException(status_code=422, detail="The customer PO date cannot be later than today.")
+    previous_number = (order.po_number or "").strip() or None
+    if number == previous_number and new_date == order.po_date:
+        raise HTTPException(status_code=400, detail="This is already the order's customer PO number and date.")
+    after_release = options["mode"] == "once"
+    if not after_release:
+        # Before release the normal rule applies: a given delivery date must follow the PO date.
+        try:
+            validate_order_lines_delivery_dates(origin=ORIGIN_CUSTOMER_PO, customer_po_date=new_date, lines=order.lines or [])
+        except SalesCommercialError as exc:
+            raise _http_commercial(exc) from exc
+    confirmed = awaiting_customer_po(order)
+    note = (payload.note or "").strip() or None
+    order.po_changes.append(
+        SalesOrderPoChange(
+            kind=PO_CHANGE_CONFIRMED if confirmed else PO_CHANGE_EDITED,
+            old_po_number=previous_number,
+            new_po_number=number,
+            old_po_date=order.po_date,
+            new_po_date=new_date,
+            after_release=after_release,
+            note=note,
+            changed_by=current_user.get("sub", "unknown"),
+            changed_at=datetime.utcnow(),
+        )
+    )
+    order.origin = ORIGIN_CUSTOMER_PO
+    order.origin_review_required = False
+    order.po_number = number
+    order.po_date = new_date
+    db.commit()
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="sales_order_po_confirmed" if confirmed else "sales_order_po_changed",
+            entity_type="sales_order",
+            entity_id=str(order.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["Sales"])[0]),
+            actor_email=current_user.get("sub"),
+            summary=(
+                f"Sales order {order.order_no} confirmed with customer PO {number}"
+                if confirmed
+                else f"Sales order {order.order_no} customer PO {previous_number or '-'} → {number}"
+                + (" (one-time change after release)" if after_release else "")
+            ),
+            payload={"order_no": order.order_no, "po_number": number, "previous_po_number": previous_number, "after_release": after_release},
+        )
+    except Exception:
+        pass
+    return _serialize_order(_load_scoped_order(db, order_id, plant_id))
 
 
 class SalesOrderHoldPayload(BaseModel):
@@ -2589,6 +2951,16 @@ def _release_line_in_transaction(db: Session, line_id: uuid.UUID, payload: Sales
         if not existing_lot.job_card_id:
             existing_lot.winder_machine_id = payload.winder_machine_id
             existing_lot.product_code = (payload.product_code or line.product_code or "").strip() or None
+            if not (existing_lot.parchment_color or "").strip() and ((payload.parchment_color or "").strip() or payload.parchment_color_id):
+                # A pending lot saved before parchment became compulsory gets its colour now,
+                # so its job card can be made (client 2026-10-28).
+                existing_lot.parchment_color, existing_lot.parchment_color_id = _resolve_release_color(
+                    line,
+                    payload.parchment_color,
+                    payload.parchment_color_id,
+                    float(existing_lot.released_qty or 0.0),
+                    exclude_lot_id=existing_lot.id,
+                )
             db.flush()
         return existing_lot, order.id
 
@@ -2867,7 +3239,11 @@ def amend_release_lot(
     before = {"release_qty": lot.released_qty, "parchment_color": lot.parchment_color}
     color_name = payload.parchment_color if payload.parchment_color is not None else lot.parchment_color
     color_id = payload.parchment_color_id if payload.parchment_color is not None else lot.parchment_color_id
-    lot.parchment_color, lot.parchment_color_id = _resolve_release_color(line, color_name, color_id, new_qty, exclude_lot_id=lot.id)
+    if (color_name or "").strip() or color_id is not None:
+        lot.parchment_color, lot.parchment_color_id = _resolve_release_color(line, color_name, color_id, new_qty, exclude_lot_id=lot.id)
+    # else: a card released before parchment became compulsory (28 Oct) has no colour. Changing
+    # its quantity keeps it as it was released; the compulsory colour applies to new releases only.
+    # The line's free quantity was already checked above.
     lot.released_qty = round(new_qty, 4)
     _sync_release_status(line.sales_order)
     db.commit()

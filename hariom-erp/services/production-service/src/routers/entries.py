@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import math
 import calendar
 import os
+import time
 import uuid
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -89,10 +90,23 @@ class ResidualResolve(Mutation):
     disposition:str
 
 
+CARD_LOCK_WAIT_SECONDS=float(os.getenv("CARD_LOCK_WAIT_SECONDS","12"))
+
+
+def wait_for_card_lock(db,card_id):
+    """The completion worker holds the card for the second or two it takes to post a close (tools, theory,
+    finished goods). A save that arrives meanwhile waits for it instead of failing (seen 28 Oct when a
+    whole printed card was saved right after the previous close or the release)."""
+    deadline=time.monotonic()+CARD_LOCK_WAIT_SECONDS;pause=0.15
+    while not db.execute(text("SELECT pg_try_advisory_xact_lock(hashtext(:key))"),{"key":"production-effect:"+str(card_id)}).scalar():
+        if time.monotonic()>=deadline:raise HTTPException(409,"This card is still posting its last close to stock. Nothing was saved; wait a few seconds and save again.")
+        time.sleep(pause);pause=min(pause*1.5,1.0)
+
+
 def card(db,card_id,plant,lock=False):
     query=db.query(JobCard).filter_by(id=card_id,plant_id=planning._to_uuid(plant))
     if lock:
-        if not db.execute(text("SELECT pg_try_advisory_xact_lock(hashtext(:key))"),{"key":"production-effect:"+str(card_id)}).scalar():raise HTTPException(409,"A durable posting is running; retry after it finishes")
+        wait_for_card_lock(db,card_id)
         query=query.with_for_update()
     job=query.first()
     if not job:raise HTTPException(404,"Job card not found")
@@ -188,6 +202,11 @@ def qc_cleared_ids(db,job,stage):
     released is cleared too."""
     rows=entries(db,job,stage)
     if not stage_has_qc(job,stage):return {e.id for e in rows}
+    # A closed stage passed the close gate, which counts the stage's readings together (runs and QC without a
+    # run, at least 2 per required check). The next stage counts them the same way: every batch of a closed
+    # stage is cleared (fixed 2026-10-28: Winding closed with one reading on the run and one as QC without a
+    # run, then Oven was refused "waiting for Winding QC").
+    if stage!="PROCESS" and db.query(JobCardStage.id).filter_by(job_card_id=job.id,stage_type=stage,status="COMPLETED").first():return {e.id for e in rows}
     released={str(i.sample_id) for i,h in db.query(QualityInspection,QualityHold).join(QualityHold,QualityHold.source_inspection_id==QualityInspection.id).filter(QualityInspection.job_card_id==job.id,QualityInspection.stage_type==stage,QualityHold.status=="RELEASED").all()}
     return {e.id for e in rows if qc_accepted(job,e) or str(e.id) in released}
 
@@ -307,6 +326,10 @@ def flow(db,job):
             cap=max(0,packed-accepted-retained);blockers=[] if status=="COMPLETED" else ["Complete shipment through Logistics Dispatch"]
         stage_segments=[s for s in segments if s.stage_type==stage]
         states.append({"stage":stage,"status":status,"unit":stage_unit(stage),"target":target,"unscheduled_entries":sum(1 for e in actual if (e.details or {}).get("unscheduled_entry")),"produced_total":produced,"accepted_total":accepted,"rejected_total":produced-accepted,"input_total":accepted if stage=="DISPATCH" else sum(e.input_quantity for e in actual),"cutting_loss_total":sum(e.cutting_loss_pcs for e in actual),"qc_flagged_runs":sum(1 for e in actual if (e.evaluation or {}).get("verdict")=="FAIL"),"carryover_pcs":sum(e.carry_out_pcs-e.carry_in_pcs for e in actual),"available_from_upstream":cap,"awaiting_qc_from_upstream":waiting,"upstream_has_qc":bool(upstream and stage_has_qc(job,upstream)),"input_unit":stage_unit(upstream) if upstream else None,"pcs_per_bamboo":planning._pcs_per_bamboo_from_snapshot(job.spec_snapshot or {}) if stage=="PROCESS" else None,"qc":readiness,"draft_count":drafts,"can_close":status!="COMPLETED" and stage not in ("SLITTING","DISPATCH") and not blockers,"system_step":stage in SYSTEM_STAGES and not drafts and not any(e.stage==stage for e in all_entries),"completes_card":stage=="PROCESS" and any(s in route(job) for s in SYSTEM_STAGES),"blockers":blockers,"row_version":int(snapshot.get("row_version",1)),"supervisor_name":snapshot.get("supervisor_name"),"closed_at":snapshot.get("closed_at"),"residual_quantity":snapshot.get("residual_quantity"),"residual_disposition":snapshot.get("residual_disposition"),"segments":[{"id":str(s.id),"machine_id":str(s.machine_id) if s.machine_id else None,"plan_date":s.plan_date,"shift_code":s.shift_code,"status":s.status,**planning._planner_gate_context(current_stage=stage,active_stage=row,active_segment=s)} for s in stage_segments]})
+        # Process runs whose pieces do not match bamboo × pcs (flagged, never refused) and how the stage was closed,
+        # for the card banner and the printed card (client 2026-10-28).
+        gaps=[(e.details or {}).get("count_gap") for e in actual if (e.details or {}).get("count_gap")]
+        states[-1].update(count_gap_runs=len(gaps),count_gap_pcs=sum(int(g.get("gap") or 0) for g in gaps),close_kind=snapshot.get("close_kind"),closed_by=snapshot.get("closed_by"),close_reason=snapshot.get("close_reason") or snapshot.get("auto_reason"))
         if stage=="PROCESS" and states[-1]["completes_card"]:
             snap=job.spec_snapshot or {}
             states[-1]["completion_preview"]={"fg_qty":accepted,"fg_code":snap.get("product_code") or snap.get("sales_order_line_product_code"),"packing":planning._packing_consumption_snapshot(packed_qty=float(accepted),spec_snapshot=dict(snap))}
@@ -439,13 +462,23 @@ def entry_machine(db,job,data,user,plant):
 def cover_stage_batches(db,job,e):
     """A running-totals (whole-card) entry is the printed card entered afterwards: the card has one
     readings block per stage, so its passing readings cover this stage's earlier batches that were
-    logged without readings. Batches with their own readings keep their own verdict."""
-    if (e.evaluation or {}).get("verdict") not in ("PASS","OBSERVATION_ONLY") or not e.samples:return
+    logged without readings. Batches with their own readings keep their own verdict.
+    The card's readings must meet the minimum (2 per required check); a reading out of band still covers
+    (flagged, not held — client 2026-10-27) and its flag stays on the card's own entry."""
+    verdict=(e.evaluation or {}).get("verdict")
+    if verdict not in ("PASS","OBSERVATION_ONLY","FAIL") or not e.samples or readings_short(job,e):return
     for other in entries(db,job,e.stage):
-        if other.id==e.id or other.samples or (other.evaluation or {}).get("verdict") not in (None,"NOT_MEASURED"):continue
-        other.evaluation={**(other.evaluation or {}),"verdict":"PASS","results":[],"covered_by_entry":str(e.id)}
+        if other.id==e.id or other.samples or other.kind=="QC_ONLY" or (other.evaluation or {}).get("verdict") not in (None,"NOT_MEASURED"):continue
+        other.evaluation={**(other.evaluation or {}),"verdict":"PASS" if verdict!="FAIL" else "OBSERVATION_ONLY","results":[],"covered_by_entry":str(e.id),**({"covered_flagged":True} if verdict=="FAIL" else {})}
         other.details={**(other.details or {}),"qc_covered_by_entry":str(e.id),"qc_covered_entry_no":e.entry_no}
     db.flush()
+
+
+def nothing_new(db,job,e):
+    """A whole-card row (running totals) whose totals equal what is already logged on the stage."""
+    if e.quantity_mode!="TOTAL" or e.kind!="PRODUCTION":return False
+    posted=entries(db,job,e.stage)
+    return any(x.kind!="QC_ONLY" for x in posted) and all(getattr(e,f)==sum(getattr(x,f) for x in posted) for f in ("produced","accepted","input_quantity","cutting_loss_pcs"))
 
 
 def validate_entry(e,job):
@@ -464,8 +497,14 @@ def validate_entry(e,job):
     start,end=e.details.get("start_time"),e.details.get("end_time")
     try:
         values=[datetime.fromisoformat(str(t).replace("Z","+00:00")) for t in (start,end) if t]
-        if len(values)==2 and values[1]<values[0]:raise ValueError()
-    except (ValueError,TypeError) as exc:raise HTTPException(422,"End time must be after start time") from exc
+    except (ValueError,TypeError) as exc:raise HTTPException(422,"Start or end time is not a valid date and time") from exc
+    # Card times never block a save (client 2026-10-11): an end time before the start time is kept as typed
+    # and flagged for the owner (Reports › Exceptions), the same as on old-form cards.
+    details={k:v for k,v in (e.details or {}).items() if k!="time_reversed"}
+    try:reversed_times=len(values)==2 and values[1]<values[0]
+    except TypeError:reversed_times=False
+    if reversed_times:details["time_reversed"]={"start_time":str(start),"end_time":str(end),"message":"End time is before start time; check the date written on the card. Saved and flagged."}
+    e.details=details
     if e.details.get("cycle_time_hours") is not None:
         try:
             duration=float(e.details["cycle_time_hours"])
@@ -474,12 +513,19 @@ def validate_entry(e,job):
 
 
 def validate_books(db,job,e):
+    """Floor entries dated inside a CLOSED month are refused (spec 2.5): exactly the closed months, never
+    "everything up to the latest close". business_date is already the IST business day."""
     if e.kind=="QC_ONLY" or not e.business_date:return
-    closed=db.query(MonthlyMaterialClose).filter_by(plant_id=job.plant_id,status="APPROVED").order_by(MonthlyMaterialClose.month_start.desc()).first()
-    if closed:
-        month=closed.month_start
-        locked_through=date(month.year,month.month,calendar.monthrange(month.year,month.month)[1])
-        if e.business_date<=locked_through:raise HTTPException(422,{"code":"BOOKS_LOCKED","message":f"Books are locked through {locked_through}; production cannot be backdated into this period"})
+    validate_books_day(db,job.plant_id,e.business_date)
+
+
+def validate_books_day(db,plant_id,day):
+    """The same refusal for any floor write dated on an IST business day (V2 entries, old stage outputs):
+    409 BOOKS_LOCKED with the plain message, the same body inventory and the BFF send."""
+    month=day.replace(day=1)
+    if db.query(MonthlyMaterialClose.id).filter_by(plant_id=plant_id,month_start=month,status="APPROVED").first():
+        from ..services.consumption import month_label
+        raise HTTPException(409,{"code":"BOOKS_LOCKED","message":f"{month_label(month)} is closed. Ask the owner to re-open it.","month":month.isoformat()[:7]})
 
 
 def sync_totals(db,job,stage):
@@ -580,6 +626,7 @@ def validate_setup(db,job,e):
         cycle=None
         if e.stage=="OVEN" and e.details.get("start_time") and e.details.get("end_time"):
             cycle=(datetime.fromisoformat(str(e.details["end_time"]).replace("Z","+00:00"))-datetime.fromisoformat(str(e.details["start_time"]).replace("Z","+00:00"))).total_seconds()/3600
+            if cycle<=0:cycle=None  # reversed card times are flagged (time_reversed), not used as a cycle
         planning._validate_execution_capacity(db,actual,e.stage,machine,e.accepted+sum(v.accepted for v in matching),e.details,reference_time=datetime.combine(e.business_date,datetime.min.time()),card_cycle_hours=cycle,override_reason=e.details.get("overproduction_reason") or e.details.get("capacity_override_reason"),warnings=warnings)
         e.details={**e.details,"machine_warnings":warnings}
     current=sum(v.produced for v in entries(db,job,e.stage) if v.id!=e.id)
@@ -629,7 +676,23 @@ def allocate(db,job,e):
         if e.carry_in_pcs>carry:raise HTTPException(409,"Process carryover balance is insufficient")
         if not pcs:raise HTTPException(422,"This card's spec has no pieces per bamboo, so Process pieces cannot be checked. Ask the planner to correct the spec.")
         possible,counted=e.input_quantity*pcs+e.carry_in_pcs,e.produced+e.cutting_loss_pcs+e.carry_out_pcs
-        if possible!=counted:raise HTTPException(422,process_balance_message(e,pcs,possible,counted))
+        # Client 2026-10-28: bamboo × pcs per bamboo is a check, never a gate. A gap is saved and flagged on
+        # the run (Output log, the card, Reports › Exceptions); nothing has to be written for it.
+        details={k:v for k,v in (e.details or {}).items() if k!="count_gap"}
+        if details.get("card_total"):
+            # The whole printed card (running totals, posted as the difference from the runs already logged) is
+            # judged on the stage totals, not on the difference (fixed 2026-10-28: a card whose totals balance
+            # left a "short" flag on the day's run and a "more than the bamboo can give" flag on the difference).
+            # The card's totals replace the runs' own flags: they are kept on each run as count_gap_settled.
+            earlier=[x for x in prior if x.id!=e.id]
+            for x in earlier:
+                if (x.details or {}).get("count_gap"):
+                    old={k:v for k,v in x.details.items() if k!="count_gap"}
+                    x.details={**old,"count_gap_settled":{**x.details["count_gap"],"settled_by_entry":str(e.id)}}
+            gap=card_total_gap(e,earlier,pcs)
+            if gap:details["count_gap"]=gap
+        elif possible!=counted:details["count_gap"]=count_gap(e,pcs,possible,counted)
+        e.details=details
         if (e.carry_out_pcs or e.carry_in_pcs) and not str(e.details.get("carryover_reason") or "").strip():raise HTTPException(422,"Carryover reason required")
     elif e.carry_in_pcs or e.carry_out_pcs or e.cutting_loss_pcs:raise HTTPException(422,"Cutting loss/carryover are Process-only")
     elif e.input_quantity!=e.produced:raise HTTPException(422,"Input quantity must equal produced quantity for this stage")
@@ -652,9 +715,43 @@ def allocate(db,job,e):
 
 
 def process_balance_message(e,pcs,possible,counted):
+    """The Process count in words (the flag on the run; it never stops the save)."""
     held=f" + {e.carry_in_pcs} held" if e.carry_in_pcs else ""
-    fix="Write the missing pieces as cutting loss or held carry-out." if possible>counted else "That is more pieces than the bamboo can give: check the bamboo count and the output."
-    return f"{e.input_quantity} bamboo × {pcs} pcs{held} = {possible} pcs, but this run counts {counted} pcs ({e.produced} made + {e.cutting_loss_pcs} cutting loss + {e.carry_out_pcs} held). {fix}"
+    gap=f"{possible-counted} pcs short." if possible>counted else f"{counted-possible} pcs more than the bamboo can give."
+    return f"{e.input_quantity} bamboo × {pcs} pcs{held} = {possible} pcs, but this run counts {counted} pcs ({e.produced} made + {e.cutting_loss_pcs} cutting loss + {e.carry_out_pcs} held). {gap} Saved and flagged; nothing has to be written for it."
+
+
+def count_gap(e,pcs,possible,counted):
+    return {"bamboo":e.input_quantity,"pcs_per_bamboo":pcs,"held_in":e.carry_in_pcs,"possible":possible,"counted":counted,"made":e.produced,"cutting_loss":e.cutting_loss_pcs,"held_out":e.carry_out_pcs,"gap":possible-counted,"message":process_balance_message(e,pcs,possible,counted)}
+
+
+def card_total_gap(e,earlier,pcs):
+    """The whole printed card's Process count, judged on the stage totals (this row plus the runs before it)."""
+    total=SimpleNamespace(**{f:getattr(e,f)+sum(getattr(x,f) for x in earlier) for f in ("input_quantity","carry_in_pcs","produced","cutting_loss_pcs","carry_out_pcs")})
+    possible,counted=total.input_quantity*pcs+total.carry_in_pcs,total.produced+total.cutting_loss_pcs+total.carry_out_pcs
+    if possible==counted:return None
+    gap=count_gap(total,pcs,possible,counted)
+    return {**gap,"card_total":True,"message":"Card total: "+gap["message"].replace("this run counts","the card counts")}
+
+
+def refresh_process_gaps(db,job):
+    """After a Process row is voided, the count flags are worked out again from the rows still live
+    (fixed 2026-10-30: voiding a whole-card total row left its runs' gaps settled for good, so the
+    run, the card and Reports › Exceptions lost the Process count gap)."""
+    live=entries(db,job,"PROCESS");live_ids={str(x.id) for x in live}
+    for x in live:
+        settled=(x.details or {}).get("count_gap_settled")
+        if settled and settled.get("settled_by_entry") not in live_ids:
+            old={k:v for k,v in x.details.items() if k!="count_gap_settled"}
+            x.details={**old,"count_gap":{k:v for k,v in settled.items() if k!="settled_by_entry"}}
+    totals=[x for x in live if (x.details or {}).get("card_total")]
+    if not totals:return
+    pcs=planning._pcs_per_bamboo_from_snapshot(job.spec_snapshot or {})
+    if not pcs:return
+    latest=totals[-1]
+    gap=card_total_gap(latest,[x for x in live if x.entry_no<latest.entry_no],pcs)
+    details={k:v for k,v in latest.details.items() if k!="count_gap"}
+    latest.details={**details,"count_gap":gap} if gap else details
 
 
 def label_stage(stage):
@@ -762,20 +859,39 @@ def qc_due(limit:int=Query(200,ge=1,le=500),db:Session=Depends(get_db),scope:dic
 @router.get("/entries/flagged")
 def flagged_entries(days:int=Query(30,ge=1,le=366),limit:int=Query(200,ge=1,le=500),db:Session=Depends(get_db),plant:str=Depends(get_current_plant),user:dict=Depends(require_role(["Owner","Admin","PlantManager","Planner"]))):
     """Floor entries the owner should look at: runs logged before the planner placed the stage or on
-    another machine, winding logged before the slitting record, and QC with optional moisture not recorded."""
+    another machine, winding logged before the slitting record, QC with optional moisture not recorded, and
+    Process runs whose pieces do not match bamboo × pcs per bamboo (saved and flagged, client 2026-10-28)."""
+    from .plan_actual import unplanned_reason
     since=datetime.utcnow()-timedelta(days=days)
-    rows=db.query(StageEntry,JobCard).join(JobCard,JobCard.id==StageEntry.job_card_id).filter(JobCard.plant_id==planning._to_uuid(plant),StageEntry.created_at>=since,StageEntry.status!="VOID",or_(StageEntry.details["unscheduled_entry"].isnot(None),StageEntry.details["machine_changed"].isnot(None),StageEntry.details["material_prep_pending"].isnot(None),StageEntry.evaluation["unrecorded"].isnot(None))).order_by(StageEntry.created_at.desc()).limit(limit).all()
+    rows=db.query(StageEntry,JobCard).join(JobCard,JobCard.id==StageEntry.job_card_id).filter(JobCard.plant_id==planning._to_uuid(plant),StageEntry.created_at>=since,StageEntry.status!="VOID",or_(StageEntry.details["unscheduled_entry"].isnot(None),StageEntry.details["machine_changed"].isnot(None),StageEntry.details["material_prep_pending"].isnot(None),StageEntry.details["count_gap"].isnot(None),StageEntry.details["time_reversed"].isnot(None),StageEntry.evaluation["unrecorded"].isnot(None))).order_by(StageEntry.created_at.desc()).limit(limit).all()
     def flags(e):
         # One line per reason: a run can be both unplanned and missing its moisture reading.
         details=e.details or {};unrecorded=(e.evaluation or {}).get("unrecorded") or []
-        if details.get("unscheduled_entry"):yield "UNSCHEDULED",(details.get("unscheduled_entry") or {}).get("reason")
+        # The stored text is the old planner-gate instruction; planning never blocks the floor, so say what happened.
+        if details.get("unscheduled_entry"):yield "UNSCHEDULED",unplanned_reason((details.get("unscheduled_entry") or {}).get("reason"))
         if details.get("machine_changed"):yield "MACHINE_CHANGED","Run on a different machine than planned"
         if details.get("material_prep_pending"):yield "MATERIAL_PREP_PENDING","Winding logged before the slitting record; material settled by stock count"
         if unrecorded:yield "QC_NOT_RECORDED","Not recorded: "+", ".join(str(item.get("label") or item.get("parameter")) for item in unrecorded)
+        if details.get("count_gap"):yield "COUNT_GAP",(details.get("count_gap") or {}).get("message")
+        if details.get("time_reversed"):yield "TIME_REVERSED",(details.get("time_reversed") or {}).get("message")
     result=[]
     for e,job in rows:
         for kind,reason in flags(e):
             result.append({"entry_id":str(e.id),"job_card_id":str(job.id),"job_card_no":job.job_card_no,"customer":(job.spec_snapshot or {}).get("customer_name_snapshot") or (job.spec_snapshot or {}).get("customer_name"),"stage":e.stage,"entry_no":e.entry_no,"business_date":e.business_date,"shift_code":e.shift_code,"operator_name":e.operator_name,"produced":e.produced,"accepted":e.accepted,"entered_by":e.created_by,"entered_at":e.created_at,"flag":kind,"reason":reason})
+    # Old-form (V1) cards keep their flags on the stage itself (fixed 2026-10-30: an old-form run on another
+    # machine, a Process count gap and Final QC out of band were saved and flagged but shown nowhere).
+    stages=db.query(JobCardStage,JobCard).join(JobCard,JobCard.id==JobCardStage.job_card_id).filter(JobCard.plant_id==planning._to_uuid(plant),JobCardStage.entered_at>=since,or_(JobCardStage.actuals_snapshot["machine_changed"].isnot(None),JobCardStage.actuals_snapshot["count_gap"].isnot(None),JobCardStage.actuals_snapshot["qc_flag"].isnot(None))).order_by(JobCardStage.entered_at.desc()).limit(limit).all()
+    for row,job in stages:
+        if (job.spec_snapshot or {}).get("entry_model")=="V2":continue
+        actuals=row.actuals_snapshot or {};snapshot=row.entry_snapshot or {}
+        found=[]
+        if actuals.get("machine_changed"):found.append(("MACHINE_CHANGED","Old form: run on a different machine than planned"))
+        if actuals.get("count_gap"):found.append(("COUNT_GAP",(actuals.get("count_gap") or {}).get("message")))
+        if actuals.get("qc_flag"):found.append(("QC_OUT_OF_BAND",(actuals.get("qc_flag") or {}).get("message")))
+        moment=row.actual_end or row.entered_at
+        for kind,reason in found:
+            result.append({"entry_id":None,"stage_id":str(row.id),"job_card_id":str(job.id),"job_card_no":job.job_card_no,"customer":(job.spec_snapshot or {}).get("customer_name_snapshot") or (job.spec_snapshot or {}).get("customer_name"),"stage":row.stage_type,"entry_no":None,"business_date":(moment+timedelta(hours=5,minutes=30)).date() if moment else None,"shift_code":snapshot.get("shift_code") or row.shift_code,"operator_name":snapshot.get("operator_name"),"produced":(row.output_qty or 0)+(row.scrap_qty or 0),"accepted":row.output_qty or 0,"entered_by":row.entered_by,"entered_at":row.entered_at,"flag":kind,"reason":reason})
+    result.sort(key=lambda r:r["entered_at"] or datetime.min,reverse=True)
     return result[:limit]
 
 
@@ -823,10 +939,13 @@ def create_entry(card_id:uuid.UUID,payload:EntryInput,db:Session=Depends(get_db)
         if payload.expected_version!=version_check:raise HTTPException(409,"Stage totals changed; review the new delta")
         if not payload.submit:raise HTTPException(422,"Cumulative totals must be submitted immediately")
         current=entries(db,job,payload.stage)
+        words={"produced":"output","accepted":"good","input_quantity":"input","cutting_loss_pcs":"cutting loss"}
         for field in ("produced","accepted","input_quantity","cutting_loss_pcs"):
-            data[field]-=sum(getattr(x,field) for x in current)
-            if data[field]<0:raise HTTPException(409,"Cumulative total is below the posted total; use a governed correction")
+            posted=sum(getattr(x,field) for x in current)
+            data[field]-=posted
+            if data[field]<0:raise HTTPException(409,f"{label_stage(payload.stage)} {words[field]} total {posted+data[field]} on the card is less than the {posted} already logged. Check the number on the card, or void the extra run in the Output log first. Nothing was saved.")
     refuse_cancelled(job)
+    if payload.quantity_mode=="TOTAL":data["details"]={**(data.get("details") or {}),"card_total":True}
     e=StageEntry(**data,plant_id=job.plant_id,job_card_id=job.id,entry_no=number,rejected=data["produced"]-data["accepted"],created_by=user["sub"])
     if operator:e.operator_name=operator["name"];e.operator_code=operator["employee_code"]
     if e.accepted>e.produced:raise HTTPException(422,"Accepted cannot exceed produced")
@@ -878,13 +997,25 @@ def batch_entries(card_id:uuid.UUID,payload:BatchInput,db:Session=Depends(get_db
             if step.entry.quantity_mode=='TOTAL' and step.entry.expected_version!=expected:raise HTTPException(409,'Stage totals changed; refresh the whole-card form')
             if step.close and step.close.expected_version!=expected+1:raise HTTPException(409,'Stage close version changed; refresh the whole-card form')
             entry=step.entry.model_copy(update={"request_id":"batch-entry:"+key,"expected_version":current if step.entry.quantity_mode=='TOTAL' else step.entry.expected_version})
-            result=create_entry(card_id,entry,db,plant,user)
-            own_increments[stage]+=1
+            result=None
+            if nothing_new(db,job,entry):
+                # The card's totals equal what is already logged (runs were logged during the day): nothing new
+                # is posted. Its readings go on as QC without a run and cover the runs logged without readings,
+                # then the stage may close (fixed 2026-10-28: this used to fail "Produced quantity must be positive").
+                if entry.samples:
+                    qc=entry.model_copy(update={"kind":"QC_ONLY","quantity_mode":"DELTA","expected_version":current,"produced":0,"accepted":0,"input_quantity":0,"cutting_loss_pcs":0,"carry_in_pcs":0,"carry_out_pcs":0})
+                    result=create_entry(card_id,qc,db,plant,user)
+                    covering=db.get(StageEntry,uuid.UUID(result["entry"]["id"]))
+                    if covering:cover_stage_batches(db,job,covering)
+                    own_increments[stage]+=1
+            else:
+                result=create_entry(card_id,entry,db,plant,user)
+                own_increments[stage]+=1
             if step.close:
-                close=step.close.model_copy(update={"request_id":"batch-close:"+key,"expected_version":current+1})
+                close=step.close.model_copy(update={"request_id":"batch-close:"+key,"expected_version":current+(1 if result else 0)})
                 close_stage(card_id,entry.stage,close,db,plant,user)
                 own_increments[stage]+=1
-            results.append(result["entry"])
+            if result:results.append(result["entry"])
         db.info["entry_batch"]=False
         return finish(db,job,payload,"entries_batch",user,{"entries":results,"flow":flow(db,job)})
     except Exception:
@@ -951,6 +1082,7 @@ def void_entry(card_id:uuid.UUID,entry_id:uuid.UUID,payload:Mutation,db:Session=
     if stage_row(db,job,e.stage).status=="COMPLETED" or db.query(InputAllocation).filter_by(source_entry_id=e.id).first() or db.query(ResidualWip).filter(ResidualWip.source_entry_id==e.id,ResidualWip.status!="REVERSED").first():raise HTTPException(409,"Cannot void closed-stage, consumed or disposed output")
     if e.carry_out_pcs and any(x.entry_no>e.entry_no and x.carry_in_pcs for x in entries(db,job,"PROCESS")):raise HTTPException(409,"Carryover has downstream use; reverse downstream entries first")
     db.query(InputAllocation).filter_by(consumer_entry_id=e.id).delete();e.status="VOID";e.row_version+=1;db.flush();sync_totals(db,job,e.stage)
+    if e.stage=="PROCESS":refresh_process_gaps(db,job);db.flush()
     db.add(EntryRevision(entry_id=e.id,row_version=e.row_version,payload=jsonable_encoder(entry_dict(e)),actor=user["sub"],reason=payload.reason));db.flush()
     return finish(db,job,payload,f"void:{entry_id}",user,{"entry":entry_view(db,job,e),"flow":flow(db,job)})
 
@@ -992,7 +1124,7 @@ def close_stage(card_id:uuid.UUID,stage:str,payload:CloseInput,db:Session=Depend
     if state["draft_count"]:raise HTTPException(409,"Submit or discard outstanding drafts")
     if not state["qc"]["ready"]:raise HTTPException(409,{"code":"STAGE_QC_READINGS_SHORT","missing":state["qc"]["missing"],"blockers":state["qc"]["blockers"]})
     if planning._movement_blocking_holds(db,db.query(QualityHold).filter_by(job_card_id=job.id).all()):raise HTTPException(409,"Resolve blocking QC holds before close")
-    if state["accepted_total"]<state["target"] and not (payload.short_close and payload.reason.strip()):raise HTTPException(409,"Short close requires an explicit reason")
+    if state["accepted_total"]<state["target"] and not (payload.short_close and payload.reason.strip()):raise HTTPException(409,f"{label_stage(stage)} has {state['accepted_total']} of {state['target']} {state['unit']} good: closing now is a short close. Write why it closes short.")
     # Reel issues may be linked here but are never required: issue to the floor happens any time and
     # consumption is settled by the monthly stock count and reconciliation (client rule 2026-10-17).
     # Process QC is the final QC (client rule 2026-10-18): every good Process batch must be QC-accepted.
@@ -1005,7 +1137,8 @@ def close_stage(card_id:uuid.UUID,stage:str,payload:CloseInput,db:Session=Depend
         if not db.execute(text('SELECT pg_try_advisory_xact_lock(hashtext(:key))'),{'key':'production-reel-link:'+issue_id}).scalar():raise HTTPException(409,'Material issue is being linked by another card; refresh and retry')
         if db.query(JobCardStage).filter(JobCardStage.job_card_id!=job.id,JobCardStage.reel_issue_ids.contains([issue_id])).first():raise HTTPException(409,'Material issue already belongs to another job card; select its own consumed issue')
     residual=available(db,job,stage)
-    if residual and not (payload.residual_disposition in ("SCRAP","HOLD","RETURN") and payload.reason.strip()):raise HTTPException(409,{"code":"RESIDUAL_WIP","available":residual,"message":"Record residual input as HOLD, RETURN or SCRAP with a reason"})
+    # Nothing returns from the floor (client 27 Oct): leftover input is held for follow-up or scrapped.
+    if residual and not (payload.residual_disposition in ("SCRAP","HOLD") and payload.reason.strip()):raise HTTPException(409,{"code":"RESIDUAL_WIP","available":residual,"message":f"{residual} {stage_unit(previous(job,stage))} of {label_stage(previous(job,stage))} output were not taken by {label_stage(stage)}. Say what happens to them (hold or scrap) and write a reason to close {label_stage(stage)}."+(" Nothing returns from the floor." if payload.residual_disposition=="RETURN" else "")})
     if residual:dispose_residual(db,job,stage,payload.residual_disposition,payload.reason,user)
     if payload.reel_issue_ids:row.reel_issue_ids=sorted({str(i) for i in (row.reel_issue_ids or [])+payload.reel_issue_ids})
     if slitting_open:

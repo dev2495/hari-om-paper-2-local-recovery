@@ -179,6 +179,16 @@ class Customer(Base):
     contact_phone = Column(String(50), nullable=True)
     billing_address = Column(String(500), nullable=True)
     shipping_address = Column(String(500), nullable=True)
+    # Billing and dispatch (ship-to) place for the delivery challan (client 2026-10-28), all optional;
+    # added by startup ALTER TABLE. The address columns above hold the street lines.
+    billing_city = Column(String(120), nullable=True)
+    billing_state = Column(String(120), nullable=True)
+    billing_state_code = Column(String(2), nullable=True)
+    billing_pin_code = Column(String(10), nullable=True)
+    shipping_city = Column(String(120), nullable=True)
+    shipping_state = Column(String(120), nullable=True)
+    shipping_state_code = Column(String(2), nullable=True)
+    shipping_pin_code = Column(String(10), nullable=True)
     tax_id = Column(String(100), nullable=True)
     dispatch_contact_name = Column(String(200), nullable=True)
     dispatch_contact_phone = Column(String(50), nullable=True)

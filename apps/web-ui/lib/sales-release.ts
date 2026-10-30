@@ -44,3 +44,18 @@ export function describeWinderAvailability(machines: unknown) {
 
   return "No active WINDER master exists in this order's plant. Add or enable one in System → Machines."
 }
+
+/**
+ * A line still has something to release when it has open qty, or a release lot saved in sales whose job
+ * card was never made (a failed sync, or a lot saved before 28 Oct with no parchment colour). The release
+ * dialog resumes such lots, so "Release lines" must stay open for them (checker 30 Oct).
+ */
+export function hasPendingReleaseLot(line: any): boolean {
+  return (Array.isArray(line?.release_lots) ? line.release_lots : []).some(
+    (lot: any) => !lot?.job_card_id && String(lot?.status || "").toLowerCase() !== "cancelled",
+  )
+}
+
+export function lineHasReleaseWork(line: any): boolean {
+  return Number(line?.release_remaining_qty ?? line?.remaining_qty ?? 0) > 0 || hasPendingReleaseLot(line)
+}

@@ -53,7 +53,8 @@ def job_material_need_date(line, job):
     active = [row for row in line.get("delivery_schedules", []) if row.get("status") not in {"cancelled", "delivered"} and row.get("delivery_date")]
     allocated = [row["delivery_date"] for row in active if job.get("release_lot_id") and any(
         allocation.get("release_lot_id") == job["release_lot_id"] for allocation in row.get("allocations", []))]
-    return min(allocated or [line["due_date"], *(row["delivery_date"] for row in active)])
+    # A line may have no delivery date (client 2026-10-28): None means "No date", never compared.
+    return min(allocated or [d for d in [line.get("due_date"), *(row["delivery_date"] for row in active)] if d], default=None)
 
 
 def normalize_code(value):
@@ -89,7 +90,9 @@ def explode_paper_demand(order, line, spec, recipe, bom, item_by_id, item_by_cod
     A paper with no stock item still yields its kg requirement (keyed by paper code) and a
     warning, so one unmapped paper never zeroes the whole plan.
     """
-    due = date.fromisoformat(line["due_date"])
+    # No delivery date (client 2026-10-28): needed at the window start, flagged no_date, never overdue.
+    no_date = not line.get("due_date")
+    due = start if no_date else date.fromisoformat(str(line["due_date"]))
     if due > end:
         return [], None
     remaining = max(Decimal(0), Decimal(str(line.get("release_remaining_qty", 0))))
@@ -113,7 +116,7 @@ def explode_paper_demand(order, line, spec, recipe, bom, item_by_id, item_by_cod
         if per_bamboo <= 0:
             problems.append(f"Paper {code or master_id} has no valid BOM weight")
             continue
-        output.append({"date": max(start, due).isoformat(), "due_date": due.isoformat(), "overdue": due < start,
+        output.append({"date": max(start, due).isoformat(), "due_date": None if no_date else due.isoformat(), "overdue": due < start, "no_date": no_date,
             "item_id": item["id"] if mapped else f"paper:{master_id or code}",
             "item_code": item["item_code"] if mapped else code,
             "item_name": item["name"] if mapped else f"{master.get('variety') or code} {master.get('gsm') or ''} GSM (no stock item)".strip(),
@@ -182,7 +185,9 @@ def explode_other_demand(order, line, spec, bom, items, start, end):
     per box: boxes = ceil(pcs / pcs per box); plastic and fadda follow the box count.
     Unmapped components still yield their quantity (keyed by class and code) plus a warning.
     """
-    due = date.fromisoformat(line["due_date"])
+    # No delivery date (client 2026-10-28): needed at the window start, flagged no_date, never overdue.
+    no_date = not line.get("due_date")
+    due = start if no_date else date.fromisoformat(str(line["due_date"]))
     if due > end:
         return [], None
     remaining = max(Decimal(0), Decimal(str(line.get("release_remaining_qty", 0))))
@@ -228,7 +233,7 @@ def explode_other_demand(order, line, spec, bom, items, start, end):
         if key in grouped:
             grouped[key]["qty"] = round(grouped[key]["qty"] + amount, places)
             continue
-        grouped[key] = {"date": max(start, due).isoformat(), "due_date": due.isoformat(), "overdue": due < start,
+        grouped[key] = {"date": max(start, due).isoformat(), "due_date": None if no_date else due.isoformat(), "overdue": due < start, "no_date": no_date,
             "material_class": material_class, "item_id": key,
             "item_code": item["item_code"] if mapped else (code or name),
             "item_name": item["name"] if mapped else f"{name or code} (no stock item)",
@@ -272,23 +277,13 @@ async def material_demand(token, plant_id, start, end):
     item_by_code = {row["item_code"]: row for row in items}
     snapshots, issues = await asyncio.gather(get(PRODUCTION_URL, "/material-demand-snapshots"),
         get(INVENTORY_URL, "/material-issues/by-job"))
-    coverage_gap = snapshots.get("coverage") != "all_linked_jobs" or issues.get("coverage") != "all_attributed_job_issues"
+    coverage_gap = snapshots.get("coverage") != "all_linked_jobs"
     jobs_by_line = {}
-    issue_jobs = {}
     for job in snapshots.get("jobs", []):
         jobs_by_line.setdefault(job["sales_order_line_id"], []).append(job)
-        for issue_id in job.get("reel_issue_ids", []):
-            issue_jobs.setdefault(issue_id, set()).add(job["id"])
-    net_issues = {(row["job_id"], row["item_id"]): row["net_issued_qty"] for row in issues.get("items", [])}
-    shared_issues = set()
-    for issue in issues.get("section_issues", []):
-        owners = issue_jobs.get(issue["id"], set())
-        if len(owners) == 1:
-            key = (next(iter(owners)), issue["item_id"])
-            # Reel issues use their own physical ledger; bulk issues use transactions.
-            net_issues[key] = net_issues.get(key, 0) + issue["qty_kg"]
-        elif owners:
-            shared_issues.update((job_id, issue["item_id"]) for job_id in owners)
+    # Material still needed by a job card = BOM x (planned - good made so far) / planned (client
+    # 2026-10-28). Issues are not deducted per card: floor issues are by shift, everything issued is
+    # consumed at issue and has already left stock.
     fg_by_line = {}
     for allocation in issues.get("accepted_fg_allocations", []):
         fg_by_line.setdefault(allocation["line_id"], []).append(allocation)
@@ -301,7 +296,7 @@ async def material_demand(token, plant_id, start, end):
             pending_by_line.setdefault(bundle["sales_order_line_id"],[]).append(authorization)
     cache = {}; requirements = []; other_requirements = []; blocked = []; warnings = []; excluded = []; seen = set()
     if coverage_gap:
-        warnings.append({"order_no": None, "line_id": None, "reason": "Some production issues are not attributed to job cards yet; residual need may be slightly overstated"})
+        warnings.append({"order_no": None, "line_id": None, "reason": "Some job cards could not be read; their material need may be missing"})
     for order in orders:
         if order["status"] not in {"approved", "released", "partially_released", "partially_dispatched"}:
             excluded.append({"order_no": order["order_no"], "reason": "Sales order awaiting approval"})
@@ -310,23 +305,30 @@ async def material_demand(token, plant_id, start, end):
             if line["id"] in seen:
                 continue
             seen.add(line["id"])
-            if min([line["due_date"], *(row["delivery_date"] for row in line.get("delivery_schedules", [])
-                if row.get("status") not in {"cancelled", "delivered"} and row.get("delivery_date"))]) > end.isoformat():
-                continue
             spec_id = line["approved_spec_id"]
             linked_jobs = jobs_by_line.get(line["id"], [])
+            # A line due after the window still needs material now when one of its cards is planned
+            # inside the window (fix 2026-10-28: such lines used to be skipped whole).
+            planned_inside = any(job.get("production_plan_date") and job["production_plan_date"] <= end.isoformat()
+                                 and job.get("status") != "COMPLETED" for job in linked_jobs)
+            # A line with no date at all ("No date") is counted from the window start (min default "").
+            if not planned_inside and min([d for d in [line.get("due_date"), *(row["delivery_date"] for row in line.get("delivery_schedules", [])
+                if row.get("status") not in {"cancelled", "delivered"} and row.get("delivery_date"))] if d], default="") > end.isoformat():
+                continue
             linked_qty = sum(float(job.get("planned_qty", 0)) for job in linked_jobs)
             unlinked_released = max(0.0, float(line.get("released_qty", 0)) - linked_qty)
-            if unlinked_released > 0.001:
-                warnings.append({"order_no": order["order_no"], "line_id": line["id"], "spec_id": spec_id,
-                    "reason": f"{unlinked_released:,.0f} released pcs have no job card yet — counted as still to make"})
+            # Said once, after we know whether this line's new build is counted (one line never gets
+            # both "counted as still to make" and "not counted", checker 2026-10-28).
+            unlinked_note = f"{unlinked_released:,.0f} released pcs have no job card yet" if unlinked_released > 0.001 else None
             for job in linked_jobs:
                 if job["status"] == "COMPLETED":
                     continue
                 # On the planner: material is needed by the production slot. Still queued: by the customer date.
                 plan_date = job.get("production_plan_date")
-                need_date = min(plan_date, job_material_need_date(line, job)) if plan_date else job_material_need_date(line, job)
-                job_source = {"source": "PRODUCTION_PLAN" if plan_date else "RELEASED_QUEUE", "job_card_no": job.get("job_card_no"), "production_plan_date": plan_date}
+                need_date = min([d for d in (plan_date, job_material_need_date(line, job)) if d], default=None)
+                # The order's own date travels apart from the need date, so a planner slot is never called "due".
+                job_source = {"source": "PRODUCTION_PLAN" if plan_date else "RELEASED_QUEUE", "job_card_no": job.get("job_card_no"),
+                              "production_plan_date": plan_date, "order_due_date": job_material_need_date(line, job)}
                 snapshot = job.get("material_plan_snapshot") or {}
                 frozen_bom = snapshot.get("bom_snapshot") or snapshot.get("theoretical_consumption") or {}
                 frozen_recipe = snapshot.get("recipe_snapshot") or {}
@@ -339,32 +341,54 @@ async def material_demand(token, plant_id, start, end):
                 if job_problem:
                     warnings.append({"order_no": order["order_no"], "line_id": line["id"], "job_id": job["id"],
                         "reason": "Job card BOM: " + job_problem})
-                for row in job_rows:
-                    key = (job["id"], row["item_id"])
-                    if key in shared_issues or (job.get("started") and key not in net_issues):
-                        blocked.append({"order_no": order["order_no"], "line_id": line["id"], "job_id": job["id"],
-                            "reason": f"{row['item_code']}: started work has no attributed net material issue; reconcile section consumption before net purchasing"})
-                        continue
-                    issued = max(0, float(net_issues.get(key, 0)))
+                planned_pcs = float(job.get("planned_qty") or 0)
+                made_pcs = job.get("made_pcs")
+                # Paper, adhesive and parchment are used at the Winder: once it is closed (normal or
+                # short close), or the card is packed, the card needs no more of them, however few
+                # pieces it made (checker 2026-10-30: 26/10/45 short-closed at 690 of 1,440 pcs).
+                winding_closed = bool(job.get("winding_closed") or job.get("packing_closed"))
+                if made_pcs is None and job.get("started") and not winding_closed:
+                    warnings.append({"order_no": order["order_no"], "line_id": line["id"], "job_id": job["id"],
+                        "reason": f"Job card {job.get('job_card_no') or ''}: pieces made so far are not known; the whole card is counted".replace("  ", " ")})
+                made = min(planned_pcs, max(0.0, float(made_pcs or 0)))
+                share = 0.0 if winding_closed else ((planned_pcs - made) / planned_pcs if planned_pcs > 0 else 1.0)
+                residual = {"planned_pcs": planned_pcs, "made_pcs": made, "remaining_share": round(share, 6),
+                            **({"share_basis": "WINDER_CLOSED"} if winding_closed else {})}
+                # Paper is used at winding: a fully wound card needs no more paper, yet still needs packing.
+                for row in job_rows if share > 0 else []:
                     gross = row["qty_kg"]
-                    requirements.append({**row, **job_source, "job_id": job["id"], "basis": "FROZEN_JOB_RESIDUAL",
-                        "gross_qty_kg": gross, "already_issued_kg": issued,
-                        "qty_kg": round(max(0, gross - issued), 3)})
+                    qty = round(gross * share, 3)
+                    requirements.append({**row, **job_source, **residual, "job_id": job["id"], "basis": "FROZEN_JOB_REMAINING",
+                        "gross_qty_kg": gross, "already_used_kg": round(gross - qty, 3), "qty_kg": qty})
                 other_rows, _ = explode_other_demand(order,
                     {**line, "due_date": need_date, "release_remaining_qty": job["planned_qty"],
                      "parchment_color": job.get("parchment_color") or line.get("parchment_color"), "color_splits": []},
                     {"id": spec_id}, frozen_bom, items, start, end)
+                # Boxes, plastic and fadda are used at packing, not winding: "made so far" (the furthest
+                # stage) says nothing about them (checker 2026-10-28). They are consumed when Packing
+                # closes, by hand or auto-closed after Process, so a packed card needs none even before
+                # dispatch (client 2026-10-30); an open Packing step needs only its unpacked share.
+                packed = min(planned_pcs, max(0.0, float(job.get("packed_pcs") or 0)))
+                packing_share = 0.0 if job.get("packing_closed") else ((planned_pcs - packed) / planned_pcs if planned_pcs > 0 else 1.0)
                 for row in other_rows:
-                    issued = max(0, float(net_issues.get((job["id"], row["item_id"]), 0)))
-                    other_requirements.append({**row, **job_source, "job_id": job["id"], "basis": "FROZEN_JOB_RESIDUAL",
-                        "gross_qty": row["qty"], "already_issued": issued, "qty": round(max(0, row["qty"] - issued), 3)})
+                    places = 0 if row.get("uom") == "PCS" else 3
+                    is_packing = row.get("material_class") == "PACKING"
+                    # Never round a need down.
+                    row_share = Decimal(str(packing_share)) if is_packing else Decimal(str(share))
+                    step = Decimal(1).scaleb(-places)
+                    qty = float((Decimal(str(row["qty"])) * row_share).quantize(step, rounding=ROUND_CEILING))
+                    if qty <= 0:
+                        continue
+                    other_requirements.append({**row, **job_source, **residual, "job_id": job["id"], "basis": "FROZEN_JOB_REMAINING",
+                        **({"remaining_share": round(packing_share, 6), "packed_pcs": packed, "share_basis": "UNTIL_PACKED"} if is_packing else {}),
+                        "gross_qty": row["qty"], "already_used": round(row["qty"] - qty, places), "qty": qty})
             linked_ids = {job["id"] for job in linked_jobs}
             authorized_qty=0
             for authorization in pending_by_line.get(line["id"],[]):
                 bundle=authorization["bundle"];quantity=float(bundle["quantity"])
                 if authorized_qty+quantity>unlinked_released+0.001:
-                    blocked.append({"order_no":order["order_no"],"line_id":line["id"],"reason":"Pending authorization quantity exceeds unmatched sales releases; reconcile release synchronization"})
-                    continue
+                    # A flag, never a block (client 2026-10-28): the quantity is still counted.
+                    warnings.append({"order_no":order["order_no"],"line_id":line["id"],"reason":"A pending release is larger than the released quantity without a job card; counted in full until release records match"})
                 authorized_qty+=quantity
                 frozen_line={**line,"release_remaining_qty":quantity}
                 pending_rows,problem=explode_paper_demand(order,frozen_line,bundle["spec"],bundle["recipe"],bundle["bom"],item_by_id,item_by_code,paper_by_id,start,end)
@@ -401,6 +425,9 @@ async def material_demand(token, plant_id, start, end):
                     bom = await get(SPEC_URL, f"/calculate/bom/{recipe['id']}", {"tube_length_mm": float(size["length_mm"]), "tube_od_mm": float(size["outer_diameter_mm"])})
                     cache[spec_id] = ((spec, recipe, bom), None)
             source, problem = cache[spec_id]
+            if source and unlinked_note:
+                warnings.append({"order_no": order["order_no"], "line_id": line["id"], "spec_id": spec_id,
+                    "reason": f"{unlinked_note} — counted as still to make"})
             if source:
                 for bucket in dated_new_build_buckets(line, new_build):
                     rows, problem = explode_paper_demand(order, {**line, "due_date": bucket["due_date"], "release_remaining_qty": bucket["quantity"]}, *source, item_by_id, item_by_code, paper_by_id, start, end)
@@ -416,7 +443,8 @@ async def material_demand(token, plant_id, start, end):
                 if problem:
                     warnings.append({"order_no": order["order_no"], "line_id": line["id"], "spec_id": spec_id, "reason": problem})
             elif problem:
-                blocked.append({"order_no": order["order_no"], "line_id": line["id"], "spec_id": spec_id, "reason": problem})
+                warnings.append({"order_no": order["order_no"], "line_id": line["id"], "spec_id": spec_id, "not_counted": True,
+                    "reason": f"Not counted: {problem}" + (f" ({unlinked_note})" if unlinked_note else "")})
     digest = hashlib.sha256(json.dumps({"requirements": requirements, "blocked": blocked,"season_basis":season_state}, sort_keys=True).encode()).hexdigest()
     unmapped = {}
     for row in requirements:
@@ -435,7 +463,7 @@ async def material_demand(token, plant_id, start, end):
             "unmapped_materials": [{**value, "order_nos": sorted(filter(None, value["order_nos"]))} for value in unmapped_other.values()],
             "blocked": blocked, "warnings": warnings, "unmapped_papers": unmapped_papers,
             "excluded": excluded, "source_version": f"SALES-BOM:{digest}","season_basis":season_state,
-            "basis": "Unreleased approved sales demand plus residual paper for active jobs, using frozen job BOMs and item-specific net issues. Accepted allocated finished goods from outside the linked jobs reduce new-build units before BOM conversion. Saved customer call-offs set need dates; unscheduled quantities use the line delivery date. Where release-to-call-off attribution is absent, material timing conservatively uses the earliest commitment. Started jobs without issue attribution are flagged as incomplete; whole-bamboo cutting loss is included.",
+            "basis": "Unreleased approved sales demand plus, for every open job card, its frozen BOM x (planned - good made so far) / planned. Accepted allocated finished goods from outside the linked jobs reduce new-build units before BOM conversion. Cards on the planner need material by their production slot, even when the order is due later; saved customer call-offs set the other need dates. Problems are warnings, never blocks; whole-bamboo cutting loss is included.",
             "as_of_date": start.isoformat(), "horizon_end": end.isoformat(), "order_count": len(orders)}
 
 

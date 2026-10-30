@@ -191,7 +191,7 @@ export function SeasonQcMatrix({
       {editable ? (
         <button
           type="button"
-          className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground"
+          className="inline-flex min-h-11 items-center rounded-lg border border-border bg-card px-4 text-sm font-semibold text-foreground"
           onClick={() => onChange?.([...samples, { sample_id: crypto.randomUUID(), readings: {} }])}
         >
           + Add another sample

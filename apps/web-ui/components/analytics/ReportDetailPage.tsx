@@ -45,7 +45,17 @@ const formatCell = (value: unknown) => {
   if (typeof value === "number") return value.toLocaleString("en-IN", { maximumFractionDigits: 2 })
   if (typeof value === "boolean") return value ? "Yes" : "No"
   if (typeof value === "object") return "—"
-  return String(value).replaceAll("_", " ")
+  // Dates in Indian form: "28 Oct 2026", and "28 Oct 2026, 5:50 pm" when a time is stored.
+  const text = String(value)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    const day = new Date(`${text}T00:00:00`)
+    if (!Number.isNaN(day.getTime())) return day.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+  }
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(text)) {
+    const at = new Date(/[zZ]|[+-]\d{2}:?\d{2}$/.test(text) ? text : `${text}Z`)
+    if (!Number.isNaN(at.getTime())) return `${at.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" })}, ${at.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata" })}`
+  }
+  return text.replaceAll("_", " ")
 }
 const PALETTE = ["hsl(var(--chart-1))", "hsl(var(--chart-2))", "hsl(var(--chart-3))", "hsl(var(--chart-6))", "hsl(var(--chart-7))", "hsl(var(--chart-5))", "hsl(var(--chart-8))", "hsl(var(--chart-4))"]
 

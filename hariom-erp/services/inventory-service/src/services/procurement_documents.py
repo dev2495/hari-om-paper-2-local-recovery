@@ -1,6 +1,7 @@
 """Saved-record PDF documents for the governed procurement workflow."""
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 from html import escape
@@ -45,6 +46,40 @@ def _qty(value: Any, places: str = "0.001") -> str:
 def _text(value: Any, fallback: str = "-") -> str:
     cleaned = str(value or "").strip()
     return escape(cleaned or fallback)
+
+
+UNIT_WORDS = {"KG": "kg", "PCS": "pcs", "L": "litre", "MT": "t", "NOS": "nos"}
+
+
+def _unit(uom: Any) -> str:
+    raw = str(uom or "").strip()
+    return UNIT_WORDS.get(raw.upper(), raw.lower())
+
+
+def _qty_unit(value: Any, uom: Any) -> str:
+    """Quantity in the line's own unit, en-IN grouping: "1,250.5 kg", "80 pcs" (pieces never get decimals)."""
+    quantity = Decimal(str(value or 0))
+    if str(uom or "").upper() == "PCS":
+        text_value = f"{quantity.quantize(Decimal('1'), rounding=ROUND_HALF_UP):,}"
+    else:
+        text_value = f"{quantity.quantize(Decimal('0.001'), rounding=ROUND_HALF_UP):,.3f}".rstrip("0").rstrip(".")
+    unit = _unit(uom)
+    return escape(f"{text_value} {unit}".strip())
+
+
+def _indian_date(value: Any) -> str:
+    """"8 Nov 2026" for a date, a datetime (naive UTC from the server, shown as its IST day) or an
+    ISO string; anything else as it is."""
+    if isinstance(value, datetime):
+        from zoneinfo import ZoneInfo
+        stamp = value if value.tzinfo else value.replace(tzinfo=ZoneInfo("UTC"))
+        value = stamp.astimezone(ZoneInfo("Asia/Kolkata")).date()
+    if not isinstance(value, date):
+        try:
+            value = date.fromisoformat(str(value or "").strip()[:10])
+        except ValueError:
+            return str(value or "").strip()
+    return f"{value.day} {value.strftime('%b %Y')}"
 
 
 def _label_date(value: Any) -> str:
@@ -108,9 +143,11 @@ def _document(reference: str, title: str) -> tuple[BytesIO, SimpleDocTemplate, d
     return buffer, document, _styles()
 
 
-def _header(styles: dict[str, ParagraphStyle], *, company: str, title: str, reference: str, subtitle: str) -> list[Any]:
-    left = [Paragraph(_text(company).upper(), styles["eyebrow"]), Paragraph(_text(title), styles["title"]),
-            Paragraph(_text(subtitle), styles["small"])]
+def _header(styles: dict[str, ParagraphStyle], *, company: str, title: str, reference: str, subtitle: str,
+            buyer_lines: Iterable[str] = ()) -> list[Any]:
+    left = [Paragraph(_text(company).upper(), styles["eyebrow"])]
+    left.extend(Paragraph(line, styles["small"]) for line in buyer_lines if line)
+    left.extend([Paragraph(_text(title), styles["title"]), Paragraph(_text(subtitle), styles["small"])])
     right = Paragraph(f"<b>{_text(reference)}</b>", styles["small_right"])
     table = Table([[left, right]], colWidths=[128 * mm, 50 * mm])
     table.setStyle(TableStyle([
@@ -151,9 +188,9 @@ def supplier_block_rows(snapshot: dict[str, Any], metadata: dict[str, Any], orde
     lines = supplier_block_lines(snapshot, metadata, order)
     return [
         [Paragraph("<b>Supplier</b>", styles["small"]), Paragraph(lines["name"], styles["body"]),
-         Paragraph("<b>PO date</b>", styles["small"]), Paragraph(_text(po_date), styles["body"])],
+         Paragraph("<b>PO date</b>", styles["small"]), Paragraph(_text(_indian_date(po_date)), styles["body"])],
         [Paragraph("<b>GSTIN / PAN</b>", styles["small"]), Paragraph(lines["tax"], styles["body"]),
-         Paragraph("<b>Expected</b>", styles["small"]), Paragraph(_text(snapshot.get("expected_date")), styles["body"])],
+         Paragraph("<b>Expected</b>", styles["small"]), Paragraph(_text(_indian_date(snapshot.get("expected_date")) if snapshot.get("expected_date") else "As agreed"), styles["body"])],
         [Paragraph("<b>Address</b>", styles["small"]), Paragraph(lines["address"], styles["body"]),
          Paragraph("<b>Category</b>", styles["small"]), Paragraph(_text(snapshot.get("category", order.category)).replace("_", "/"), styles["body"])],
         [Paragraph("<b>Contact</b>", styles["small"]), Paragraph(lines["contact"], styles["body"]),
@@ -161,19 +198,87 @@ def supplier_block_rows(snapshot: dict[str, Any], metadata: dict[str, Any], orde
     ]
 
 
-def render_purchase_order_pdf(order: Any, revision: Any, delivery_schedules: Iterable[dict[str, Any]] = ()) -> bytes:
-    """Render one immutable PO revision as an A4, multi-page PDF."""
+def _delivery_terms(value: Any) -> Any:
+    """Scheduled drafts made before 28 Oct 2026 say "the dated schedule below", but the delivery
+    dates print above the terms; say where they really are."""
+    if isinstance(value, str) and "dated schedule below" in value:
+        return "Delivery on the dates in the delivery schedule above."
+    return value
+
+
+def person_name(actor: Any, names: dict[str, str] | None = None) -> str:
+    """A signatory by name, never by login (checker r4: "owner2.e2e@hariom.com" printed on the PO).
+
+    ``names`` is the people directory (login -> display name). An unknown login prints its part
+    before the @, title-cased ("store.maker" -> "Store Maker"); a value that is already a name stays."""
+    text = str(actor or "").strip()
+    if not text:
+        return ""
+    lookup = {str(key).strip().lower(): value for key, value in (names or {}).items() if value}
+    key = text.lower()
+    known = lookup.get(key) or (lookup.get(key.split("@")[0]) if "@" in key else None)
+    if not known and "@" not in key:
+        locals_ = {login.split("@")[0]: value for login, value in lookup.items()}
+        known = locals_.get(key)
+    if known:
+        return str(known).strip()
+    if "@" not in text and text != text.lower():
+        return text
+    local = text.split("@")[0]
+    return " ".join(part[:1].upper() + part[1:] for part in local.replace("_", ".").replace("-", ".").split(".") if part) or text
+
+
+def _total_amount_text(total: Decimal, priced_lines: int, missing_lines: int) -> str:
+    """The Total cell never reads INR 0.00 on a PO whose rates are still to fill (checker r1):
+    no priced line prints "Rate needed"; some print their sum plus how many lines still need one."""
+    if not missing_lines:
+        return f"<b>{_money(total)}</b>"
+    if not priced_lines:
+        return "<b>Rate needed</b>"
+    word = "line" if missing_lines == 1 else "lines"
+    return f"<b>{_money(total)}</b><br/>plus {missing_lines} {word} with rate needed"
+
+
+def _schedule_material(row: dict[str, Any]) -> str:
+    """"230 - Kraft 230 GSM" in the delivery table, as in the materials table (never a bare code)."""
+    code, name = row.get("item_code"), row.get("item_name")
+    if name and str(name).strip() and str(name).strip() != str(code or "").strip():
+        return f"<b>{_text(code)}</b> - {_text(name)}" if code else _text(name)
+    return _text(code)
+
+
+def buyer_block_lines(plant: dict[str, Any] | None) -> list[str]:
+    """Bill-to / ship-to lines under the buyer's name, from the plant master (address, GSTIN), so the
+    vendor has what to invoice against (checker 2026-10-30). Missing parts are left out."""
+    plant = dict(plant or {})
+    address = str(plant.get("address") or "").strip()
+    gstin = re.sub(r"\s+", "", str(plant.get("gstin") or "")).upper()
+    lines: list[str] = []
+    if address:
+        lines.append(f"<b>Bill to and ship to:</b> {_text(address)}")
+    if gstin:
+        lines.append(f"<b>GSTIN</b> {_text(gstin)}")
+    return lines
+
+
+def render_purchase_order_pdf(order: Any, revision: Any, delivery_schedules: Iterable[dict[str, Any]] = (),
+                              names: dict[str, str] | None = None, buyer: dict[str, Any] | None = None) -> bytes:
+    """Render one immutable PO revision as an A4, multi-page PDF.
+
+    A line with no rate yet (a scheduled draft, "rate needed") prints "Rate needed", never INR 0.00."""
     snapshot = dict(revision.snapshot_json or {})
     metadata = dict(snapshot.get("metadata") or {})
     reference = f"{order.po_no} | Revision {revision.revision_no}"
     buffer, document, styles = _document(reference, f"Purchase Order {reference}")
-    company = metadata.get("legal_entity_name") or "Amigo Industries Unit-2"
+    plant = dict(buyer or {})
+    company = metadata.get("legal_entity_name") or plant.get("legal_name") or plant.get("name") or "Amigo Industries Unit-2"
     story: list[Any] = _header(
         styles,
         company=company,
         title="Purchase Order",
         reference=reference,
-        subtitle="Saved approved commercial revision" if revision.approval_state == "APPROVED" else f"{revision.approval_state.title()} revision",
+        subtitle=f"{'Approved' if revision.approval_state == 'APPROVED' else str(revision.approval_state or '').title()} · revision {revision.revision_no}",
+        buyer_lines=buyer_block_lines(plant),
     )
     po_date = metadata.get("po_date") or getattr(order, "created_at", "")
     details = Table(supplier_block_rows(snapshot, metadata, order, styles, po_date, revision.revision_no), colWidths=[25 * mm, 78 * mm, 22 * mm, 53 * mm])
@@ -183,7 +288,8 @@ def render_purchase_order_pdf(order: Any, revision: Any, delivery_schedules: Ite
         ("LEFTPADDING", (0, 0), (-1, -1), 2 * mm), ("RIGHTPADDING", (0, 0), (-1, -1), 2 * mm),
         ("TOPPADDING", (0, 0), (-1, -1), 2 * mm), ("BOTTOMPADDING", (0, 0), (-1, -1), 2 * mm),
     ]))
-    story.extend([details, Spacer(1, 4 * mm), Paragraph("Materials and approved rates", styles["section"])])
+    approved = revision.approval_state == "APPROVED"
+    story.extend([details, Spacer(1, 4 * mm), Paragraph("Materials and approved rates" if approved else "Materials and rates", styles["section"])])
 
     line_rows: list[list[Any]] = [[
         Paragraph("#", styles["table_head"]), Paragraph("Material", styles["table_head"]),
@@ -192,6 +298,7 @@ def render_purchase_order_pdf(order: Any, revision: Any, delivery_schedules: Ite
     ]]
     total_qty_by_uom: dict[str, Decimal] = {}
     total_amount = Decimal("0")
+    priced_lines = missing_lines = 0
     snapshot_order = {str(row.get("logical_line_id")): index for index, row in enumerate(snapshot.get("lines") or [])}
     ordered_lines = sorted(revision.lines or [], key=lambda value: snapshot_order.get(str(value.logical_line_id), 10**9))
     for index, line in enumerate(ordered_lines, start=1):
@@ -208,14 +315,18 @@ def render_purchase_order_pdf(order: Any, revision: Any, delivery_schedules: Ite
         uom = str(getattr(line, "uom", None) or "KG")
         total_qty_by_uom[uom] = total_qty_by_uom.get(uom, Decimal("0")) + qty
         total_amount += amount
+        needed = rate <= 0
+        missing_lines += 1 if needed else 0
+        priced_lines += 0 if needed else 1
         line_rows.append([
             Paragraph(str(index), styles["body"]), Paragraph(material, styles["body"]),
-            Paragraph(f"{_qty(qty)} {_text(uom)}", styles["small_right"]),
-            Paragraph(_money(rate), styles["small_right"]), Paragraph(_money(amount), styles["small_right"]),
+            Paragraph(_qty_unit(qty, uom), styles["small_right"]),
+            Paragraph("<b>Rate needed</b>" if needed else f"{_money(rate)} / {escape(_unit(uom) or 'unit')}", styles["small_right"]),
+            Paragraph("-" if needed else _money(amount), styles["small_right"]),
         ])
     line_rows.append([
-        "", Paragraph("<b>Total</b>", styles["body"]), Paragraph("<br/>".join(f"<b>{_qty(qty)} {_text(unit)}</b>" for unit, qty in total_qty_by_uom.items()), styles["small_right"]),
-        "", Paragraph(f"<b>{_money(total_amount)}</b>", styles["small_right"]),
+        "", Paragraph("<b>Total</b>", styles["body"]), Paragraph("<br/>".join(f"<b>{_qty_unit(qty, unit)}</b>" for unit, qty in total_qty_by_uom.items()), styles["small_right"]),
+        "", Paragraph(_total_amount_text(total_amount, priced_lines, missing_lines), styles["small_right"]),
     ])
     lines = Table(line_rows, repeatRows=1, colWidths=[8 * mm, 99 * mm, 25 * mm, 24 * mm, 28 * mm])
     lines.setStyle(TableStyle([
@@ -229,31 +340,33 @@ def render_purchase_order_pdf(order: Any, revision: Any, delivery_schedules: Ite
 
     schedule_rows = list(delivery_schedules)
     if schedule_rows:
+        # Quantities are in each line's own unit (kg, pcs, litre); dates print Indian style.
         schedule_data: list[list[Any]] = [[Paragraph(value, styles["table_head"]) for value in
-            ("Delivery date", "Material", "Planned kg", "Received kg", "Cancelled kg", "Open kg", "Vendor")]]
+            ("Delivery date", "Material", "Quantity", "Received", "Cancelled", "Still to come", "Confirmation")]]
         for row in schedule_rows:
+            unit = row.get("uom")
             schedule_data.append([
-                Paragraph(_text(row.get("delivery_date")), styles["body"]),
-                Paragraph(_text(row.get("item_code")), styles["body"]),
-                Paragraph(_qty(row.get("planned_qty")), styles["small_right"]),
-                Paragraph(_qty(row.get("received_qty")), styles["small_right"]),
-                Paragraph(_qty(row.get("cancelled_qty")), styles["small_right"]),
-                Paragraph(_qty(row.get("open_qty")), styles["small_right"]),
-                Paragraph(_text(row.get("vendor_confirmation")), styles["body"]),
+                Paragraph(_text(_indian_date(row.get("delivery_date"))), styles["body"]),
+                Paragraph(_schedule_material(row), styles["body"]),
+                Paragraph(_qty_unit(row.get("planned_qty"), unit), styles["small_right"]),
+                Paragraph(_qty_unit(row.get("received_qty"), unit), styles["small_right"]),
+                Paragraph(_qty_unit(row.get("cancelled_qty"), unit), styles["small_right"]),
+                Paragraph(_qty_unit(row.get("open_qty"), unit), styles["small_right"]),
+                Paragraph(_text(row.get("confirmation") or row.get("vendor_confirmation")), styles["body"]),
             ])
         schedule_table = Table(schedule_data, repeatRows=1,
-            colWidths=[24 * mm, 38 * mm, 24 * mm, 24 * mm, 24 * mm, 22 * mm, 28 * mm])
+            colWidths=[22 * mm, 50 * mm, 22 * mm, 22 * mm, 20 * mm, 22 * mm, 26 * mm])
         schedule_table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), TEAL), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
             ("GRID", (0, 0), (-1, -1), 0.3, LINE), ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ("LEFTPADDING", (0, 0), (-1, -1), 1.5 * mm), ("RIGHTPADDING", (0, 0), (-1, -1), 1.5 * mm),
             ("TOPPADDING", (0, 0), (-1, -1), 1.8 * mm), ("BOTTOMPADDING", (0, 0), (-1, -1), 1.8 * mm),
         ]))
-        story.extend([Paragraph("Delivery schedule annexure", styles["section"]), schedule_table])
+        story.extend([Paragraph("Delivery dates", styles["section"]), schedule_table])
 
     terms = [
         ("Freight", metadata.get("freight_terms")), ("Tax", metadata.get("tax_terms")),
-        ("Payment", metadata.get("payment_terms")), ("Delivery", metadata.get("delivery_terms")),
+        ("Payment", metadata.get("payment_terms")), ("Delivery", _delivery_terms(metadata.get("delivery_terms"))),
         ("Test report", metadata.get("test_report_terms")), ("Special instruction", metadata.get("special_instruction")),
     ]
     term_rows = [[Paragraph(f"<b>{_text(label)}</b>", styles["small"]), Paragraph(_text(value), styles["body"])] for label, value in terms]
@@ -264,10 +377,11 @@ def render_purchase_order_pdf(order: Any, revision: Any, delivery_schedules: Ite
         ("RIGHTPADDING", (0, 0), (-1, -1), 2 * mm), ("TOPPADDING", (0, 0), (-1, -1), 1.7 * mm),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 1.7 * mm),
     ]))
-    approval = f"Approved by {_text(revision.approved_by)} on {_text(revision.approved_at)}" if revision.approved_by else "Approval pending"
+    approval = (f"Approved by {_text(person_name(revision.approved_by, names))} on {_text(_indian_date(revision.approved_at))}"
+                if revision.approved_by else "Approval pending")
     signatures = Table([
         [Paragraph("Prepared / checked by", styles["small"]), Paragraph(f"For {_text(company)}", styles["small_right"])],
-        [Paragraph(_text(revision.created_by), styles["body"]), Paragraph(approval, styles["small_right"])],
+        [Paragraph(_text(person_name(revision.created_by, names)), styles["body"]), Paragraph(approval, styles["small_right"])],
     ], colWidths=[89 * mm, 89 * mm])
     signatures.setStyle(TableStyle([
         ("LINEABOVE", (0, 0), (-1, 0), 0.6, MUTED), ("VALIGN", (0, 0), (-1, -1), "TOP"),

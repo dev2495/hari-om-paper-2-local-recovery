@@ -129,7 +129,7 @@ def test_direct_service_blocks_backdated_entry_into_closed_books(card):
     db.add(MonthlyMaterialClose(plant_id=job.plant_id,month_start=previous_end.replace(day=1),status='APPROVED'));db.commit()
     try:
         with pytest.raises(HTTPException) as caught:create(a,db,job,business_date=previous_end)
-        assert caught.value.status_code==422 and caught.value.detail['code']=='BOOKS_LOCKED';db.rollback()
+        assert caught.value.status_code==409 and caught.value.detail['code']=='BOOKS_LOCKED';db.rollback()
     finally:
         db.query(MonthlyMaterialClose).filter_by(plant_id=job.plant_id,month_start=previous_end.replace(day=1)).delete();db.commit()
 

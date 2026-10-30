@@ -76,7 +76,7 @@ function PreviewChip({ preview, saved }: { preview: IncomingPreview; saved?: Sav
 
 function DecisionSwitch({ value, onChange, compact, label, testId }: { value: IncomingDecision; onChange: (value: IncomingDecision) => void; compact?: boolean; label: string; testId?: string }) {
   return (
-    <div role="radiogroup" aria-label={label} data-testid={testId} className="inline-flex rounded-lg border border-border bg-muted p-0.5">
+    <div role="radiogroup" aria-label={label} data-testid={testId} className={cn("inline-flex rounded-lg border border-border bg-muted p-0.5", !compact && "max-sm:flex max-sm:w-full")}>
       {DECISIONS.map((item) => {
         const active = value === item.key
         return (
@@ -88,8 +88,8 @@ function DecisionSwitch({ value, onChange, compact, label, testId }: { value: In
             title={item.title}
             onClick={() => onChange(item.key)}
             className={cn(
-              "rounded-md font-semibold transition-colors",
-              compact ? "h-7 px-2 text-[11.5px]" : "h-8 px-3 text-[12.5px]",
+              "whitespace-nowrap rounded-md font-semibold transition-colors max-sm:h-11",
+              compact ? "h-7 px-2 text-[11.5px]" : "h-8 px-3 text-[12.5px] max-sm:flex-1 max-sm:px-2 max-sm:text-[13px]",
               active
                 ? item.key === "REJECT"
                   ? "bg-signal-rose-ink text-background shadow-sm"
@@ -136,7 +136,7 @@ function ReadingInput({ rule, value, onChange, cell, label, testId, wide, hint }
   }
   if (kind === "select") {
     return (
-      <select {...common} value={value} onChange={(event) => onChange(event.target.value)} className={cn("h-9 rounded-lg border px-2 text-[13px]", wide ? "w-full" : "w-28", cellTone(verdict))}>
+      <select {...common} value={value} onChange={(event) => onChange(event.target.value)} className={cn("h-9 rounded-lg border px-2 text-[13px] max-sm:h-11 max-sm:text-base", wide ? "w-full" : "w-28", cellTone(verdict))}>
         <option value="">—</option>
         {(rule.options || []).map((option) => <option key={option} value={option}>{option}</option>)}
       </select>
@@ -153,7 +153,7 @@ function ReadingInput({ rule, value, onChange, cell, label, testId, wide, hint }
       onKeyDown={(event) => moveOnEnter(event, cell[0], cell[1])}
       placeholder={hint || (kind === "number" ? (rule.unit || "value") : "write…")}
       className={cn(
-        "h-9 rounded-lg border px-2.5 text-[13px] outline-none transition-colors focus:ring-2 focus:ring-ring/30",
+        "h-9 rounded-lg border px-2.5 text-[13px] outline-none transition-colors focus:ring-2 focus:ring-ring/30 max-sm:h-11 max-sm:text-base",
         kind === "number" ? "tabular-nums" : "",
         wide ? "w-full" : kind === "number" ? "w-[5.5rem]" : "w-36",
         cellTone(verdict),
@@ -287,7 +287,7 @@ export function IncomingInspectionEntry({
             "Enter readings. Each lot is saved on its own; empty rows are skipped."
           )}
         </p>
-        <button type="button" data-testid="qc-entry-save" disabled={busy || !toSave.length} onClick={() => void saveAll()} className="erp-btn-primary h-10 min-w-48 px-5">
+        <button type="button" data-testid="qc-entry-save" disabled={busy || !toSave.length} onClick={() => void saveAll()} className="erp-btn-primary h-10 min-w-48 px-5 max-sm:h-11 max-sm:w-full">
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardCheck className="h-4 w-4" />}
           {busy ? "Saving…" : toSave.length ? `Save ${toSave.length} inspection${toSave.length === 1 ? "" : "s"}` : "Save inspection"}
         </button>
@@ -313,9 +313,11 @@ export function IncomingInspectionEntry({
             {!result ? "Cleared — this lot is no longer waiting for QC." : result.ok ? (result.released ? `Saved: ${result.text}. It can be issued to the floor now.` : `Saved: ${result.text}. It stays out of issue.`) : `Not saved: ${result.text}`}
           </div>
         ) : null}
+        {/* Desk: a table. Phone (below sm): each check is a card, label and allowed range on one line,
+            a full-width 44 px reading under it, and the result only once something is typed. */}
         <div className="overflow-hidden rounded-xl border border-border">
-          <table className="w-full text-[13px]">
-            <thead className="bg-muted/70 text-left text-[11.5px] uppercase tracking-wide text-muted-foreground">
+          <table className="w-full text-[13px] max-sm:block">
+            <thead className="bg-muted/70 text-left text-[11.5px] uppercase tracking-wide text-muted-foreground max-sm:hidden">
               <tr>
                 <th className="px-3 py-2 font-semibold">Check</th>
                 <th className="px-3 py-2 font-semibold">Allowed</th>
@@ -323,27 +325,28 @@ export function IncomingInspectionEntry({
                 <th className="w-24 px-3 py-2 text-right font-semibold">Result</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="max-sm:block max-sm:divide-y max-sm:divide-border">
               {checks.map((rule, index) => {
                 const value = entry.readings[rule.code] || (inQueue ? "" : result?.readings?.[rule.code] || "")
                 const verdict = cellVerdict(rule, value)
+                const range = shortRange(rule)
                 return (
-                  <tr key={rule.code} className="border-t border-border">
-                    <td className="px-3 py-2">
-                      <p className="font-semibold text-foreground">{rule.label}{rule.required !== false ? <span className="text-signal-rose-ink" aria-hidden="true"> *</span> : null}</p>
-                      {rule.unit ? <p className="text-[11.5px] text-muted-foreground">{rule.unit}</p> : null}
+                  <tr key={rule.code} data-testid={`qc-entry-check-${rule.code}`} className="border-t border-border max-sm:grid max-sm:grid-cols-[minmax(0,1fr)_auto] max-sm:items-baseline max-sm:gap-x-3 max-sm:gap-y-2 max-sm:border-t-0 max-sm:px-3.5 max-sm:py-3">
+                    <td className="px-3 py-2 max-sm:min-w-0 max-sm:p-0">
+                      <p className="font-semibold text-foreground">{rule.label}{rule.required !== false ? <span className="text-signal-rose-ink" aria-hidden="true"> *</span> : null}{rule.unit ? <span className="font-normal text-muted-foreground sm:hidden"> · {rule.unit}</span> : null}</p>
+                      {rule.unit ? <p className="text-[11.5px] text-muted-foreground max-sm:hidden">{rule.unit}</p> : null}
                     </td>
-                    <td className="px-3 py-2 text-[12.5px] tabular-nums text-muted-foreground">
-                      {shortRange(rule) === "record" ? "Record the value (no limit)" : shortRange(rule) === "note" ? "Write a note" : <span className="font-semibold text-foreground/80">{shortRange(rule)}</span>}
+                    <td className="px-3 py-2 text-[12.5px] tabular-nums text-muted-foreground max-sm:p-0 max-sm:text-right">
+                      {range === "record" ? <><span className="sm:hidden">No limit</span><span className="max-sm:hidden">Record the value (no limit)</span></> : range === "note" ? "Write a note" : <span className="font-semibold text-foreground/80">{range}</span>}
                     </td>
-                    <td className="px-3 py-1.5">
+                    <td className="px-3 py-1.5 max-sm:col-span-2 max-sm:p-0">
                       {canInspect && inQueue ? (
                         <ReadingInput wide rule={rule} value={value} onChange={(next) => setReading(lot, rule.code, next)} cell={[index, 0]} label={`${rule.label} reading`} testId={`qc-entry-0-${rule.code}`} hint={perLot(rule) && lot.qty ? `inward ${Number(lot.qty).toLocaleString("en-IN")} ${rule.unit || ""}`.trim() : undefined} />
                       ) : (
                         <span className="font-semibold tabular-nums text-foreground/85">{result?.readings?.[rule.code] || "—"}</span>
                       )}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right text-[12px] font-semibold">
+                    <td className={cn("whitespace-nowrap px-3 py-2 text-right text-[12px] font-semibold max-sm:col-span-2 max-sm:p-0 max-sm:text-left", !value && "max-sm:hidden")}>
                       {verdict === "PASS" ? <span className="text-signal-emerald-ink">In band</span> : verdict === "FAIL" ? <span className="text-signal-rose-ink">Out of band</span> : verdict === "INVALID" ? <span className="text-signal-rose-ink">Not valid</span> : value ? <span className="text-muted-foreground">Recorded</span> : <span className="text-muted-foreground/60">—</span>}
                     </td>
                   </tr>
@@ -371,8 +374,8 @@ export function IncomingInspectionEntry({
                 className={cn("min-h-[72px] w-full rounded-lg border bg-card px-3 py-2 text-[13px]", attempted && missingReason ? "border-signal-rose-line ring-2 ring-signal-rose-line/40" : "border-input")}
               />
               {holds.length ? (
-                <label className="flex items-start gap-2 text-[12.5px]">
-                  <input type="checkbox" className="mt-0.5" checked={entry.closeHolds} onChange={(event) => update(lot, { closeHolds: event.target.checked })} />
+                <label className="flex items-start gap-2 text-[12.5px] max-sm:min-h-11 max-sm:items-center">
+                  <input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0 max-sm:mt-0 max-sm:h-5 max-sm:w-5" checked={entry.closeHolds} onChange={(event) => update(lot, { closeHolds: event.target.checked })} />
                   <span>Close the earlier hold{holds.length > 1 ? "s" : ""} if this re-check passes: <span className="text-muted-foreground">{holds.map((hold: any) => hold.reason).join(" · ")}</span></span>
                 </label>
               ) : null}
@@ -389,7 +392,7 @@ export function IncomingInspectionEntry({
       {canInspect ? (
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-[12.5px] text-muted-foreground">One row per reel / coil / batch. Cells turn green in band and red out of band as you type; press Enter to go down.</p>
-          <button type="button" onClick={fillDown} className="erp-btn-secondary h-8 text-[12px]" data-testid="qc-entry-fill-down">
+          <button type="button" onClick={fillDown} className="erp-btn-secondary h-8 text-[12px] max-sm:h-11" data-testid="qc-entry-fill-down">
             <Copy className="h-3.5 w-3.5" />
             Copy first row into empty cells (not weights)
           </button>
@@ -441,7 +444,7 @@ export function IncomingInspectionEntry({
                             value={entry.reason}
                             onChange={(event) => update(lot, { reason: event.target.value })}
                             placeholder={preview.needsReason ? "Reason (required)" : "Note (optional)"}
-                            className={cn("h-8 w-full rounded-lg border bg-card px-2 text-[12.5px]", attempted && missingReason ? "border-signal-rose-line ring-2 ring-signal-rose-line/40" : "border-input")}
+                            className={cn("h-8 w-full rounded-lg border bg-card px-2 text-[12.5px] max-sm:h-11", attempted && missingReason ? "border-signal-rose-line ring-2 ring-signal-rose-line/40" : "border-input")}
                           />
                           {holds.length ? (
                             <label className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground" title={holds.map((hold: any) => hold.reason).join(" · ")}>

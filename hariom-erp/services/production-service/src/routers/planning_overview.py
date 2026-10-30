@@ -273,6 +273,8 @@ def canonical_shift_safe(value: Any) -> Optional[str]:
 
 def _due_date(job: JobCard, sales: Optional[SalesOrder]) -> Optional[str]:
     snapshot = job.spec_snapshot or {}
+    if "sales_order_line_due_date" in snapshot and not snapshot.get("sales_order_line_due_date"):
+        return None  # released without a delivery date (optional since 28 Oct 2026): "No date"
     raw = snapshot.get("sales_order_line_due_date") or (sales.due_date.isoformat() if sales and sales.due_date else None)
     return str(raw)[:10] if raw else None
 

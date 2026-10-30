@@ -64,6 +64,8 @@ export type Discrepancy = {
   type: "RATE" | "QUANTITY" | string
   status: string
   version: number
+  /** Opened from the challan rate while the GRN's invoice is still pending. */
+  invoice_pending?: boolean
   po_no: string
   revision_no: number
   grn_no: string

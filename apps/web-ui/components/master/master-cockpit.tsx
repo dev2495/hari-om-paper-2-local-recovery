@@ -16,7 +16,8 @@
  * surfaces feel like one system.
  */
 
-import { Fragment, type ReactNode, useEffect, useMemo, useState } from "react"
+import { Fragment, type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import { usePathname } from "next/navigation"
 import { MastersNav } from "@/components/master/masters-nav"
 import { ArrowDown, ArrowUp, Mail, Phone, Plus, Search, Star, Trash2, X } from "lucide-react"
@@ -147,7 +148,16 @@ export function KpiTile({
 // FilterField — label + child slot for the filter spine
 // ──────────────────────────────────────────────────────────────────────────
 
-export function FilterField({ label, children }: { label: string; children: ReactNode }) {
+export function FilterField({ label, children, stackOnPhone = false }: { label: string; children: ReactNode; stackOnPhone?: boolean }) {
+  if (stackOnPhone) {
+    // Phone: the label sits above a full-width control; from sm up they share one line as before.
+    return (
+      <label className="flex w-full flex-col items-stretch gap-1 text-[12px] font-semibold text-muted-foreground sm:w-auto sm:flex-row sm:items-center sm:gap-2">
+        <span>{label}</span>
+        <span className="flex min-w-0 text-foreground font-medium tracking-normal normal-case text-sm [&>*]:w-full sm:block sm:[&>*]:w-auto">{children}</span>
+      </label>
+    )
+  }
   return (
     <label className="flex items-center gap-2 text-[12px] font-semibold text-muted-foreground">
       <span>{label}</span>
@@ -160,20 +170,30 @@ export function SearchField({
   value,
   onChange,
   placeholder,
+  fullWidthOnPhone = false,
 }: {
   value: string
   onChange: (next: string) => void
   placeholder?: string
+  /** Phone: take the whole row (use inside a FilterField with stackOnPhone). */
+  fullWidthOnPhone?: boolean
 }) {
   return (
-    <span className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1.5 text-sm">
-      <Search className="h-3.5 w-3.5 text-muted-foreground" />
+    <span className={cn(
+      "items-center gap-2 rounded-md border border-border bg-card px-2 py-1.5 text-sm",
+      fullWidthOnPhone ? "flex min-h-11 w-full min-w-0 sm:inline-flex sm:min-h-0 sm:w-auto" : "inline-flex min-h-11 sm:min-h-0",
+    )}>
+      <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
       <input
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder || "Search…"}
-        className="w-[200px] bg-transparent outline-none placeholder:text-muted-foreground"
+        aria-label={placeholder ? `Search ${placeholder}` : "Search"}
+        className={cn(
+          "min-w-0 bg-transparent text-base outline-none placeholder:text-muted-foreground sm:min-h-0 sm:text-sm",
+          fullWidthOnPhone ? "min-h-9 w-full sm:w-[200px]" : "min-h-8 w-[200px]",
+        )}
       />
     </span>
   )
@@ -386,7 +406,7 @@ export function DetailDrawer({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md p-1.5 text-white/80 transition hover:bg-white/10 hover:text-white"
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-white/80 transition hover:bg-white/10 hover:text-white sm:h-8 sm:w-8"
               aria-label="Close drawer"
             >
               <X className="h-4 w-4" />
@@ -422,7 +442,7 @@ export function DetailDrawer({
               key={t.key}
               onClick={() => setActiveKey(t.key)}
               className={cn(
-                "shrink-0 border-b-2 px-3 py-2 text-[12px] font-semibold transition",
+                "min-h-11 shrink-0 border-b-2 px-3 py-2 text-[13px] font-semibold transition sm:min-h-0 sm:text-[12px]",
                 isActive ? `${tabBorder} text-foreground` : "border-transparent text-muted-foreground hover:text-foreground",
               )}
             >
@@ -463,36 +483,82 @@ export function Modal({
   footer?: ReactNode
   size?: "sm" | "md" | "lg"
 }) {
+  const titleId = useId()
+  const panelRef = useRef<HTMLDivElement>(null)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+  // Behaves like the shared Radix dialog: announced as a modal dialog, focus moves into it, Tab stays
+  // inside it, Escape closes it, and focus goes back to the button that opened it.
   useEffect(() => {
     if (!open) return
-    const handler = (e: KeyboardEvent) => e.key === "Escape" && onClose()
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    panelRef.current?.focus()
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation()
+        onCloseRef.current()
+        return
+      }
+      if (e.key !== "Tab" || !panelRef.current) return
+      const focusable = Array.from(
+        panelRef.current.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((el) => el.offsetParent !== null || el === document.activeElement)
+      if (focusable.length === 0) {
+        e.preventDefault()
+        panelRef.current.focus()
+        return
+      }
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const active = document.activeElement
+      if (e.shiftKey && (active === first || active === panelRef.current || !panelRef.current.contains(active))) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && (active === last || !panelRef.current.contains(active))) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
     document.addEventListener("keydown", handler)
-    return () => document.removeEventListener("keydown", handler)
-  }, [open, onClose])
+    return () => {
+      document.removeEventListener("keydown", handler)
+      if (opener && opener.isConnected) opener.focus()
+    }
+  }, [open])
   if (!open) return null
   const sizeCls = size === "lg" ? "max-w-2xl" : size === "sm" ? "max-w-md" : "max-w-xl"
-  return (
+  // Rendered on <body>: inside the cockpit a transformed ancestor would pin this "fixed" overlay to the page
+  // instead of the screen, so on a phone the form opened in the middle of a long page, out of view.
+  // The backdrop is the same fixed dark wash as the Radix dialog (components/ui/dialog.tsx); a foreground-based
+  // wash turned pale in dark mode, because the foreground colour is light there.
+  const overlay = (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/55 px-4 py-8"
+      className="tube-overlay fixed inset-0 z-50 flex items-center justify-center bg-[hsl(224_30%_6%/.42)] px-4 py-8 backdrop-blur-[3px]"
       onClick={onClose}
     >
       <div
-        className={cn("w-full max-h-[88vh] overflow-hidden rounded-xl border border-border bg-white text-foreground shadow-[0_30px_80px_rgba(15,23,42,0.25)]", sizeCls)}
-        style={{ colorScheme: "light" }}
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className={cn("w-full max-h-[88vh] overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-[0_30px_80px_rgba(15,23,42,0.25)] focus:outline-none", sizeCls)}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
           <div>
             {eyebrow ? <p className="text-[11.5px] font-semibold text-muted-foreground">{eyebrow}</p> : null}
-            <h2 className="mt-0.5 text-base font-semibold tracking-tight text-foreground">{title}</h2>
+            <h2 id={titleId} className="mt-0.5 text-base font-semibold tracking-tight text-foreground">{title}</h2>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
-            aria-label="Close modal"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-8 sm:w-8"
+            aria-label="Close"
           >
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
         <div className="max-h-[64vh] overflow-y-auto px-5 py-4">{children}</div>
@@ -500,6 +566,7 @@ export function Modal({
       </div>
     </div>
   )
+  return typeof document === "undefined" ? overlay : createPortal(overlay, document.body)
 }
 
 // ──────────────────────────────────────────────────────────────────────────

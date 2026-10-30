@@ -729,6 +729,12 @@ def _upsert_monthly_provisional_theory(
     # floor step, client rule 2026-10-18) or, on older cards, at Packing / final QC close.
     if selected_stage not in {"PROCESS", "PACKING", "QC"}:
         return
+    # Month-end close (spec 2.1, client 2026-10-28): the posting is dated by the IST day of the close
+    # (never the UTC day), there is one posting per card per material, a card is never in two months,
+    # and a closed month never changes: a close dated inside it posts into the next open month and is
+    # flagged "posted after close".
+    from ..models import MonthlyMaterialClose
+    from ..services.consumption import ist_day, month_key, next_month_start
 
     paper_catalog = _fetch_paper_catalog_for_theory(token, plant_id)
     inventory_items = _fetch_inventory_item_catalog_for_theory(token, plant_id)
@@ -743,16 +749,48 @@ def _upsert_monthly_provisional_theory(
         if str(stage_row.stage_type or "").upper() == selected_stage:
             activity_dt = stage_row.actual_end or stage_row.entered_at or stage_row.actual_start
             break
-    month_start = activity_dt.date().replace(day=1) if activity_dt else date.today().replace(day=1)
+    posted_on = ist_day(activity_dt)
 
-    existing_rows = {
-        str(row.item_code or "").strip().upper(): row
-        for row in db.query(MonthlyMaterialProvisional).filter(
-            MonthlyMaterialProvisional.plant_id == job_card.plant_id,
-            MonthlyMaterialProvisional.month_start == month_start,
-            MonthlyMaterialProvisional.job_card_id == job_card.id,
+    closed_months = {
+        value
+        for (value,) in db.query(MonthlyMaterialClose.month_start).filter(
+            MonthlyMaterialClose.plant_id == job_card.plant_id,
+            MonthlyMaterialClose.status == "APPROVED",
         ).all()
     }
+    card_rows = db.query(MonthlyMaterialProvisional).filter(
+        MonthlyMaterialProvisional.plant_id == job_card.plant_id,
+        MonthlyMaterialProvisional.job_card_id == job_card.id,
+    ).all()
+    frozen_months = sorted({row.month_start for row in card_rows if row.month_start in closed_months})
+    if frozen_months:
+        # Already posted into a month that is now closed: that posting stands and is never repeated.
+        _record_audit_event(
+            db=db,
+            plant_id=job_card.plant_id,
+            entity_type="job_card",
+            entity_id=job_card.id,
+            action="provisional_theory_kept_in_closed_month",
+            actor_id=current_user.get("sub"),
+            actor_role=str(current_user.get("role") or current_user.get("acting_role") or ""),
+            job_card_id=job_card.id,
+            payload={"source_stage": selected_stage, "closed_month": month_key(frozen_months[0]), "posted_on": posted_on.isoformat()},
+        )
+        return
+
+    month_start = posted_on.replace(day=1)
+    closed_month_of_close: Optional[date] = None
+    while month_start in closed_months:
+        closed_month_of_close = closed_month_of_close or month_start
+        month_start = next_month_start(month_start)
+
+    existing_rows: dict[str, MonthlyMaterialProvisional] = {}
+    for row in card_rows:
+        if row.month_start == month_start:
+            existing_rows[str(row.item_code or "").strip().upper()] = row
+        else:
+            # An earlier posting in a month that is still open moves to the month of this close.
+            db.delete(row)
 
     keep_codes: set[str] = set()
     for row in rows:
@@ -769,6 +807,7 @@ def _upsert_monthly_provisional_theory(
                 created_by=current_user.get("sub"),
             )
             db.add(existing)
+            existing_rows[item_code] = existing
         existing.item_name = row.get("item_name")
         existing.provisional_theory_consumption_kg = float(row.get("provisional_theory_consumption_kg") or 0.0)
         existing.advisory_allocated_order_qty = float(row.get("advisory_allocated_order_qty") or 0.0)
@@ -777,6 +816,9 @@ def _upsert_monthly_provisional_theory(
             "selected_stage": selected_stage,
             "job_card_status": job_card.status,
             "planned_qty": float(job_card.planned_qty or 0.0),
+            "posted_on": posted_on.isoformat(),
+            "stage_closed_at": activity_dt.isoformat() if activity_dt else None,
+            **({"posted_after_close": month_key(closed_month_of_close)} if closed_month_of_close else {}),
             **({"unit": row["unit"], "pieces": row.get("pieces")} if row.get("unit") else {}),
         }
 
@@ -797,6 +839,8 @@ def _upsert_monthly_provisional_theory(
             payload={
                 "source_stage": selected_stage,
                 "month_start": month_start.isoformat(),
+                "posted_on": posted_on.isoformat(),
+                **({"posted_after_close": month_key(closed_month_of_close)} if closed_month_of_close else {}),
                 "rows": rows,
             },
         )
@@ -1380,6 +1424,11 @@ def _fmt_utc(value: Optional[datetime]) -> Optional[str]:
     return value.replace(tzinfo=ZoneInfo("UTC")).isoformat() if value else None
 
 
+def _stage_word(stage: str) -> str:
+    """The stage in plain words for messages on the floor ("Winding", not "WINDER")."""
+    return {"SLITTING": "Slitting", "WINDER": "Winding", "OVEN": "Oven", "PROCESS": "Process", "PACKING": "Packing", "QC": "Final QC", "DISPATCH": "Dispatch"}.get(str(stage or "").upper(), str(stage or "").title())
+
+
 def _reconcile_card_times(
     *,
     stage: str,
@@ -1397,30 +1446,31 @@ def _reconcile_card_times(
     soft warnings for the time-reconciliation register instead.
     """
     warnings: list[str] = []
+    word = _stage_word(stage)
     times_reversed = bool(card_start and card_end and card_end < card_start)
     if times_reversed:
-        warnings.append(f"{stage} end time (B) is before start time (A); check the date on the card.")
+        warnings.append(f"{word} end time (B) is before start time (A); check the date on the card.")
     for label, value in (("start time (A)", card_start), ("end time (B)", card_end)):
         if value and value > now + FUTURE_TIME_TOLERANCE:
-            warnings.append(f"{stage} {label} is later than the entry time; check the time written on the card.")
+            warnings.append(f"{word} {label} is later than the entry time; check the time written on the card.")
     if save_mode == "complete" and stage in CARD_TIMED_STAGES and not (card_start and card_end):
-        warnings.append(f"{stage} completed without card times; system entry time is used as the end time.")
+        warnings.append(f"{word} was completed without card times, so the time it was entered is used as the end time.")
 
     if job_card_created_at and card_start and card_start < job_card_created_at - timedelta(hours=12):
-        warnings.append(f"{stage} start time is earlier than the job card was released; check the card date.")
+        warnings.append(f"{word} start time is earlier than the job card was released; check the card date.")
 
     cycle_minutes: Optional[float] = None
     if card_start and card_end and not times_reversed:
         cycle_minutes = round((card_end - card_start).total_seconds() / 60.0, 1)
         if cycle_minutes > MAX_CARD_STAGE_DURATION_HOURS * 60:
-            warnings.append(f"{stage} cycle time is {cycle_minutes / 60:.1f} h; check the card dates.")
+            warnings.append(f"{word} cycle time is {cycle_minutes / 60:.1f} h; check the card dates.")
 
     anchor = card_end or card_start
     lag_minutes = round(max(0.0, (now - anchor).total_seconds() / 60.0), 1) if anchor else None
     late_entry = bool(lag_minutes is not None and lag_minutes > LATE_ENTRY_THRESHOLD_HOURS * 60)
     if late_entry:
         warnings.append(
-            f"{stage} entered {lag_minutes / 60:.1f} h after the card time; flagged for time reconciliation."
+            f"{word} entered {lag_minutes / 60:.1f} h after the card time; flagged for time reconciliation."
         )
     record = {
         "card_start_time": _fmt_utc(card_start),
@@ -1898,8 +1948,13 @@ def _validate_execution_capacity(
                 ),
             )
         if projected > capacity and warnings is not None:
+            over_pct = projected / capacity * 100 - 100
+            tolerance_pct = int(OUTPUT_TOLERANCE * 100)
             warnings.append(
-                f"{stage} shift output is {projected / capacity * 100 - 100:.1f}% over capacity — inside the +{int(OUTPUT_TOLERANCE * 100)}% tolerance."
+                # Past the cap the save only went through on the override reason; say so, never "inside".
+                f"{_stage_word(stage)} shift output is {over_pct:.1f}% over capacity — past the +{tolerance_pct}% tolerance, saved with the override reason."
+                if projected > tolerance_cap
+                else f"{_stage_word(stage)} shift output is {over_pct:.1f}% over capacity — inside the +{tolerance_pct}% tolerance."
             )
 
     if stage == "OVEN":
@@ -2060,10 +2115,19 @@ def _snapshot_date(value: Any) -> Optional[date]:
         return None
 
 
-def _job_due_date(job_card: JobCard, sales_order: Optional[SalesOrder] = None) -> Optional[date]:
-    return _snapshot_date((job_card.spec_snapshot or {}).get("sales_order_line_due_date")) or (
+def _snapshot_due_date(snapshot: Optional[dict[str, Any]], sales_order: Optional[SalesOrder] = None) -> Optional[date]:
+    snapshot = snapshot or {}
+    if "sales_order_line_due_date" in snapshot and _snapshot_value(snapshot.get("sales_order_line_due_date")) is None:
+        # Released without a delivery date (optional since 28 Oct 2026): "No date", never overdue.
+        # The local order copy's date is only a placeholder then, so it is not used.
+        return None
+    return _snapshot_date(snapshot.get("sales_order_line_due_date")) or (
         sales_order.due_date if sales_order else None
     )
+
+
+def _job_due_date(job_card: JobCard, sales_order: Optional[SalesOrder] = None) -> Optional[date]:
+    return _snapshot_due_date(job_card.spec_snapshot, sales_order)
 
 
 def _format_measure(value: Any, digits: int = 2) -> str:
@@ -3161,7 +3225,8 @@ def _order_total_qty(live_order: dict[str, Any]) -> float:
 
 
 def _order_due_date(live_order: dict[str, Any]) -> date:
-    line_dates = [_line_due_date(line) for line in (live_order.get("lines") or [])]
+    # Lines without a delivery date (optional since 28 Oct 2026) do not pull the order to "today".
+    line_dates = [_line_due_date(line) for line in (live_order.get("lines") or []) if line.get("due_date")]
     if not line_dates:
         return date.today()
     return min(line_dates)
@@ -3555,11 +3620,80 @@ def _sweep_missed_slots_safely(db: Session, plant_id: Any) -> None:
         logger.warning("missed-slot sweep skipped: %s", exc)
 
 
-def _release_lot_color(line: dict[str, Any], release_lot_id: Optional[uuid.UUID]) -> Optional[str]:
+_PARCHMENT_PLACEHOLDERS = {
+    "none", "no", "nil", "null", "na", "n/a", "n.a", "n.a.", "nothing", "not applicable",
+    "no parchment", "without parchment", "without", "no colour", "no color", "no-parchment",
+    "multiple colors", "multiple colours", "tbd", "undecided", "not decided", "0",
+}
+
+
+def _is_placeholder_parchment(name: Optional[str]) -> bool:
+    """"None", "-", "no parchment" … are not parchment colours (client 2026-10-28, "there is no none")."""
+    text = re.sub(r"\s+", " ", str(name or "").strip().lower())
+    if not text:
+        return False
+    return text in _PARCHMENT_PLACEHOLDERS or re.fullmatch(r"[\W_]+", text) is not None
+
+
+def _release_lot(line: dict[str, Any], release_lot_id: Optional[uuid.UUID]) -> Optional[dict[str, Any]]:
     for lot in line.get("release_lots") or []:
         if str(lot.get("release_lot_id") or lot.get("id")) == str(release_lot_id or ""):
-            return (str(lot.get("parchment_color") or "").strip() or None)
+            return lot
     return None
+
+
+def _release_lot_color(line: dict[str, Any], release_lot_id: Optional[uuid.UUID]) -> Optional[str]:
+    lot = _release_lot(line, release_lot_id)
+    return (str(lot.get("parchment_color") or "").strip() or None) if lot else None
+
+
+def _legacy_lot_colour_message(line: dict[str, Any]) -> str:
+    return (
+        f"Line {line.get('line_no') or '-'}: this release was saved before the parchment colour became "
+        "compulsory, so it has no parchment colour yet. Open the order, press Release lines and pick the colour — "
+        "the colour is saved on the order first, then the job card is made."
+    )
+
+
+def _check_parchment_master(colour: str, colour_id: Any, token: str, plant_id: str, line: dict[str, Any]) -> None:
+    """The card's colour must be an active parchment master colour (client 2026-10-28, checker 30 Oct).
+
+    Matched by master id when the lot carries one, otherwise by "Colour / Vendor" or the colour name.
+    Direct calls without a sign-in (unit tests) skip the lookup; the placeholder check still applies.
+    """
+    if not token:
+        return
+    headers = {"Authorization": f"Bearer {token}", "X-Plant-ID": plant_id}
+    unavailable = HTTPException(
+        status_code=503,
+        detail="Could not check the parchment colour list just now. No job card was made — try again in a moment.",
+    )
+    try:
+        with httpx.Client(timeout=8.0) as client:
+            colours = client.get(f"{settings.MASTERDATA_SERVICE_URL}/master/parchment/colors", headers=headers)
+            vendors = client.get(f"{settings.MASTERDATA_SERVICE_URL}/master/parchment/vendors", headers=headers)
+    except httpx.HTTPError as exc:
+        raise unavailable from exc
+    if colours.status_code != 200 or vendors.status_code != 200:
+        raise unavailable
+    vendor_names = {str(row.get("id")): str(row.get("name") or "").strip() for row in vendors.json() or []}
+    wanted_id = str(colour_id or "").strip().lower()
+    wanted = colour.strip().lower()
+    for row in colours.json() or []:
+        if row.get("active") is False:
+            continue
+        name = str(row.get("color_name") or "").strip()
+        vendor = vendor_names.get(str(row.get("vendor_id")), "")
+        label = f"{name} / {vendor}" if vendor else name
+        if (wanted_id and str(row.get("id") or "").lower() == wanted_id) or wanted in {name.lower(), label.lower()}:
+            return
+    raise HTTPException(
+        status_code=400,
+        detail=(
+            f"Line {line.get('line_no') or '-'}: “{colour}” is not in the active parchment colour list, so no job card "
+            "was made. Ask the Admin to add or reactivate it in Masters › Parchment, then release again."
+        ),
+    )
 
 
 def _create_or_sync_job_card_for_line(
@@ -3657,6 +3791,33 @@ def _create_or_sync_job_card_for_line(
             },
         )
 
+    # The colour sales recorded on the release lot is the card's colour, and nothing else: a new
+    # card is never made without it (client 2026-10-28, "there is no none"). A lot saved before
+    # 28 Oct has no colour in sales; a colour typed into the sync request would reach only the card
+    # and never the order, so it is refused and the release dialog records the colour in sales
+    # first (checker 30 Oct). A different colour, a placeholder word, or a colour that is not an
+    # active parchment master colour is refused too.
+    recorded_lot = _release_lot(line, release_lot_id) or {}
+    recorded_color = _release_lot_color(line, release_lot_id)
+    requested_color = (parchment_color or "").strip()
+    if not recorded_color:
+        raise HTTPException(status_code=400, detail=_legacy_lot_colour_message(line))
+    if requested_color and requested_color.lower() != recorded_color.lower():
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"The parchment colour sent ({requested_color}) is not the colour released on the order "
+                f"({recorded_color}). Open the order and release again."
+            ),
+        )
+    lot_color = recorded_color
+    if _is_placeholder_parchment(lot_color):
+        raise HTTPException(
+            status_code=400,
+            detail=f"“{lot_color}” is not a parchment colour. Every job card needs a parchment colour — pick one from the parchment colour list on the order.",
+        )
+    _check_parchment_master(lot_color, recorded_lot.get("parchment_color_id"), token, plant_id, line)
+
     sales_order = _sync_local_sales_order(
         db=db,
         plant_uuid=plant_uuid,
@@ -3666,12 +3827,13 @@ def _create_or_sync_job_card_for_line(
     )
 
     spec = _fetch_spec(line_spec_id, token, plant_id)
-    lot_color = (parchment_color or "").strip() or _release_lot_color(line, release_lot_id)
     line_payload = {**line, "product_code": product_code or line.get("product_code"), "_season_operation_key": f"lot:{release_lot_id}" if release_lot_id else f"line:{line.get('id')}:{planned_qty}"}
     if lot_color:
         # One job card = one color: the lot's color is the ordered color for this card,
         # and so is that color's commercial rate when the order priced it separately.
+        # Every card is a parchment card now, also on a line first ordered without parchment.
         line_payload["parchment_color"] = lot_color
+        line_payload["parchment_required"] = True
         color_rate = next(
             (
                 split.get("rate_per_pc")
@@ -3757,7 +3919,7 @@ def _create_or_sync_job_card_for_line(
         status="PLANNED",
         current_stage=first_stage,
         requires_slitting=requires_slitting,
-        parchment_color=(line_payload.get("parchment_color") if bool(line.get("parchment_required")) else None),
+        parchment_color=lot_color,
         job_card_no=allocate_job_card_no(db),
     )
     db.add(job_card)
@@ -3862,6 +4024,10 @@ def _final_spec_qc_passed(
     for inspection in _quality_inspections_for_stage(db, job_card.id, FINAL_SPEC_QC_STAGE, plant_id):
         if (getattr(inspection, "evaluation", None) or {}).get("workflow_status") == "SUPERSEDED":
             continue
+        # Old-form Final QC saved out of band is flagged, not held (user 2026-10-30): its full readings count
+        # as the final QC record; the flag stays on the stage and in Reports › Exceptions.
+        if (getattr(inspection, "evaluation", None) or {}).get("flagged_not_held"):
+            return _inspection_has_full_final_spec(inspection, spec_snapshot)
         # A later failed or incomplete inspection invalidates an older pass.
         if str(getattr(inspection, "status", "") or "").upper() != "PASS":
             return False
@@ -3869,6 +4035,126 @@ def _final_spec_qc_passed(
             return False
         return not _quality_failures_for_stage(FINAL_SPEC_QC_STAGE, spec_snapshot, getattr(inspection, "readings", {}) or {})
     return False
+
+
+def _final_qc_sample_failures(spec_snapshot: dict[str, Any], quality_checks: dict[str, Any]) -> list[dict[str, Any]]:
+    """Out-of-band Final QC readings across every sample the save records (the same split as
+    _sync_quality_artifacts: the samples list when given, otherwise the top-level readings)."""
+    return _stage_sample_failures(FINAL_SPEC_QC_STAGE, spec_snapshot, quality_checks)
+
+
+def _stage_sample_failures(stage_type: str, spec_snapshot: dict[str, Any], quality_checks: dict[str, Any]) -> list[dict[str, Any]]:
+    """Out-of-band readings of one stage across every sample the save records."""
+    samples = quality_checks.get("samples") if isinstance(quality_checks.get("samples"), list) else None
+    sample_rows = [
+        sample for sample in (samples or [])
+        if isinstance(sample, dict) and isinstance(sample.get("readings"), dict) and sample.get("readings")
+    ]
+    if not sample_rows:
+        top = {key: value for key, value in quality_checks.items() if key != "samples"}
+        return list(_quality_failures_for_stage(stage_type, spec_snapshot, top))
+    failures: list[dict[str, Any]] = []
+    for index, sample in enumerate(sample_rows):
+        sample_checks = {**dict(sample.get("readings") or {}), "reasons": sample.get("reasons") or quality_checks.get("reasons") or {}}
+        sample_id = str(sample.get("sample_id") or f"Sample {index + 1}")
+        for failure in _quality_failures_for_stage(stage_type, spec_snapshot, sample_checks):
+            row = dict(failure)
+            label = str(row.get("label") or row.get("parameter") or "reading")
+            row["label"] = f"{label} ({sample_id})" if len(sample_rows) > 1 else label
+            row["sample_id"] = sample_id
+            failures.append(row)
+    return failures
+
+
+OLD_FORM_READING_STAGES = {"WINDER", "OVEN", "PROCESS", FINAL_SPEC_QC_STAGE}
+# Old-form stages whose out-of-band readings are saved and flagged, never held (rules that never change).
+OLD_FORM_FLAG_STAGES = {"WINDER", "OVEN", "PROCESS", FINAL_SPEC_QC_STAGE}
+
+
+def _reading_given(value: Any) -> bool:
+    if value is None or isinstance(value, (dict, list, tuple, set)):
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    return True
+
+
+def _old_form_readings_short(
+    *,
+    db: Session,
+    plant_id: uuid.UUID,
+    job_card: JobCard,
+    selected_stage: str,
+    quality_checks: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Old-form (V1) Winder, Oven, Process and Final QC close: at least 2 readings per required check, the same rule as the
+    batch-entry cards (client rule 2026-10-18; rules that never change). The readings are the samples this
+    save sends plus the stage's earlier inspections (QC page); one sample counts once per check. Out-of-band
+    readings still count (flagged, not held). Optional checks (moisture) and checks the card does not carry
+    are left out, as in entries.readings_short."""
+    stage = str(selected_stage or "").upper()
+    if stage not in OLD_FORM_READING_STAGES:
+        return []
+    spec = job_card.spec_snapshot or {}
+    required: list[tuple[str, str, int]] = []
+    if stage == FINAL_SPEC_QC_STAGE:
+        required = [
+            (reading_key, label, 2)
+            for label, reading_key, min_key, max_key in FINAL_SPEC_QC_FIELDS
+            if spec.get(min_key) is not None or spec.get(max_key) is not None
+        ]
+    else:
+        from season_quality import is_optional
+
+        params = (((spec.get("qc_profile") or {}).get("stages") or {}).get(stage) or {}).get("parameters") or []
+        for rule in params:
+            code = rule.get("code") or rule.get("parameter")
+            if not code or not rule.get("applicable", True) or is_optional(rule):
+                continue
+            required.append((str(code), str(rule.get("label") or code), max(2, int(rule.get("min_readings") or 2))))
+    if not required:
+        return []
+
+    seen: dict[str, set[str]] = {code: set() for code, _, _ in required}
+
+    def _absorb(sample_key: str, readings: dict[str, Any]) -> None:
+        for code in seen:
+            if _reading_given(readings.get(code)):
+                seen[code].add(sample_key)
+
+    samples = quality_checks.get("samples") if isinstance(quality_checks.get("samples"), list) else None
+    sample_rows = [sample for sample in (samples or []) if isinstance(sample, dict) and isinstance(sample.get("readings"), dict)]
+    if sample_rows:
+        for index, sample in enumerate(sample_rows):
+            sample_id = str(sample.get("sample_id") or "").strip().upper()
+            _absorb(f"sample:{sample_id}" if sample_id else f"row:{index}", sample.get("readings") or {})
+    elif quality_checks:
+        sample_id = str(quality_checks.get("sample_id") or "").strip().upper()
+        _absorb(f"sample:{sample_id}" if sample_id else "row:top", {k: v for k, v in quality_checks.items() if k != "samples"})
+    for inspection in _quality_inspections_for_stage(db, job_card.id, stage, plant_id):
+        if (getattr(inspection, "evaluation", None) or {}).get("workflow_status") == "SUPERSEDED":
+            continue
+        sample_id = str(getattr(inspection, "sample_id", None) or "").strip().upper()
+        _absorb(f"sample:{sample_id}" if sample_id else f"inspection:{inspection.id}", dict(getattr(inspection, "readings", None) or {}))
+
+    return [
+        {"parameter": code, "label": label, "have": len(seen[code]), "need": need}
+        for code, label, need in required
+        if len(seen[code]) < need
+    ]
+
+
+def _old_form_readings_short_detail(selected_stage: str, short: list[dict[str, Any]]) -> dict[str, Any]:
+    stage_word = _old_form_stage_word(selected_stage)
+    listed = ", ".join(f"{row['label']} {row['have']} of {row['need']}" for row in short)
+    return {
+        "code": "STAGE_QC_READINGS_SHORT",
+        "message": (
+            f"{stage_word} needs at least 2 readings for every check before it can close. Readings so far: {listed}. "
+            "Type the second sample and save again. A reading outside its band still counts; it is saved and flagged."
+        ),
+        "missing": short,
+    }
 
 
 def _enforce_stage_quality_gate(
@@ -3917,14 +4203,11 @@ def _enforce_stage_quality_gate(
                 status_code=400,
                 detail=f"Final QC requires full spec readings: {', '.join(missing)}",
             )
-        failures = _quality_failures_for_stage(FINAL_SPEC_QC_STAGE, spec_snapshot, inline_checks)
-        if failures:
-            labels = [str(row.get("label") or row.get("parameter") or "reading") for row in failures]
-            raise HTTPException(
-                status_code=400,
-                detail=f"Final QC readings are not in approved bounds: {', '.join(labels)}",
-            )
-        return
+        # Out of band is flagged, not held (client 2026-10-27; old-form cards too, user 2026-10-30): the full
+        # readings are saved and the stage carries the flag. No Owner/Admin override is needed.
+        # Every sample is checked, as _sync_quality_artifacts records an inspection per sample: an
+        # out-of-band reading in FQ-2 must be flagged the same way as one in FQ-1.
+        return _final_qc_sample_failures(spec_snapshot, inline_checks) or None
 
     if _final_spec_qc_passed(db=db, plant_id=plant_id, job_card=job_card, inline_quality_checks=None):
         return
@@ -3932,6 +4215,108 @@ def _enforce_stage_quality_gate(
         status_code=409,
         detail="Final QC inspection is required before job card completion or FG handoff. An Owner/Admin override_reason is required to continue without inspection.",
     )
+
+
+def _plain_count(value: Any) -> str:
+    number = float(value or 0)
+    return f"{int(number)}" if number.is_integer() else f"{number:g}"
+
+
+def _old_form_stage_flags(
+    *,
+    stage: JobCardStage,
+    selected_stage: str,
+    payload: Any,
+    all_stage_rows: list[JobCardStage],
+    spec_snapshot: dict[str, Any],
+    final_qc_flags: Optional[list[dict[str, Any]]],
+    now: datetime,
+) -> list[str]:
+    """Old-form (V1) checks that flag, never stop the save (client 2026-10-28 decision 3; user 2026-10-30
+    decision 8). The flag stays on the stage (actuals_snapshot), the card print and Reports › Exceptions."""
+    warnings: list[str] = []
+    actuals = {k: v for k, v in (stage.actuals_snapshot or {}).items() if k not in {"count_gap", "qc_flag"}}
+    if selected_stage == "PROCESS":
+        # Oven good bamboo × pcs per bamboo against the Process pieces written on the card.
+        pcs = _pcs_per_bamboo_from_snapshot(spec_snapshot)
+        oven = next((row for row in all_stage_rows if row.stage_type == "OVEN"), None)
+        bamboo = payload.input_qty if payload.input_qty is not None else (
+            oven.output_qty if oven is not None and oven.status == "COMPLETED" else None
+        )
+        if pcs and bamboo:
+            possible = int(round(float(bamboo) * float(pcs)))
+            good = int(round(float(payload.output_qty or 0)))
+            rejected = int(round(float(payload.scrap_qty or 0)))
+            counted = good + rejected
+            if possible != counted:
+                gap_words = f"{possible - counted} pcs short." if possible > counted else f"{counted - possible} pcs more than the bamboo can give."
+                message = (
+                    f"{_plain_count(bamboo)} bamboo × {_plain_count(pcs)} pcs = {possible} pcs, but the card counts {counted} pcs "
+                    f"({good} good + {rejected} rejected). {gap_words} Saved and flagged; nothing has to be written for it."
+                )
+                actuals["count_gap"] = {
+                    "bamboo": float(bamboo), "pcs_per_bamboo": float(pcs), "possible": possible, "counted": counted,
+                    "made": good, "rejected": rejected, "gap": possible - counted, "message": message, "source": "OLD_FORM",
+                }
+                warnings.append(message)
+    stage.actuals_snapshot = actuals
+    warnings.extend(_set_old_form_qc_flag(stage=stage, selected_stage=selected_stage, flags=final_qc_flags, now=now))
+    return warnings
+
+
+def _old_form_stage_word(selected_stage: str) -> str:
+    return "Final QC" if selected_stage == FINAL_SPEC_QC_STAGE else str(selected_stage or "").title()
+
+
+def _set_old_form_qc_flag(*, stage: JobCardStage, selected_stage: str, flags: Optional[list[dict[str, Any]]], now: datetime) -> list[str]:
+    """Out-of-band readings on an old-form stage: saved, and the stage carries the flag (never a hold)."""
+    if not flags:
+        return []
+    labels = list(dict.fromkeys(str(row.get("label") or row.get("parameter") or "reading") for row in flags))
+    stage_word = _old_form_stage_word(selected_stage) + ("" if selected_stage == FINAL_SPEC_QC_STAGE else " QC")
+    listed = ", ".join(labels)
+    message = f"{stage_word} out of band: {listed}{'' if listed.endswith('.') else '.'} Saved and flagged, not held."
+    stage.actuals_snapshot = {
+        **(stage.actuals_snapshot or {}),
+        "qc_flag": {
+            "stage": selected_stage, "count": len(flags), "parameters": labels,
+            "flagged_at": now.isoformat(), "message": message,
+        },
+    }
+    return [message]
+
+
+def _flag_not_hold_old_form_qc(
+    *,
+    db: Session,
+    job_card: JobCard,
+    plant_id: uuid.UUID,
+    selected_stage: str,
+    quality_holds: list[QualityHold],
+    earlier_inspection_ids: set,
+    earlier_hold_ids: set,
+) -> tuple[list[QualityHold], list[dict[str, Any]]]:
+    """Old-form (V1) Winder, Oven, Process and Final QC readings out of band: the inspections keep FAIL for
+    analytics but are marked flagged (not held), and the holds this save just opened for them are not kept
+    (out-of-band QC is flagged, never held, on V1 and V2 cards; user 2026-10-30). Returns the holds kept
+    (earlier ones, such as a plant-head hold) and the failures this save flagged."""
+    stage_key = str(selected_stage or "").upper()
+    flagged: list[dict[str, Any]] = []
+    for inspection in _quality_inspections_for_stage(db, job_card.id, stage_key, plant_id):
+        if inspection.id in earlier_inspection_ids or str(inspection.status or "").upper() not in {"FAIL", "INVALID"}:
+            continue
+        inspection.evaluation = {**(inspection.evaluation or {}), "flagged_not_held": True, "gating": "advisory"}
+        for failure in list(getattr(inspection, "failures", None) or []):
+            if isinstance(failure, dict):
+                flagged.append({**failure, "sample_id": getattr(inspection, "sample_id", None)})
+    kept: list[QualityHold] = []
+    for hold in quality_holds:
+        if hold.id not in earlier_hold_ids and str(hold.stage_type or "").upper() == stage_key:
+            db.delete(hold)
+        else:
+            kept.append(hold)
+    db.flush()
+    return kept, flagged
 
 
 def _stage_allows_fg_inward(*, selected_stage: str, final_qc_ready: bool) -> bool:
@@ -3981,6 +4366,20 @@ def _validate_stage_completion_payload(
                     raise HTTPException(status_code=400, detail="OVEN post_weight cannot exceed pre_weight")
             except (TypeError, ValueError):
                 missing_fields.append("entry_snapshot.pre_weight/post_weight numeric")
+
+    if selected_stage == "PROCESS":
+        # Rejected pieces need a reason, the same rule as the batch-entry Process run (entries: "Reject reason is
+        # required"). The Process count gap itself is only a flag and never asks for anything.
+        rejected_raw = payload.scrap_qty if payload.scrap_qty is not None else entry_snapshot.get("reject_qty")
+        try:
+            rejected = float(rejected_raw or 0)
+        except (TypeError, ValueError):
+            rejected = 0.0
+        if rejected > 0 and not (_present(entry_snapshot.get("reject_reason")) or _present(entry_snapshot.get("reject_reason_code"))):
+            raise HTTPException(
+                status_code=422,
+                detail=f"Reject reason is required: {_plain_count(rejected)} pcs were rejected on Process. Write why they were rejected and save again.",
+            )
 
     if missing_fields:
         raise HTTPException(
@@ -5062,9 +5461,7 @@ def _queue_item_from_stage_row(
         target_bamboo_count=math_context["target_bamboo_count"],
         selected_bamboo_length_mm=_snapshot_float(spec_snapshot.get("selected_bamboo_length_mm")),
         usable_length_mm=_snapshot_float(spec_snapshot.get("usable_length_mm")),
-        due_date=_snapshot_date(spec_snapshot.get("sales_order_line_due_date")) or (
-            sales_order.due_date if sales_order else None
-        ),
+        due_date=_snapshot_due_date(spec_snapshot, sales_order),
         planned_start=stage_row.planned_start,
         planned_end=stage_row.planned_end,
         created_at=job_card.created_at,
@@ -5577,9 +5974,9 @@ def sync_released_sales_order(
 ):
     plant_uuid = _to_uuid(plant_id)
     token = current_user.get("token", "")
-    live_order = dict((payload.order_snapshot or {})) if payload and payload.order_snapshot else {}
-    if not live_order:
-        live_order = _fetch_sales_order(sales_order_id, token, plant_id)
+    # Always read the order from sales: the lot's parchment colour, quantity and line come from the
+    # order itself, never from a caller-supplied order_snapshot (kept in the schema, ignored).
+    live_order = _fetch_sales_order(sales_order_id, token, plant_id)
     order_status = _normalize_sales_status(live_order.get("status"))
     if order_status not in {"partially_released", "released", "partially_dispatched"}:
         raise HTTPException(status_code=400, detail="Sales order must be released before sync")
@@ -5595,6 +5992,28 @@ def sync_released_sales_order(
             line = line_map.get(str(requested_row.sales_order_line_id))
             if line is None:
                 raise HTTPException(status_code=400, detail="sales_order_line_id does not belong to sales_order_id")
+            # Parchment colour is compulsory at release (client 2026-10-28, "there is no none"): a new
+            # job card needs the colour recorded on its lot in sales. A colour sent only in this request
+            # is not enough (it would never reach the order). Replays of cards that already exist are
+            # left alone.
+            if not _release_lot_color(line, requested_row.release_lot_id):
+                already_made = (
+                    db.query(JobCard.id)
+                    .filter(JobCard.plant_id == plant_uuid, JobCard.release_lot_id == requested_row.release_lot_id)
+                    .first()
+                )
+                if already_made is None:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            _legacy_lot_colour_message(line)
+                            if (requested_row.parchment_color or "").strip()
+                            else (
+                                f"Line {line.get('line_no') or '-'}: this release has no parchment colour. "
+                                "Open Release lines, pick the colour and release again — every job card needs one."
+                            )
+                        ),
+                    )
             priority = str(live_order.get("priority") or "NORMAL").upper()
             job_card, queue_created = _create_or_sync_job_card_for_line(
                 db=db,
@@ -5641,6 +6060,49 @@ def sync_released_sales_order(
         order_status=str(live_order.get("status") or "").upper(),
         line_results=line_results,
     )
+
+
+@router.post("/sales-orders/{sales_order_id}/customer-po-sync")
+def sync_sales_order_customer_po(
+    sales_order_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Sales", "PlantManager", "Planner"])),
+):
+    """Copy the order's customer PO onto its job cards (client 2026-10-28).
+
+    A card keeps the PO it was released with. After the one-time PO change, or when an internal
+    order is confirmed by its customer PO, the card page, the card print and the planning overview
+    must show the new PO. The PO is read from the sales order itself, never from the caller, so a
+    replay only repeats the same copy.
+    """
+    plant_uuid = _to_uuid(plant_id)
+    token = current_user.get("token", "")
+    live_order = _fetch_sales_order(sales_order_id, token, plant_id)
+    po_number = str(live_order.get("po_number") or "").strip() or None
+    po_date = str(live_order.get("po_date") or "").strip() or None
+    cards = (
+        db.query(JobCard)
+        .filter(JobCard.plant_id == plant_uuid, JobCard.sales_order_id == sales_order_id)
+        .all()
+    )
+    updated: list[str] = []
+    for card in cards:
+        snapshot = dict(card.spec_snapshot or {})
+        if snapshot.get("sales_order_po_number") == po_number and snapshot.get("sales_order_po_date") == po_date:
+            continue
+        snapshot["sales_order_po_number"] = po_number
+        snapshot["sales_order_po_date"] = po_date
+        card.spec_snapshot = snapshot
+        updated.append(str(card.job_card_no or card.id))
+    db.commit()
+    return {
+        "sales_order_id": str(sales_order_id),
+        "po_number": po_number,
+        "po_date": po_date,
+        "job_cards": len(cards),
+        "updated": updated,
+    }
 
 
 @router.get("/analytics/execution-snapshot")
@@ -6397,10 +6859,56 @@ def export_job_cards(
     )
 
 
+def _demand_made_pcs(job: JobCard) -> float:
+    """Most good pieces any floor stage has made, winder and oven bamboos converted to pcs. Paper and
+    adhesive are used at winding, so this is the share of the BOM already used.
+
+    The conversion is the one the card lifecycle uses (lifecycle._made_pcs): whenever the card knows
+    its pcs per bamboo, whatever its entry model. Older cards carry no entry_model but still count the
+    winder in bamboos (checker 2026-10-29: 26/10/24 wound 80 bamboos x 10 = 800 of 800 pcs, and was
+    read as 80 pcs, so 90% of its paper still looked needed)."""
+    from ..lifecycle_rules import stage_units_to_pcs
+
+    pcs_per_bamboo = _pcs_per_bamboo_from_snapshot(job.spec_snapshot or {})
+    made = 0.0
+    for stage in job.stages or []:
+        stage_type = str(stage.stage_type or "").upper()
+        qty = float(stage.output_qty or 0)
+        if stage_type in {"SLITTING", "DISPATCH"} or qty <= 0:
+            continue
+        made = max(made, stage_units_to_pcs(stage_type, qty, pcs_per_bamboo))
+    return round(made, 3)
+
+
+def _demand_packing(job: JobCard) -> dict:
+    """How far a card is packed, for packing-material demand (boxes, plastic, fadda).
+
+    Packing material is consumed when Packing closes (by hand, or auto-closed after Process since
+    29036ab), not at dispatch. A route with no Packing step consumes it when Process closes.
+    packed_pcs is the pieces packed so far on an open Packing step."""
+    stages = {str(stage.stage_type or "").upper(): stage for stage in job.stages or []}
+    packing = stages.get("PACKING")
+    final = packing or stages.get("PROCESS")
+    closed = bool(final is not None and str(final.status or "").upper() == "COMPLETED")
+    packed = float(packing.output_qty or 0) if packing is not None else 0.0
+    return {"packing_closed": closed, "packed_pcs": round(max(0.0, packed), 3)}
+
+
+def _demand_winding_closed(job: JobCard) -> bool:
+    """Paper, adhesive and parchment are used at the Winder. Once the Winder is closed (a normal or a
+    short close) the card needs no more of them, however few pieces it made (checker 2026-10-30:
+    26/10/45 short-closed at 690 of 1,440 pcs still asked for 233 kg of paper). A closed Process or
+    Packing step means winding is over too, also on a route without a Winder step."""
+    stages = {str(stage.stage_type or "").upper(): stage for stage in job.stages or []}
+    return any(stages.get(kind) is not None and str(stages[kind].status or "").upper() == "COMPLETED"
+               for kind in ("WINDER", "PROCESS", "PACKING"))
+
+
 @router.get("/material-demand-snapshots")
 def material_demand_snapshots(db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Store", "Sales", "RMIssue"]))):
+    # GRN reads the RM inward calendar (spec 2.8), whose demand comes from here (read-only).
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Store", "Sales", "RMIssue", "GRN"]))):
     query = _apply_plant_scope_filter(db.query(JobCard).options(selectinload(JobCard.stages)), JobCard.plant_id, plant_scope)
     jobs = query.filter(JobCard.status != "CANCELLED", JobCard.sales_order_line_id.isnot(None)).all()
     # Production date = the earliest open first-stage slot on the planner (material must be there
@@ -6429,6 +6937,13 @@ def material_demand_snapshots(db: Session = Depends(get_db),
         "status": job.status, "planned_qty": job.planned_qty,
         "parchment_color": getattr(job, "parchment_color", None),
         "started": any(stage.actual_start is not None or float(stage.output_qty or 0) > 0 for stage in job.stages),
+        # Good pieces made so far (RM inward calendar, spec 3): the material still needed is
+        # BOM x (planned - made) / planned, not BOM minus attributed issues (floor issues are by shift).
+        "made_pcs": _demand_made_pcs(job),
+        # Packing material is needed only until the card is packed (client 2026-10-30).
+        **_demand_packing(job),
+        # Winding material (paper, adhesive, parchment) is needed only until the Winder closes.
+        "winding_closed": _demand_winding_closed(job),
         "material_plan_snapshot": job.material_plan_snapshot or {},
         "spec_snapshot": job.spec_snapshot or {},
         "reel_issue_ids": sorted({str(issue) for stage in job.stages for issue in (stage.reel_issue_ids or [])}),
@@ -6562,9 +7077,7 @@ def get_planning_job_card(
             "status": sales_order.status if sales_order else None,
             "priority": sales_order.priority if sales_order else None,
             "order_qty": sales_order.order_qty if sales_order else None,
-            "due_date": _snapshot_date(effective_snapshot.get("sales_order_line_due_date")) or (
-                sales_order.due_date if sales_order else None
-            ),
+            "due_date": _snapshot_due_date(effective_snapshot, sales_order),
             "customer_id": str(sales_order.customer_id) if sales_order else None,
             "spec_id": str(sales_order.spec_id) if sales_order else str(job_card.spec_id),
         },
@@ -7695,7 +8208,7 @@ def capture_stage_outputs_batch(
                 response = capture_stage_output(job_card.id, entry.model_copy(update={"stage": stage}), batch_db, plant_id, current_user)
             except HTTPException as exc:
                 detail = exc.detail if isinstance(exc.detail, str) else (exc.detail or {}).get("message") if isinstance(exc.detail, dict) else str(exc.detail)
-                raise HTTPException(status_code=exc.status_code, detail=f"{stage}: {detail} Nothing on this card was saved.") from exc
+                raise HTTPException(status_code=exc.status_code, detail=f"{_stage_word(stage)}: {detail} Nothing on this card was saved.") from exc
             results.append({"stage": stage, "stage_status": response.stage_status, "segment_id": str(response.segment_id) if response.segment_id else None,
                             "quality_hold_ids": [str(value) for value in (response.quality_hold_ids or [])], "warnings": list(response.warnings or [])})
         db.refresh(job_card)
@@ -7828,6 +8341,13 @@ def capture_stage_output(
         raise HTTPException(status_code=404, detail="Job card not found")
     if job_card.status in ["COMPLETED", "CANCELLED"] or job_card.current_stage == "DONE":
         raise HTTPException(status_code=400, detail="Job card is not in executable state")
+    if save_mode == "complete" and (payload.end_time or payload.start_time):
+        # Old-form stage outputs carry their own times: one dated inside a CLOSED month is refused like
+        # a V2 floor entry (spec 2.5). Without times the output is dated now, which is never closed.
+        from ..services.consumption import ist_day as _ist_day
+        from .entries import validate_books_day
+
+        validate_books_day(db, job_card.plant_id, _ist_day(payload.end_time or payload.start_time))
     quality_checks_payload = dict(payload.quality_checks or {})
     if missing_qc_setup_blocks_checkpoint(job_card.spec_snapshot or {}) and (
         save_mode == "complete" or any(
@@ -7958,8 +8478,17 @@ def capture_stage_output(
             stage=selected_stage,
             segment_id=payload.segment_id,
         )
-    if actor_role == "Operator" and payload.machine_id is not None:
-        raise HTTPException(status_code=403, detail="Operator cannot change machine assignment during stage entry")
+    # The old form always sends the machine the stage ran on (preselected to the planned or release machine).
+    # Planning never blocks the floor (client 2026-10-25/26), so an Operator may name it, as on the new floor
+    # forms: the same machine changes nothing, an unplanned stage takes it, and another machine than the planned
+    # one is saved and flagged for the owner (fixed 2026-10-28: an Operator could never complete an old-form stage).
+    planned_machine_id = segment.machine_id or stage.machine_id
+    old_form_machine_changed = (
+        # segment_id lets Reports › Plan vs actual keep the planned machine (the slot follows the machine used).
+        {"from": str(planned_machine_id), "to": str(payload.machine_id), "segment_id": str(segment.id)}
+        if payload.machine_id is not None and planned_machine_id and str(payload.machine_id) != str(planned_machine_id)
+        else None
+    )
     if actor_role == "Operator" and (payload.override_reason or "").strip():
         raise HTTPException(status_code=403, detail="Operator cannot use override_reason")
 
@@ -8058,6 +8587,9 @@ def capture_stage_output(
         stage.actuals_snapshot = {**stage.actuals_snapshot, "unscheduled_entry": unscheduled_entry or previous_actuals.get("unscheduled_entry")}
     if planned_slot or previous_actuals.get("planned_slot"):
         stage.actuals_snapshot = {**stage.actuals_snapshot, "planned_slot": previous_actuals.get("planned_slot") or planned_slot}
+    if old_form_machine_changed or previous_actuals.get("machine_changed"):
+        # Run on another machine than planned: saved, flagged for the owner (as on the new floor forms).
+        stage.actuals_snapshot = {**stage.actuals_snapshot, "machine_changed": old_form_machine_changed or previous_actuals.get("machine_changed")}
     if active_holds and not override_reason:
         stage.actuals_snapshot = _restricted_stock_actuals(stage.actuals_snapshot)
     quality_checks = dict(payload.quality_checks or {})
@@ -8277,7 +8809,18 @@ def capture_stage_output(
         )
     # Reels and coils go to the floor by shift, never to a card (client rule 2026-10-18), so a winding
     # close does not need a linked reel issue; paper is settled by the month-end stock count.
-    _enforce_stage_quality_gate(
+    # At least 2 readings per required check before Winder, Oven, Process or Final QC closes, as on batch-entry cards. No
+    # override skips it; an old-form card that truly cannot be measured is force-closed from the manager.
+    readings_short = _old_form_readings_short(
+        db=db,
+        plant_id=plant_uuid,
+        job_card=job_card,
+        selected_stage=selected_stage,
+        quality_checks=payload.quality_checks or {},
+    )
+    if readings_short:
+        raise HTTPException(status_code=409, detail=_old_form_readings_short_detail(selected_stage, readings_short))
+    final_qc_flags = _enforce_stage_quality_gate(
         db=db,
         plant_id=plant_uuid,
         job_card=job_card,
@@ -8298,6 +8841,19 @@ def capture_stage_output(
             "override_stage": selected_stage,
             "override_ts": now.isoformat(),
         }
+    old_form_card = (job_card.spec_snapshot or {}).get("entry_model") != "V2"
+    stage_qc_flags = final_qc_flags
+    if not stage_qc_flags and old_form_card and selected_stage in OLD_FORM_FLAG_STAGES and selected_stage != FINAL_SPEC_QC_STAGE and payload.quality_checks:
+        stage_qc_flags = _stage_sample_failures(selected_stage, job_card.spec_snapshot or {}, dict(payload.quality_checks or {})) or None
+    old_form_flag_warnings = _old_form_stage_flags(
+        stage=stage,
+        selected_stage=selected_stage,
+        payload=payload,
+        all_stage_rows=all_stage_rows,
+        spec_snapshot=job_card.spec_snapshot or {},
+        final_qc_flags=stage_qc_flags,
+        now=now,
+    )
 
     machine_for_capacity: Optional[dict[str, Any]] = None
     if selected_stage in STAGE_TO_MACHINE_DEPARTMENT and selected_stage != "PACKING":
@@ -8371,6 +8927,14 @@ def capture_stage_output(
             pass
     _sync_stage_row_from_segments(stage, _all_stage_segments(db, job_card.id, selected_stage))
 
+    # Old-form (V1) stage QC: out-of-band readings are saved and flagged, never held (as on V2 cards).
+    flag_not_hold = old_form_card and selected_stage in OLD_FORM_FLAG_STAGES
+    earlier_inspection_ids = {
+        row.id for row in _quality_inspections_for_stage(db, job_card.id, selected_stage, plant_uuid)
+    } if flag_not_hold else set()
+    earlier_hold_ids = {
+        row.id for row in db.query(QualityHold).filter(QualityHold.job_card_id == job_card.id).all()
+    } if flag_not_hold else set()
     quality_holds = _sync_quality_artifacts(
         db=db,
         plant_id=plant_uuid,
@@ -8379,6 +8943,21 @@ def capture_stage_output(
         selected_stage=selected_stage,
         current_user=current_user,
     )
+    if flag_not_hold:
+        quality_holds, flagged_now = _flag_not_hold_old_form_qc(
+            db=db,
+            job_card=job_card,
+            plant_id=plant_uuid,
+            selected_stage=selected_stage,
+            quality_holds=quality_holds,
+            earlier_inspection_ids=earlier_inspection_ids,
+            earlier_hold_ids=earlier_hold_ids,
+        )
+        if flagged_now and not stage_qc_flags:
+            # The inspection found a reading out of band that the pre-check did not: flag it the same way.
+            old_form_flag_warnings.extend(
+                _set_old_form_qc_flag(stage=stage, selected_stage=selected_stage, flags=flagged_now, now=now)
+            )
     if quality_holds:
         stage.remarks = (
             f"{stage.remarks}\n" if stage.remarks else ""
@@ -8401,7 +8980,7 @@ def capture_stage_output(
             plant_id=plant_id,
             current_user=current_user,
         )
-    final_qc_ready = _final_spec_qc_passed(
+    final_qc_ready = bool(final_qc_flags) or _final_spec_qc_passed(
         db=db,
         plant_id=plant_uuid,
         job_card=job_card,
@@ -8550,7 +9129,7 @@ def capture_stage_output(
         entry_saved=True,
         override_used=bool(override_reason),
         override_reason=override_reason,
-        warnings=machine_warnings + time_warnings,
+        warnings=old_form_flag_warnings + machine_warnings + time_warnings,
         reel_issue_ids=[str(value) for value in (stage.reel_issue_ids or [])],
         quality_hold_ids=[str(hold.id) for hold in quality_holds],
     )

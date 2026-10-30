@@ -39,7 +39,7 @@ import { HistoryTab } from "./tabs/HistoryTab"
 import { MaterialTab } from "./tabs/MaterialTab"
 import { OverviewTab, type NextStep } from "./tabs/OverviewTab"
 import { QcTab } from "./tabs/QcTab"
-import { cardFacts, currentFloorStage, dayLabel, fmt, isLoggable, runNo, runQcState, shiftLabel, stageLabel, stageParameters, stampDay, stampLabel, toneClass, useCardRoles, visibleStages } from "./model"
+import { cardFacts, currentFloorStage, dayLabel, fmt, isLoggable, oldFormFlags, runNo, runQcState, shiftLabel, stageLabel, stageParameters, stampDay, stampLabel, toneClass, useCardRoles, visibleStages } from "./model"
 
 export type EntryPanel = { kind: "output" | "qc"; stage: string; entryId?: string | null; entry?: any | null } | null
 const TABS = ["overview", "log", "qc", "plan", "material", "dispatch", "history", "oldform"] as const
@@ -194,10 +194,19 @@ export function JobCardPage({ jobCardId }: { jobCardId: string }) {
   const waitingQc = cancelled ? [] : live.filter((e) => e.status === "SUBMITTED" && e.kind !== "QC_ONLY" && stageParameters(card, e.stage).length && !runQcState(card, e).accepted)
   const drafts = live.filter((e) => e.status === "DRAFT")
   const flagCount = live.reduce((n, e) => n + (Array.isArray(e.qc_flags) ? e.qc_flags.length : 0), 0)
+  // Process runs whose pieces do not match bamboo × pcs per bamboo: saved and flagged (client 2026-10-28).
+  const countGapRuns = live.filter((e) => e.status === "SUBMITTED" && e.details?.count_gap)
+  // Old-form cards keep their flags on the stage itself (Process count gap, Final QC out of band).
+  const oldFlags = useMemo(() => (card && !isV2 ? oldFormFlags(card) : []), [card, isV2])
+  const oldCountGaps = oldFlags.filter((f) => f.kind === "COUNT_GAP")
+  const oldQcFlags = oldFlags.filter((f) => f.kind === "QC_OUT_OF_BAND")
+  const oldQcReadings = oldQcFlags.reduce((n, f) => n + Math.max(1, f.parameters?.length || 0), 0)
+  const headerFlagCount = flagCount + oldQcReadings
+  const headerGapCount = countGapRuns.length + oldCountGaps.length
   const current = currentFloorStage(stages)
   const closeTarget = current && (isLoggable(current) || current.stage === "QC") ? current : null
   const closeBlocked = closeTarget ? closeBlockedReason(closeTarget, card) : "No open stage"
-  const closeTitle = !canSubmit ? "A supervisor closes the stage — open to see what is still needed" : closeBlocked ? `${closeBlocked} — open for details` : closeTarget ? `Confirms ${stageLabel(closeTarget.stage)} totals and moves the card on` : ""
+  const closeTitle = !canSubmit ? "The plant manager closes the stage (no supervisor needed) — open to see what is still needed" : closeBlocked ? `${closeBlocked} — open for details` : closeTarget ? `Confirms ${stageLabel(closeTarget.stage)} totals and moves the card on` : ""
   const outputBlocked = !cardOpen ? "Card is closed" : !isV2 ? "Old entry form — use the Old form tab" : !stages.some((s: any) => isLoggable(s)) ? "No open stage takes runs" : !canDraft ? "Your role cannot log runs" : ""
   const qcBlocked = cancelled ? "Card is cancelled" : !isV2 ? "Old entry form — QC is on the Old form tab" : !stages.some((s: any) => stageParameters(card, s.stage).length) ? "No QC checks on this card" : !canQc ? "Your role cannot record QC" : ""
   const lastRun = live.find((e) => e.kind !== "QC_ONLY")
@@ -220,7 +229,7 @@ export function JobCardPage({ jobCardId }: { jobCardId: string }) {
       out.push({ title: "This card is on the old entry form", detail: "Enter stage output and QC on the Old form tab; a supervisor or planner can move it to batch entry.", action: { label: "Old form", onClick: () => setTab("oldform") } })
       return out
     }
-    if (drafts.length) out.push({ title: canSubmit ? `Submit ${drafts.length} draft${drafts.length === 1 ? "" : "s"}` : `Waiting for the supervisor: ${drafts.length} draft${drafts.length === 1 ? "" : "s"}`, detail: `${Array.from(new Set(drafts.map((e) => `${runNo(e)} (${stageLabel(e.stage)})`))).join(", ")}${canSubmit ? "" : " · a supervisor checks and submits them"}`, action: { label: "Output log", onClick: () => setTab("log") } })
+    if (drafts.length) out.push({ title: canSubmit ? `Submit ${drafts.length} run${drafts.length === 1 ? "" : "s"} from the floor` : `With the supervisor: ${drafts.length} run${drafts.length === 1 ? "" : "s"}`, detail: `${Array.from(new Set(drafts.map((e) => `${runNo(e)} (${stageLabel(e.stage)})`))).join(", ")}${canSubmit ? "" : " · a supervisor checks and submits them"}`, action: { label: "Output log", onClick: () => setTab("log") } })
     if (waitingQc.length) out.push({ title: `Log QC on ${waitingQc.length} run${waitingQc.length === 1 ? "" : "s"}`, detail: `${waitingQc.map((e) => `${runNo(e)} (${stageLabel(e.stage)})`).slice(0, 4).join(", ")} · at least 2 readings per check`, action: canQc ? { label: "Log QC", onClick: () => openQc(waitingQc[0]) } : undefined })
     if (current && current.stage !== "DISPATCH") {
       const remaining = Math.max(0, Number(current.target || 0) - Number(current.accepted_total || 0))
@@ -229,7 +238,7 @@ export function JobCardPage({ jobCardId }: { jobCardId: string }) {
       if (remaining > 0 && isLoggable(current)) out.push({ title: `Finish ${stageLabel(current.stage)} · ${fmt(remaining)} ${current.unit} to make`, detail: slot ? `Planned ${dayLabel(slot.plan_date)} · ${shiftLabel(slot.shift_code)}${slot.machine_id ? ` on ${machineName(slot.machine_id)}` : ""}` : "Not on the planner yet — runs can still be logged", action: canDraft ? { label: "Log output", onClick: () => openOutput(current.stage) } : undefined })
       else {
         const blocked = closeBlockedReason(current, card)
-        out.push({ title: current.completes_card ? `Close ${stageLabel(current.stage)} and complete the card` : `Close ${stageLabel(current.stage)}`, detail: blocked || `${fmt(current.accepted_total)} of ${fmt(current.target)} ${current.unit} good · a supervisor confirms`, action: { label: canSubmit && !blocked ? "Close stage" : "See what is needed", onClick: () => setClosing(current.stage) } })
+        out.push({ title: current.completes_card ? `Close ${stageLabel(current.stage)} and complete the card` : `Close ${stageLabel(current.stage)}`, detail: blocked || `${fmt(current.accepted_total)} of ${fmt(current.target)} ${current.unit} good · the plant manager confirms`, action: { label: canSubmit && !blocked ? "Close stage" : "See what is needed", onClick: () => setClosing(current.stage) } })
       }
     }
     const dispatch = stages.find((s: any) => s.stage === "DISPATCH")
@@ -286,12 +295,12 @@ export function JobCardPage({ jobCardId }: { jobCardId: string }) {
   const logEntries = entries.filter((e) => logStage === "ALL" || e.stage === logStage)
   const logStageState = stages.find((s: any) => s.stage === logStage)
   const countFor = (stage: string) => entries.filter((e) => e.stage === stage).length
-  const actionButton = "erp-btn-secondary !h-9 disabled:cursor-not-allowed"
+  const actionButton = "erp-btn-secondary !h-11 sm:!h-9 disabled:cursor-not-allowed"
 
   return (
     <div className="space-y-3" data-testid="job-card-page">
       <nav className="flex flex-wrap items-center gap-1.5 text-[12.5px] text-muted-foreground" aria-label="Breadcrumb">
-        <Link href="/production/job-cards" className="hover:text-foreground">
+        <Link href="/production/job-cards" className="inline-flex min-h-11 items-center hover:text-foreground sm:min-h-0">
           Job cards
         </Link>
         <span aria-hidden="true">›</span>
@@ -318,16 +327,32 @@ export function JobCardPage({ jobCardId }: { jobCardId: string }) {
           ) : (
             <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[11.5px] text-muted-foreground">no split</span>
           )}
-          {flagCount ? (
-            <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11.5px] font-semibold", toneClass("amber"))} data-testid="header-flags" title="Readings outside the band — flagged, not held">
-              <Flag className="h-3 w-3" aria-hidden="true" /> {flagCount} flagged reading{flagCount === 1 ? "" : "s"}
+          {headerFlagCount ? (
+            <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11.5px] font-semibold", toneClass("amber"))} data-testid="header-flags" title={oldQcFlags.length ? oldQcFlags.map((f) => f.message).join(" · ") : "Readings outside the band — flagged, not held"}>
+              <Flag className="h-3 w-3" aria-hidden="true" /> {headerFlagCount} flagged reading{headerFlagCount === 1 ? "" : "s"}
             </span>
+          ) : null}
+          {headerGapCount ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (isV2) {
+                  setLogStage("PROCESS")
+                  setTab("log")
+                } else setTab("oldform")
+              }}
+              className={cn("inline-flex min-h-11 items-center gap-1 rounded-full border px-3 text-[12px] font-semibold sm:min-h-0 sm:px-2 sm:py-0.5 sm:text-[11.5px]", toneClass("amber"))}
+              data-testid="header-count-gap"
+              title={oldCountGaps.length ? oldCountGaps.map((f) => f.message).join(" · ") : "Process pieces do not match bamboo × pcs per bamboo — saved and flagged"}
+            >
+              <Flag className="h-3 w-3" aria-hidden="true" /> {headerGapCount} count gap{headerGapCount === 1 ? "" : "s"}
+            </button>
           ) : null}
           <span className="hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
           <span className="text-[13px]">
             Order{" "}
             {facts.orderId ? (
-              <Link href={`/sales-orders/${facts.orderId}`} className="font-semibold text-primary underline-offset-2 hover:underline">
+              <Link href={`/sales-orders/${facts.orderId}`} className="inline-flex min-h-11 items-center font-semibold text-primary underline-offset-2 hover:underline sm:inline sm:min-h-0">
                 {facts.orderNo || "open"}
               </Link>
             ) : (
@@ -382,7 +407,7 @@ export function JobCardPage({ jobCardId }: { jobCardId: string }) {
 
       <div className="sticky top-0 z-20 -mx-1 rounded-xl border border-border bg-card/95 px-3 py-2 shadow-sm backdrop-blur" data-testid="job-card-actions">
         <div className="flex flex-wrap items-center gap-2">
-          <button type="button" className="erp-btn-primary !h-9 disabled:cursor-not-allowed" disabled={Boolean(outputBlocked)} title={outputBlocked || undefined} onClick={() => openOutput()} data-testid="action-log-output">
+          <button type="button" className="erp-btn-primary !h-11 sm:!h-9 disabled:cursor-not-allowed" disabled={Boolean(outputBlocked)} title={outputBlocked || undefined} onClick={() => openOutput()} data-testid="action-log-output">
             <Camera className="h-4 w-4" /> Log output
           </button>
           <button type="button" className={actionButton} disabled={Boolean(qcBlocked)} title={qcBlocked || undefined} onClick={() => openQc()} data-testid="action-log-qc">
@@ -392,17 +417,17 @@ export function JobCardPage({ jobCardId }: { jobCardId: string }) {
           {isV2 && closeTarget && cardOpen ? (
             <button type="button" className={cn(actionButton, closeBlocked || !canSubmit ? "!text-muted-foreground" : "")} title={closeTitle} onClick={() => setClosing(closeTarget.stage)} data-testid="action-close-stage" data-blocked={closeBlocked ? "true" : undefined}>
               {closeBlocked || !canSubmit ? <Lock className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />} Close {stageLabel(closeTarget.stage)}
-              {!canSubmit ? <span className="rounded-full border border-border bg-muted px-1.5 text-[10.5px] font-semibold">supervisor</span> : closeBlocked && !closeTarget.qc?.ready ? <span className={cn("rounded-full border px-1.5 text-[10.5px] font-semibold", toneClass("amber"))}>QC short</span> : null}
+              {!canSubmit ? <span className="rounded-full border border-border bg-muted px-1.5 text-[10.5px] font-semibold">plant manager</span> : closeBlocked && !closeTarget.qc?.ready ? <span className={cn("rounded-full border px-1.5 text-[10.5px] font-semibold", toneClass("amber"))}>QC short</span> : null}
             </button>
           ) : null}
-          <Link href={`/production/job-cards/${card.id}/print`} className="erp-btn-secondary !h-9" data-testid="action-print">
+          <Link href={`/production/job-cards/${card.id}/print`} className="erp-btn-secondary !h-11 sm:!h-9" data-testid="action-print">
             <Printer className="h-4 w-4" /> Print card
           </Link>
           <button type="button" className={actionButton} onClick={() => setPhoneLink(true)} data-testid="action-phone-link">
             <QrCode className="h-4 w-4" /> Phone link
           </button>
           <span className="hidden h-6 w-px bg-border sm:block" aria-hidden="true" />
-          <Link href={`/production/job-cards/manage?card=${card.id}`} className="erp-btn-secondary !h-9 !border-signal-violet-line !text-signal-violet-ink" data-testid="action-manage">
+          <Link href={`/production/job-cards/manage?card=${card.id}`} className="erp-btn-secondary !h-11 sm:!h-9 !border-signal-violet-line !text-signal-violet-ink" data-testid="action-manage">
             <Wrench className="h-4 w-4" /> Manage card
           </Link>
           <span className="ml-auto hidden items-center gap-3 text-[12px] text-muted-foreground min-[1400px]:flex">
@@ -434,7 +459,7 @@ export function JobCardPage({ jobCardId }: { jobCardId: string }) {
       </section>
 
       <Tabs value={tab} onValueChange={(value) => setTab(value as Tab)}>
-        <TabsList className="h-10 w-full justify-start overflow-x-auto" data-testid="job-card-tabs">
+        <TabsList className="h-auto min-h-10 w-full flex-wrap justify-start overflow-x-visible sm:flex-nowrap sm:overflow-x-auto [&>[role=tab]]:min-h-11 sm:[&>[role=tab]]:min-h-8" data-testid="job-card-tabs">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           {isV2 ? (
             <TabsTrigger value="log">
@@ -467,32 +492,32 @@ export function JobCardPage({ jobCardId }: { jobCardId: string }) {
                 <h3 className="text-[14px] font-semibold">Output log</h3>
                 <span className="hidden text-[12px] text-muted-foreground sm:inline">every run, who / when / machine, made · good · rejected, QC state and plan match</span>
                 <div className="ml-auto flex flex-wrap gap-2">
-                  <Button size="sm" variant="outline" disabled={!logEntries.length} onClick={() => void exportRuns()}>
+                  <Button size="sm" className="min-h-11 sm:min-h-0" variant="outline" disabled={!logEntries.length} onClick={() => void exportRuns()}>
                     <Download className="h-3.5 w-3.5" /> Export
                   </Button>
                   {canSubmit && cardOpen && stages.some((s: any) => isLoggable(s)) ? (
-                    <Button size="sm" variant="outline" onClick={() => setWholeCard(true)} title="Type a whole printed card at once: the running totals of every stage" data-testid="action-whole-card">
+                    <Button size="sm" className="min-h-11 sm:min-h-0" variant="outline" onClick={() => setWholeCard(true)} title="Type a whole printed card at once: the running totals of every stage" data-testid="action-whole-card">
                       <ClipboardList className="h-3.5 w-3.5" /> Whole printed card
                     </Button>
                   ) : null}
                   {logStageState?.status === "COMPLETED" && canReopen && !cancelled && !["SLITTING", "DISPATCH"].includes(logStage) ? (
-                    <Button size="sm" variant="outline" disabled={mutation.isPending} onClick={() => reopen(logStage)} data-testid="action-reopen">
+                    <Button size="sm" className="min-h-11 sm:min-h-0" variant="outline" disabled={mutation.isPending} onClick={() => reopen(logStage)} data-testid="action-reopen">
                       Reopen stage…
                     </Button>
                   ) : null}
-                  <Button size="sm" disabled={Boolean(outputBlocked)} title={outputBlocked || undefined} onClick={() => openOutput(logStage !== "ALL" && logStageState && isLoggable(logStageState) ? logStage : undefined)}>
+                  <Button size="sm" className="min-h-11 sm:min-h-0" disabled={Boolean(outputBlocked)} title={outputBlocked || undefined} onClick={() => openOutput(logStage !== "ALL" && logStageState && isLoggable(logStageState) ? logStage : undefined)}>
                     <Camera className="h-3.5 w-3.5" /> Log output
                   </Button>
                 </div>
               </div>
               <div className="flex flex-wrap gap-1.5 border-b border-border px-4 py-2.5" role="group" aria-label="Stage filter">
                 {[{ stage: "ALL", label: "All", n: entries.length }, ...entryStages.filter((s: string) => stages.some((v: any) => v.stage === s) || countFor(s) > 0).map((s: string) => ({ stage: s, label: stageLabel(s), n: countFor(s) }))].map((chip) => (
-                  <button key={chip.stage} type="button" aria-pressed={logStage === chip.stage} onClick={() => setLogStage(chip.stage)} className={cn("inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[12.5px] font-medium transition", logStage === chip.stage ? "border-foreground bg-foreground text-background" : "border-border bg-card hover:bg-muted")} data-testid={`log-chip-${chip.stage.toLowerCase()}`}>
+                  <button key={chip.stage} type="button" aria-pressed={logStage === chip.stage} onClick={() => setLogStage(chip.stage)} className={cn("inline-flex h-8 min-h-11 items-center gap-1.5 rounded-full border px-3 text-[12.5px] font-medium transition sm:min-h-0", logStage === chip.stage ? "border-foreground bg-foreground text-background" : "border-border bg-card hover:bg-muted")} data-testid={`log-chip-${chip.stage.toLowerCase()}`}>
                     {chip.label}
                     <span className={cn("rounded-full px-1.5 text-[11px] tabular-nums", logStage === chip.stage ? "bg-background/20" : "bg-muted text-muted-foreground")}>{chip.n}</span>
                   </button>
                 ))}
-                {drafts.length ? <span className="ml-auto self-center text-[12px] text-muted-foreground">Drafts do not count until submitted</span> : null}
+                {drafts.length ? <span className="ml-auto self-center text-[12px] text-muted-foreground">Runs with the supervisor count once submitted</span> : null}
               </div>
               {all.isLoading ? <p className="px-4 py-8 text-center text-[13px] text-muted-foreground">Loading runs…</p> : <RunRows card={card} flow={flow.data} entries={logEntries} planRuns={plan.data?.runs} showStage={logStage === "ALL"} onEdit={cardOpen ? (entry) => openOutput(entry.stage, entry) : undefined} onQc={!cancelled ? (entry) => openQc(entry) : undefined} readOnly={!cardOpen} emptyText={logStage === "ALL" ? "No runs logged on this card yet." : `No runs on ${stageLabel(logStage)} yet.`} />}
               <div className="flex flex-wrap justify-between gap-2 border-t border-border px-4 py-2 text-[12px] text-muted-foreground">
@@ -500,6 +525,11 @@ export function JobCardPage({ jobCardId }: { jobCardId: string }) {
                 <span>Edits and voids need a reason and are kept in History &amp; audit</span>
               </div>
             </section>
+            {countGapRuns.length ? (
+              <p className={cn("mt-3 rounded-lg border px-3 py-2 text-[13px]", toneClass("amber"))} data-testid="card-count-gap-summary">
+                <b>Process count gap:</b> {countGapRuns.map((e) => `${runNo(e)} ${Number(e.details.count_gap.gap) > 0 ? `${fmt(e.details.count_gap.gap)} pcs short` : `${fmt(-Number(e.details.count_gap.gap))} pcs over`}`).join(" · ")} — the pieces do not match bamboo × pcs per bamboo. The runs are saved and flagged; they are listed for the owner under Reports › Exceptions.
+              </p>
+            ) : null}
             {flow.data?.stages?.some((s: any) => Number(s.unscheduled_entries) > 0) ? (
               <p className={cn("mt-3 rounded-lg border px-3 py-2 text-[13px]", toneClass("amber"))} data-testid="card-unplanned-summary">
                 <b>Run before planning:</b> {flow.data.stages.filter((s: any) => Number(s.unscheduled_entries) > 0).map((s: any) => `${stageLabel(s.stage)} (${s.unscheduled_entries} run${Number(s.unscheduled_entries) === 1 ? "" : "s"})`).join(" · ")} — each run took the machine, date and shift written on the card. See Reports › Plan vs actual.
@@ -520,6 +550,18 @@ export function JobCardPage({ jobCardId }: { jobCardId: string }) {
                   </>
                 )}
               </p>
+              {oldFlags.length ? (
+                <ul className="space-y-1.5" data-testid="oldform-flags">
+                  {oldFlags.map((f, i) => (
+                    <li key={`${f.stage}-${f.kind}-${i}`} className={cn("flex items-start gap-2 rounded-lg border px-3 py-2 text-[13px]", toneClass("amber"))}>
+                      <Flag className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                      <span>
+                        {f.kind === "QC_OUT_OF_BAND" ? <b>{f.message}</b> : <><b>{f.kind === "COUNT_GAP" ? "Process count gap" : `${stageLabel(f.stage)} on another machine`}:</b> {f.message}</>} Listed for the owner under Reports › Exceptions.
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
               {/* Its "put the card on the schedule" hint does not apply to a cancelled card. */}
               {!cancelled ? <LiveFloorLog jobCardId={String(card.id)} /> : null}
               <JobCardDocument jobCardId={String(card.id)} mode={cardOpen ? "supervisor" : "view"} />

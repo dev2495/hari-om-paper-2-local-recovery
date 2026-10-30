@@ -7,6 +7,8 @@ import { Fragment } from "react"
 import { useQuery } from "@tanstack/react-query"
 
 import { entryApiForPlant, seasonLabel, seasonTimestamp } from "@/lib/season-api"
+import { usePeopleVersion } from "@/hooks/use-people"
+import { personLabel } from "@/lib/people"
 import { relativeLimitText } from "@/lib/qc-measurement"
 import { displayStageRule } from "@/lib/qc-measurement"
 
@@ -15,7 +17,16 @@ const stageName = (stage: string) =>
 const qty = (value: any) => (value == null || value === "" ? "" : Number(value).toLocaleString("en-IN", { maximumFractionDigits: 2 }))
 const reading = (value: any) =>
   value == null || value === "" ? "" : Number.isFinite(Number(value)) ? String(Number(Number(value).toFixed(3))) : String(value)
-const person = (value: any) => String(value || "").split("@")[0]
+// The person's name from the people directory ("PlantManager E2E", not the login "pm.e2e"), as on the close strip.
+const person = (value: any) => personLabel(String(value || ""), "")
+// A stage close in Indian form, the same as the close strip on page 1: "30 Oct, 8:42 am".
+const closeTime = (value: any) => {
+  const date = value ? new Date(/Z|[+-]\d\d:?\d\d$/.test(String(value)) ? String(value) : `${value}Z`) : null
+  if (!date || Number.isNaN(date.getTime())) return ""
+  const day = date.toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" })
+  const time = date.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata" })
+  return `${day}, ${time}`
+}
 const clock = (value: any) => {
   if (!value) return ""
   const date = new Date(value)
@@ -52,6 +63,7 @@ export function compactLimit(rule: any): string {
 }
 
 export function SeasonPrintLog({ card, machineLabel }: { card: any; machineLabel: (id: any) => string }) {
+  usePeopleVersion()
   const entryApi = entryApiForPlant(String(card.plant_id || ""))
   const flow = useQuery({ queryKey: ["continuous-flow", card.id], queryFn: async () => (await entryApi.flow(card.id)).data })
   const entries = useQuery({
@@ -151,8 +163,11 @@ export function SeasonPrintLog({ card, machineLabel }: { card: any; machineLabel
               <td className="num">{runs.filter((e: any) => e.stage === s.stage).length || ""}</td>
               <td>
                 {[
-                  s.supervisor_name ? `${s.supervisor_name}${s.closed_at ? ` · ${seasonTimestamp(s.closed_at)}` : ""}` : "",
-                  s.accepted_total < s.target && s.status === "COMPLETED" ? "short-closed" : "",
+                  // Packing and Final QC close with Process on batch-entry cards (client 2026-10-18).
+                  String(s.close_kind || "").startsWith("AUTO_AFTER_") ? `closed with ${stageName(String(s.close_kind).replace("AUTO_AFTER_", ""))}${s.closed_at ? ` · ${closeTime(s.closed_at)}` : ""}` : "",
+                  !String(s.close_kind || "").startsWith("AUTO_AFTER_") && (s.supervisor_name || s.closed_by) ? `${person(s.supervisor_name || s.closed_by)}${s.closed_at ? ` · ${closeTime(s.closed_at)}` : ""}` : "",
+                  s.accepted_total < s.target && s.status === "COMPLETED" ? `short-closed${s.close_reason && !String(s.close_kind || "").startsWith("AUTO_AFTER_") ? `: ${s.close_reason}` : ""}` : "",
+                  s.count_gap_runs > 0 ? `${s.count_gap_runs} Process count gap${s.count_gap_runs === 1 ? "" : "s"} (flagged)` : "",
                   s.qc_rejected_qty > 0 ? `final QC rejected ${qty(s.qc_rejected_qty)} pcs` : "",
                   s.qc_uninspected_qty > 0 ? `uninspected ${qty(s.qc_uninspected_qty)} pcs` : "",
                   s.retained_fg_qty > 0 ? `retained FG ${qty(s.retained_fg_qty)} pcs` : "",
@@ -165,7 +180,7 @@ export function SeasonPrintLog({ card, machineLabel }: { card: any; machineLabel
           ))}
         </tbody>
       </table>
-      {drafts ? <p className="jc-log-note">{drafts} draft entr{drafts === 1 ? "y is" : "ies are"} waiting for the supervisor and not counted above.</p> : null}
+      {drafts ? <p className="jc-log-note">{drafts} run{drafts === 1 ? " is" : "s are"} still with the supervisor and not counted above.</p> : null}
 
       <h3 className="jc-log-h">Runs · one line per run as entered</h3>
       <table className="jc-log-table" data-testid="season-print-runs">
@@ -396,7 +411,7 @@ export function SeasonPrintLog({ card, machineLabel }: { card: any; machineLabel
       ) : null}
 
       <p className="jc-log-note">
-        ✗ = reading outside the allowed limit (the batch is held for QC).{flagged ? " † = run entered before the planner placed the stage, on another machine, or before the slitting record (listed for the owner under Reports › Exceptions)." : ""}
+        ✗ = reading outside the allowed limit (flagged, not held).{flagged ? " † = run entered before the planner placed the stage, on another machine, or before the slitting record (listed for the owner under Reports › Exceptions)." : ""}
       </p>
     </div>
   )

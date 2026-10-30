@@ -5,20 +5,21 @@
  * material lots and tools `https://<site>/scan?c=<payload>`. In-app scan boxes and handheld scanners
  * may still hand us the older forms, so all of them are read here:
  *   - `HARIOM|REEL|<plant>|<id>|<AT no>` / `HARIOM|BATCH|<plant>|<id>|<lot no>` (lot labels)
+ *   - `HARIOM|LOC|<plant>|<location id>|<CODE>` (rack / location labels, client 2026-10-28)
  *   - `hariom://tool/<asset no>` (tool labels)
  *   - `/production/entry/<id>`, `/production/job-cards/<id>`, `…supervisor-entry?job_card_id=<id>` (job cards)
  *   - a bare AT / lot / card number typed by hand.
  */
 
-export type ScanKind = "JOB_CARD" | "REEL" | "BATCH" | "TOOL" | "CODE"
+export type ScanKind = "JOB_CARD" | "REEL" | "BATCH" | "LOCATION" | "TOOL" | "CODE"
 
 export type ParsedScan = {
   kind: ScanKind
-  /** Record id (job card, reel or batch) when the value carries one. */
+  /** Record id (job card, reel, batch or location) when the value carries one. */
   id: string
-  /** Plant the label was printed for (lot labels only). */
+  /** Plant the label was printed for (lot and location labels only). */
   plantId: string
-  /** Human code: AT number, lot number, tool asset number, or the typed text. */
+  /** Human code: AT number, lot number, rack code, tool asset number, or the typed text. */
   code: string
   raw: string
 }
@@ -27,6 +28,13 @@ const JOB_CARD_PATH = /\/production\/(?:entry|job-cards)\/([0-9a-f]{8}-[0-9a-f]{
 const LEGACY_ENTRY = /\/(?:production\/)?(?:supervisor-entry|eod-entry|entry)\b/i
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const PLANT_ID = /^[\w-]{1,64}$/
+/** Label type in a `HARIOM|<type>|…` payload → scan kind. `LOCATION` is accepted as a long form of `LOC`. */
+const LABEL_KINDS: Record<string, ScanKind> = { REEL: "REEL", BATCH: "BATCH", LOC: "LOCATION", LOCATION: "LOCATION" }
+
+/** The printed payload of a location label; the QR carries it inside a `/scan?c=` link (buildScanUrl). */
+export function locationScanPayload(plantId: string, locationId: string, code: string) {
+  return `HARIOM|LOC|${plantId}|${locationId}|${code}`
+}
 
 function result(kind: ScanKind, raw: string, extra: Partial<ParsedScan> = {}): ParsedScan {
   return { kind, id: "", plantId: "", code: "", raw, ...extra }
@@ -65,8 +73,9 @@ export function parseScanCode(value: string | null | undefined, depth = 0): Pars
     const plant = parts[2].trim()
     const code = parts.slice(4).join("|").trim()
     // The id goes into API paths, so only a real record id counts; anything else is looked up by its printed number.
-    if ((type !== "REEL" && type !== "BATCH") || !UUID.test(id)) return result("CODE", raw, { code: code || raw })
-    return result(type, raw, { plantId: PLANT_ID.test(plant) ? plant : "", id: id.toLowerCase(), code })
+    const kind = LABEL_KINDS[type]
+    if (!kind || !UUID.test(id)) return result("CODE", raw, { code: code || raw })
+    return result(kind, raw, { plantId: PLANT_ID.test(plant) ? plant : "", id: id.toLowerCase(), code })
   }
 
   const url = asUrl(raw)

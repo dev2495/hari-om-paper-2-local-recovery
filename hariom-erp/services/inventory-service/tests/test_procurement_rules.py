@@ -159,8 +159,8 @@ def test_saved_purchase_pdf_paginates_large_revision_and_keeps_pdf_contract():
             "open_qty": Decimal("37500"), "vendor_confirmation": "CONFIRMED",
         }])
     pdf_text = b" ".join(re.findall(rb"\(([^()]*)\)\s*Tj", pdf))
-    assert b"50,000.000 KG" in pdf_text and b"50,000.000 PCS" in pdf_text
-    assert b"1,050,000.000 KG" in pdf_text and b"1,050,000.000 PCS" in pdf_text
+    assert b"50,000 kg" in pdf_text and b"50,000 pcs" in pdf_text
+    assert b"1,050,000 kg" in pdf_text and b"1,050,000 pcs" in pdf_text
     assert b"2,100,000.000" not in pdf
     page_count = pdf.count(b"/Type /Page") - pdf.count(b"/Type /Pages")
     assert pdf.startswith(b"%PDF-")

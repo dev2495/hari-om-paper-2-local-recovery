@@ -235,6 +235,27 @@ async def list_users(request: Request):
     )
 
 
+@router.get("/people")
+async def people_directory(request: Request):
+    """Login → display name for every signed-in role (pages show "Owner two", not "owner2.e2e")."""
+    token = extract_token(request)
+    if not token:
+        return JSONResponse(content={"detail": "Not authenticated"}, status_code=401)
+    try:
+        response = await http_client.get(
+            f"{AUTH_SERVICE_URL}/users/directory",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    except httpx.RequestError:
+        return JSONResponse(status_code=503, content={"detail": "Auth service unavailable"})
+    resp = JSONResponse(
+        status_code=response.status_code,
+        content=_safe_json(response, "Unable to list people"),
+    )
+    _set_private_no_store(resp)
+    return resp
+
+
 @router.post("/users")
 async def create_user(request: Request):
     token = extract_token(request)

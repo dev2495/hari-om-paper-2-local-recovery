@@ -1,7 +1,7 @@
 """Actual PO commitments, split GRN allocation, retries and dated revision conservation."""
 import os
 import uuid
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import patch
 import pytest
 if 'procurement_test' not in os.environ.get('DATABASE_URL',''):
@@ -12,7 +12,13 @@ from src.models import PurchaseLineSchedule, ReceiptScheduleAllocation, Purchase
 from src.routers.purchase import (SupplierScheduleCommit, SupplierScheduleUpdate,
     commit_supplier_schedules, update_supplier_schedule)
 from src.routers.procurement import GovernedReceiptCreate, post_governed_receipt
+from src.services.books import ist_today
 from test_procurement_postgres import _create_approved_po, PLANT, MAKER, CHECKER
+
+
+def D(days: int) -> date:
+    # Vendor dates are today or later (a confirmed date in the past is refused), so the test is dated from today.
+    return ist_today() + timedelta(days=days)
 
 
 def test_partial_receipt_spans_commitments_and_cancel_replace_conserves_the_po():
@@ -20,9 +26,9 @@ def test_partial_receipt_spans_commitments_and_cancel_replace_conserves_the_po()
         po = _create_approved_po(db,supplier_id=uuid.uuid4(),quantity=100)
         line_id = uuid.UUID(po['lines'][0]['id'])
         result = commit_supplier_schedules(po['id'],SupplierScheduleCommit(rows=[
-            {'purchase_order_line_id':line_id,'scheduled_qty':40,'promised_date':date(2026,9,21),'confirmation_status':'CONFIRMED'},
-            {'purchase_order_line_id':line_id,'scheduled_qty':60,'promised_date':date(2026,9,25),'confirmation_status':'CONFIRMED'}]),db,PLANT,MAKER)
-        payload = GovernedReceiptCreate(supplier_challan_no=f"CH-{uuid.uuid4().hex[:8]}", request_id=uuid.uuid4(),purchase_order_id=po['id'],received_date=date(2026,9,21),invoice_no=uuid.uuid4().hex,invoice_date=date(2026,9,21),lines=[{
+            {'purchase_order_line_id':line_id,'scheduled_qty':40,'promised_date':D(1),'confirmation_status':'CONFIRMED'},
+            {'purchase_order_line_id':line_id,'scheduled_qty':60,'promised_date':D(5),'confirmation_status':'CONFIRMED'}]),db,PLANT,MAKER)
+        payload = GovernedReceiptCreate(supplier_challan_no=f"CH-{uuid.uuid4().hex[:8]}", request_id=uuid.uuid4(),purchase_order_id=po['id'],received_date=ist_today(),invoice_no=uuid.uuid4().hex,invoice_date=ist_today(),lines=[{
             'po_line_id':line_id,'invoice_quantity':50,'invoice_rate':30,
             'lots':[{'source_reel_no':uuid.uuid4().hex,'net_weight_kg':50,'width_mm':120}]}])
         receipt = post_governed_receipt(payload,db,PLANT,MAKER)
@@ -34,19 +40,24 @@ def test_partial_receipt_spans_commitments_and_cancel_replace_conserves_the_po()
         assert sorted(row.allocated_qty for row in allocations)==[10,40]
         second_id=uuid.UUID(result['items'][1]['id'])
         before_version = db.get(PurchaseLineSchedule, second_id).version
-        revised=update_supplier_schedule(second_id,SupplierScheduleUpdate(expected_version=before_version,current_date=date(2026,9,27),confirmation_status='CONFIRMED',reason='Mill reconfirmed arrival'),db,PLANT,CHECKER)
+        revised=update_supplier_schedule(second_id,SupplierScheduleUpdate(expected_version=before_version,current_date=D(7),confirmation_status='CONFIRMED',reason='Mill reconfirmed arrival'),db,PLANT,CHECKER)
         assert revised['change_history'][0]['reason']=='Mill reconfirmed arrival'
-        assert revised['change_history'][0]['previous_date']=='2026-09-25'
-        assert revised['promised_date']=='2026-09-25' and revised['current_date']=='2026-09-27'
+        assert revised['change_history'][0]['previous_date']==D(5).isoformat()
+        assert revised['promised_date']==D(5).isoformat() and revised['current_date']==D(7).isoformat()
         with pytest.raises(HTTPException) as stale:
-            update_supplier_schedule(second_id,SupplierScheduleUpdate(expected_version=1,current_date=date(2026,9,28),confirmation_status='CONFIRMED',reason='Stale calendar edit'),db,PLANT,MAKER)
+            update_supplier_schedule(second_id,SupplierScheduleUpdate(expected_version=1,current_date=D(8),confirmation_status='CONFIRMED',reason='Stale calendar edit'),db,PLANT,MAKER)
         assert stale.value.status_code==409
         db.rollback()
-        cancelled=update_supplier_schedule(second_id,SupplierScheduleUpdate(expected_version=revised['version'],current_date=date(2026,9,27),confirmation_status='CANCELLED',reason='Replace outstanding commitment'),db,PLANT,CHECKER)
+        cancelled=update_supplier_schedule(second_id,SupplierScheduleUpdate(expected_version=revised['version'],current_date=D(7),confirmation_status='CANCELLED',reason='Replace outstanding commitment'),db,PLANT,CHECKER)
         assert cancelled['cancelled_qty']==50 and cancelled['allocated_qty']==10
-        replacement=commit_supplier_schedules(po['id'],SupplierScheduleCommit(rows=[{'purchase_order_line_id':line_id,'scheduled_qty':50,'promised_date':date(2026,9,30)}]),db,PLANT,MAKER)
+        replacement=commit_supplier_schedules(po['id'],SupplierScheduleCommit(rows=[{'purchase_order_line_id':line_id,'scheduled_qty':50,'promised_date':D(10)}]),db,PLANT,MAKER)
         assert replacement['items'][0]['remaining_qty']==50
         with pytest.raises(HTTPException):
-            commit_supplier_schedules(po['id'],SupplierScheduleCommit(rows=[{'purchase_order_line_id':line_id,'scheduled_qty':1,'promised_date':date(2026,9,30)}]),db,PLANT,MAKER)
+            commit_supplier_schedules(po['id'],SupplierScheduleCommit(rows=[{'purchase_order_line_id':line_id,'scheduled_qty':1,'promised_date':D(10)}]),db,PLANT,MAKER)
+        db.rollback()
+        # A vendor date is never in the past (same rule as the calendar and vendor-confirm).
+        with pytest.raises(HTTPException) as past:
+            update_supplier_schedule(uuid.UUID(replacement['items'][0]['id']),SupplierScheduleUpdate(expected_version=1,current_date=ist_today()-timedelta(days=1),confirmation_status='CONFIRMED',reason='Typed the wrong day'),db,PLANT,CHECKER)
+        assert past.value.status_code==422
         db.rollback()
         assert sum(row.allocated_qty for row in db.query(ReceiptScheduleAllocation).filter_by(receipt_line_id=saved.lines[0].id))==50

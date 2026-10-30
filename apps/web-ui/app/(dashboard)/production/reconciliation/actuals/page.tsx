@@ -1,6 +1,11 @@
-import { ReconciliationWorkspace } from "@/components/workspace/reconciliation-workspace"
-import { RoleGate } from "@/components/workspace/role-gate"
+import { redirect } from "next/navigation"
 
-export default function Page() {
-  return <RoleGate allow={["Owner", "Admin", "PlantManager"]}><ReconciliationWorkspace view="actuals" /></RoleGate>
+import { reconciliationRedirect, type SearchParamsInput } from "@/lib/retired-routes"
+
+/**
+ * Actual entry is part of Month-end close (client 2026-10-28): used quantities come from the month-end count,
+ * notes are typed on each item. Old links open that month's close.
+ */
+export default async function ReconciliationActualsRedirect({ searchParams }: { searchParams: Promise<SearchParamsInput> }) {
+  redirect(reconciliationRedirect("actuals", await searchParams))
 }

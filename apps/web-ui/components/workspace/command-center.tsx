@@ -2,7 +2,7 @@
 
 import dayjs from "dayjs"
 import Link from "next/link"
-import { useMemo, useState, type ReactNode } from "react"
+import { useMemo, useState, type MouseEvent, type ReactNode } from "react"
 import {
   AlertTriangle,
   ArrowRight,
@@ -31,20 +31,27 @@ import { Area, Bar, BarChart, CartesianGrid, Cell, ComposedChart, Legend, Line, 
 import { ChartBox, ChartEmptyState, ChartTooltip } from "@/components/erp/charts"
 import { MetricCard, type MetricTone } from "@/components/erp/shell"
 import { Donut, RadialGauge, StackedMeter } from "@/components/erp/viz"
+import { useRouter } from "next/navigation"
+import { useQueryClient } from "@tanstack/react-query"
+
 import { ActionCenter } from "@/components/workspace/action-center"
-import { NotificationRow } from "@/components/workspace/notification-center"
+import { invalidateInbox } from "@/components/workspace/notification-center"
 import { WorkQueue } from "@/components/workspace/work-queue"
+import { canReadJobCardAggregates } from "@/lib/role-matrix"
 import { useAuth } from "@/context/AuthContext"
+import { authApi } from "@/lib/api"
+import { usePeopleVersion } from "@/hooks/use-people"
+import { peopleInText, personLabel } from "@/lib/people"
 import { useOwnerPack } from "@/hooks/use-analytics"
 import { useJobCardAggregates } from "@/hooks/use-production"
 import { useSalesOrderAggregates } from "@/hooks/use-sales"
 import { useCustomers } from "@/hooks/use-master-data"
 import { useNotifications } from "@/hooks/use-workspace"
 import { jobCardRef } from "@/lib/job-card-display"
-import type { InboxNotification } from "@/lib/notifications"
+import { ACTION_LABELS, NOTIFICATION_CATEGORIES, notificationCategory, notificationPriority, relativeTime, type InboxNotification } from "@/lib/notifications"
 import { displayPlantScope } from "@/lib/plant-scope"
 import { cn } from "@/lib/utils"
-import { LANDING_LABELS, LANDING_QUICK_ACTIONS, type LandingRole } from "@/lib/workspace"
+import { LANDING_LABELS, inboxTargetFor, quickActionsFor, type LandingRole } from "@/lib/workspace"
 
 type Period = "7d" | "30d" | "mtd" | "qtd"
 const PERIODS: Array<[Period, string]> = [["7d", "7 days"], ["30d", "30 days"], ["mtd", "Month"], ["qtd", "Quarter"]]
@@ -114,6 +121,18 @@ const ROLE_CHARTS: Record<LandingRole, ChartKey[]> = {
   Operator: ["pipeline", "output"],
 }
 
+// Where each figure comes from: sales aggregates, job-card aggregates, or the analytics owner pack.
+const KPI_SOURCE: Record<KpiKey, "sales" | "jobs" | "pack"> = {
+  orderBook: "sales", bookedValue: "sales", dispatchedValue: "sales", expired: "sales", holdQty: "sales",
+  activeCards: "jobs", overdue: "jobs", blocked: "jobs", qcHolds: "jobs", dispatchReady: "jobs",
+  otif: "pack", leadTime: "pack", dispatchQty: "pack", produced: "pack", adherence: "pack", utilization: "pack",
+  qcPass: "pack", inventoryValue: "pack", lowStock: "pack",
+}
+const CHART_SOURCE: Record<ChartKey, "sales" | "jobs" | "pack"> = {
+  output: "pack", orderFlow: "pack", pipeline: "pack", machines: "pack", quality: "pack", inventory: "pack",
+  customers: "sales", orderStatus: "sales", commercial: "sales", stageDonut: "jobs",
+}
+
 const STAGE_ORDER = ["SLITTING", "WINDER", "OVEN", "PROCESS", "DISPATCH"]
 const STAGE_COLORS: Record<string, string> = {
   winder_qty: "hsl(var(--chart-1))",
@@ -138,10 +157,68 @@ function Card({ title, subtitle, action, children, className }: { title: string;
 }
 
 function CardLink({ href, children }: { href: string; children: ReactNode }) {
+  // 44 px tall tap target; the negative margin keeps the card header the same height.
   return (
-    <Link href={href} className="group inline-flex shrink-0 items-center gap-1 text-[12.5px] font-medium text-primary">
+    <Link href={href} className="group -my-3 -mr-2 inline-flex min-h-11 shrink-0 items-center gap-1 rounded-lg px-2 text-[12.5px] font-medium text-primary hover:bg-primary/[.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
       {children}
       <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+    </Link>
+  )
+}
+
+/**
+ * One notification on the landing: the whole row is one link (at least 44 px tall) to a page this role
+ * can open, or to the inbox; its action word shows only when the role can do it. Opening it marks it
+ * read, as the bell does. Read/unread toggles stay in the inbox (no tiny buttons here).
+ */
+function InboxLine({ item, roles }: { item: InboxNotification; roles: Array<string | null | undefined> }) {
+  const router = useRouter()
+  const queryClient = useQueryClient()
+  const category = NOTIFICATION_CATEGORIES[notificationCategory(item)]
+  const priority = notificationPriority(item)
+  const target = inboxTargetFor(item, roles)
+  const actionLabel = target.action && priority !== "info" ? ACTION_LABELS[target.action] : null
+  // Older stage handoffs were sent to Operators with the planner's "Schedule the next machine…" line; a role
+  // that cannot schedule reads only what happened (new ones are worded for the floor by the BFF, 30 Oct).
+  // Services write who did it by login ("sent by pm.e2e@hariom.com"); people read names (spec C4).
+  usePeopleVersion()
+  const message = peopleInText(item.action === "schedule" && !target.action
+    ? String(item.message || "").replace(/\s*Schedule the next machine or inspect before it proceeds\.?\s*$/, "")
+    : item.message)
+  const Icon = category.icon
+  const open = async (event: MouseEvent<HTMLAnchorElement>) => {
+    // A new tab / window keeps the browser's own behaviour.
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return
+    event.preventDefault()
+    router.push(target.href)
+    if (!item.is_read) {
+      try { await authApi.markNotificationRead(item.id) } catch { /* the link still opens */ } finally { await invalidateInbox(queryClient) }
+    }
+  }
+  return (
+    <Link href={target.href} onClick={open} className={cn("group flex min-h-11 gap-3 rounded-lg px-2.5 py-2.5 transition-colors hover:bg-foreground/[.035] focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring", !item.is_read && "bg-primary/[.035]")}>
+      <span className={cn("relative mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg ring-1 ring-inset", category.chip)}>
+        <Icon className="h-4 w-4" aria-hidden="true" />
+        {priority === "critical" ? <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-destructive ring-2 ring-card" aria-label="Critical" /> : null}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-start gap-2">
+          <span className={cn("min-w-0 flex-1 text-[13px] leading-5", item.is_read ? "font-medium text-foreground/80" : "font-semibold text-foreground")}>{item.title}</span>
+          <span className="shrink-0 pt-0.5 text-[11px] tabular-nums text-muted-foreground">{relativeTime(item.created_at)}</span>
+          {!item.is_read ? <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-primary" aria-label="Not read yet" /> : null}
+        </span>
+        {message ? <span className="mt-0.5 block text-[12.5px] leading-5 text-muted-foreground line-clamp-2">{message}</span> : null}
+        <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          <span className="text-[11px] font-medium text-muted-foreground">{category.label}</span>
+          {target.href === "/inbox" && item.href ? <span className="text-[11px] text-muted-foreground">· for your information</span> : null}
+          {actionLabel ? (
+            <span className={cn("ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-semibold", priority === "critical" ? "bg-signal-rose-soft text-signal-rose-ink" : "bg-primary/10 text-primary")}>
+              {actionLabel}
+              <ArrowRight className="h-3 w-3" aria-hidden="true" />
+            </span>
+          ) : null}
+        </span>
+      </span>
     </Link>
   )
 }
@@ -159,13 +236,17 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
   const analytics = variant === "analytics"
   const ownerTabs = role === "Owner" && !analytics
   const [focus, setFocus] = useState<"kpis" | "actions">("kpis")
-  const { user, activePlant } = useAuth()
+  const { user, activePlant, activeRole } = useAuth()
   const [period, setPeriod] = useState<Period>("30d")
   const range = useMemo(() => periodRange(period), [period])
   const packParams = useMemo(() => ({ ...range, ...(activePlant ? { plant: activePlant } : {}) }), [range, activePlant])
-  const packQuery = useOwnerPack(packParams)
+  // The owner pack needs analytics:view (Owner, Admin, Planner, PlantManager); other roles never ask for it,
+  // so an Operator's landing and floor pages show no 403 (fixed 2026-10-30). Their KPIs read "Not reported".
+  const packReadable = [user?.role, ...(user?.roles || [])].some((role) => ["Owner", "Admin", "Planner", "PlantManager"].includes(String(role)))
+  const packQuery = useOwnerPack(packParams, { enabled: packReadable })
   const salesQuery = useSalesOrderAggregates()
-  const jobsQuery = useJobCardAggregates()
+  const jobsReadable = canReadJobCardAggregates([user?.role, ...(user?.roles || [])])
+  const jobsQuery = useJobCardAggregates(jobsReadable)
   const inbox = useNotifications({ limit: 6 })
   const customersQuery = useCustomers()
   const customerNames = useMemo(() => new Map((Array.isArray(customersQuery.data) ? customersQuery.data : []).map((row: any) => [String(row.id), String(row.name || row.customer_name || row.customer_code || "")])), [customersQuery.data])
@@ -235,11 +316,53 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
     return rows
   }, [pack])
 
-  const charts = analytics ? ANALYTICS_CHARTS : ROLE_CHARTS[role]
-  const kpiKeys = analytics ? ANALYTICS_KPIS : ownerTabs ? OWNER_KPIS : ROLE_KPIS[role]
-  const firstName = String(user?.name || "").split(/\s+/)[0]
+  // The headline counts the same figures as the tiles below it (overdue, blocked, QC holds from the job-card
+  // aggregates; late orders and low stock from the pack), and never says "nothing is late" while a source is
+  // still loading or failed (pm.e2e saw "Nothing is late" above "Overdue job cards 3", 30 Oct).
+  const plantWords = displayPlantScope(activePlant, "all plants")
+  const headline = (() => {
+    if (!packReadable) return `Your work in ${plantWords}: start from the shortcuts below and see what was handed to you.`
+    const jobsReady = jobsReadable && Boolean(jobsQuery.data)
+    const counted = (count: number, one: string, many: string) => `${num(count)} ${count === 1 ? one : many}`
+    const parts: string[] = []
+    if (jobsReady) {
+      if (Number(jobs.due_overdue) > 0) parts.push(counted(Number(jobs.due_overdue), "overdue job card", "overdue job cards"))
+      if (Number(jobs.blocked) > 0) parts.push(counted(Number(jobs.blocked), "blocked card", "blocked cards"))
+      if (Number(jobs.qc_holds) > 0) parts.push(counted(Number(jobs.qc_holds), "card on QC hold", "cards on QC hold"))
+    }
+    if (packReady) {
+      const lateOrders = Number(pack.sales?.summary?.delayed_orders ?? (pack.sales?.delayed_rows || []).length)
+      if (lateOrders > 0) parts.push(counted(lateOrders, "late order", "late orders"))
+      if (Number(inv.low_stock_count) > 0) parts.push(counted(Number(inv.low_stock_count), "low-stock material", "low-stock materials"))
+    }
+    if (parts.length) {
+      const list = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`
+      return `${list} ${parts.length === 1 && /^1 /.test(parts[0]) ? "needs" : "need"} attention in ${plantWords}.`
+    }
+    const jobsFailed = jobsReadable && jobsQuery.isError
+    const waiting = (jobsReadable && !jobsReady && !jobsFailed) || (!packReady && !packQuery.isError)
+    if (waiting) return `Checking what needs attention in ${plantWords}…`
+    if (jobsFailed || packQuery.isError) return `Some figures could not be loaded just now, so this may not be the full picture for ${plantWords}. Refresh in a minute.`
+    return `Nothing is late or blocked in ${plantWords}. Here is how the period is going.`
+  })()
+
+  // A role sees only the figures and charts whose source it may read: no "Not reported" tiles, empty charts
+  // or forever-loading dots for an Operator, Store or QC landing (2026-10-30).
+  const readable = (source: "sales" | "jobs" | "pack") => (source === "pack" ? packReadable : source === "jobs" ? jobsReadable : true)
+  const charts = (analytics ? ANALYTICS_CHARTS : ROLE_CHARTS[role]).filter((key) => readable(CHART_SOURCE[key]))
+  const kpiKeys = (analytics ? ANALYTICS_KPIS : ownerTabs ? OWNER_KPIS : ROLE_KPIS[role]).filter((key) => readable(KPI_SOURCE[key]))
+  // The person's directory name ("Operator two (E2E)"), never a role word or a login (30 Oct).
+  const greetName = String(user?.name || "").trim() || (user?.email ? personLabel(user.email, "") : "")
+  const userRoles = [user?.role, activeRole, ...(user?.roles || [])]
   const inboxItems = (Array.isArray(inbox.data?.items) ? inbox.data.items : []) as InboxNotification[]
-  const quick = LANDING_QUICK_ACTIONS[role] || []
+  const quick = quickActionsFor(role, userRoles)
+  // refetch() ignores `enabled`, so only the sources this role may read are asked again (no 403 on Refresh).
+  const refresh = () => {
+    if (packReadable) void packQuery.refetch()
+    void salesQuery.refetch()
+    if (jobsReadable) void jobsQuery.refetch()
+    void inbox.refetch()
+  }
 
   const chart: Record<ChartKey, ReactNode> = {
     output: (
@@ -292,7 +415,7 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
             {pipelineRows.map((row: any, index: number) => {
               const max = Math.max(1, ...pipelineRows.map((item: any) => item.count))
               return (
-                <Link key={row.stage} href={`/production/job-cards?stage=${row.stage}`} className="group block">
+                <Link key={row.stage} href={`/production/job-cards?stage=${row.stage}`} className="group flex min-h-11 flex-col justify-center rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
                   <div className="flex items-center justify-between text-[12.5px]">
                     <span className="font-medium text-foreground/85 group-hover:text-primary">{row.stage.charAt(0) + row.stage.slice(1).toLowerCase()}</span>
                     <span className="font-semibold tabular-nums">{num(row.count)}</span>
@@ -462,13 +585,13 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
         <>
           {header}
           <div className="flex flex-wrap items-center gap-2">
-            <div className="tube-segment" role="group" aria-label="Period">
+            <div className="tube-segment max-sm:[&>button]:!h-11" role="group" aria-label="Period">
               {PERIODS.map(([value, label]) => (
                 <button key={value} type="button" aria-pressed={period === value} onClick={() => setPeriod(value)}>{label}</button>
               ))}
             </div>
             <span className="text-[12.5px] text-muted-foreground">{dayjs(range.start_date).format("D MMM")} – {dayjs(range.end_date).format("D MMM YYYY")} · {displayPlantScope(activePlant, "all plants")}</span>
-            <button type="button" className="tube-icon-button ml-auto border !border-border bg-card" aria-label="Refresh" title="Refresh" onClick={() => { void packQuery.refetch(); void salesQuery.refetch(); void jobsQuery.refetch() }}>
+            <button type="button" className="tube-icon-button ml-auto !h-11 !w-11 border !border-border bg-card" aria-label="Refresh" title="Refresh" onClick={refresh}>
               <RefreshCw className={cn(fetching && "animate-spin")} />
             </button>
           </div>
@@ -478,26 +601,24 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
         <div className="relative flex flex-wrap items-end justify-between gap-4">
           <div className="min-w-0">
             <p className="mb-2 flex flex-wrap items-center gap-2"><span className="tube-page-eyebrow !mb-0">{LANDING_LABELS[role]}</span><span className="text-[12px] text-muted-foreground">{dayjs().format("dddd, D MMMM")}</span></p>
-            <h1 className="text-[24px] font-semibold tracking-tight sm:text-[28px]">{greeting()}{firstName ? `, ${firstName}` : ""}</h1>
+            <h1 className="text-balance text-[24px] font-semibold tracking-tight sm:text-[28px]">{greeting()}{greetName ? `, ${greetName}` : ""}</h1>
             <p className="mt-1 max-w-2xl text-[13.5px] leading-6 text-muted-foreground">
-              {attention.length
-                ? `${attention.length} item${attention.length === 1 ? "" : "s"} need attention across orders, production, quality and stock in ${displayPlantScope(activePlant, "all plants")}.`
-                : `Nothing is late or blocked in ${displayPlantScope(activePlant, "all plants")}. Here is how the period is going.`}
+              {headline}
             </p>
             {ownerTabs ? (
-              <div className="tube-segment mt-4" role="tablist" aria-label="Owner focus">
+              <div className="tube-segment mt-4 max-sm:[&>button]:!h-11" role="tablist" aria-label="Owner focus">
                 <button type="button" role="tab" aria-selected={focus === "kpis"} data-state={focus === "kpis" ? "active" : undefined} onClick={() => setFocus("kpis")}><LayoutDashboard size={14} />Company KPIs</button>
                 <button type="button" role="tab" aria-selected={focus === "actions"} data-state={focus === "actions" ? "active" : undefined} onClick={() => setFocus("actions")}><ListChecks size={14} />Action center{attention.length ? <span className="ml-1 rounded-full bg-signal-rose-soft px-1.5 text-[11px] font-bold text-signal-rose-ink">{attention.length}</span> : null}</button>
               </div>
             ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <div className="tube-segment" role="group" aria-label="Period">
+            {packReadable ? <div className="tube-segment max-sm:[&>button]:!h-11" role="group" aria-label="Period">
               {PERIODS.map(([value, label]) => (
                 <button key={value} type="button" aria-pressed={period === value} onClick={() => setPeriod(value)}>{label}</button>
               ))}
-            </div>
-            <button type="button" className="tube-icon-button border !border-border bg-card" aria-label="Refresh" title="Refresh" onClick={() => { void packQuery.refetch(); void salesQuery.refetch(); void jobsQuery.refetch() }}>
+            </div> : null}
+            <button type="button" className="tube-icon-button !h-11 !w-11 border !border-border bg-card" aria-label="Refresh" title="Refresh" onClick={refresh}>
               <RefreshCw className={cn(fetching && "animate-spin")} />
             </button>
           </div>
@@ -512,10 +633,10 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
         </section>
       )}
 
-      <section className="stagger grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-3 2xl:grid-cols-4" aria-label="Key figures">
+      {kpiKeys.length ? <section className="stagger grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-3 2xl:grid-cols-4" aria-label="Key figures">
         {kpiKeys.map((key) => {
           const kpi = kpis[key]
-          const failed = (key in { orderBook: 1, bookedValue: 1, dispatchedValue: 1, expired: 1, holdQty: 1 } && salesQuery.isError) || (["activeCards", "overdue", "blocked", "qcHolds", "dispatchReady"].includes(key) && jobsQuery.isError) || (!["orderBook", "bookedValue", "dispatchedValue", "expired", "holdQty", "activeCards", "overdue", "blocked", "qcHolds", "dispatchReady"].includes(key) && packQuery.isError)
+          const failed = (key in { orderBook: 1, bookedValue: 1, dispatchedValue: 1, expired: 1, holdQty: 1 } && salesQuery.isError) || (["activeCards", "overdue", "blocked", "qcHolds", "dispatchReady"].includes(key) && jobsQuery.isError) || (!["orderBook", "bookedValue", "dispatchedValue", "expired", "holdQty", "activeCards", "overdue", "blocked", "qcHolds", "dispatchReady"].includes(key) && (packQuery.isError || !packReadable))
           const loading = !kpi.ready && !failed
           return (
             <MetricCard
@@ -531,7 +652,7 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
             />
           )
         })}
-      </section>
+      </section> : null}
 
       {analytics || ownerTabs ? (
         <section className="erp-panel rounded-xl p-4 sm:p-5" aria-label="Health gauges">
@@ -545,11 +666,29 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
         </section>
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        {charts.slice(0, 2).map((key) => chart[key])}
-      </div>
+      {charts.length ? (
+        <div className="grid gap-4 xl:grid-cols-2">
+          {charts.slice(0, 2).map((key) => chart[key])}
+        </div>
+      ) : null}
 
       <div className="grid gap-4 xl:grid-cols-3">
+        {!packReadable ? (
+          // Floor roles get their shortcuts once, here (no second list at the bottom, 30 Oct). Late orders and
+          // blocked cards are the plant head's and planner's; what needs this person arrives under Latest for you.
+          <Card title="Your work" subtitle="Log and check today's work. Anything handed to you arrives under Latest for you." className="xl:col-span-2 xl:self-start">
+            {quick.length ? (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {quick.map((action) => (
+                  <Link key={`${action.href}:${action.label}`} href={action.href} className="group flex min-h-14 items-center gap-3 rounded-lg border border-border bg-card px-3.5 py-2.5 transition hover:border-primary/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
+                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-accent text-accent-foreground"><ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" /></span>
+                    <span className="min-w-0"><span className="block text-[13.5px] font-semibold text-foreground">{action.label}</span><span className="block text-[12px] leading-5 text-muted-foreground">{action.detail}</span></span>
+                  </Link>
+                ))}
+              </div>
+            ) : <p className="py-6 text-center text-[13px] text-muted-foreground">Your shortcuts appear here once the Owner gives your role its pages.</p>}
+          </Card>
+        ) : (
         <Card title="Needs attention" subtitle="Late orders, blocked cards, holds and short materials" className="xl:col-span-2" action={<CardLink href="/planning/overview">All exceptions</CardLink>}>
           {attention.length ? (
             <div className="divide-y divide-border overflow-hidden rounded-lg border border-border">
@@ -567,13 +706,19 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
                 </Link>
               ))}
             </div>
+          ) : packQuery.isError ? (
+            <div className="flex items-center gap-3 rounded-lg border border-signal-amber-line bg-signal-amber-soft px-4 py-4 text-[13px] text-signal-amber-ink">
+              <AlertTriangle className="h-5 w-5 shrink-0" aria-hidden="true" />
+              <span>Late orders and blocked cards could not be loaded just now. Refresh in a minute, or open <Link href="/production/job-cards" className="font-semibold underline underline-offset-2">Job cards</Link> for live status.</span>
+            </div>
           ) : (
             <div className="flex items-center gap-3 rounded-lg border border-signal-emerald-line bg-signal-emerald-soft px-4 py-4 text-[13px] text-signal-emerald-ink">
-              <CheckCircle2 className="h-5 w-5 shrink-0" />
-              {packQuery.isLoading ? "Checking orders, cards, holds and stock…" : packQuery.isError ? "Exceptions could not be loaded from analytics. Open the tracker for live status." : "No late orders, blocked cards, QC holds or short materials right now."}
+              <CheckCircle2 className="h-5 w-5 shrink-0" aria-hidden="true" />
+              {packQuery.isLoading ? "Checking orders, cards, holds and stock…" : "No late orders, blocked cards, QC holds or short materials right now."}
             </div>
           )}
         </Card>
+        )}
         {analytics ? (
           <Card title="Exception streams" subtitle="Live counts behind the attention list">
             <dl className="divide-y divide-border overflow-hidden rounded-lg border border-border text-[13px]">
@@ -581,7 +726,7 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
                 ["Late customer orders", Number(pack.sales?.summary?.delayed_orders || 0), "/reports/sales"],
                 ["Blocked job cards", Number(pack.production?.summary?.blocked_jobs || 0), "/reports/operations"],
                 ["Active QC holds", Number(pack.headline?.active_qc_holds || 0), "/reports/quality"],
-                ["Materials below reorder", Number(inv.low_stock_count || 0), "/analytics/mrp"],
+                ["Materials below reorder", Number(inv.low_stock_count || 0), "/inventory/stock-alerts"],
                 ["Expired sales orders", Number(salesAggregates?.expired_open_count || 0), "/sales-orders"],
               ].map(([label, value, href]) => (
                 <Link key={String(label)} href={String(href)} className="flex items-center justify-between gap-3 px-3 py-2.5 transition-colors hover:bg-foreground/[.025]">
@@ -594,12 +739,8 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
         ) : (
         <Card title="Latest for you" subtitle="Handoffs and alerts routed to your role" action={<CardLink href="/inbox">Inbox</CardLink>}>
           {inboxItems.length ? (
-            <div className="-mx-2">
-              {inboxItems.slice(0, 5).map((item) => (
-                <Link key={item.id} href={item.href || "/inbox"} className="block">
-                  <NotificationRow item={item} onOpen={() => undefined} onToggleRead={() => undefined} compact />
-                </Link>
-              ))}
+            <div className="-mx-2 space-y-0.5">
+              {inboxItems.slice(0, 5).map((item) => <InboxLine key={item.id} item={item} roles={userRoles} />)}
             </div>
           ) : <p className="py-8 text-center text-[13px] text-muted-foreground">{inbox.isLoading ? "Loading…" : "No notifications yet."}</p>}
         </Card>
@@ -613,7 +754,7 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
       ) : null}
       {charts.length > 5 ? <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{charts.slice(5).map((key) => chart[key])}</div> : null}
 
-      {!analytics && quick.length ? (
+      {!analytics && packReadable && quick.length ? (
         <section aria-label="Shortcuts" className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
           {quick.map((action) => (
             <Link key={`${action.href}:${action.label}`} href={action.href} className="group flex items-start gap-3 rounded-xl border border-border bg-card px-3.5 py-3 shadow-[var(--shadow-xs)] transition hover:border-primary/30 hover:shadow-[var(--shadow-premium)]">

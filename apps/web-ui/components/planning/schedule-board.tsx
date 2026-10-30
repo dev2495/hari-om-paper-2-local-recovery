@@ -19,8 +19,9 @@ export type FocusLane = { machine_id: string; shift_code?: string | null }
 
 const fmt = (value: number, digits = 0) => Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: digits })
 
-function dueInfo(due?: string | null) {
-  if (!due) return null
+function dueInfo(due?: string | null): { days: number | null; label: string; tone: string } {
+  // Delivery date is optional (client 2026-10-28): a card without one says "No date" and is never late.
+  if (!due || !dayjs(due).isValid()) return { days: null, label: "No date", tone: "text-muted-foreground" }
   const days = dayjs(due).startOf("day").diff(dayjs().startOf("day"), "day")
   return { days, label: days < 0 ? `${Math.abs(days)}d late` : days === 0 ? "due today" : `due ${days}d`, tone: days < 0 ? "text-signal-rose-ink font-semibold" : days <= 3 ? "text-signal-amber-ink font-semibold" : "text-muted-foreground" }
 }
@@ -68,7 +69,7 @@ const PlanCard = memo(function PlanCard({ job, compact, machineLabel, loadOf, un
     job.product_size_label || job.product_code,
     job.parchment_color ? `colour ${job.parchment_color}` : null,
     `${fmt(qty)} pcs${load ? ` · ${fmt(load, 1)} ${unit}` : ""}`,
-    job.due_date ? `due ${dayjs(job.due_date).format("DD MMM")}` : null,
+    job.due_date ? `due ${dayjs(job.due_date).format("DD MMM")}` : "No date",
     pref ? `release winder ${pref}` : null,
     locked ? lockReason(job) : null,
   ].filter(Boolean).join(" · ")
@@ -133,9 +134,9 @@ const PlanCard = memo(function PlanCard({ job, compact, machineLabel, loadOf, un
             {job.parchment_color ? <ColorChip color={job.parchment_color} className="!text-[11px]" /> : <span className="text-muted-foreground">Plain</span>}
             {load ? <span className="tabular-nums text-muted-foreground">{fmt(load, 0)} {unit}</span> : null}
             {pref && queued ? <span className="truncate text-muted-foreground">pref {pref}</span> : null}
-            {due ? <span className={cn("ml-auto shrink-0 tabular-nums", due.tone)}>{due.label}</span> : null}
+            <span className={cn("ml-auto shrink-0 tabular-nums", due.tone)} data-testid={due.days === null ? "planner-no-date" : undefined}>{due.label}</span>
           </div>
-        ) : due && due.days <= 3 ? <p className={cn("text-[10.5px] tabular-nums", due.tone)}>{due.label}</p> : null}
+        ) : due.days !== null && due.days <= 3 ? <p className={cn("text-[10.5px] tabular-nums", due.tone)}>{due.label}</p> : null}
       </div>
       <div data-card-actions className="absolute -top-2 right-1 z-10 flex gap-0.5 rounded-md border border-border bg-card p-0.5 opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 group-focus-visible:opacity-100">
         <button type="button" aria-label="Manage card" title="Manage: edit, split, emergency, force close, trail" onClick={() => onAction(job, "manage")} className="grid h-6 w-6 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"><Settings2 className="h-3.5 w-3.5" /></button>
