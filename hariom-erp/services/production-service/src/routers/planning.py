@@ -4118,6 +4118,11 @@ def _quality_failures_for_stage(stage_type: str, spec_snapshot: dict[str, Any], 
     )
     if evaluation.failures:
         return list(evaluation.failures)
+    profile = (spec_snapshot or {}).get("qc_profile")
+    if str(stage_type or "").upper() in {"WINDER", "OVEN", "PROCESS"} and isinstance(profile, dict) and profile:
+        # The frozen stage profile found the readings in band; the typed fallback would judge in-process
+        # readings against finished-tube limits and flag good samples (old-form winder, client 2026-10-31).
+        return []
     return evaluate_stage_quality(stage_type, spec_snapshot or {}, readings or quality_checks or {}).failures
 
 

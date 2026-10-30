@@ -7,6 +7,7 @@ import { ArrowUpRight, Barcode, Check, CircleAlert, Clock3, ClipboardList, Histo
 
 import { QrScanner } from "@/components/common/qr-scanner"
 import { Field, MessageBar, ProcurementShell, WorkPanel, fieldClass, primaryButton, secondaryButton } from "@/components/procurement/procurement-shell"
+import { FoundChoices } from "@/components/procurement/found-choices"
 import { IssueDeskTabs } from "@/components/procurement/issue-desk-tabs"
 import { Chip } from "@/components/sales/order-chips"
 import { RoleGate } from "@/components/workspace/role-gate"
@@ -15,6 +16,7 @@ import { useCloseReelIssue, useCreateReelIssue, useInventoryItems, useInventoryL
 import { usePlants } from "@/hooks/use-system"
 import { inventoryApi } from "@/lib/api"
 import { canonicalPlantScopeValue, displayPlantScope } from "@/lib/plant-scope"
+import { chooseFound, compactNumber, isReady, matchWords, sameNumber, type FoundResult, type FoundRow } from "@/lib/lot-find"
 import { parseScanCode } from "@/lib/scan-code"
 import { pickFromText, who } from "@/lib/stock-format"
 import { shiftAt, shiftWords } from "@/lib/shift"
@@ -86,6 +88,8 @@ export default function ReelAndCoilIssuePage() {
   const [queuedScan, setQueuedScan] = useState("")
   // Reels found by id outside the newest-500 stock window, so they can still be picked.
   const [extraRows, setExtraRows] = useState<any[]>([])
+  // A typed number that fits more than one reel or coil (an old mark used twice, a part of a number): a short pick list.
+  const [choices, setChoices] = useState<{ code: string; rows: FoundRow[]; count: number; truncated: boolean } | null>(null)
   const submitButton = useRef<HTMLButtonElement | null>(null)
   const [search, setSearch] = useState("")
   const [form, setForm] = useState<"ALL" | "REEL" | "COIL">("ALL")
@@ -142,8 +146,11 @@ export default function ReelAndCoilIssuePage() {
   const waiting = useMemo(() => inStock.filter((row) => !ISSUABLE.includes(String(row.stock_status || "").toUpperCase())), [inStock])
   const manyPlants = new Set(inStock.map((row) => String(row.plant_id || ""))).size > 1
   const needle = search.trim().toLowerCase()
-  const describe = (row: any) => [row.reel_code, itemOf(row)?.item_code, itemOf(row)?.name, row.source_reel_no, row.supplier_name_snapshot || row.supplier_name].filter(Boolean).join(" ").toLowerCase()
-  const shown = ready.filter((row) => (form === "ALL" || (form === "COIL") === isCoil(row)) && (!needle || describe(row).includes(needle)))
+  // The list search, like the scan box, ignores case, spaces and dashes in numbers: "chkr2 r1" finds CHKR2-R1.
+  const describe = (row: any) => [row.reel_code, itemOf(row)?.item_code, itemOf(row)?.name, row.source_reel_no, row.inward_metadata?.old_mark, row.supplier_name_snapshot || row.supplier_name].filter(Boolean).map(String)
+  const needleChars = compactNumber(needle)
+  const listMatch = (row: any) => describe(row).some((value) => value.toLowerCase().includes(needle) || (needleChars.length > 0 && compactNumber(value).includes(needleChars)))
+  const shown = ready.filter((row) => (form === "ALL" || (form === "COIL") === isCoil(row)) && (!needle || listMatch(row)))
   const selected = ready.filter((row) => picked.includes(String(row.id)))
   const selectedKg = selected.reduce((sum, row) => sum + Number(row.current_weight_kg || 0), 0)
   const readyKg = ready.reduce((sum, row) => sum + Number(row.current_weight_kg || 0), 0)
@@ -186,7 +193,7 @@ export default function ReelAndCoilIssuePage() {
   const stockReady = stockQuery.isSuccess && !itemsQuery.isLoading && !pendingQc.isLoading
 
   /** Picks a scanned reel or coil, or says exactly why it cannot go to the floor. */
-  async function explainReel(row: any, queueState?: string) {
+  async function explainReel(row: any, queueState?: string, note?: string) {
     const code = row.reel_code
     if (isParchmentReel(row)) return setNotice({ tone: "info", text: `${code} is parchment. Parchment is issued by colour and kg on the Adhesive / parchment / packing tab.`, action: { label: "Open material issue", href: `/inventory/production-issue?item=${row.paper_id}` } })
     const status = String(row.status || "").toUpperCase()
@@ -212,13 +219,14 @@ export default function ReelAndCoilIssuePage() {
     setPicked((current) => (current.includes(String(row.id)) ? current : [...current, String(row.id)]))
     setScanCode("")
     // Scanned twice: it stays picked once and goes to the floor once.
-    setNotice({ tone: "info", text: again ? `${code} is already picked. It goes to the floor once.` : `${code} added · ${isCoil(row) ? "coil → winders" : "reel → slitter"}.` })
+    setNotice({ tone: "info", text: again ? `${code} is already picked. It goes to the floor once.` : `${code} added · ${isCoil(row) ? "coil → winders" : "reel → slitter"}.${note ? ` ${note}` : ""}` })
     // On a phone the issue button can be off screen: bring it up so the scan is one tap from issue.
     if (window.innerWidth < 1280) window.setTimeout(() => submitButton.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 80)
   }
 
   async function resolveScan(value: string = scanCode) {
     const parsed = parseScanCode(value)
+    setChoices(null)
     if (!parsed.raw) return setNotice({ tone: "error", text: "Scan the reel or coil label, or type its AT number." })
     if (parsed.kind === "BATCH") return setNotice({ tone: "error", text: "That is a material lot label. Adhesive, packing and parchment are issued on the Adhesive / parchment / packing tab.", action: { label: "Open material issue", href: `/inventory/production-issue?scan=${encodeURIComponent(parsed.raw)}` } })
     if (parsed.kind === "JOB_CARD" || parsed.kind === "TOOL") return setNotice({ tone: "error", text: `That is a ${parsed.kind === "TOOL" ? "tool" : "job card"} label. Scan the reel or coil label.` })
@@ -239,29 +247,75 @@ export default function ReelAndCoilIssuePage() {
         action: { label: `Switch to ${plant}`, onClick: () => { setActivePlant(parsed.plantId); window.location.assign(`${pathname}?scan=${encodeURIComponent(parsed.raw)}`) } },
       })
     }
-    const id = parsed.id.toUpperCase()
-    const code = parsed.code.toUpperCase()
-    const same = (row: any) => (id && String(row.id).toUpperCase() === id) || (code && String(row.reel_code || "").toUpperCase() === code)
-    const local = stockRows.find(same)
     const cleared = (row: any) => ISSUABLE.includes(String(row?.stock_status || "").toUpperCase())
-    if (local && cleared(local)) return explainReel(local)
-    // Held in the loaded list (the desk stays open all shift while QC passes reels), or not in it at all:
-    // older stock, already used, or never received here. Ask the server before refusing.
-    try {
-      const found = id
-        ? rowsOf((await inventoryApi.getReels({ reel_ids: parsed.id, limit: 1 })).data)[0]
-        : rowsOf((await inventoryApi.getReels({ search: parsed.code, limit: 20 })).data).find(same)
-      if (found && local && cleared(found)) await stockQuery.refetch()
-      if (found && !cleared(found)) {
-        const queue = await pendingQc.refetch()
-        return explainReel(found, rowsOf(queue.data).find((row: any) => row?.entity_type === "REEL" && String(row.entity_id) === String(found.id))?.queue_state)
+    if (parsed.id) {
+      // A scanned QR: the reel by its id.
+      const id = parsed.id.toUpperCase()
+      const local = stockRows.find((row) => String(row.id).toUpperCase() === id)
+      if (local && cleared(local)) return explainReel(local)
+      // Held in the loaded list (the desk stays open all shift while QC passes reels), or not in it at all:
+      // older stock, already used, or never received here. Ask the server before refusing.
+      try {
+        const found = rowsOf((await inventoryApi.getReels({ reel_ids: parsed.id, limit: 1 })).data)[0]
+        if (found) return explainFound(found, Boolean(local))
+        if (local) return explainReel(local)
+      } catch (error) {
+        if (local) return explainReel(local)
+        return setNotice({ tone: "error", text: `${label} could not be checked: ${errorText(error)}` })
       }
-      if (found || local) return explainReel(found || local)
+      return setNotice({ tone: "error", text: `${label} was not found in ${displayPlantScope(activePlant)}. Check the label, or type the AT number.` })
+    }
+    // A typed number: the AT number, the vendor reel number or an opening-stock old mark, in any case or spacing.
+    // One reel ready on the desk with that number goes straight in; anything else is asked of the server, which
+    // also finds a unique part of a number and reels outside the loaded list.
+    const code = parsed.code
+    const numbers = (row: any) => [row.reel_code, row.source_reel_no, row.inward_metadata?.amigo_no, row.inward_metadata?.old_mark]
+    const local = stockRows.filter((row) => numbers(row).some((value) => sameNumber(value, code)))
+    if (local.length === 1 && cleared(local[0]) && Number(local[0].current_weight_kg || 0) > 0) return explainReel(local[0])
+    let found: FoundResult
+    try {
+      found = (await inventoryApi.findByNumber({ code })).data
     } catch (error) {
-      if (local) return explainReel(local)
       return setNotice({ tone: "error", text: `${label} could not be checked: ${errorText(error)}` })
     }
-    setNotice({ tone: "error", text: `${label} was not found in ${displayPlantScope(activePlant)}. Check the label, or type the AT number.` })
+    const rows = Array.isArray(found?.rows) ? found.rows : []
+    const reels = rows.filter((row) => row.kind === "REEL")
+    if (!reels.length && rows.length) {
+      return setNotice({ tone: "error", text: `${rows.length === 1 ? `${rows[0].code} is a material lot` : `${code} is a material lot number`}. Adhesive, packing and parchment are issued on the Adhesive / parchment / packing tab.`, action: { label: "Open material issue", href: `/inventory/production-issue?scan=${encodeURIComponent(rows.length === 1 ? rows[0].code : code)}` } })
+    }
+    if (!reels.length) {
+      return setNotice({ tone: "error", text: compactNumber(code).length < 3
+        ? `No reel or coil is numbered ${code}. Type at least 3 letters or digits of the AT or vendor reel number.`
+        : `${label} was not found in ${displayPlantScope(activePlant)}. Check the label, or type the AT number.` })
+    }
+    const choice = chooseFound({ match: found.match, rows: reels }, (row) => isReady(row) && String(row.item_type || "").toUpperCase() !== "PARCHMENT")
+    if (choice.row) return openFound(choice.row, choice.note)
+    setChoices({ code, rows: choice.rows, count: reels.length < rows.length ? reels.length : found.count || reels.length, truncated: Boolean(found.truncated) })
+    setNotice({ tone: "info", text: `${matchWords(reels, code, reels.length < rows.length ? reels.length : found.count || reels.length)}. Tap the one in your hand${found.truncated ? ", or type more of the number" : ""}.` })
+  }
+
+  /** A reel read from the server: explained with its QC queue state when it is held; the stock list refreshed when QC passed it since. */
+  async function explainFound(found: any, wasLoaded: boolean, note?: string) {
+    const cleared = ISSUABLE.includes(String(found?.stock_status || "").toUpperCase())
+    if (!cleared) {
+      const queue = await pendingQc.refetch()
+      return explainReel(found, rowsOf(queue.data).find((row: any) => row?.entity_type === "REEL" && String(row.entity_id) === String(found.id))?.queue_state)
+    }
+    if (wasLoaded) await stockQuery.refetch()
+    return explainReel(found, undefined, note)
+  }
+
+  /** A reel from the typed-number list: read in full, then checked exactly like a scan of its label. */
+  async function openFound(row: FoundRow, note?: string) {
+    setChoices(null)
+    try {
+      const full = rowsOf((await inventoryApi.getReels({ reel_ids: row.id, limit: 1 })).data)[0]
+      if (!full) return setNotice({ tone: "error", text: `${row.code} was not found in ${displayPlantScope(activePlant)}. Check the label, or type the AT number.` })
+      const loaded = stockRows.find((item) => String(item.id) === String(row.id))
+      return explainFound(full, Boolean(loaded && !ISSUABLE.includes(String(loaded.stock_status || "").toUpperCase())), note)
+    } catch (error) {
+      return setNotice({ tone: "error", text: `${row.code} could not be checked: ${errorText(error)}` })
+    }
   }
 
   // The /scan page sends issue roles here with ?scan=<label>: check it once stock has loaded, then drop it from the URL.
@@ -369,15 +423,16 @@ export default function ReelAndCoilIssuePage() {
         </div>
 
         <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
-          <WorkPanel title="Ready for the floor" description="Passed incoming QC and in stock. Tap to pick one or more, or scan the label; the whole reel or coil goes out.">
+          <WorkPanel title="Ready for the floor" description="Passed incoming QC and in stock. Tap to pick one or more, or scan the label or type its AT, vendor reel or old mark number; the whole reel or coil goes out.">
             <div className="flex flex-wrap gap-2">
               <label className="flex min-w-[200px] flex-1 items-center gap-2">
                 <Barcode className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                <input aria-label="Scan reel or coil label" className={cn(phoneField, "max-sm:h-11")} value={scanCode} placeholder="Scan QR or type AT number" onChange={(e) => setScanCode(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void resolveScan() } }} />
+                <input aria-label="Scan reel or coil label" className={cn(phoneField, "max-sm:h-11")} value={scanCode} placeholder="Scan QR or type AT / vendor reel no." onChange={(e) => setScanCode(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void resolveScan() } }} />
               </label>
               <button type="button" className={secondaryButton} onClick={() => void resolveScan()}><PackageCheck className="h-4 w-4" />Add</button>
               <QrScanner className={secondaryButton} onScan={(value) => { setScanCode(parseScanCode(value).code || value); void resolveScan(value) }} label="Camera" title="Scan reel label" hint="Point the camera at the reel or coil QR label." />
             </div>
+            {choices ? <FoundChoices choices={choices} testid="reel-issue-choices" onPick={(row) => void openFound(row)} onCancel={() => setChoices(null)} /> : null}
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <label className="relative min-w-[180px] flex-1">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -440,9 +495,9 @@ export default function ReelAndCoilIssuePage() {
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 {selected.length ? (
-                  <button type="button" className="text-[12.5px] font-semibold text-muted-foreground hover:text-foreground" onClick={() => setPicked([])}>Clear</button>
+                  <button type="button" className="inline-flex min-h-11 items-center px-2 text-[12.5px] font-semibold text-muted-foreground hover:text-foreground" onClick={() => setPicked([])}>Clear</button>
                 ) : null}
-                <button ref={submitButton} type="button" data-testid="floor-issue-submit" className={cn(primaryButton, "h-10 flex-1 justify-center")} disabled={busy || !selected.length} onClick={() => void issueSelected()}>
+                <button ref={submitButton} type="button" data-testid="floor-issue-submit" className={cn(primaryButton, "h-11 flex-1 justify-center")} disabled={busy || !selected.length} onClick={() => void issueSelected()}>
                   <PackageCheck className="h-4 w-4" />
                   {issuing ? "Issuing…" : selected.length ? `Issue ${selected.length} to floor · ${kg(selectedKg)}` : "Pick reels or coils to issue"}
                 </button>

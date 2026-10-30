@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import PaperReel, StockBatch
 from ..services.labels import batch_label_payload, reel_label_payload, with_reel_facts
-from ..utils.auth import get_current_plant_scope, get_current_user
+from ..services.lot_finder import find_by_number
+from ..utils.auth import authorized_plant_ids, get_current_plant_scope, get_current_user, require_role
 
 router = APIRouter(prefix="/inventory/labels", tags=["inventory-labels"])
+# The issue desks and the people who check stock against a label (Owner / Admin pass as super roles).
+FIND_ROLES = ["Store", "PlantManager", "RMIssue", "InwardQC", "QC"]
 
 
 def _apply_batch_scope(query, plant_scope: dict):
@@ -29,6 +32,20 @@ def _apply_reel_scope(query, plant_scope: dict):
             return query.filter(PaperReel.plant_id.in_([uuid.UUID(str(value)) for value in allowed]))
         return query
     return query.filter(PaperReel.plant_id == uuid.UUID(str(plant_scope["selected_plant_id"])))
+
+
+@router.get("/find")
+def find_label_by_number(
+    code: str = Query(..., min_length=1, max_length=120, description="Typed lot / Amigo inward, AT, vendor reel, old mark or GRN number"),
+    kind: str = Query(default="ALL", pattern="^(ALL|LOT|REEL)$"),
+    limit: int = Query(default=12, ge=1, le=50),
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(FIND_ROLES)),
+):
+    """A typed number to its lots / reels / coils in this plant (client 2026-10-30): read only, so a typed
+    number works like a scan on the issue desks. Case, spaces and separators are ignored; a unique part works."""
+    return find_by_number(db, authorized_plant_ids(plant_scope), code, kind=kind, limit=limit)
 
 
 @router.get("/batches/{batch_id}")

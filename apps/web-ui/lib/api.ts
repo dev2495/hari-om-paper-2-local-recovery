@@ -623,6 +623,8 @@ export const inventoryApi = {
   getReelScans: (id: string, params?: any) => api.get(`/api/inventory/reels/${id}/scans`, { params }),
   getBatchLabel: (id: string) => api.get(`/api/inventory/labels/batches/${encodeURIComponent(id)}`),
   getReelLabel: (id: string) => api.get(`/api/inventory/labels/reels/${encodeURIComponent(id)}`),
+  /** A typed lot / AT / vendor reel / old mark / GRN number to its lots and reels in this plant (any case or spacing, or a unique part). */
+  findByNumber: (params: { code: string; kind?: "ALL" | "LOT" | "REEL"; limit?: number }) => api.get("/api/inventory/labels/find", { params }),
   createReelIssue: ({ plantId, ...data }: any) => api.post("/api/inventory/reel-issues", data, onPlant(plantId)),
   /** Parchment to the floor by colour and kg; the oldest cleared coils are used (client 2026-10-26). */
   issueParchmentByWeight: ({ plantId, ...data }: { item_id: string; qty_kg: number; notes?: string; request_id?: string; plantId?: string }) =>

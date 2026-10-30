@@ -977,6 +977,12 @@ async def list_reel_scan_events(reel_id: str, request: Request, token: str = Dep
     return await proxy_to_service(INVENTORY_SERVICE_URL, f"/reels/{reel_id}/scans", request, token)
 
 
+@router.get("/labels/find")
+async def find_label_by_number(request: Request, token: str = Depends(get_token)):
+    """A typed lot / AT / vendor reel / old mark / GRN number to its lots and reels (issue desks, read only)."""
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/labels/find", request, token)
+
+
 @router.get("/labels/batches/{batch_id}")
 async def get_batch_label(batch_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/labels/batches/{batch_id}", request, token)

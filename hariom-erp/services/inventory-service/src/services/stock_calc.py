@@ -385,6 +385,8 @@ def get_item_batches(item_id: str, db: Session) -> List[Dict]:
                 "location_id": str(batch.location_id) if batch.location_id else None,
                 "stock_status": batch.stock_status,
                 "created_at": batch.created_at.isoformat(),
+                # The day the goods came in (a backdated GRN or the go-live date), not the posting time.
+                "received_on": (batch.inward_metadata or {}).get("received_date") or (batch.inward_metadata or {}).get("go_live_date"),
             }
         )
 

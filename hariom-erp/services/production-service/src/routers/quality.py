@@ -1611,7 +1611,11 @@ def _check_failures(stage_type: str, spec_snapshot: dict[str, Any], readings: di
     )
     if evaluation.failures:
         return list(evaluation.failures)
-    # Spec-snapshot typed validator (p0) when the frozen profile produced no rows.
+    profile = (spec_snapshot or {}).get("qc_profile")
+    if str(stage_type or "").upper() in {"WINDER", "OVEN", "PROCESS"} and isinstance(profile, dict) and profile:
+        # The frozen stage profile found the readings in band: never re-judge them on finished-tube limits.
+        return []
+    # Spec-snapshot typed validator (p0) when there is no frozen stage profile.
     return evaluate_stage_quality(stage_type, spec_snapshot or {}, readings or {}).failures
 
 

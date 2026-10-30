@@ -33,6 +33,12 @@ const istTime = (value?: string | null) => {
   const date = new Date(/[zZ]|[+-]\d{2}:?\d{2}$/.test(value) ? value : `${value}Z`)
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false })
 }
+/** IST calendar day of a naive-UTC registration stamp: "2026-10-31" (00:30 on 31 Oct is still Shift B of 30 Oct). */
+const istDate = (value?: string | null) => {
+  if (!value) return ""
+  const date = new Date(/[zZ]|[+-]\d{2}:?\d{2}$/.test(value) ? value : `${value}Z`)
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" })
+}
 const shiftName = (row: IssueHistoryRow) => {
   const code = String(row.shift || "").toUpperCase()
   return code === "A" || code === "B" ? `Shift ${code}` : code === "GENERAL" ? "General (older)" : code ? code : "—"
@@ -68,9 +74,9 @@ function IssueHistory() {
   const month = String(filters.date_to || today).slice(0, 7)
 
   function exportCsv() {
-    const header = ["Business date", "Time (IST)", "Shift", "Material code", "Material", "Reel / lot", "Kind", "Quantity", "Unit", "Went to", "Card", "Issued by", "Picked from rack", "Note"]
+    const header = ["Shift day", "Date (IST)", "Time (IST)", "Shift", "Material code", "Material", "Reel / lot", "Kind", "Quantity", "Unit", "Went to", "Card", "Issued by", "Picked from rack", "Note"]
     const body = rows.map((row) => [
-      row.day || "", istTime(row.issued_at), shiftName(row), row.item_code, row.item_name, row.lot || "", row.lot_kind,
+      row.day || "", istDate(row.issued_at) || row.day || "", istTime(row.issued_at), shiftName(row), row.item_code, row.item_name, row.lot || "", row.lot_kind,
       String(row.qty), row.uom, row.to, row.card_label || "", row.issued_by ? who(row.issued_by) : "Not recorded",
       row.from_location ? `${row.from_location.name} (${row.from_location.code})` : "", row.note || "",
     ])
@@ -155,8 +161,8 @@ function IssueHistory() {
                 <tbody>
                   {rows.map((row) => (
                     <tr key={row.id} data-testid="issue-history-row">
-                      <td className="whitespace-nowrap">{dayText(row.day)}<span className="block text-[12px] text-muted-foreground">{istTime(row.issued_at) || "—"}</span></td>
-                      <td className="whitespace-nowrap font-medium">{shiftName(row)}</td>
+                      <td className="whitespace-nowrap">{dayText(istDate(row.issued_at) || row.day)}<span className="block text-[12px] text-muted-foreground">{istTime(row.issued_at) || "—"}</span></td>
+                      <td className="whitespace-nowrap font-medium">{shiftName(row)}{row.day && istDate(row.issued_at) && istDate(row.issued_at) !== row.day ? <span className="block text-[12px] font-normal text-muted-foreground">of {dayText(row.day)}</span> : null}</td>
                       <td><span className="font-medium">{row.item_name}</span><span className="block text-[12px] text-muted-foreground">{row.item_code}</span></td>
                       <td className="whitespace-nowrap"><span className="font-mono font-semibold">{row.lot || "—"}</span><span className="block text-[12px] text-muted-foreground">{row.lot_kind}{row.vendor_reel_no ? ` · vendor ${row.vendor_reel_no}` : ""}</span></td>
                       <td className="num whitespace-nowrap font-semibold tabular-nums">{qtyText(row.qty, row.uom as any)}</td>

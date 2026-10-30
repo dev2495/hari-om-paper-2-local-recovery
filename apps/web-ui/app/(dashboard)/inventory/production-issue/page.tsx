@@ -7,6 +7,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { ArrowUpRight, Barcode, Clock3, History, MapPin, PackageCheck, Search } from "lucide-react"
 
 import { QrScanner } from "@/components/common/qr-scanner"
+import { FoundChoices } from "@/components/procurement/found-choices"
 import { IssueDeskTabs } from "@/components/procurement/issue-desk-tabs"
 import { Field, MessageBar, ProcurementShell, WorkPanel, fieldClass, primaryButton, secondaryButton } from "@/components/procurement/procurement-shell"
 import { RoleGate } from "@/components/workspace/role-gate"
@@ -15,6 +16,7 @@ import { useParchmentCoils } from "@/hooks/use-stock"
 import { useCreateTransaction, useInventoryBalances, useInventoryItemBalance, useInventoryItems, useInventoryLocations, useInventoryTransactions, useIssueParchmentByWeight, useReelIssues } from "@/hooks/use-inventory"
 import { usePlants } from "@/hooks/use-system"
 import { inventoryApi } from "@/lib/api"
+import { chooseFound, compactNumber, matchWords, type FoundResult, type FoundRow } from "@/lib/lot-find"
 import { canonicalPlantScopeValue, displayPlantScope } from "@/lib/plant-scope"
 import { parseScanCode } from "@/lib/scan-code"
 import { shiftAt } from "@/lib/shift"
@@ -56,6 +58,13 @@ const kindOf = (item: any) => {
 }
 
 type Notice = { tone: "success" | "error" | "info"; text: string; action?: { label: string; href?: string; onClick?: () => void } }
+/** Lot rows to tap: 44 px tall everywhere (a phone at the rack, a desk at the store). */
+const lotChoice = "flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left transition"
+const lotOn = "border-primary bg-primary/[.06] ring-2 ring-primary/25"
+const lotOff = "border-border bg-card hover:border-foreground/25 hover:bg-muted/40"
+/** IST day of a naive-UTC server stamp, "28 Oct". */
+const dayOf = (value: string) => new Date(`${String(value).slice(0, 10)}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" })
+const istDay = (value: string) => new Date(/[zZ]|[+-]\d\d:\d\d$/.test(value) ? value : `${value}Z`).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short" })
 
 /**
  * Adhesive, parchment and packing go to the floor by shift (client rule 2026-10-18).
@@ -80,8 +89,11 @@ function MaterialFloorIssuePage() {
   const [itemSearch, setItemSearch] = useState("")
   const [scan, setScan] = useState("")
   // A scanned lot waits here until its material's lots have loaded, then it is selected.
-  const [pendingBatch, setPendingBatch] = useState<{ key: string; label: string } | null>(null)
+  const [pendingBatch, setPendingBatch] = useState<{ key: string; label: string; note?: string } | null>(null)
   const [queuedScan, setQueuedScan] = useState("")
+  // A typed number that matches more than one lot (a GRN with two lots, a part of a number): a short pick list.
+  const [choices, setChoices] = useState<{ code: string; rows: FoundRow[]; count: number; truncated: boolean } | null>(null)
+  const [allLots, setAllLots] = useState(false)
   const formPanel = useRef<HTMLDivElement | null>(null)
   // On a phone the issue form sits below the material list: bring it up after a scan picks the material.
   const showForm = () => { if (window.innerWidth < 1280) window.setTimeout(() => formPanel.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80) }
@@ -122,7 +134,10 @@ function MaterialFloorIssuePage() {
   const selectedItem = materials.find((item: any) => String(item.id) === form.item_id)
   const parchment = isParchment(selectedItem)
   const allBatches: any[] = useMemo(() => (Array.isArray(balance.data?.batches) ? balance.data.batches : []), [balance.data])
-  const batches = useMemo(() => allBatches.filter((batch: any) => lotQty(batch) > 0 && USABLE.includes(String(batch.stock_status || "").toUpperCase())), [allBatches])
+  // Cleared lots with stock, oldest first: the order issue takes them in when no lot is picked (FIFO).
+  const batches = useMemo(() => allBatches
+    .filter((batch: any) => lotQty(batch) > 0 && USABLE.includes(String(batch.stock_status || "").toUpperCase()))
+    .sort((a: any, b: any) => String(a.received_on || a.created_at || "").localeCompare(String(b.received_on || b.created_at || ""))), [allBatches])
   const selectedBatch = batches.find((batch: any) => String(batch.batch_id) === form.batch_id)
   // "Pick from <rack>" (client 2026-10-28): where the chosen lot, or the oldest lot issue takes first, sits.
   const locationsQuery = useInventoryLocations()
@@ -131,7 +146,9 @@ function MaterialFloorIssuePage() {
     // The rack's plain name, its label code in brackets (the same words as the reel desk); "No rack yet" when unplaced.
     return (batch: any) => pickFromText(batch?.location_id ? map.get(String(batch.location_id)) : null)
   }, [locationsQuery.data])
-  const pickBatch = selectedBatch || [...batches].sort((a: any, b: any) => String(a.created_at || "").localeCompare(String(b.created_at || "")))[0]
+  const pickBatch = selectedBatch || batches[0]
+  const LOTS_SHOWN = 4
+  const shownLots = allLots || batches.length <= LOTS_SHOWN + 1 ? batches : [...batches.slice(0, LOTS_SHOWN), ...(selectedBatch && batches.indexOf(selectedBatch) >= LOTS_SHOWN ? [selectedBatch] : [])]
   const itemOnHand = selectedItem ? (parchment ? Number(onHand[String(selectedItem.id)] || 0) : batches.reduce((sum: number, batch: any) => sum + Number(batch.available_qty ?? batch.current_balance ?? 0), 0)) : 0
   const available = selectedBatch ? Number(selectedBatch.available_qty ?? selectedBatch.current_balance ?? 0) : itemOnHand
   const issuedToday = useMemo(() => {
@@ -146,7 +163,7 @@ function MaterialFloorIssuePage() {
     return [...bulk, ...parchmentIssues]
   }, [today.data, todayReels.data, allItems]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { setForm((current) => ({ ...current, batch_id: "" })) }, [form.item_id])
+  useEffect(() => { setForm((current) => ({ ...current, batch_id: "" })); setAllLots(false) }, [form.item_id])
   const roles = new Set([user?.role, activeRole, ...(user?.roles || [])].filter(Boolean) as string[])
   // The Incoming inspection page lets these roles in; everyone else is told to ask QC instead.
   const canOpenQc = ["QC", "InwardQC", "Store", "PlantManager", "Owner", "Admin"].some((role) => roles.has(role))
@@ -166,7 +183,7 @@ function MaterialFloorIssuePage() {
     const matched = batches.find(lotMatches(pendingBatch.key))
     if (matched) {
       setForm((current) => ({ ...current, batch_id: matched.batch_id }))
-      setNotice({ tone: "info", text: `Lot ${lotName(matched)} selected: ${qtyText(lotQty(matched), selectedItem?.uom)} on hand.` })
+      setNotice({ tone: "info", text: `Lot ${lotName(matched)} selected: ${qtyText(lotQty(matched), selectedItem?.uom)} on hand.${pendingBatch.note ? ` ${pendingBatch.note}` : ""}` })
       showForm()
     } else {
       // Checked before the material was picked, so this only happens when stock moved in between.
@@ -202,7 +219,7 @@ function MaterialFloorIssuePage() {
     }
   }
 
-  async function scanBatch(id: string, code: string, plantId: string, raw: string) {
+  async function scanBatch(id: string, code: string, plantId: string, raw: string, note?: string) {
     const name = code || "This lot"
     const wrongPlant = plantNotice(plantId, `Lot ${name}`, raw)
     if (wrongPlant) return setNotice(wrongPlant)
@@ -232,7 +249,7 @@ function MaterialFloorIssuePage() {
     if (!stock) return setNotice({ tone: "error", text: `Lot ${lot} was not found in the stock of ${item.name}. Check the label.` })
     if (lotQty(stock) <= 0) return setNotice({ tone: "error", text: `Lot ${lot} has no stock left: it was already issued. Scan or pick another lot of ${item.name}.` })
     setItemSearch("")
-    setPendingBatch({ key: id, label: lot })
+    setPendingBatch({ key: id, label: lot, note })
     setForm((current) => ({ ...current, item_id: String(item.id), batch_id: "", qty: "" }))
     setScan("")
   }
@@ -269,6 +286,7 @@ function MaterialFloorIssuePage() {
     if (parsed.kind === "LOCATION") return setNotice({ tone: "error", text: `That is a rack label (${parsed.code || "location"}). Scan the material lot label.`, action: { label: `See what is on ${parsed.code || "the rack"}`, href: `/inventory/locations/${parsed.id}` } })
     // A new label replaces the lot picked before, so a refused scan never leaves the old lot ready to issue.
     setPendingBatch(null)
+    setChoices(null)
     setForm((current) => ({ ...current, batch_id: "", qty: "" }))
     if (itemsLoading) {
       setQueuedScan(raw)
@@ -276,25 +294,44 @@ function MaterialFloorIssuePage() {
     }
     if (parsed.kind === "BATCH" && parsed.id) return scanBatch(parsed.id, parsed.code, parsed.plantId, parsed.raw)
     if (parsed.kind === "REEL" && parsed.id) return scanReel(parsed.id, parsed.code, parsed.plantId, parsed.raw)
-    // A typed Amigo inward number: looked up within the chosen material.
-    if (!form.item_id) return setNotice({ tone: "error", text: "Choose the material first, or scan the printed lot QR." })
-    const code = parsed.code
-    const usable = (batch: any) => lotQty(batch) > 0 && USABLE.includes(String(batch.stock_status || "").toUpperCase())
-    let lots = allBatches
-    // Not cleared in the lots loaded earlier: read them again before refusing, as QC may have passed it since.
-    if (!lots.some((batch: any) => usable(batch) && lotMatches(code)(batch))) {
-      const fresh = await balance.refetch()
-      if (fresh.isSuccess) lots = rowsOf(fresh.data?.batches)
+    // A typed lot / Amigo inward number (any case or spacing, or a unique part): found across every material
+    // this desk issues, then checked exactly like a scan of its label.
+    return findTyped(parsed.code)
+  }
+
+  /** The material a found lot or coil belongs to, as this desk knows it (the row's own words if not loaded). */
+  const foundItem = (row: FoundRow) => itemFor(row.item_id) || { id: row.item_id, type: row.item_type, tracking_mode: row.tracking_mode, name: row.item_name }
+  /** Something this desk can issue: a cleared lot with stock of a desk material, or a parchment coil (issued by colour). */
+  const readyHere = (row: FoundRow) => row.kind === "REEL"
+    ? isParchment(foundItem(row)) && String(row.status || "").toUpperCase() === "IN_STOCK" && USABLE.includes(String(row.stock_status || "").toUpperCase())
+    : issuableHere(foundItem(row)) && lotQty({ available_qty: row.qty }) > 0 && USABLE.includes(String(row.stock_status || "").toUpperCase())
+
+  async function findTyped(code: string) {
+    setChoices(null)
+    if (compactNumber(code).length === 0) return setNotice({ tone: "error", text: "Scan the lot label, or type its Amigo inward number." })
+    let found: FoundResult
+    try {
+      found = (await inventoryApi.findByNumber({ code })).data
+    } catch (error) {
+      return setNotice({ tone: "error", text: `${code} could not be checked: ${errorText(error)}` })
     }
-    const matched = lots.find((batch: any) => usable(batch) && lotMatches(code)(batch))
-    if (matched) {
-      setForm((current) => ({ ...current, batch_id: matched.batch_id })); setScan("")
-      return setNotice({ tone: "info", text: `Lot ${lotName(matched)} selected: ${qtyText(lotQty(matched), selectedItem?.uom)} on hand.` })
+    const rows = Array.isArray(found?.rows) ? found.rows : []
+    if (!rows.length) {
+      return setNotice({ tone: "error", text: compactNumber(code).length < 3
+        ? `No lot is numbered ${code}. Type at least 3 letters or digits of the number, or pick the material below.`
+        : `No lot, reel or coil numbered ${code} in ${displayPlantScope(activePlant)}. Check the number on the label, or pick the material below.` })
     }
-    const other = lots.find(lotMatches(code))
-    if (other && !USABLE.includes(String(other.stock_status || "").toUpperCase())) return setNotice(await heldNotice(lotName(other), String(other.batch_id), String(other.stock_status)))
-    if (other) return setNotice({ tone: "error", text: `Lot ${lotName(other)} has no stock left: it was already issued.` })
-    setNotice({ tone: "error", text: "That Amigo inward number is not available for this material." })
+    const choice = chooseFound(found, readyHere)
+    if (choice.row) return openFound(choice.row, choice.note)
+    setChoices({ code, rows: choice.rows, count: found.count || rows.length, truncated: Boolean(found.truncated) })
+    setNotice({ tone: "info", text: `${matchWords(rows, code, found.count || rows.length)}. Tap the one in your hand${found.truncated ? ", or type more of the number" : ""}.` })
+  }
+
+  /** A found lot or coil goes through the same checks as a scan of its label (plant, QC, stock left, desk). */
+  function openFound(row: FoundRow, note?: string) {
+    setChoices(null)
+    if (row.kind === "REEL") return scanReel(row.id, row.code, row.plant_id, row.code)
+    return scanBatch(row.id, row.code, row.plant_id, row.code, note)
   }
 
   // The /scan page sends issue roles here with ?scan=<label> (or ?item=<material>): act once materials have loaded, then drop it from the URL.
@@ -377,7 +414,7 @@ function MaterialFloorIssuePage() {
   const shiftColumns = issuedToday.some((row) => String(row.shift || "").toUpperCase() === "GENERAL") ? ["A", "B", "GENERAL"] : ["A", "B"]
   const qtyNumber = Number(form.qty)
   const quick = selectedItem ? (isPieces(selectedItem) ? [10, 25, 50, 100] : [5, 10, 25, 50]).filter((value) => value <= available) : []
-  const pick = (id: string) => { setForm((current) => ({ ...current, item_id: id, qty: "" })); setNotice(null) }
+  const pick = (id: string) => { setForm((current) => ({ ...current, item_id: id, qty: "" })); setNotice(null); setChoices(null) }
 
   return (
     <RoleGate allow={["Store", "PlantManager", "RMIssue"]}>
@@ -401,12 +438,13 @@ function MaterialFloorIssuePage() {
         </div>
 
         <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.75fr)]">
-          <WorkPanel title="1 · Pick the material" description="Tap a material, or scan the lot label (Amigo inward number). Only stock that passed incoming QC is counted.">
+          <WorkPanel title="1 · Pick the material" description="Tap a material, or scan the lot label or type its lot / Amigo inward number: the material and the lot are picked for you. Only stock that passed incoming QC is counted.">
             <div className="flex flex-wrap gap-2">
-              <label className="flex min-w-[220px] flex-1 items-center gap-2 rounded-lg border border-input px-3"><Barcode className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" /><input aria-label="Scan lot label" className="h-11 w-full bg-transparent text-[13px] outline-none" value={scan} placeholder="Scan lot QR or type Amigo inward number" onChange={(e) => setScan(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void resolveScan() } }} /></label>
+              <label className="flex min-w-[220px] flex-1 items-center gap-2 rounded-lg border border-input px-3"><Barcode className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" /><input aria-label="Scan lot label" className="h-11 w-full bg-transparent text-[13px] outline-none" value={scan} placeholder="Scan lot QR or type the lot / Amigo inward no." onChange={(e) => setScan(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void resolveScan() } }} /></label>
               <button type="button" className={secondaryButton} onClick={() => void resolveScan()}><PackageCheck className="h-4 w-4" />Find lot</button>
               <QrScanner className={secondaryButton} onScan={(value) => { setScan(parseScanCode(value).code || value); void resolveScan(value) }} label="Camera" title="Scan lot label" hint="Point the camera at the QR on the lot label." />
             </div>
+            {choices ? <FoundChoices choices={choices} testid="material-issue-choices" onPick={(row) => void openFound(row)} onCancel={() => setChoices(null)} /> : null}
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <label className="flex h-11 min-w-[200px] flex-1 items-center gap-2 rounded-lg border border-input px-3 sm:h-9"><Search className="h-4 w-4 text-muted-foreground" aria-hidden="true" /><input className="h-full w-full bg-transparent text-[13px] outline-none" aria-label="Find material" placeholder="Find adhesive, parchment colour, plastic, box…" value={itemSearch} onChange={(e) => setItemSearch(e.target.value)} /></label>
               <div role="radiogroup" aria-label="Kind" className="flex flex-wrap gap-1 rounded-lg bg-muted p-1">
@@ -467,12 +505,26 @@ function MaterialFloorIssuePage() {
                     <ParchmentPickFrom itemId={String(selectedItem.id)} qtyKg={Number(form.qty) || undefined} />
                   ) : (
                     <div className="grid gap-1.5">
-                      <Field label="Lot (Amigo inward no.)" hint="optional">
-                        <select aria-label="Lot" className={fieldClass} value={form.batch_id} onChange={(e) => setForm({ ...form, batch_id: e.target.value })}>
-                          <option value="">Oldest lot first</option>
-                          {batches.map((batch: any) => <option key={batch.batch_id} value={batch.batch_id}>{batch.inward_no || batch.grn_no || batch.batch_no} · {qtyText(batch.available_qty ?? batch.current_balance, selectedItem?.uom)} · {pickFrom(batch).replace(/^Pick from /, "")}</option>)}
-                        </select>
-                      </Field>
+                      <div className="grid gap-1.5" role="radiogroup" aria-label="Lot" data-testid="floor-issue-lots">
+                        <p className="text-[12.5px] font-semibold text-foreground">Lot (Amigo inward no.) <span className="font-normal text-muted-foreground">· optional: oldest cleared lot goes first</span></p>
+                        <button type="button" role="radio" aria-checked={!form.batch_id} data-testid="floor-issue-lot-oldest" onClick={() => setForm({ ...form, batch_id: "" })} className={cn(lotChoice, !form.batch_id ? lotOn : lotOff)}>
+                          <span className="min-w-0"><span className="block text-[13px] font-semibold">Oldest first (FIFO)</span><span className="block truncate text-[12px] text-muted-foreground">{batches.length ? `starts with ${lotName(batches[0])}` : "no cleared lot yet"}</span></span>
+                          <span className="shrink-0 text-[12.5px] font-semibold tabular-nums">{qtyText(itemOnHand, selectedItem.uom)}</span>
+                        </button>
+                        {shownLots.map((batch: any) => {
+                          const on = String(batch.batch_id) === form.batch_id
+                          return (
+                            <button key={batch.batch_id} type="button" role="radio" aria-checked={on} data-testid={`floor-issue-lot-${lotName(batch)}`} onClick={() => setForm({ ...form, batch_id: String(batch.batch_id) })} className={cn(lotChoice, on ? lotOn : lotOff)}>
+                              <span className="min-w-0">
+                                <span className="flex flex-wrap items-center gap-x-1.5 text-[13px] font-semibold">{lotName(batch)}{batch === batches[0] ? <span className="rounded-full bg-signal-teal-soft px-1.5 py-px text-[10.5px] font-semibold text-signal-teal-ink ring-1 ring-inset ring-signal-teal-line">oldest · goes first</span> : null}</span>
+                                <span className="block truncate text-[12px] text-muted-foreground">{pickFrom(batch).replace(/^Pick from /, "")}{batch.received_on ? ` · in ${dayOf(batch.received_on)}` : batch.created_at ? ` · in ${istDay(batch.created_at)}` : ""}</span>
+                              </span>
+                              <span className="shrink-0 text-[12.5px] font-semibold tabular-nums">{qtyText(lotQty(batch), selectedItem.uom)}</span>
+                            </button>
+                          )
+                        })}
+                        {batches.length > shownLots.length ? <button type="button" className="inline-flex min-h-11 items-center self-start px-1 text-[12.5px] font-semibold text-primary hover:underline sm:min-h-8" onClick={() => setAllLots(true)}>Show all {batches.length} lots</button> : null}
+                      </div>
                       {pickBatch ? (
                         <p className={cn("flex items-start gap-2 rounded-xl border px-3 py-2 text-[13px] leading-5", pickBatch.location_id ? "border-border bg-muted/50 text-foreground" : "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink")} data-testid="floor-issue-pick-from">
                           <MapPin className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
@@ -482,7 +534,7 @@ function MaterialFloorIssuePage() {
                     </div>
                   )}
                   <Field label={`Quantity · ${isPieces(selectedItem) ? "pieces" : unitText(selectedItem.uom)}`} hint={`${qtyText(available, selectedItem.uom)} available`}>
-                    <input aria-label="Quantity" data-testid="floor-issue-qty" className={cn(fieldClass, "h-11 text-[16px] font-semibold tabular-nums")} type="number" min={isPieces(selectedItem) ? "1" : "0.001"} step={isPieces(selectedItem) ? "1" : "0.001"} inputMode={isPieces(selectedItem) ? "numeric" : "decimal"} value={form.qty} placeholder="0" onChange={(e) => setForm({ ...form, qty: e.target.value })} />
+                    <input aria-label="Quantity" data-testid="floor-issue-qty" className={cn(fieldClass, "max-sm:h-11 sm:h-11 text-[16px] font-semibold tabular-nums")} type="number" min={isPieces(selectedItem) ? "1" : "0.001"} step={isPieces(selectedItem) ? "1" : "0.001"} inputMode={isPieces(selectedItem) ? "numeric" : "decimal"} value={form.qty} placeholder="0" onChange={(e) => setForm({ ...form, qty: e.target.value })} />
                   </Field>
                   {quick.length ? (
                     <div className="-mt-1 flex flex-wrap gap-1.5" aria-label="Quick quantity">
@@ -495,7 +547,7 @@ function MaterialFloorIssuePage() {
                     <span className="text-muted-foreground">(now {clock.clock})</span>
                     <span className="basis-full text-[11.5px] text-muted-foreground">Shift and date are taken from the clock when you press Issue.</span>
                   </p>
-                  <Field label="Note" hint="optional"><input className={fieldClass} value={form.notes} placeholder="e.g. for the night shift" onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
+                  <Field label="Note" hint="optional"><input className={cn(fieldClass, "max-sm:h-11")} value={form.notes} placeholder="e.g. for the night shift" onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
                   <button type="submit" data-testid="floor-issue-submit" className={cn(primaryButton, "h-11 justify-center text-[14px]")} disabled={busy || !(qtyNumber > 0)}>
                     <PackageCheck className="h-4 w-4" />
                     {busy ? "Issuing…" : qtyNumber > 0 ? `Issue ${qtyText(qtyNumber, selectedItem.uom)} to floor` : "Enter the quantity"}
