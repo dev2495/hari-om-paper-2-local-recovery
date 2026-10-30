@@ -1030,6 +1030,12 @@ async def list_reel_issues(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(INVENTORY_SERVICE_URL, "/reel-issues", request, token)
 
 
+@router.get("/issue-history")
+async def issue_history(request: Request, token: str = Depends(get_token)):
+    """Every issue to the floor with its shift, business date, person and rack (client 2026-10-30)."""
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/issue-history", request, token)
+
+
 @router.get("/reel-issues/by-weight/coils")
 async def parchment_coils_to_pick(request: Request, token: str = Depends(get_token)):
     """Which parchment coils a by-weight issue takes and where each sits ("Pick from <rack>")."""

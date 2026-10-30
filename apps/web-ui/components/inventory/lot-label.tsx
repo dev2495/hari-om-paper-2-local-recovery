@@ -2,6 +2,7 @@
 
 import { QRCodeSVG } from "qrcode.react"
 
+import { ReelLabelFacts, hasReelFacts, type ReelFacts } from "@/components/inventory/reel-label-facts"
 import { dayText, qtyText, type LotRow } from "@/lib/api-stock"
 import { buildScanUrl } from "@/lib/app-url"
 import { cn } from "@/lib/utils"
@@ -12,7 +13,8 @@ import { cn } from "@/lib/utils"
  * /scan?c=HARIOM|REEL|<plant>|<id>|<code> (or BATCH) — the same payload as a GRN label.
  */
 export function LotLabel({ lot, plantId, plantName, className, note }: {
-  lot: LotRow; plantId: string; plantName?: string; className?: string
+  /** ``facts``: the readable reel / coil lines (GSM, BF, Polybond, width, weight, vendor, received, reel no). */
+  lot: LotRow & { facts?: ReelFacts | null }; plantId: string; plantName?: string; className?: string
   /** Optional extra line (opening stock prints its old mark and source); other callers leave it out. */
   note?: string
 }) {
@@ -24,9 +26,15 @@ export function LotLabel({ lot, plantId, plantName, className, note }: {
       <p className={cn("break-all font-mono font-black leading-none tracking-tight", lot.code.length > 22 ? "text-[19px]" : lot.code.length > 16 ? "text-[23px]" : "text-[30px]")} data-testid="lot-label-code">{lot.code}</p>
       <div className="flex items-end justify-between gap-3">
         <div className="min-w-0 flex-1 space-y-1">
-          <p className="text-[16px] font-semibold leading-tight">{lot.item_name}</p>
-          <p className="text-[12px] text-muted-foreground">{lot.item_code}</p>
-          <p className="text-[18px] font-bold tabular-nums">{qtyText(lot.qty, lot.uom)}</p>
+          {lot.entity_type === "REEL" && hasReelFacts(lot.facts) ? (
+            <ReelLabelFacts facts={lot.facts} />
+          ) : (
+            <>
+              <p className="text-[16px] font-semibold leading-tight">{lot.item_name}</p>
+              <p className="text-[12px] text-muted-foreground">{lot.item_code}</p>
+              <p className="text-[18px] font-bold tabular-nums">{qtyText(lot.qty, lot.uom)}</p>
+            </>
+          )}
           <p className="text-[12px] leading-snug">
             <b>{lot.held ? "On QC hold" : lot.qc_word}</b>
             {lot.held ? " · incoming QC clears it before use" : ""}

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import PaperReel, StockBatch
-from ..services.labels import batch_label_payload, reel_label_payload
+from ..services.labels import batch_label_payload, reel_label_payload, with_reel_facts
 from ..utils.auth import get_current_plant_scope, get_current_user
 
 router = APIRouter(prefix="/inventory/labels", tags=["inventory-labels"])
@@ -56,4 +56,5 @@ def get_reel_label(
     reel = query.first()
     if not reel:
         raise HTTPException(status_code=404, detail="Reel label not found")
-    return reel_label_payload(reel, reel.paper)
+    # The human-readable lines (GSM / BF / polybond from incoming QC, else the spec) are worked out now.
+    return with_reel_facts(db, reel_label_payload(reel, reel.paper), reel, reel.paper)

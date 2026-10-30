@@ -64,7 +64,9 @@ import {
   orderTabParams,
   orderTotals,
   routeStage,
+  selfApprovalRole,
   tabCount,
+  waitsForAnotherApprover,
   type KpiTile,
   type OrderTabKey,
 } from "@/lib/sales-order-tracker"
@@ -242,7 +244,9 @@ export default function SalesOrdersPage() {
       .map((line: any) => String(line.id))
   const canRelease = (order: any) => ["approved", "released", "partially_released", "partially_dispatched"].includes(String(order.status || "")) && !order.is_held && releasableLineIds(order).length > 0
   const canApprove = (order: any) => ["draft", "submitted"].includes(String(order.status || ""))
-  const isMine = (order: any) => String(order.created_by || "").toLowerCase() === String(user?.email || "").toLowerCase()
+  // Owner and Admin may approve an order they entered themselves (user decision 2026-10-30).
+  const selfApprove = selfApprovalRole(user)
+  const isMine = (order: any) => waitsForAnotherApprover(order, user?.email, selfApprove)
 
   const run = async (order: any, action: () => Promise<unknown>, done: string) => {
     setBusyOrder(String(order.id))
@@ -503,7 +507,7 @@ export default function SalesOrdersPage() {
                   const cardTotal = Math.max(cards.total, Number(overlay?.job_count || 0))
                   const totals = orderTotals(order)
                   const due = orderDue(order)
-                  const action = nextAction(order, cards, user?.email, canChallan)
+                  const action = nextAction(order, cards, user?.email, canChallan, selfApprove)
                   const customer = customerLabel(order)
                   const closure = orderClosureAction(order)
                   const isOpen = expanded.has(orderId)

@@ -25,7 +25,7 @@ from ..config import get_settings
 from ..database import get_db
 from contextvars import ContextVar
 from ..job_card_numbering import allocate_child_job_card_no, allocate_job_card_no
-from ..lifecycle_rules import OUTPUT_TOLERANCE, missed_slot_deadline, planned_in_stage_units, within_output_tolerance
+from ..lifecycle_rules import OUTPUT_TOLERANCE, missed_slot_deadline, planned_in_stage_units, shift_business_date, shift_slot, within_output_tolerance
 from ..models import (
     AuditEvent,
     Dispatch,
@@ -188,22 +188,80 @@ FINAL_SPEC_QC_FIELDS = [
 WINDER_METER_CAPACITY_UNIT = "METERS_PER_DAY"
 WINDER_BAMBOO_CAPACITY_UNIT = "BAMBOOS_PER_DAY"
 CAPACITY_SPLIT_STAGES = {"WINDER", "PROCESS", "OVEN"}
-MISSING_CAPACITY_POLICY_WARNING = "Capacity policy missing; this lane is not labelled feasible."
-CLOSED_DATE_WARNING = "Plant holiday or closed date; load is not labelled feasible."
+MISSING_CAPACITY_POLICY_WARNING = "No capacity is set for this machine and shift, so the fit was not checked."
+CLOSED_DATE_WARNING = "This day is a plant holiday; work planned here is flagged."
 
 
-def _winder_override_warning(job_card: JobCard, machine_id: Optional[uuid.UUID]) -> Optional[str]:
+def _machine_code(machine: Optional[dict[str, Any]], fallback: str = "this machine") -> str:
+    """How a machine is named in a message: its code (W-01), else its name. Never an id fragment."""
+    machine = machine or {}
+    return str(machine.get("code") or "").strip() or str(machine.get("name") or "").strip() or fallback
+
+
+def _machine_title(machine: Optional[dict[str, Any]], fallback: str = "this machine") -> str:
+    """Code and name on first mention: "W-01 (Winder 1)"; just the code when the name adds nothing."""
+    machine = machine or {}
+    code = str(machine.get("code") or "").strip()
+    name = str(machine.get("name") or "").strip()
+    if code and name and name.upper() != code.upper():
+        return f"{code} ({name})"
+    return code or name or fallback
+
+
+_MACHINE_LOOKUP_CACHE: dict[str, tuple[float, dict[str, dict[str, Any]]]] = {}
+
+
+def _stage_machine_lookup(stage: str, token: str, plant_id: str) -> dict[str, dict[str, Any]]:
+    """{machine_id: machine} for one stage's machines, cached a minute per plant (messages only; never raises)."""
+    import time as _time
+
+    key = f"{plant_id}:{stage}"
+    cached = _MACHINE_LOOKUP_CACHE.get(key)
+    if cached and _time.monotonic() - cached[0] < 60:
+        return cached[1]
+    try:
+        rows = _fetch_stage_machines(stage, token, plant_id)
+    except Exception:  # pragma: no cover - a message falls back to plain words
+        rows = []
+    lookup = {str(row.get("id")): row for row in rows or [] if row.get("id")}
+    if lookup:
+        _MACHINE_LOOKUP_CACHE[key] = (_time.monotonic(), lookup)
+    return lookup
+
+
+def _winder_override_warning(
+    job_card: JobCard,
+    machine_id: Optional[uuid.UUID],
+    *,
+    release_machine: Optional[dict[str, Any]] = None,
+    planned_machine: Optional[dict[str, Any]] = None,
+) -> Optional[str]:
+    """Plain words when the planner uses another winder than the one chosen at release (a flag, never a block)."""
     if machine_id is None:
         return None
+    planned = _machine_title(planned_machine, "another winder")
     assigned_winder = job_card.assigned_winder_machine_id
     if assigned_winder is None:
-        return "No release winder was captured; planner assigned this WINDER job manually."
+        return f"No winder was chosen at release; planned on {planned}."
     if str(assigned_winder) != str(machine_id):
-        return (
-            "Other winder used. Release selected "
-            f"{str(assigned_winder)[:8]}, planner assigned {str(machine_id)[:8]}."
-        )
+        return f"Released for {_machine_title(release_machine, 'another winder')}, planned on {planned}."
     return None
+
+
+def _winder_override_for(job_card: JobCard, machine_id: Optional[uuid.UUID], token: str, plant_id: str,
+                         planned_machine: Optional[dict[str, Any]] = None) -> Optional[str]:
+    """``_winder_override_warning`` with both winders named from the machine master."""
+    if machine_id is None:
+        return None
+    if job_card.assigned_winder_machine_id is not None and str(job_card.assigned_winder_machine_id) == str(machine_id):
+        return None
+    lookup = _stage_machine_lookup("WINDER", token, plant_id)
+    return _winder_override_warning(
+        job_card,
+        machine_id,
+        release_machine=lookup.get(str(job_card.assigned_winder_machine_id)) if job_card.assigned_winder_machine_id else None,
+        planned_machine=planned_machine or lookup.get(str(machine_id)),
+    )
 SHIFT_CALENDAR = [
     {"code": "SHIFT_A", "label": "Shift A", "capacity_share": 1.0},
     {"code": "SHIFT_B", "label": "Shift B", "capacity_share": 1.0},
@@ -878,6 +936,54 @@ def _record_audit_event(
     )
 
 
+CAPABILITY_DIMENSIONS = (
+    # (spec min, spec max, machine min, machine max, how the machine side reads, how the spec side reads)
+    ("id_min_mm", "id_max_mm", "id_min_mm", "id_max_mm", "takes {range} inside diameter", "{value} inside diameter"),
+    ("od_min_mm", "od_max_mm", "od_min_mm", "od_max_mm", "takes {range} outside diameter", "{value} outside diameter"),
+    ("length_min_mm", "length_max_mm", "length_min_mm", "length_max_mm", "makes {range} tubes", "{value}"),
+)
+CAPABILITY_LABEL = {"id_min_mm": "inside diameter", "od_min_mm": "outside diameter", "length_min_mm": "length"}
+
+
+def _mm(value: float) -> str:
+    """1500 -> "1,500"; 76.4 -> "76.4" (Indian grouping is the same below a lakh)."""
+    rounded = round(float(value), 1)
+    return f"{rounded:,.0f}" if rounded == int(rounded) else f"{rounded:,.1f}"
+
+
+def _mm_range(low: float, high: float) -> str:
+    return f"{_mm(low)} mm" if abs(float(low) - float(high)) < 1e-9 else f"{_mm(low)}–{_mm(high)} mm"
+
+
+def _capability_gaps(machine: dict[str, Any], spec_snapshot: dict[str, Any]) -> list[str]:
+    """Plain sentences for each way the spec does not fit the machine's saved ranges; [] when it fits.
+
+    e.g. "W-03 makes 100–1,200 mm tubes; this spec needs 1,500 mm."
+    """
+    code = _machine_code(machine)
+    spec_snapshot = spec_snapshot or {}
+    gaps: list[str] = []
+    unchecked: list[str] = []
+    for spec_min_key, spec_max_key, machine_min_key, machine_max_key, machine_words, spec_words in CAPABILITY_DIMENSIONS:
+        spec_min, spec_max = _snapshot_float(spec_snapshot.get(spec_min_key)), _snapshot_float(spec_snapshot.get(spec_max_key))
+        machine_min, machine_max = _snapshot_float(machine.get(machine_min_key)), _snapshot_float(machine.get(machine_max_key))
+        if None in (spec_min, spec_max, machine_min, machine_max):
+            unchecked.append(CAPABILITY_LABEL[spec_min_key])
+            continue
+        if spec_min < machine_min or spec_max > machine_max:
+            gaps.append(
+                f"{code} {machine_words.format(range=_mm_range(machine_min, machine_max))}; "
+                f"this spec needs {spec_words.format(value=_mm_range(spec_min, spec_max))}."
+            )
+    if unchecked:
+        gaps.append(f"The {' and '.join(unchecked)} fit was not checked: the size range on {code} or on this spec is incomplete.")
+    supported_mandrels = machine.get("supported_mandrel_ids") or []
+    snapshot_mandrel_id = str(spec_snapshot.get("mandrel_id") or "").strip()
+    if supported_mandrels and snapshot_mandrel_id and snapshot_mandrel_id not in {str(value) for value in supported_mandrels}:
+        gaps.append(f"{code} is not set up for this spec's mandrel.")
+    return gaps
+
+
 def _validate_machine_compatibility(
     machine: dict[str, Any],
     stage: str,
@@ -886,6 +992,13 @@ def _validate_machine_compatibility(
     *,
     strict_winder_capabilities: bool = False,
 ) -> Optional[str]:
+    """Identity, plant, department and availability gate (400). The size fit is advice only.
+
+    Planning never blocks (client 2026-10-30): a spec outside a machine's saved ID/OD/length range or
+    mandrel comes back as a plain-words flag ("W-03 makes 100–1,200 mm tubes; this spec needs 1,500 mm.
+    Check the setup before running.") on every stage. ``strict_winder_capabilities`` (the release list of
+    compatible winders) raises the same sentences instead.
+    """
     try:
         machine_plant_id = _to_uuid(str(machine.get("plant_id") or ""), "machine.plant_id")
         selected_plant_id = _to_uuid(str(plant_id or ""), "plant_id")
@@ -895,10 +1008,10 @@ def _validate_machine_compatibility(
     if machine_plant_id != selected_plant_id:
         raise HTTPException(status_code=400, detail="Machine belongs to another plant")
     if not bool(machine.get("is_active", machine.get("active", False))):
-        raise HTTPException(status_code=400, detail="Machine is inactive")
+        raise HTTPException(status_code=400, detail=f"{_machine_code(machine, 'Machine')} is inactive")
     machine_status = str(machine.get("status") or "UP").strip().upper()
     if machine_status in MACHINE_BLOCKING_STATUSES:
-        raise HTTPException(status_code=400, detail=f"Machine is {machine_status}; restore it before scheduling")
+        raise HTTPException(status_code=400, detail=f"{_machine_code(machine, 'Machine')} is {machine_status}; restore it before scheduling")
 
     expected_department = STAGE_TO_MACHINE_DEPARTMENT.get(stage)
     if machine.get("department") != expected_department:
@@ -907,43 +1020,12 @@ def _validate_machine_compatibility(
     if stage == "PACKING":
         return None
 
-    # Winder selection is an operator planning choice. Saved capability ranges
-    # provide advice; identity, availability, capacity and measured QC still gate.
-    if stage == "WINDER" and not strict_winder_capabilities:
-        try:
-            _validate_machine_compatibility(
-                machine, stage, spec_snapshot, plant_id,
-                strict_winder_capabilities=True,
-            )
-        except HTTPException as exc:
-            return f"Winder capability advisory: {exc.detail}. Confirm the setup before production."
+    gaps = _capability_gaps(machine, spec_snapshot)
+    if not gaps:
         return None
-
-    def _within(spec_min_key: str, spec_max_key: str, machine_min_key: str, machine_max_key: str, label: str):
-        try:
-            spec_min = float(spec_snapshot.get(spec_min_key))
-            spec_max = float(spec_snapshot.get(spec_max_key))
-            machine_min = float(machine.get(machine_min_key))
-            machine_max = float(machine.get(machine_max_key))
-        except (TypeError, ValueError) as exc:
-            raise HTTPException(status_code=400, detail="Specification snapshot or machine capability is incomplete") from exc
-        if spec_min < machine_min or spec_max > machine_max:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Machine {label} capability is incompatible with specification range",
-            )
-
-    _within("id_min_mm", "id_max_mm", "id_min_mm", "id_max_mm", "ID")
-    _within("od_min_mm", "od_max_mm", "od_min_mm", "od_max_mm", "OD")
-    _within("length_min_mm", "length_max_mm", "length_min_mm", "length_max_mm", "Length")
-
-    supported_mandrels = machine.get("supported_mandrel_ids") or []
-    snapshot_mandrel_id = str(spec_snapshot.get("mandrel_id") or "").strip()
-    if supported_mandrels and snapshot_mandrel_id and snapshot_mandrel_id not in {str(value) for value in supported_mandrels}:
-        raise HTTPException(
-            status_code=400,
-            detail="Machine is not configured for the specification mandrel",
-        )
+    if strict_winder_capabilities:
+        raise HTTPException(status_code=400, detail=" ".join(gaps))
+    return f"{' '.join(gaps)} Check the setup before running."
 
 
 def _validate_winder_queue_identity(machine: dict[str, Any], plant_id: str) -> None:
@@ -1144,13 +1226,22 @@ def _winder_capacity_meters_for_bamboos(bamboo_count: float, spec_snapshot: dict
 
 
 def _winder_capacity_meters_for_qty(planned_qty: float, spec_snapshot: dict[str, Any]) -> float:
+    """Winding metres for a qty in pcs: whole bamboos x bamboo length. 0 when the spec has no tube length
+    (pcs are never counted as metres; the board shows such a card as "length missing")."""
     qty = max(float(planned_qty or 0.0), 0.0)
     bamboo_plan = _winder_bamboo_plan_from_snapshot(spec_snapshot)
     if not bamboo_plan:
-        return qty
+        return 0.0
     pcs_per_bamboo = max(int(bamboo_plan["tubes_per_bamboo"] or 1), 1)
     bamboo_count = float(math.ceil(qty / pcs_per_bamboo)) if qty > 0 else 0.0
     return _winder_capacity_meters_for_bamboos(bamboo_count, spec_snapshot)
+
+
+def _winder_metres_or_none(planned_qty: float, spec_snapshot: dict[str, Any]) -> Optional[float]:
+    """Winding metres of a planned qty, or None when the spec has no tube length (shown "length missing")."""
+    if not _winder_bamboo_plan_from_snapshot(spec_snapshot or {}):
+        return None
+    return round(_winder_capacity_meters_for_qty(planned_qty, spec_snapshot or {}), 2)
 
 
 def _planned_load_for_capacity(
@@ -1238,7 +1329,7 @@ def _resolve_capacity_profile(
         .order_by(MachineStageCapacityProfile.effective_date.desc(), MachineStageCapacityProfile.created_at.desc())
         .all()
     )
-    effective_day = on_day or datetime.utcnow().date()
+    effective_day = on_day or plant_today()
     for row in rows:
         if row.effective_date is None or row.effective_date <= effective_day:
             return float(row.capacity_value or 0.0), str(row.capacity_unit or STAGE_DEFAULT_CAPACITY_UNITS.get(stage, "TUBES_PER_DAY"))
@@ -1298,6 +1389,8 @@ def _feasibility_warning(
     capacity_unit: Optional[str],
     planned_total: float,
     stage: str,
+    machine_label: Optional[str] = None,
+    shift_code: Optional[str] = None,
 ) -> Optional[str]:
     if plan_date is not None and closed_dates and plan_date in closed_dates:
         return CLOSED_DATE_WARNING
@@ -1305,10 +1398,31 @@ def _feasibility_warning(
         return MISSING_CAPACITY_POLICY_WARNING
     if planned_total <= capacity:
         return None
+    unit = CAPACITY_UNIT_WORDS.get(str(capacity_unit).upper(), str(capacity_unit).lower().replace("_", " "))
+    where = " · ".join(part for part in (
+        machine_label,
+        f"{plan_date:%d %b}" if plan_date else None,
+        _shift_label(shift_code) if shift_code else None,
+    ) if part) or f"This {PLAN_STAGE_LABEL.get(stage, stage.title())} slot"
     return (
-        f"Capacity warning: {stage} planned load {planned_total:.2f} {capacity_unit} exceeds "
-        f"machine shift capacity {float(capacity):.2f} {capacity_unit}."
+        f"{where} is over capacity: {_qty_words(planned_total)} {unit} planned on {_qty_words(capacity)} {unit} "
+        f"(exceeds by {_qty_words(planned_total - float(capacity))} {unit}). The plan is kept; move or split a card if needed."
     )
+
+
+CAPACITY_UNIT_WORDS = {
+    "METERS_PER_DAY": "m",
+    "BAMBOOS_PER_DAY": "bamboos",
+    "BATCHES_PER_DAY": "batches",
+    "TUBES_PER_DAY": "pcs",
+    "REELS_PER_DAY": "reels",
+}
+
+
+def _qty_words(value: float) -> str:
+    """7200 -> "7,200"; 92.4 -> "92.4"."""
+    rounded = round(float(value or 0.0), 1)
+    return f"{rounded:,.0f}" if rounded == int(rounded) else f"{rounded:,.1f}"
 
 
 def _capacity_warning_message(
@@ -1323,14 +1437,19 @@ def _capacity_warning_message(
     resolved_capacity: Optional[float] = None,
     resolved_unit: Optional[str] = None,
     use_resolved: bool = False,
+    machine: Optional[dict[str, Any]] = None,
 ) -> Optional[str]:
     if machine_id is None or stage == "PACKING":
         if plan_date is not None and closed_dates and plan_date in closed_dates:
             return CLOSED_DATE_WARNING
         return None
+    capacity, capacity_unit = None, None
     if use_resolved:
         capacity, capacity_unit = resolved_capacity, resolved_unit
-    else:
+    elif machine is not None:
+        # The oven plans in bamboos (batches x bamboos per batch), the same capacity the board shows.
+        capacity, capacity_unit = _oven_bamboo_capacity_profile(stage, machine)
+    if not use_resolved and not capacity:
         capacity, capacity_unit = _resolve_capacity_profile(
             db=db,
             plant_id=plant_id,
@@ -1369,6 +1488,8 @@ def _capacity_warning_message(
         capacity_unit=capacity_unit,
         planned_total=planned_total,
         stage=stage,
+        machine_label=_machine_code(machine, "") if machine else None,
+        shift_code=shift_code,
     )
 
 
@@ -2490,7 +2611,10 @@ def _build_document_snapshot(
     parchment_snapshot = dict(raw_materials.get("parchment") or {})
     bamboo_snapshot = dict(raw_materials.get("bamboo") or {})
     adhesives_snapshot = dict(raw_materials.get("adhesives") or {})
-    if spec_snapshot.get("parchment_resolution") == "CONFLICT":
+    # Cards released before 30 Oct 2026 carry CONFLICT only because an old recipe said "no parchment":
+    # they read as aligned and print the colour chosen at release (client 2026-10-30, old specs).
+    parchment_resolution, parchment_conflict = _effective_parchment_resolution(spec_snapshot)
+    if parchment_resolution == "CONFLICT":
         exact_parchment = spec_snapshot.get("parchment_color") or ""
     else:
         exact_parchment = (
@@ -2552,8 +2676,8 @@ def _build_document_snapshot(
             "color": exact_parchment,
             "parchment_family": parchment_family,
             "parchment_pattern": parchment_pattern,
-            "parchment_resolution": spec_snapshot.get("parchment_resolution") or "ALIGNED",
-            "parchment_conflict": spec_snapshot.get("parchment_conflict") or None,
+            "parchment_resolution": parchment_resolution,
+            "parchment_conflict": parchment_conflict,
             "approved_parchment_color": spec_snapshot.get("parchment_color"),
             "ordered_parchment_color": spec_snapshot.get("sales_order_line_parchment_color"),
             "mandrel_id": str(spec_snapshot.get("mandrel_id") or ""),
@@ -2887,6 +3011,21 @@ def _build_spec_snapshot(spec: dict[str, Any], priority: str) -> dict[str, Any]:
     return apply_qc_setup_marker(snapshot)
 
 
+LEGACY_PARCHMENT_REASONS = {"parchment_not_allowed_on_recipe"}
+
+
+def _effective_parchment_resolution(spec_snapshot: dict[str, Any]) -> tuple[str, Optional[dict[str, Any]]]:
+    """(resolution, conflict) as the card shows it: a CONFLICT whose only reason is the old recipe
+    "parchment not used" is ALIGNED (every card has a release colour since 28 Oct 2026)."""
+    resolution = str(spec_snapshot.get("parchment_resolution") or "ALIGNED")
+    conflict = spec_snapshot.get("parchment_conflict") or None
+    if resolution == "CONFLICT":
+        reasons = set((conflict or {}).get("reasons") or [])
+        if reasons and reasons <= LEGACY_PARCHMENT_REASONS:
+            return "ALIGNED", None
+    return resolution, conflict
+
+
 def _apply_commercial_parchment(spec_snapshot: dict[str, Any], line: dict[str, Any]) -> dict[str, Any]:
     """Keep the approved manufacturing parchment recipe; never silently overwrite it.
 
@@ -2902,8 +3041,10 @@ def _apply_commercial_parchment(spec_snapshot: dict[str, Any], line: dict[str, A
     spec_snapshot["sales_order_line_parchment_required"] = line_required
     spec_snapshot["sales_order_line_parchment_color"] = line.get("parchment_color")
     reasons: list[str] = []
-    if line_required and approved_allowed is False:
-        reasons.append("parchment_not_allowed_on_recipe")
+    # Every job card carries a parchment colour since 28 Oct 2026 (compulsory at release, "there is no
+    # none"): a recipe saved "parchment not used" (old / V1 specs) is no longer a conflict, and the colour
+    # chosen at release is the card colour. The recipe parchment % is never rewritten. A colour-name
+    # mismatch stays a visible CONFLICT (COMM-08).
     approved_token = str(approved_color or "").strip().upper()
     ordered_token = str(line_color or "").strip().upper()
     if line_required and approved_token and ordered_token and approved_token != ordered_token:
@@ -3117,7 +3258,7 @@ def _current_actor_label(current_user: dict) -> Optional[str]:
 
 
 def _default_plan_date_from_snapshot(spec_snapshot: dict[str, Any]) -> date:
-    return _snapshot_date(spec_snapshot.get("sales_order_line_due_date")) or datetime.utcnow().date()
+    return _snapshot_date(spec_snapshot.get("sales_order_line_due_date")) or plant_today()
 
 
 def _record_physical_tool_usage(
@@ -3215,9 +3356,9 @@ def _build_carry_forward_suggestion(job_card: JobCard, stages: list[JobCardStage
 def _line_due_date(line: dict[str, Any]) -> date:
     raw_value = line.get("due_date")
     try:
-        return date.fromisoformat(str(raw_value)) if raw_value else date.today()
+        return date.fromisoformat(str(raw_value)) if raw_value else plant_today()
     except ValueError:
-        return date.today()
+        return plant_today()
 
 
 def _order_total_qty(live_order: dict[str, Any]) -> float:
@@ -3228,7 +3369,7 @@ def _order_due_date(live_order: dict[str, Any]) -> date:
     # Lines without a delivery date (optional since 28 Oct 2026) do not pull the order to "today".
     line_dates = [_line_due_date(line) for line in (live_order.get("lines") or []) if line.get("due_date")]
     if not line_dates:
-        return date.today()
+        return plant_today()
     return min(line_dates)
 
 
@@ -3437,8 +3578,13 @@ def _move_or_split_segment(
     remaining_qty = round(float(segment.planned_qty or 0.0), 2)
     remaining_capacity = round(float(segment.required_capacity or 0.0), 2)
 
-    if stage not in CAPACITY_SPLIT_STAGES or machine_id is None or normalized_date is None or normalized_shift is None:
+    # A winder card whose spec has no tube length has no metres to split by: it goes onto the slot whole
+    # (planning never blocks; the board shows it as "length missing").
+    length_missing = stage == "WINDER" and not _winder_bamboo_plan_from_snapshot(spec_snapshot)
+    if stage not in CAPACITY_SPLIT_STAGES or machine_id is None or normalized_date is None or normalized_shift is None or length_missing:
         segment.status = "ASSIGNED" if machine_id is not None else _queue_status_for_stage(machine_id)
+        if length_missing:
+            segment.required_capacity = 0.0  # unknown metres are not pcs
         _place_stage_segment(
             db=db,
             segment=segment,
@@ -5398,13 +5544,10 @@ def _queue_item_from_stage_row(
         planned_qty=segment_qty,
         spec_snapshot=spec_snapshot,
     )
+    winding_m = _winder_metres_or_none(segment_qty, spec_snapshot) if stage_row.stage_type == "WINDER" else None
+    length_missing = stage_row.stage_type == "WINDER" and winding_m is None and segment_qty > 0
     required_capacity = (
-        _required_capacity_for_job(
-            stage="WINDER",
-            planned_qty=segment_qty,
-            spec_snapshot=spec_snapshot,
-            capacity_unit=WINDER_METER_CAPACITY_UNIT,
-        )
+        winding_m
         if stage_row.stage_type == "WINDER"
         else float(queue_entry.required_capacity or 0.0) if queue_entry.required_capacity is not None else None
     )
@@ -5472,6 +5615,8 @@ def _queue_item_from_stage_row(
         carry_forward_reason_code=(carry_forward_entry.get("reason") if carry_forward_entry else None),
         stale_slot=_is_stale_slot(queue_entry),
         stale_plan_date=queue_entry.plan_date if _is_stale_slot(queue_entry) else None,
+        winding_m=winding_m,
+        length_missing=length_missing,
     )
 
 
@@ -5493,6 +5638,8 @@ def _lane_constraints_from_machine(machine: Optional[dict[str, Any]]) -> Plannin
 def _lane_load(stage: str, capacity_unit: str, jobs: list[QueueJobCardItem], spec_lookup: dict[str, dict[str, Any]]) -> float:
     total = 0.0
     for job in jobs:
+        if getattr(job, "length_missing", False):
+            continue  # metres unknown: counted in length_missing_cards, never as 0 m or as pcs
         if job.required_capacity is not None:
             total += float(job.required_capacity or 0.0)
             continue
@@ -5504,6 +5651,17 @@ def _lane_load(stage: str, capacity_unit: str, jobs: list[QueueJobCardItem], spe
             spec_snapshot=spec_snapshot,
         )
     return round(total, 2)
+
+
+def _lane_counts(jobs: list[QueueJobCardItem]) -> dict[str, Any]:
+    """Pieces, cards and cards without a tube length on one lane (shown beside the metres)."""
+    missing = [job for job in jobs if getattr(job, "length_missing", False)]
+    return {
+        "planned_pcs": round(sum(float(job.planned_qty or 0.0) for job in jobs), 2),
+        "cards": len(jobs),
+        "length_missing_cards": len(missing),
+        "length_missing_pcs": round(sum(float(job.planned_qty or 0.0) for job in missing), 2),
+    }
 
 
 def _suggest_lane_for_job(
@@ -5518,6 +5676,7 @@ def _suggest_lane_for_job(
     required_capacity = float(
         job.required_capacity
         if job.required_capacity is not None
+        else 0.0 if getattr(job, "length_missing", False)
         else _required_capacity_for_job(
             stage=stage,
             planned_qty=float(job.planned_qty or 0.0),
@@ -5525,6 +5684,7 @@ def _suggest_lane_for_job(
         )
     )
     candidates: list[PlanningBoardLane] = []
+    flagged: list[PlanningBoardLane] = []
     for lane in lanes:
         if lane.lane_id.endswith("UNSCHEDULED"):
             continue
@@ -5537,11 +5697,13 @@ def _suggest_lane_for_job(
             try:
                 if stage == "PACKING":
                     _validate_machine_presence_for_packing(machine, plant_id)
-                else:
-                    _validate_machine_compatibility(machine=machine, stage=stage, spec_snapshot=spec_snapshot, plant_id=plant_id)
+                elif _validate_machine_compatibility(machine=machine, stage=stage, spec_snapshot=spec_snapshot, plant_id=plant_id):
+                    flagged.append(lane)  # suggest a machine the spec fits first; a flagged one only if none fits
+                    continue
             except HTTPException:
                 continue
         candidates.append(lane)
+    candidates = candidates or flagged
     if not candidates:
         return None
 
@@ -5585,7 +5747,7 @@ def _build_stage_board_view(
         plant_scope=plant_scope,
     )
     plant_uuid = _to_uuid(plant_id)
-    closed_dates = _fetch_plant_closed_dates(token, plant_id, plan_date or datetime.utcnow().date())
+    closed_dates = _fetch_plant_closed_dates(token, plant_id, plan_date or plant_today())
     machine_rows = _fetch_stage_machines(stage, token, plant_id) if stage in STAGE_TO_MACHINE_DEPARTMENT else []
     machine_map = {str(row.get("id")): row for row in machine_rows}
     spec_lookup: dict[str, dict[str, Any]] = {}
@@ -5632,7 +5794,7 @@ def _build_stage_board_view(
                 machine_department=stage,
                 capacity_value=None,
                 capacity_unit=summary_unit,
-                current_load=_lane_load(stage, summary_unit, unscheduled_jobs, spec_lookup),
+                current_load=_lane_load(stage, summary_unit, unscheduled_jobs, spec_lookup), **_lane_counts(unscheduled_jobs),
                 warning="Suggestion pool",
                 constraints=PlanningBoardMachineConstraint(),
                 jobs=unscheduled_jobs,
@@ -5673,7 +5835,7 @@ def _build_stage_board_view(
                         capacity_unit=lane_unit if shift_capacity else resolved_unit,
                         batch_bamboo_capacity=_snapshot_float(machine.get("batch_bamboo_capacity")),
                         cycle_time_hours=_snapshot_float(machine.get("cycle_time_hours")),
-                        current_load=_lane_load(stage, lane_unit, machine_jobs, spec_lookup),
+                        current_load=_lane_load(stage, lane_unit, machine_jobs, spec_lookup), **_lane_counts(machine_jobs),
                         warning=_capacity_warning_message(
                             db=db,
                             plant_id=plant_uuid,
@@ -5686,6 +5848,7 @@ def _build_stage_board_view(
                             resolved_capacity=shift_capacity,
                             resolved_unit=resolved_unit,
                             use_resolved=True,
+                            machine=machine,
                         ),
                         constraints=_lane_constraints_from_machine(machine),
                         jobs=machine_jobs,
@@ -5708,7 +5871,7 @@ def _build_stage_board_view(
                     machine_department=stage,
                     capacity_value=_shift_capacity_value(VIRTUAL_STAGE_CAPACITY.get(stage), shift_code),
                     capacity_unit=summary_unit,
-                    current_load=_lane_load(stage, summary_unit, shift_jobs, spec_lookup),
+                    current_load=_lane_load(stage, summary_unit, shift_jobs, spec_lookup), **_lane_counts(shift_jobs),
                     warning=None,
                     constraints=PlanningBoardMachineConstraint(),
                     jobs=shift_jobs,
@@ -7442,7 +7605,7 @@ def get_job_card_genealogy(
     winder_segments = [segment for segment in segments if segment.stage_type == "WINDER"]
     scheduled_winder = next((segment for segment in winder_segments if segment.machine_id and segment.plan_date), None)
     winder_warning = (
-        _winder_override_warning(job_card, scheduled_winder.machine_id)
+        _winder_override_for(job_card, scheduled_winder.machine_id, token, plant_id)
         if scheduled_winder and scheduled_winder.machine_id
         else None
     )
@@ -7740,6 +7903,7 @@ def _reorder_stage_queue_core(
     )
 
     warnings: list[str] = []
+    machine: Optional[dict[str, Any]] = None
     if selected_stage == "PACKING":
         machine_uuid = payload.machine_id
         machine_capacity = None
@@ -7753,8 +7917,9 @@ def _reorder_stage_queue_core(
         if selected_stage in {"QC", "DISPATCH"}:
             machine_uuid = None
         elif machine_uuid is not None:
+            machine = _fetch_machine(machine_uuid, current_user.get("token", ""), plant_id)
             if selected_stage == "WINDER":
-                warning = _winder_override_warning(job_card, machine_uuid)
+                warning = _winder_override_for(job_card, machine_uuid, current_user.get("token", ""), plant_id, planned_machine=machine)
                 if warning:
                     warnings.append(warning)
                     # The release winder is a queue hint; planning may use another winder,
@@ -7776,7 +7941,6 @@ def _reorder_stage_queue_core(
                             "note": warning,
                         },
                     )
-            machine = _fetch_machine(machine_uuid, current_user.get("token", ""), plant_id)
             capability_warning = _validate_machine_compatibility(
                 machine=machine,
                 stage=selected_stage,
@@ -7828,8 +7992,9 @@ def _reorder_stage_queue_core(
         closed_dates=_fetch_plant_closed_dates(
             current_user.get("token", ""),
             plant_id,
-            stage.plan_date or datetime.utcnow().date(),
+            stage.plan_date or plant_today(),
         ),
+        machine=machine if machine_uuid is not None else None,
     )
     if warning_message:
         warnings.append(warning_message)
@@ -8028,8 +8193,9 @@ def assign_machine_to_current_stage(
     )
 
     warnings: list[str] = []
+    machine: Optional[dict[str, Any]] = None
     if selected_stage == "WINDER":
-        hint_warning = _winder_override_warning(job_card, payload.machine_id)
+        hint_warning = _winder_override_for(job_card, payload.machine_id, current_user.get("token", ""), plant_id)
         if hint_warning:
             warnings.append(hint_warning)
 
@@ -8103,8 +8269,9 @@ def assign_machine_to_current_stage(
         closed_dates=_fetch_plant_closed_dates(
             current_user.get("token", ""),
             plant_id,
-            stage.plan_date or datetime.utcnow().date(),
+            stage.plan_date or plant_today(),
         ),
+        machine=machine if machine_uuid is not None else None,
     )
     if warning_message:
         warnings.append(warning_message)
@@ -8522,8 +8689,9 @@ def capture_stage_output(
         if (gate["planner_gate_ready"] or restored_late_slot) and segment.plan_date:
             planned_slot = {"plan_date": segment.plan_date.isoformat(), "shift_code": segment.shift_code, "machine_id": str(segment.machine_id) if segment.machine_id else None}
         if not gate["planner_gate_ready"] and not restored_late_slot:
-            today_local = plant_today()
-            entry_shift = payload.shift_code or segment.shift_code or stage.shift_code
+            # The business day of the running shift (shift rule): 01:30 IST is Shift B of the day before.
+            entry_shift = payload.shift_code or segment.shift_code or stage.shift_code or shift_slot()[1]
+            today_local = shift_business_date(entry_shift)
             unscheduled_entry = {
                 "reason": gate["planner_gate_reason"],
                 "placed_on": today_local.isoformat(),

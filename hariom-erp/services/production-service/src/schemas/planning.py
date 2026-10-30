@@ -213,6 +213,10 @@ class QueueJobCardItem(BaseModel):
     planning_locked: bool = False
     waiting_for_stage: Optional[str] = None
     planning_locked_reason: Optional[str] = None
+    # Winding load in metres (whole bamboos x bamboo length from the spec). None with length_missing when the
+    # spec has no tube length: the card is shown "length missing" and never counted as 0 m (client 2026-10-30).
+    winding_m: Optional[float] = None
+    length_missing: bool = False
 
 
 class QueueMachineBucket(BaseModel):
@@ -260,6 +264,11 @@ class PlanningBoardLane(BaseModel):
     batch_bamboo_capacity: Optional[float] = None
     cycle_time_hours: Optional[float] = None
     current_load: float = 0.0
+    # The same lane in pieces and cards, and how many cards have no tube length (their metres are unknown).
+    planned_pcs: float = 0.0
+    cards: int = 0
+    length_missing_cards: int = 0
+    length_missing_pcs: float = 0.0
     warning: Optional[str] = None
     constraints: PlanningBoardMachineConstraint = Field(default_factory=PlanningBoardMachineConstraint)
     jobs: list[QueueJobCardItem] = Field(default_factory=list)

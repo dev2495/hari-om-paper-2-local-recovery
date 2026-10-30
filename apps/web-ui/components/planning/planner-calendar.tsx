@@ -102,6 +102,7 @@ export function PlannerCalendar({
   const selectedJobs = useMemo(() => queue.filter((job) => selectedIds.has(queueKey(job)) && !isLocked(job)), [queue, selectedIds])
   const selectionPcs = useMemo(() => selectedJobs.reduce((sum, job) => sum + Number(job.planned_qty || 0), 0), [selectedJobs])
   const dragSet = useMemo(() => (dragged ? (selectedIds.has(queueKey(dragged)) && selectedJobs.length > 1 ? selectedJobs : [dragged]) : []), [dragged, selectedIds, selectedJobs])
+  const dragKeys = useMemo(() => new Set(dragSet.map((row) => queueKey(row))), [dragSet])
 
   const monthStart = dayjs(monthDate).startOf("month")
   const gridStart = monthStart.subtract((monthStart.day() + 6) % 7, "day") // weeks start Monday
@@ -206,7 +207,8 @@ export function PlannerCalendar({
           sequence_no: 999,
         })
         const warnings = Array.isArray(response?.data?.warnings) ? response.data.warnings.filter(Boolean) : []
-        showToast(warnings.length ? warnings.join(" ") : `${job.job_card_no || "Card"} placed on ${when}.`, warnings.length ? "info" : "success")
+        // An advisory is a flag: the card is placed either way, and the toast says that first.
+        showToast(`${job.job_card_no || "Card"} placed on ${machineCode.get(placeMachine) || "machine"} · ${when}.${warnings.length ? ` ${warnings.join(" ")}` : ""}`, warnings.length ? "info" : "success")
       }
       setPlacing(null)
     } catch (error) {
@@ -245,6 +247,9 @@ export function PlannerCalendar({
                       title={locked ? lockReason(job) : undefined}
                       onDragStart={(event) => {
                         if (locked) { event.preventDefault(); return }
+                        // Firefox starts a drag only when it carries data (the 3-day board already sets it).
+                        event.dataTransfer.effectAllowed = "move"
+                        event.dataTransfer.setData("text/plain", queueKey(job))
                         if (selected && selectedJobs.length > 1) multiDragImage(event, selectedJobs.length, selectionPcs)
                         setDragged(job)
                       }}
@@ -253,7 +258,7 @@ export function PlannerCalendar({
                         "group flex items-start gap-2 px-3 py-2 transition-colors",
                         locked ? "cursor-not-allowed bg-muted/30" : "cursor-grab hover:bg-muted/50 active:cursor-grabbing",
                         selected && "bg-primary/[.06]",
-                        dragSet.some((row) => row.id === job.id) && "bg-primary/5 opacity-60",
+                        dragKeys.has(queueKey(job)) && "bg-primary/5 opacity-60",
                       )}
                     >
                       {!locked ? (
@@ -416,6 +421,7 @@ export function PlannerCalendar({
                   {hasDetail && !dragged && windowStart === day.key ? (
                     <DayDetail
                       day={day}
+                      winding={stage === "WINDER"}
                       machineCode={machineCode}
                       customerName={customerName}
                       align={dayIndex % 7 >= 4 ? "right" : "left"}
@@ -478,22 +484,27 @@ export function PlannerCalendar({
 
 
 /** Everything about one day, shown on hover: machine/shift load, customer deliveries, cards due. */
-function DayDetail({ day, machineCode, customerName, align, below, windowDays }: {
+function DayDetail({ day, winding, machineCode, customerName, align, below, windowDays }: {
   day: any
+  /** Winder: each slot also shows metres to wind (bamboos x bamboo length) and cards without a tube length. */
+  winding?: boolean
   machineCode: Map<string, string>
   customerName: (id?: string | null) => string
   align: "left" | "right"
   below: boolean
   windowDays: number
 }) {
-  const slots = new Map<string, { label: string; cards: number; pcs: number }>()
+  const slots = new Map<string, { label: string; cards: number; pcs: number; metres: number; missing: number }>()
   for (const job of day.scheduled as any[]) {
     const machine = machineCode.get(String(job.current_machine_id)) || "Machine"
     const shift = String(job.current_shift_code || "").replace("SHIFT_", "")
     const key = `${machine}|${shift}`
-    const row = slots.get(key) || { label: `${machine} · Shift ${shift}`, cards: 0, pcs: 0 }
+    const row = slots.get(key) || { label: `${machine} · Shift ${shift}`, cards: 0, pcs: 0, metres: 0, missing: 0 }
     row.cards += 1
     row.pcs += Number(job.planned_qty || 0)
+    const metres = (Number(job.target_bamboo_count || 0) * Number(job.selected_bamboo_length_mm || 0)) / 1000
+    if (metres > 0) row.metres += metres
+    else row.missing += 1
     slots.set(key, row)
   }
   const deliveries = day.deliveries as any[]
@@ -512,7 +523,7 @@ function DayDetail({ day, machineCode, customerName, align, below, windowDays }:
           <p className="text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">On the machines</p>
           <ul className="mt-1 space-y-0.5 text-[12px]">
             {Array.from(slots.values()).sort((a, b) => a.label.localeCompare(b.label)).map((row) => (
-              <li key={row.label} className="flex justify-between gap-2"><span>{row.label}</span><span className="tabular-nums text-muted-foreground">{row.cards} card{row.cards === 1 ? "" : "s"} · {fmt(row.pcs)} pcs</span></li>
+              <li key={row.label} className="flex justify-between gap-2"><span>{row.label}</span><span className="tabular-nums text-muted-foreground">{row.cards} card{row.cards === 1 ? "" : "s"} · {fmt(row.pcs)} pcs{winding ? ` · ${fmt(row.metres)} m` : ""}{winding && row.missing ? ` · ${row.missing} length missing` : ""}</span></li>
             ))}
           </ul>
         </div>

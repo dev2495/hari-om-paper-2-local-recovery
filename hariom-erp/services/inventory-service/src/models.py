@@ -661,6 +661,11 @@ class ReelIssue(Base):
     # LEGACY rows came from the earlier issue-to-machine / return flow.
     issue_mode = Column(String(20), nullable=False, default="LEGACY")
     slitting_card = Column(JSON, nullable=True)
+    # Issue history (client 2026-10-30): who registered it, the rack it was picked from, and the desk's
+    # request key so a double scan / double submit issues once. Older rows leave them empty.
+    issued_by = Column(String(200), nullable=True)
+    from_location_id = Column(UUID(as_uuid=True), nullable=True)
+    request_id = Column(UUID(as_uuid=True), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     reel = relationship("PaperReel", back_populates="issues")

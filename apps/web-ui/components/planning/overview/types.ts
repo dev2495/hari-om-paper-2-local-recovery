@@ -77,6 +77,9 @@ export type OverviewLoad = {
   made_qty: number
   unit: string
   capacity_unit?: string | null
+  /** Pieces planned on the slot, and winder slots whose spec has no tube length (metres unknown). */
+  planned_pcs?: number
+  length_missing_slots?: number
 }
 
 export type OverviewQueue = {

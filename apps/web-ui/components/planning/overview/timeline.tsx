@@ -199,7 +199,11 @@ export const Timeline = memo(function Timeline({
                         {model.columns.map((column) => {
                           const cell = row.cells.get(column.key)
                           const load = cell?.load
-                          const loadLabel = load ? `${fmtNum(load.load, 1)} of ${fmtNum(load.capacity, 0)} ${unitLabel(load.unit)} planned` : undefined
+                          // Load is in the machine's capacity unit (winding: metres), with pcs and cards whose spec has no length.
+                          const loadUnit = unitLabel(load?.capacity_unit || load?.unit)
+                          const loadLabel = load
+                            ? `${fmtNum(load.load, 1)} of ${fmtNum(load.capacity, 0)} ${loadUnit} planned${load.planned_pcs ? ` · ${fmtNum(load.planned_pcs, 0)} pcs` : ""}${load.length_missing_slots ? ` · ${load.length_missing_slots} length missing` : ""}`
+                            : undefined
                           return (
                             <td
                               key={column.key}

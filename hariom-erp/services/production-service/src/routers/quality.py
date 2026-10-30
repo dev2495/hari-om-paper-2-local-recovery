@@ -32,6 +32,7 @@ from ..quality_eval import (
     submission_error,
 )
 from ..quality_metrics import quality_pass_rate
+from ..lifecycle_rules import plant_today
 from ..utils.auth import get_current_plant, get_current_plant_scope, require_role
 
 router = APIRouter(prefix="/quality", tags=["quality"])
@@ -1892,7 +1893,7 @@ def _apply_instrument_register(db: Session, plant_uuid: uuid.UUID, readings: dic
         evidence = {
             "instrument_id": instrument.code,
             "calibration_due": instrument.calibration_due.isoformat() if instrument.calibration_due else None,
-            "calibration_status": "valid" if instrument.calibration_due and instrument.calibration_due >= date.today() else "expired",
+            "calibration_status": "valid" if instrument.calibration_due and instrument.calibration_due >= plant_today() else "expired",
             "evidence_ref": instrument.certificate_ref,
             "source": "register",
         }
@@ -1921,7 +1922,7 @@ def _instrument_payload(row: QcInstrument) -> dict[str, Any]:
         "calibration_due": due.isoformat() if due else None,
         "certificate_ref": row.certificate_ref,
         "active": bool(row.active),
-        "calibration_status": "expired" if not due or due < date.today() else ("due_soon" if (due - date.today()).days <= 15 else "valid"),
+        "calibration_status": "expired" if not due or due < plant_today() else ("due_soon" if (due - plant_today()).days <= 15 else "valid"),
         "updated_by": row.updated_by,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }
@@ -1989,7 +1990,7 @@ def production_quality_analytics(
     parameters, and production holds opened / still open in the window."""
     from collections import defaultdict
 
-    end = date_to or date.today()
+    end = date_to or plant_today()
     start = date_from or (end - timedelta(days=90))
     lo = datetime.combine(start, datetime.min.time())
     hi = datetime.combine(end + timedelta(days=1), datetime.min.time())

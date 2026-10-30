@@ -4,7 +4,7 @@ import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { FormEvent, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { ArrowUpRight, Barcode, MapPin, PackageCheck, Search } from "lucide-react"
+import { ArrowUpRight, Barcode, Clock3, History, MapPin, PackageCheck, Search } from "lucide-react"
 
 import { QrScanner } from "@/components/common/qr-scanner"
 import { IssueDeskTabs } from "@/components/procurement/issue-desk-tabs"
@@ -15,14 +15,12 @@ import { useParchmentCoils } from "@/hooks/use-stock"
 import { useCreateTransaction, useInventoryBalances, useInventoryItemBalance, useInventoryItems, useInventoryLocations, useInventoryTransactions, useIssueParchmentByWeight, useReelIssues } from "@/hooks/use-inventory"
 import { usePlants } from "@/hooks/use-system"
 import { inventoryApi } from "@/lib/api"
-import { businessDate } from "@/lib/business-date"
 import { canonicalPlantScopeValue, displayPlantScope } from "@/lib/plant-scope"
 import { parseScanCode } from "@/lib/scan-code"
+import { shiftAt } from "@/lib/shift"
 import { pickFromText } from "@/lib/stock-format"
 import { cn } from "@/lib/utils"
 
-const SHIFTS = [{ value: "A", label: "Shift A" }, { value: "B", label: "Shift B" }, { value: "GENERAL", label: "General" }]
-const clockShift = () => { const hour = new Date().getHours(); return hour >= 8 && hour < 20 ? "A" : "B" }
 const unitText = (uom?: string) => ({ KG: "kg", PCS: "pcs", L: "L" } as Record<string, string>)[String(uom || "").toUpperCase()] || String(uom || "").toLowerCase()
 const qtyText = (value: any, uom?: string) => `${Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 3 })} ${unitText(uom)}`.trim()
 const errorText = (error: any) => {
@@ -89,10 +87,22 @@ function MaterialFloorIssuePage() {
   const showForm = () => { if (window.innerWidth < 1280) window.setTimeout(() => formPanel.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80) }
   const [kind, setKind] = useState("ALL")
   const [showEach, setShowEach] = useState(false)
-  const [form, setForm] = useState({ item_id: "", batch_id: "", qty: "", shift: clockShift(), effective_date: businessDate(), notes: "" })
+  const [form, setForm] = useState({ item_id: "", batch_id: "", qty: "", notes: "" })
+  // No shift or date is asked (client 2026-10-30): the server dates the issue from the moment it is registered
+  // by the shift rule; the desk shows which shift that is from the IST clock.
+  const [clock, setClock] = useState(() => shiftAt())
+  useEffect(() => { const timer = window.setInterval(() => setClock(shiftAt()), 20_000); return () => window.clearInterval(timer) }, [])
+  // The same issue sent again (double tap, retry after a dropped line) carries the same key and is issued once.
+  const requestKey = useRef({ body: "", id: "" })
+  const inFlight = useRef(false)
+  const keyFor = (body: unknown) => {
+    const text = JSON.stringify(body)
+    if (text !== requestKey.current.body) requestKey.current = { body: text, id: crypto.randomUUID() }
+    return requestKey.current.id
+  }
   const balance = useInventoryItemBalance(form.item_id, Boolean(form.item_id))
-  const today = useInventoryTransactions({ transaction_type: "ISSUE_PRODUCTION", date_from: businessDate(), date_to: businessDate() })
-  const todayReels = useReelIssues({ date_from: businessDate(), date_to: businessDate(), limit: 300 })
+  const today = useInventoryTransactions({ transaction_type: "ISSUE_PRODUCTION", date_from: clock.businessDate, date_to: clock.businessDate })
+  const todayReels = useReelIssues({ date_from: clock.businessDate, date_to: clock.businessDate, limit: 300 })
 
   const onHand = useMemo(() => {
     const out: Record<string, number> = {}
@@ -315,22 +325,30 @@ function MaterialFloorIssuePage() {
     if (isPieces(selectedItem) && !Number.isInteger(qty)) return setNotice({ tone: "error", text: `${selectedItem.name} is counted in pieces. Enter a whole number.` })
     if (qty > available + 1e-9) return setNotice({ tone: "error", text: `Only ${qtyText(available, selectedItem.uom)} of ${selectedItem.name} is in stock and cleared for issue${selectedBatch ? " in this lot" : ""}. You asked for ${qtyText(qty, selectedItem.uom)}.` })
     const before = itemOnHand
+    if (inFlight.current) return
+    inFlight.current = true
+    const notes = form.notes.trim() || undefined
+    const historyLink = { label: "Issue history", href: "/inventory/issue-history" }
     try {
       if (parchment) {
-        const { data } = await issueParchment.mutateAsync({ plantId: selectedItem.plant_id || undefined, item_id: form.item_id, qty_kg: qty, shift: form.shift, issue_date: form.effective_date, notes: form.notes.trim() || undefined })
-        setNotice({ tone: "success", text: data?.message || `${qtyText(qty, "KG")} of ${selectedItem.name} issued to the floor for shift ${form.shift}.` })
+        const key = keyFor({ kind: "PARCHMENT", item: form.item_id, qty, notes })
+        const { data } = await issueParchment.mutateAsync({ plantId: selectedItem.plant_id || undefined, item_id: form.item_id, qty_kg: qty, notes, request_id: key })
+        setNotice({ tone: "success", text: data?.message || `${qtyText(qty, "KG")} of ${selectedItem.name} issued to the floor · ${shiftAt().label}.`, action: historyLink })
       } else {
-        await createIssue.mutateAsync({
+        const key = keyFor({ kind: "LOT", item: form.item_id, batch: form.batch_id, qty, notes })
+        const { data } = await createIssue.mutateAsync({
           plantId: selectedItem.plant_id || undefined,
-          item_id: form.item_id, batch_id: form.batch_id || undefined, qty, shift: form.shift, reason_code: "FLOOR_ISSUE",
-          effective_date: form.effective_date, notes: form.notes.trim() || undefined,
-          external_ref: `FLOOR:${form.effective_date}:${form.shift}:${selectedBatch?.inward_no || selectedBatch?.batch_no || "FIFO"}:${crypto.randomUUID().slice(0, 8)}`,
+          item_id: form.item_id, batch_id: form.batch_id || undefined, qty, reason_code: "FLOOR_ISSUE", notes,
+          external_ref: `FLOOR:${key}`,
         })
-        setNotice({ tone: "success", text: `${qtyText(qty, selectedItem.uom)} of ${selectedItem.name} issued to the floor for shift ${form.shift}. ${qtyText(Math.max(0, before - qty), selectedItem.uom)} left in stock.` })
+        const when = data?.shift_label || shiftAt().label
+        setNotice({ tone: "success", text: data?.idempotent ? data.message : `${qtyText(qty, selectedItem.uom)} of ${selectedItem.name} issued to the floor · ${when}. ${qtyText(Math.max(0, before - qty), selectedItem.uom)} left in stock.`, action: historyLink })
       }
+      requestKey.current = { body: "", id: "" }
       setForm((current) => ({ ...current, batch_id: "", qty: "", notes: "" }))
+      setClock(shiftAt())
       void balancesQuery.refetch(); void balance.refetch()
-    } catch (error) { setNotice({ tone: "error", text: errorText(error) }) }
+    } catch (error) { setNotice({ tone: "error", text: errorText(error) }) } finally { inFlight.current = false }
   }
 
   const busy = createIssue.isPending || issueParchment.isPending
@@ -355,13 +373,15 @@ function MaterialFloorIssuePage() {
     }
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name))
   }, [issuedToday])
+  // Shift A and B; "General" only for older issues written before the shift came from the clock.
+  const shiftColumns = issuedToday.some((row) => String(row.shift || "").toUpperCase() === "GENERAL") ? ["A", "B", "GENERAL"] : ["A", "B"]
   const qtyNumber = Number(form.qty)
   const quick = selectedItem ? (isPieces(selectedItem) ? [10, 25, 50, 100] : [5, 10, 25, 50]).filter((value) => value <= available) : []
   const pick = (id: string) => { setForm((current) => ({ ...current, item_id: id, qty: "" })); setNotice(null) }
 
   return (
     <RoleGate allow={["Store", "PlantManager", "RMIssue"]}>
-      <ProcurementShell eyebrow="Stores" title="Material issue to floor" description="Adhesive, parchment and packing go to the floor for a shift — not to a job card or machine. What goes to the floor is consumed in full. Parchment is issued by colour and kg, plastic in kg, boxes in pieces." actions={<IssueDeskTabs />} allPlants>
+      <ProcurementShell eyebrow="Stores" title="Material issue to floor" description="Adhesive, parchment and packing go to the floor — not to a job card or machine. The shift and date are taken from the clock when you press Issue. What goes to the floor is consumed in full. Parchment is issued by colour and kg, plastic in kg, boxes in pieces." actions={<IssueDeskTabs />} allPlants>
         {notice ? (
           <MessageBar tone={notice.tone}>
             <span data-testid="material-issue-notice">{notice.text}</span>
@@ -376,7 +396,7 @@ function MaterialFloorIssuePage() {
         ) : null}
         <div className="grid gap-3 sm:grid-cols-3" data-testid="material-issue-stats">
           <StatTile label="Materials in stock" value={String(inStock)} hint={`of ${materials.length} adhesive, parchment and packing items`} />
-          <StatTile label="Issued today" value={String(issuedToday.length)} hint={todayByItem.length ? `${todayByItem.length} material${todayByItem.length === 1 ? "" : "s"}` : "nothing yet"} />
+          <StatTile label={`Issued · ${clock.label.replace(/^Shift [AB] · /, "")}`} value={String(issuedToday.length)} hint={todayByItem.length ? `${todayByItem.length} material${todayByItem.length === 1 ? "" : "s"}` : "nothing yet"} />
           <StatTile label="Out of stock" value={String(materials.length - inStock)} hint="inward or pass incoming QC to issue" tone={materials.length - inStock ? "amber" : undefined} />
         </div>
 
@@ -469,40 +489,38 @@ function MaterialFloorIssuePage() {
                       {quick.map((value) => <button key={value} type="button" onClick={() => setForm({ ...form, qty: String(value) })} className={cn("h-11 rounded-full border px-3 text-[12px] font-semibold tabular-nums sm:h-8", qtyNumber === value ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground")}>{qtyText(value, selectedItem.uom)}</button>)}
                     </div>
                   ) : null}
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-                    <Field label="Shift">
-                      <div role="radiogroup" aria-label="Shift" className="flex gap-1 rounded-lg bg-muted p-1">
-                        {SHIFTS.map((item) => <button key={item.value} type="button" role="radio" aria-checked={form.shift === item.value} onClick={() => setForm({ ...form, shift: item.value })} className={cn("min-h-11 flex-1 rounded-md text-[13px] font-semibold sm:min-h-9", form.shift === item.value ? "bg-card shadow-sm ring-1 ring-border" : "text-muted-foreground")}>{item.label}</button>)}
-                      </div>
-                    </Field>
-                    <Field label="Issue date"><input className={fieldClass} type="date" value={form.effective_date} max={businessDate()} onChange={(e) => setForm({ ...form, effective_date: e.target.value })} /></Field>
-                  </div>
+                  <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-xl border border-border bg-muted/50 px-3 py-2 text-[13px]" data-testid="floor-issue-shift">
+                    <Clock3 className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                    <b className="font-semibold">{clock.label}</b>
+                    <span className="text-muted-foreground">(now {clock.clock})</span>
+                    <span className="basis-full text-[11.5px] text-muted-foreground">Shift and date are taken from the clock when you press Issue.</span>
+                  </p>
                   <Field label="Note" hint="optional"><input className={fieldClass} value={form.notes} placeholder="e.g. for the night shift" onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
                   <button type="submit" data-testid="floor-issue-submit" className={cn(primaryButton, "h-11 justify-center text-[14px]")} disabled={busy || !(qtyNumber > 0)}>
                     <PackageCheck className="h-4 w-4" />
-                    {busy ? "Issuing…" : qtyNumber > 0 ? `Issue ${qtyText(qtyNumber, selectedItem.uom)} to floor · ${form.shift === "GENERAL" ? "general shift" : `shift ${form.shift}`}` : "Enter the quantity"}
+                    {busy ? "Issuing…" : qtyNumber > 0 ? `Issue ${qtyText(qtyNumber, selectedItem.uom)} to floor` : "Enter the quantity"}
                   </button>
                 </form>
               ) : (
                 <div className="rounded-xl border border-dashed border-border p-5 text-center text-[13px] text-muted-foreground">
                   <PackageCheck className="mx-auto mb-2 h-6 w-6" aria-hidden="true" />
-                  Tap a material that has stock, or scan its lot label. The quantity, shift and date come next.
+                  Tap a material that has stock, or scan its lot label. The quantity comes next; the shift and date come from the clock.
                 </div>
               )}
             </WorkPanel>
           </div>
         </div>
 
-        <WorkPanel title={`Issued to the floor today · ${issuedToday.length}`} description="Today's business date, by material and shift. Parchment shows the coil it came from.">
+        <WorkPanel title={`Issued to the floor today · ${issuedToday.length}`} description={`Business day ${clock.label.replace(/^Shift [AB] · /, "")} by material and shift (Shift B runs until 08:00 next morning). Parchment shows the coil it came from.`} action={<Link href="/inventory/issue-history" className="inline-flex min-h-11 items-center gap-1 text-[13px] font-semibold text-primary hover:underline sm:min-h-0" data-testid="material-issue-history-link"><History className="h-4 w-4" aria-hidden="true" />Issue history</Link>}>
           {todayByItem.length ? (
             <div className="overflow-x-auto" data-testid="floor-issue-today">
               <table className="tube-grid w-full min-w-[560px] !text-[13px]">
-                <thead><tr><th>Material</th><th className="num">Shift A</th><th className="num">Shift B</th><th className="num">General</th><th className="num">Total today</th></tr></thead>
+                <thead><tr><th>Material</th><th className="num">Shift A</th><th className="num">Shift B</th>{shiftColumns.includes("GENERAL") ? <th className="num">General (older)</th> : null}<th className="num">Total today</th></tr></thead>
                 <tbody>
                   {todayByItem.map((row) => (
                     <tr key={row.name}>
                       <td><span className="font-medium">{row.name}</span><span className="block text-[11.5px] text-muted-foreground">{row.count} issue{row.count === 1 ? "" : "s"}</span></td>
-                      {["A", "B", "GENERAL"].map((shift) => <td key={shift} className="num tabular-nums">{row.shifts[shift] ? qtyText(row.shifts[shift], row.uom) : "—"}</td>)}
+                      {shiftColumns.map((shift) => <td key={shift} className="num tabular-nums">{row.shifts[shift] ? qtyText(row.shifts[shift], row.uom) : "—"}</td>)}
                       <td className="num font-semibold tabular-nums">{qtyText(row.total, row.uom)}</td>
                     </tr>
                   ))}

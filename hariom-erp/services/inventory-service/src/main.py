@@ -51,6 +51,11 @@ def ensure_runtime_schema() -> None:
       "ALTER TABLE inventory_quality_templates ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
       "ALTER TABLE reel_issues ADD COLUMN IF NOT EXISTS issue_mode VARCHAR(20) NOT NULL DEFAULT 'LEGACY'",
       "ALTER TABLE reel_issues ADD COLUMN IF NOT EXISTS slitting_card JSON",
+      # Issue history (2026-10-30): who issued, from which rack, and the desk's request key.
+      "ALTER TABLE reel_issues ADD COLUMN IF NOT EXISTS issued_by VARCHAR(200)",
+      "ALTER TABLE reel_issues ADD COLUMN IF NOT EXISTS from_location_id UUID",
+      "ALTER TABLE reel_issues ADD COLUMN IF NOT EXISTS request_id UUID",
+      "CREATE INDEX IF NOT EXISTS ix_reel_issues_request_id ON reel_issues (request_id)",
       "ALTER TABLE IF EXISTS inventory_quality_tolerances ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1",
       "ALTER TABLE IF EXISTS customer_rejections ADD COLUMN IF NOT EXISTS complaint_batch VARCHAR(120)",
       "ALTER TABLE IF EXISTS customer_rejections ADD COLUMN IF NOT EXISTS size_label VARCHAR(160)",
@@ -1123,6 +1128,7 @@ app.include_router(quality.router)
 app.include_router(quality_standards.router)
 app.include_router(reels.router)
 app.include_router(reel_issues.router)
+from .routers import issue_history; app.include_router(issue_history.router)  # noqa: E402,E702 issue history (2026-10-30)
 app.include_router(stock_moves.router)
 app.include_router(health.router)
 app.include_router(valuation.router)

@@ -6,7 +6,7 @@ store, and the kg issued is what reconciliation counts as consumed.
 """
 import os
 import uuid
-from datetime import date
+from datetime import date, datetime
 from unittest.mock import patch
 
 import pytest
@@ -67,8 +67,9 @@ def _pass_incoming_qc(db, *reel_ids):
 
 
 def _issue(db, reel_id, **kwargs):
-    with patch("src.routers.reel_issues.emit_audit_event"):
-        return create_reel_issue(ReelIssueCreate(reel_id=reel_id, shift="A", issue_date=date(2026, 9, 25), **kwargs), db, PLANT, MAKER)
+    # Registered at 11:30 IST on 25 Sep: the server dates it Shift A of 25 Sep (client 2026-10-30).
+    with patch("src.routers.reel_issues.emit_audit_event"), patch("src.services.shift_rule._utc_now", return_value=datetime(2026, 9, 25, 6, 0)):
+        return create_reel_issue(ReelIssueCreate(reel_id=reel_id, **kwargs), db, PLANT, MAKER)
 
 
 def _close(db, issue_id, consumed):

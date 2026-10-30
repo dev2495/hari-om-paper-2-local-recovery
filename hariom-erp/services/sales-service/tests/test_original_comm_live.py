@@ -197,8 +197,9 @@ def test_comm04_internal_order_clears_external_po_and_needs_second_approver():
         assert created.po_date is None
         assert created.internal_order_date == date(2026, 9, 17)
         assert created.order_no.startswith("SO/")
+        # Maker-checker for a Sales maker; an Owner or Admin may approve their own (user decision 2026-10-30).
         with pytest.raises(HTTPException) as same_person:
-            approve_sales_order(created.id, db=db, plant_id=PLANT, current_user=_user("sales-a"))
+            approve_sales_order(created.id, db=db, plant_id=PLANT, current_user=_user("sales-a", roles=("Sales",)))
         assert same_person.value.status_code == 403
         approved = approve_sales_order(created.id, db=db, plant_id=PLANT, current_user=_user("sales-b"))
         assert approved["status"] == "approved"

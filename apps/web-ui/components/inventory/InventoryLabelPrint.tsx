@@ -3,6 +3,7 @@
 import { Printer, QrCode } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 
+import { ReelLabelFacts, hasReelFacts, type ReelFacts } from "@/components/inventory/reel-label-facts"
 import { buildScanUrl } from "@/lib/app-url"
 
 type InventoryLabel = {
@@ -32,6 +33,8 @@ type InventoryLabel = {
   rate?: number | string | null
   location_code?: string | null
   metadata?: Record<string, any> | null
+  /** Readable reel / coil lines worked out when printed (client 2026-10-30). */
+  facts?: ReelFacts | null
 }
 
 type Props = {
@@ -79,7 +82,8 @@ export function InventoryLabelPrint({ label, title = "Inventory Label Preview" }
         <div className="min-w-0">
           <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Hari Om Paper</p>
           <h3 className="mt-1 break-words text-xl font-bold leading-tight text-foreground">{code}</h3>
-          <dl className="mt-3 space-y-1.5 text-sm text-muted-foreground">
+          {entityType === "REEL" && hasReelFacts(label.facts) ? <ReelLabelFacts facts={label.facts} className="mt-3" /> : null}
+          <dl className={entityType === "REEL" && hasReelFacts(label.facts) ? "hidden" : "mt-3 space-y-1.5 text-sm text-muted-foreground"}>
             <div className="flex justify-between gap-3">
               <dt className="font-medium">Item</dt>
               <dd className="text-right">{label.item_code || "-"}{label.item_name ? ` · ${label.item_name}` : ""}</dd>

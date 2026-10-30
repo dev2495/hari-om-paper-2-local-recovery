@@ -80,6 +80,13 @@ def _reel_line(po, kg, location_id=None, line_location_id=None):
     return row
 
 
+def _registered_at(moment: datetime):
+    """Freeze the clock floor issues are dated by (naive UTC)."""
+    from unittest.mock import patch
+
+    return patch("src.services.shift_rule._utc_now", return_value=moment)
+
+
 def _refused(call, message=SEPT_CLOSED):
     """Every closed-month refusal is the same 409 body in inventory, production and the BFF."""
     with pytest.raises(HTTPException) as error:
@@ -131,11 +138,16 @@ def test_only_the_owner_locks_and_only_closed_months_refuse_store_movements():
             lines=[{"item_id": adhesive.id, "quantity": 50}],
         ), db, plant, MAKER))
         db.rollback()
-        _refused(lambda: create_issue(IssueCreate(item_id=adhesive.id, qty=5, shift="A", effective_date=date(2026, 9, 20)), db, plant, MAKER))
+        # Floor issues take their business date from the moment they are registered (client 2026-10-30):
+        # registered on a September day, they are refused.
+        with _registered_at(datetime(2026, 9, 20, 6, 0)):
+            _refused(lambda: create_issue(IssueCreate(item_id=adhesive.id, qty=5, shift="A", effective_date=date(2026, 9, 20)), db, plant, MAKER))
         db.rollback()
-        _refused(lambda: create_reel_issue(ReelIssueCreate(reel_id=reel_id, shift="A", issue_date=date(2026, 9, 30)), db, plant, MAKER))
+        with _registered_at(datetime(2026, 9, 30, 6, 0)):
+            _refused(lambda: create_reel_issue(ReelIssueCreate(reel_id=reel_id, shift="A", issue_date=date(2026, 9, 30)), db, plant, MAKER))
         db.rollback()
-        _refused(lambda: issue_parchment_by_weight(WeightIssueCreate(item_id=parchment.id, qty_kg=5, shift="A", issue_date=date(2026, 9, 2)), db, plant, MAKER))
+        with _registered_at(datetime(2026, 9, 2, 6, 0)):
+            _refused(lambda: issue_parchment_by_weight(WeightIssueCreate(item_id=parchment.id, qty_kg=5, shift="A", issue_date=date(2026, 9, 2)), db, plant, MAKER))
         db.rollback()
         line = {"item_id": adhesive.id, "qty_delta": 2}  # a lot-less line may only add (a new lot on QC hold)
         _refused(lambda: create_adjustment_voucher(AdjustmentVoucherPayload(effective_date=date(2026, 9, 30), reason_code="COUNT_SHORT", post_now=True, lines=[line]), db, plant, MAKER))
@@ -176,8 +188,9 @@ def test_an_open_month_before_a_closed_month_stays_open():
         assert posted  # the GRN lot waits for incoming QC, so a July issue is checked at the books guard itself
         assert_books_open(db, plant, date(2026, 7, 25))
         _refused(lambda: assert_books_open(db, plant, date(2026, 8, 3)), "August 2026 is closed. Ask the owner to re-open it.")
-        _refused(lambda: create_issue(IssueCreate(item_id=adhesive.id, qty=1, shift="A", effective_date=date(2026, 8, 25)), db, plant, MAKER),
-                 "August 2026 is closed. Ask the owner to re-open it.")
+        with _registered_at(datetime(2026, 8, 25, 6, 0)):
+            _refused(lambda: create_issue(IssueCreate(item_id=adhesive.id, qty=1, shift="A", effective_date=date(2026, 8, 25)), db, plant, MAKER),
+                     "August 2026 is closed. Ask the owner to re-open it.")
         db.rollback()
         assert_books_open(db, plant, date(2026, 10, 1))
         unlock_books_month(BooksUnlockPayload(month="2026-09", reason="Late bill"), db, plant, OWNER)

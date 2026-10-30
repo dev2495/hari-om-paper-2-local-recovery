@@ -642,7 +642,7 @@ export function useCreateReelIssue() {
 export function useIssueParchmentByWeight() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (data: { item_id: string; qty_kg: number; shift: string; issue_date: string; notes?: string; plantId?: string }) => inventoryApi.issueParchmentByWeight(data),
+    mutationFn: (data: { item_id: string; qty_kg: number; notes?: string; request_id?: string; plantId?: string }) => inventoryApi.issueParchmentByWeight(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["inventory-reel-issues"] })
       queryClient.invalidateQueries({ queryKey: ["inventory-reels"] })

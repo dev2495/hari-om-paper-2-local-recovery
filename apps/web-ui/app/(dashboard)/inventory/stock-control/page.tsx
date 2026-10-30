@@ -9,7 +9,7 @@ import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { Suspense, useMemo, useState } from "react"
 import {
-  AlertTriangle, ArrowRight, BookOpenCheck, CalendarCheck2, CalendarClock, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Lock,
+  AlertTriangle, ArrowRight, BookOpenCheck, CalendarCheck2, CalendarClock, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, History, Lock,
   MapPin, PackageOpen, Plus, ScanLine, ShieldCheck, Wrench, XCircle,
 } from "lucide-react"
 
@@ -73,6 +73,8 @@ function StockHub() {
         description="Count racks, correct stock with the Owner's approval, and read the stock book month by month."
         actions={<>
           <Link href="/inventory/locations" className="erp-btn-secondary !h-11" data-testid="hub-locations"><MapPin className="h-4 w-4" aria-hidden="true" />Locations</Link>
+          {/* Every issue to the floor behind the book's Issued column (client 2026-10-30). */}
+          <Link href="/inventory/issue-history" className="erp-btn-secondary !h-11" data-testid="hub-issue-history"><History className="h-4 w-4" aria-hidden="true" />Issue history</Link>
           {single ? <button type="button" className="erp-btn-primary !h-11" onClick={() => setStarting(true)} data-testid="hub-start-spot"><ScanLine className="h-4 w-4" aria-hidden="true" />Start a spot count</button> : null}
         </>}
       />

@@ -17,7 +17,9 @@ export function workloadLoad(job: WorkloadJob, stage: string): number | null {
   const pcs = positive(job.segment_planned_qty ?? job.planned_qty)
   if (!pcs) return 0
   if (stage.toUpperCase() === "WINDER") {
-    const metres = positive(job.required_capacity)
+    // No tube length on the spec: metres unknown ("length missing"), never 0 m and never pcs.
+    if (job.length_missing) return null
+    const metres = positive(job.winding_m ?? job.required_capacity)
     if (metres) return metres
     const bamboo = positive(job.target_bamboo_count)
     const length = positive(job.selected_bamboo_length_mm)

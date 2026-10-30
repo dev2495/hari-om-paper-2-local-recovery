@@ -3,6 +3,7 @@
 import { Printer } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 
+import { ReelLabelFacts, hasReelFacts, type ReelFacts } from "@/components/inventory/reel-label-facts"
 import { buildScanUrl } from "@/lib/app-url"
 
 type ReelLabelPrintProps = {
@@ -12,6 +13,8 @@ type ReelLabelPrintProps = {
   inwardDate?: string | null
   paperLabel?: string | null
   weightKg?: number | null
+  /** Readable lines from the label endpoint (client 2026-10-30); when given they replace the four rows below. */
+  facts?: ReelFacts | null
 }
 
 export function ReelLabelPrint({
@@ -21,6 +24,7 @@ export function ReelLabelPrint({
   inwardDate,
   paperLabel,
   weightKg,
+  facts,
 }: ReelLabelPrintProps) {
   if (!reelCode) return null
 
@@ -42,7 +46,8 @@ export function ReelLabelPrint({
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Hari Om Paper</p>
           <h3 className="text-xl font-bold text-foreground">{reelCode}</h3>
-          <dl className="mt-3 space-y-1 text-sm text-muted-foreground">
+          {hasReelFacts(facts) ? <ReelLabelFacts facts={facts} className="mt-3" /> : null}
+          <dl className={hasReelFacts(facts) ? "hidden" : "mt-3 space-y-1 text-sm text-muted-foreground"}>
             <div className="flex justify-between gap-3">
               <dt className="font-medium">Vendor</dt>
               <dd>{supplierName || "-"}</dd>

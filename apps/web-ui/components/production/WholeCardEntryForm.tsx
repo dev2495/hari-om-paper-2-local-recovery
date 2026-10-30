@@ -17,23 +17,23 @@ import { command, entryApiForPlant, errorText } from "@/lib/season-api"
 import { SeasonQcMatrix } from "./SeasonQcMatrix"
 import { DraftRestoredBar, draftKey, useFormDraft } from "./card/draft"
 import { toneClass } from "./card/model"
+import { istToday, shiftBusinessDate, shiftSlotNow } from "@/lib/shift"
 
 const selectClass = "h-11 w-full rounded-lg border border-border bg-background px-3 text-[15px]"
 const label = (s: string) => (s === "WINDER" ? "Winding" : s === "QC" ? "Final QC" : s.charAt(0) + s.slice(1).toLowerCase())
 const fmt = (value: any) => Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 1 })
 const rulesFor = (card: any, stage: string) => (card.spec_snapshot?.qc_profile?.stages?.[stage]?.parameters || []).filter((p: any) => p.applicable)
 const requiredSamples = (card: any, stage: string) => Math.max(2, ...rulesFor(card, stage).map((p: any) => Number(p.min_readings) || 2))
-const clockShift = () => {
-  const hour = new Date().getHours()
-  return hour >= 8 && hour < 20 ? "SHIFT_A" : "SHIFT_B"
-}
+// Date and shift default from the clock by the shift rule, in India time (01:30 IST is Shift B of yesterday).
+const clockShift = (): string => shiftSlotNow().shift
+const clockDate = () => shiftSlotNow().date
 
 export function WholeCardEntryForm({ card, flow, onDone }: { card: any; flow: any; onDone: () => void }) {
   const entryApi = entryApiForPlant(card.plant_id)
   const cache = useQueryClient()
   const employees = useQuery({ queryKey: ["continuous-employees", card.plant_id], queryFn: async () => (await entryApi.employees()).data })
   const items = useQuery({ queryKey: ["continuous-items", card.plant_id], queryFn: async () => (await entryApi.items()).data })
-  const [businessDate, setDate] = useState(new Date().toLocaleDateString("en-CA"))
+  const [businessDate, setDate] = useState(clockDate())
   const [shift, setShift] = useState(clockShift())
   const [operator, setOperator] = useState("")
   const [reason, setReason] = useState("")
@@ -185,7 +185,7 @@ export function WholeCardEntryForm({ card, flow, onDone }: { card: any; flow: an
         onDiscard={() => {
           // Discard empties what was typed and keeps the form open, as in Log output, Log QC and Close stage.
           draft.discard()
-          setDate(new Date().toLocaleDateString("en-CA"))
+          setDate(clockDate())
           setShift(clockShift())
           setOperator("")
           setReason("")
@@ -205,13 +205,13 @@ export function WholeCardEntryForm({ card, flow, onDone }: { card: any; flow: an
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <label className="text-sm">
           Date
-          <Input type="date" className="h-11 min-h-11" value={businessDate} onChange={(e) => setDate(e.target.value)} />
+          <Input type="date" className="h-11 min-h-11" value={businessDate} max={istToday()} onChange={(e) => setDate(e.target.value)} />
         </label>
         <div className="text-sm">
           Shift
           <div className="mt-0.5 grid grid-cols-2 overflow-hidden rounded-lg border border-border" role="group" aria-label="Shift">
             {["SHIFT_A", "SHIFT_B"].map((code) => (
-              <button key={code} type="button" aria-pressed={shift === code} onClick={() => setShift(code)} className={cn("min-h-11 text-[15px] font-semibold", shift === code ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground")}>
+              <button key={code} type="button" aria-pressed={shift === code} onClick={() => { if (businessDate === shiftBusinessDate(shift)) setDate(shiftBusinessDate(code)); setShift(code) }} className={cn("min-h-11 text-[15px] font-semibold", shift === code ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground")}>
                 {code.replace("SHIFT_", "Shift ")}
               </button>
             ))}

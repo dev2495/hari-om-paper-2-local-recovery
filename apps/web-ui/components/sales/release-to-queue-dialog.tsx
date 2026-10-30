@@ -172,7 +172,8 @@ export function ReleaseToQueueDialog({
   const masterColors = useMemo(
     () =>
       (Array.isArray(parchments) ? parchments : [])
-        .filter((row: any) => row?.color_name && row?.id && !String(row.id).startsWith("vendor:"))
+        // Every spec, old or new, picks from the active parchment master colours.
+        .filter((row: any) => row?.color_name && row?.id && !String(row.id).startsWith("vendor:") && row?.active !== false)
         .map((row: any) => ({ id: String(row.id), label: String(row.display_name || [row.color_name, row.vendor_name].filter(Boolean).join(" / ")) })),
     [parchments],
   )

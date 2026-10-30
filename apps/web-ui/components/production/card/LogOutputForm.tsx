@@ -41,6 +41,8 @@ import {
   stageLabel,
   stamp,
   today,
+  latestDate,
+  dateForShift,
   toneClass,
   savedRunPlanMatch,
   useCardRoles,
@@ -321,8 +323,8 @@ export function LogOutputForm({
     const next = takenIn ? String(Math.max(0, takenIn * pcsPerBamboo + carryInQty - carryOutQty)) : ""
     if (output !== next) setOutput(next)
   }, [stage, pcsPerBamboo, editing, takenIn, carryInQty, carryOutQty, output])
-  const startStamp = stamp(businessDate, startTime)
-  const endStamp = stamp(businessDate, endTime, startTime || undefined)
+  const startStamp = stamp(businessDate, startTime, undefined, shift)
+  const endStamp = stamp(businessDate, endTime, startTime || undefined, shift)
   const overTarget = state ? Number(state.produced_total || 0) + made > Number(state.target || 0) * 1.1 : false
   const rejectPart = rejectNote.trim() || (rejectCode && rejectCode !== "OT" ? `${rejectCode} · ${rejectCodeText(rejectCode)}` : "")
   // One reason on the entry covers rejected pieces and cutting loss; writing off held pieces uses the carryover reason.
@@ -561,11 +563,11 @@ export function LogOutputForm({
                     </div>
                     <label className="relative grid min-h-11 place-items-center rounded-xl border border-border bg-card px-2 text-[12px] font-medium text-muted-foreground">
                       Other
-                      <input type="date" aria-label="Other date" className="absolute inset-0 cursor-pointer opacity-0" max={today()} value={businessDate} onChange={(e) => e.target.value && setBusinessDate(e.target.value)} />
+                      <input type="date" aria-label="Other date" className="absolute inset-0 cursor-pointer opacity-0" max={latestDate()} value={businessDate} onChange={(e) => e.target.value && setBusinessDate(e.target.value)} />
                     </label>
                   </div>
                 ) : (
-                  <Input type="date" className="h-11 min-h-11 text-[15px]" value={businessDate} max={today()} onChange={(e) => setBusinessDate(e.target.value)} aria-label="Date" />
+                  <Input type="date" className="h-11 min-h-11 text-[15px]" value={businessDate} max={latestDate()} onChange={(e) => setBusinessDate(e.target.value)} aria-label="Date" />
                 )}
               </div>
               <div>
@@ -573,7 +575,12 @@ export function LogOutputForm({
                 <Segmented
                   label="Shift"
                   value={shift}
-                  onChange={setShift}
+                  onChange={(next) => {
+                    // The date follows the shift while it is still the clock's default: at 10:00 a Shift B run
+                    // is last night's (the shift rule), never a typed or picked date.
+                    if (businessDate === dateForShift(shift)) setBusinessDate(dateForShift(next))
+                    setShift(next)
+                  }}
                   options={[
                     { value: "SHIFT_A", label: "Shift A", sub: "08–20" },
                     { value: "SHIFT_B", label: "Shift B", sub: "20–08" },

@@ -107,7 +107,7 @@ export function FloatingWorkload({ jobs, stage, scope, machineLabel, selected, g
           </button>)}
           {!visible.length ? <p className="rounded-xl bg-muted/40 p-4 text-center text-xs text-muted-foreground">{rows.length ? "No matching machines." : "The queue is clear for this stage."}</p> : null}
         </div>
-        <p className="mt-3 text-[10px] leading-relaxed text-muted-foreground">{refreshing ? "Refreshing queue… " : ""}Bars compare queued load, including missed slots. They do not measure machine utilization. {grouping === "release" ? "Release winder is the job’s origin; it does not assign this stage." : "Work without a machine stays unassigned."}{totals.unknown ? ` ${totals.unknown} parts need load data; use pieces for a complete comparison.` : ""}</p>
+        <p className="mt-3 text-[10px] leading-relaxed text-muted-foreground">{refreshing ? "Refreshing queue… " : ""}Bars compare queued load, including missed slots. They do not measure machine utilization. {grouping === "release" ? "Release winder is the job’s origin; it does not assign this stage." : "Work without a machine stays unassigned."}{totals.unknown ? ` ${totals.unknown} part${totals.unknown === 1 ? "" : "s"} ${unit === "m" ? "have no tube length on the spec (length missing)" : "need load data"}: not counted in ${unit}; use pieces for a complete comparison.` : ""}</p>
       </div> : null}
     </aside>, document.querySelector(".tube-workspace") || document.body,
   )

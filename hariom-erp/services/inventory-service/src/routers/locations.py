@@ -298,7 +298,11 @@ def lots_for_labels(
     balances = batch_balances(db, [batch.id for batch in batches])
     item_ids = {reel.paper_id for reel in reels} | {batch.item_id for batch in batches}
     items = {str(row.id): row for row in db.query(ItemMaster).filter(ItemMaster.id.in_(item_ids)).all()} if item_ids else {}
-    rows = [lot_row(reel, items.get(str(reel.paper_id)), entity_qty(db, "REEL", reel), locations=locations) for reel in reels]
+    from ..services.labels import reel_label_facts
+
+    # A reel / coil label carries the readable lines too (client 2026-10-30): QC averages, else "(spec)".
+    rows = [{**lot_row(reel, items.get(str(reel.paper_id)), entity_qty(db, "REEL", reel), locations=locations),
+             **reel_label_facts(db, reel, items.get(str(reel.paper_id)))} for reel in reels]
     rows += [lot_row(batch, items.get(str(batch.item_id)), balances.get(str(batch.id), 0.0), locations=locations) for batch in batches]
     order = {str(value): index for index, value in enumerate(wanted)}
     rows.sort(key=lambda row: order.get(row["id"], 0))

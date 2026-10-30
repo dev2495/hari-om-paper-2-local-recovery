@@ -11,13 +11,17 @@ import { isLocked, lockReason, queueKey } from "@/lib/planner-queue-filters"
 import { cn } from "@/lib/utils"
 
 export type BoardTarget = { machine_id: string | null; plan_date: string | null; shift_code: string | null; sequence_no: number }
-type Lane = { warning?: string | null; machine_id?: string; shift_code?: string; shift_label?: string; capacity_value?: number | null; capacity_unit?: string | null; current_load?: number | null; jobs?: any[] }
+type Lane = { warning?: string | null; machine_id?: string; shift_code?: string; shift_label?: string; capacity_value?: number | null; capacity_unit?: string | null; current_load?: number | null; planned_pcs?: number | null; cards?: number | null; length_missing_cards?: number | null; length_missing_pcs?: number | null; jobs?: any[] }
 type Machine = { id: string; code: string; name?: string; status?: string; capacity_value?: number | null; capacity_unit?: string | null; dayColumns: Array<{ date: string; shifts: Lane[] }> }
 type QueueGroup = { key: string; title: string; subtitle?: string; jobs: any[]; locked?: boolean }
 export type CardAction = "manage" | "split" | "edit" | "segment_split"
 export type FocusLane = { machine_id: string; shift_code?: string | null }
 
 const fmt = (value: number, digits = 0) => Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: digits })
+const cardPcs = (job: any) => Number(job?.segment_planned_qty ?? job?.planned_qty ?? 0)
+/** Pieces on a lane (the server's count, else the cards'); and cards whose spec has no tube length. */
+const lanePcs = (lane: Lane) => (lane.planned_pcs != null ? Number(lane.planned_pcs) : (lane.jobs || []).reduce((sum: number, job: any) => sum + cardPcs(job), 0))
+const laneMissing = (lane: Lane) => (lane.length_missing_cards != null ? Number(lane.length_missing_cards) : (lane.jobs || []).filter((job: any) => job?.length_missing).length)
 
 function dueInfo(due?: string | null): { days: number | null; label: string; tone: string } {
   // Delivery date is optional (client 2026-10-28): a card without one says "No date" and is never late.
@@ -62,13 +66,15 @@ const PlanCard = memo(function PlanCard({ job, compact, machineLabel, loadOf, un
   const queued = !job.machine_id || !job.shift_code
   const locked = queued && isLocked(job)
   const load = loadOf(job)
+  // Winding cards carry metres from the spec; a spec without a tube length says so and is never 0 m.
+  const lengthMissing = unit === "m" && Boolean(job.length_missing)
   const pref = job.assigned_winder_machine_id ? machineLabel(String(job.assigned_winder_machine_id)) : null
   const title = [
     job.job_card_no || job.job_card_ref,
     job.customer_code ? `${job.customer_name} (${job.customer_code})` : job.customer_name,
     job.product_size_label || job.product_code,
     job.parchment_color ? `colour ${job.parchment_color}` : null,
-    `${fmt(qty)} pcs${load ? ` · ${fmt(load, 1)} ${unit}` : ""}`,
+    `${fmt(qty)} pcs${lengthMissing ? " · length missing (no tube length on the spec)" : load ? ` · ${fmt(load, 1)} ${unit}` : ""}`,
     job.due_date ? `due ${dayjs(job.due_date).format("DD MMM")}` : "No date",
     pref ? `release winder ${pref}` : null,
     locked ? lockReason(job) : null,
@@ -121,6 +127,13 @@ const PlanCard = memo(function PlanCard({ job, compact, machineLabel, loadOf, un
           {parts > 1 || Number(job.segment_no || 1) > 1 ? <span className="shrink-0 rounded bg-muted px-1 text-[10px] font-semibold text-muted-foreground" title={`Split plan · part ${job.segment_no || 1}${parts > 1 ? ` of ${parts}` : ""}`}>part {job.segment_no || 1}{parts > 1 ? ` of ${parts}` : ""}</span> : null}
           <span className="ml-auto shrink-0 text-[12.5px] font-semibold tabular-nums">{fmt(qty)} <span className="text-[10px] font-normal text-muted-foreground">pcs</span></span>
         </div>
+        {compact && unit === "m" ? (
+          lengthMissing ? (
+            <p className="text-[10.5px] font-semibold text-signal-amber-ink" data-testid="planner-length-missing">length missing</p>
+          ) : load ? (
+            <p className="text-[10.5px] tabular-nums text-muted-foreground" data-testid="planner-card-metres">{fmt(load, 0)} m to wind</p>
+          ) : null
+        ) : null}
         <p className="flex min-w-0 items-center gap-1 text-[11.5px] text-muted-foreground">
           {job.customer_code ? <span className="shrink-0 rounded bg-muted px-1 font-mono text-[10px] font-semibold text-foreground/80" title="Customer code">{job.customer_code}</span> : null}
           <span className="truncate">{job.customer_name || "—"} · {job.product_size_label || job.product_code || "—"}</span>
@@ -132,7 +145,7 @@ const PlanCard = memo(function PlanCard({ job, compact, machineLabel, loadOf, un
         ) : !compact ? (
           <div className="mt-0.5 flex items-center gap-2 text-[11px]">
             {job.parchment_color ? <ColorChip color={job.parchment_color} className="!text-[11px]" /> : <span className="text-muted-foreground">Plain</span>}
-            {load ? <span className="tabular-nums text-muted-foreground">{fmt(load, 0)} {unit}</span> : null}
+            {lengthMissing ? <span className="font-semibold text-signal-amber-ink" data-testid="planner-length-missing">length missing</span> : load ? <span className="tabular-nums text-muted-foreground">{fmt(load, 0)} {unit}</span> : null}
             {pref && queued ? <span className="truncate text-muted-foreground">pref {pref}</span> : null}
             <span className={cn("ml-auto shrink-0 tabular-nums", due.tone)} data-testid={due.days === null ? "planner-no-date" : undefined}>{due.label}</span>
           </div>
@@ -194,16 +207,18 @@ export function ScheduleBoard({
   const dragNeed = useMemo(() => dragSet.reduce((sum, job) => sum + loadOf(job), 0), [dragSet, loadOf])
   const columns = days.flatMap((date) => shifts.map((shift) => ({ date, shift })))
   const dayTotals = useMemo(() => {
-    const out: Record<string, { load: number; capacity: number; cards: number }> = {}
+    const out: Record<string, { load: number; capacity: number; cards: number; pcs: number; missing: number }> = {}
     for (const machine of machines) {
       for (const column of machine.dayColumns) {
         if (!days.includes(column.date)) continue
         for (const lane of column.shifts) {
           const key = `${column.date}|${lane.shift_code}`
-          const row = (out[key] ||= { load: 0, capacity: 0, cards: 0 })
+          const row = (out[key] ||= { load: 0, capacity: 0, cards: 0, pcs: 0, missing: 0 })
           row.load += Number(lane.current_load || 0)
           row.capacity += Number(lane.capacity_value || 0)
           row.cards += (lane.jobs || []).length
+          row.pcs += lanePcs(lane)
+          row.missing += laneMissing(lane)
         }
       }
     }
@@ -235,7 +250,7 @@ export function ScheduleBoard({
           className={cn("flex min-h-0 flex-1 flex-col rounded-xl border bg-card shadow-sm transition-colors", dragged && (dragged.machine_id && dragged.shift_code) ? "border-dashed border-primary/60" : "border-border", queueHover && "bg-primary/[.04]")}
           onDragOver={(event) => { if (dragged?.machine_id && dragged?.shift_code) { event.preventDefault(); setQueueHover(true) } }}
           onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setQueueHover(false) }}
-          onDrop={() => { setQueueHover(false); if (dragged?.machine_id && dragged?.shift_code && !busy) unschedule(dragged); setDragged(null) }}
+          onDrop={() => { setQueueHover(false); if (dragged?.machine_id && dragged?.shift_code) unschedule(dragged); setDragged(null) }}
           aria-label="Open queue"
         >
           {queueHeader}
@@ -295,11 +310,13 @@ export function ScheduleBoard({
             {/* Shift headers with load across all machines */}
             <div className="sticky left-0 top-[61px] z-20 border-b border-r border-border bg-card px-3 py-1 text-[11px] font-semibold text-muted-foreground">Machine</div>
             {columns.map(({ date, shift }) => {
-              const total = dayTotals[`${date}|${shift.code}`] || { load: 0, capacity: 0, cards: 0 }
+              const total = dayTotals[`${date}|${shift.code}`] || { load: 0, capacity: 0, cards: 0, pcs: 0, missing: 0 }
               return (
                 <div key={`${date}|${shift.code}`} className="sticky top-[61px] z-10 flex items-center justify-between gap-2 border-b border-r border-border bg-card px-3 py-1 text-[11px]">
                   <span className="font-semibold">{shift.label || shift.code.replace("SHIFT_", "Shift ")}</span>
-                  <span className="tabular-nums text-muted-foreground">{total.cards} cards · {fmt(total.load)} {unit}</span>
+                  <span className="tabular-nums text-muted-foreground" title={total.missing ? `${total.missing} card${total.missing === 1 ? "" : "s"} without a tube length: not counted in ${unit}` : undefined}>
+                    {total.cards} card{total.cards === 1 ? "" : "s"} · {fmt(total.load)} {unit}{total.pcs ? ` · ${fmt(total.pcs)} pcs` : ""}{total.missing ? ` · ${total.missing} length missing` : ""}
+                  </span>
                 </div>
               )
             })}
@@ -321,6 +338,9 @@ export function ScheduleBoard({
                     const cell = `${machine.id}|${column.date}|${lane.shift_code}`
                     const capacity = Number(lane.capacity_value || 0)
                     const current = Number(lane.current_load || 0)
+                    const pcs = lanePcs(lane)
+                    const cardCount = (lane.jobs || []).length
+                    const missing = laneMissing(lane)
                     const here = dragged && dragSet.length === 1 && (lane.jobs || []).some((job: any) => job.segment_id === dragged.segment_id)
                     const need = dragged && !here ? dragNeed : 0
                     const projected = current + need
@@ -336,12 +356,12 @@ export function ScheduleBoard({
                         key={cell}
                         data-fit={fit}
                         data-lane={cell}
-                        onDragOver={(event) => { if (dragged && !blocked && !busy) { event.preventDefault(); if (hover !== cell) setHover(cell) } }}
+                        onDragOver={(event) => { if (dragged && !blocked) { event.preventDefault(); if (hover !== cell) setHover(cell) } }}
                         onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setHover((current) => (current === cell ? null : current)) }}
                         onDrop={() => {
                           const jobs = dragSet
                           setHover(null); setDragged(null)
-                          if (!jobs.length || blocked || here || busy) return
+                          if (!jobs.length || blocked || here) return
                           if (fit === "over") onOverCapacity(jobs, target, label, projected - capacity, lane.capacity_unit || unit, need)
                           else if (jobs.length > 1) onScheduleMany(jobs, target)
                           else onSchedule(jobs[0], target)
@@ -356,12 +376,18 @@ export function ScheduleBoard({
                           pulseLane === cell && "planner-window-pulse ring-2 ring-inset ring-primary/60 bg-primary/[.06]",
                         )}
                       >
-                        <div className="flex items-center gap-1.5" title={capacity ? `${fmt(current, 1)} of ${fmt(capacity)} ${lane.capacity_unit || unit}` : "No capacity set"}>
+                        <div className="flex items-center gap-1.5" title={capacity ? `${fmt(current, 1)} ${unit} of ${fmt(capacity)} ${unit} planned${pcs ? ` · ${fmt(pcs)} pcs on ${cardCount} card${cardCount === 1 ? "" : "s"}` : ""}${missing ? ` · ${missing} card${missing === 1 ? "" : "s"} without a tube length, not counted in ${unit}` : ""}` : "No capacity set"} data-testid="planner-lane-load">
                           <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
                             <span className={cn("block h-full rounded-full ", ratio >= 100 ? "bg-signal-rose-ink" : ratio >= 85 ? "bg-signal-amber-ink" : "bg-primary/70")} style={{ width: `${ratio}%` }} />
                           </span>
                           <span className="shrink-0 text-[10.5px] tabular-nums text-muted-foreground">{capacity ? `${fmt(current)} / ${fmt(capacity)} ${unit}` : `${fmt(current)} ${unit} · capacity unset`}</span>
                         </div>
+                        {cardCount ? (
+                          <p className="-mt-1 text-[10.5px] tabular-nums text-muted-foreground" data-testid="planner-lane-pcs">
+                            {fmt(pcs)} pcs on {cardCount} card{cardCount === 1 ? "" : "s"}
+                            {missing ? <span className="font-semibold text-signal-amber-ink"> · {missing} length missing</span> : null}
+                          </p>
+                        ) : null}
                         {lane.warning ? <p className="rounded bg-signal-amber-soft p-1.5 text-[10.5px] text-signal-amber-ink">{lane.warning}</p> : null}
                         {(lane.jobs || []).map((job: any) => <PlanCard key={job.segment_id} job={job} compact dragging={dragged?.segment_id === job.segment_id} onUnschedule={unschedule} {...cardProps} />)}
                         {hover === cell && dragged && !here ? (

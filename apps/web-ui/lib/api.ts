@@ -625,7 +625,7 @@ export const inventoryApi = {
   getReelLabel: (id: string) => api.get(`/api/inventory/labels/reels/${encodeURIComponent(id)}`),
   createReelIssue: ({ plantId, ...data }: any) => api.post("/api/inventory/reel-issues", data, onPlant(plantId)),
   /** Parchment to the floor by colour and kg; the oldest cleared coils are used (client 2026-10-26). */
-  issueParchmentByWeight: ({ plantId, ...data }: { item_id: string; qty_kg: number; shift: string; issue_date: string; notes?: string; plantId?: string }) =>
+  issueParchmentByWeight: ({ plantId, ...data }: { item_id: string; qty_kg: number; notes?: string; request_id?: string; plantId?: string }) =>
     api.post("/api/inventory/reel-issues/by-weight", data, onPlant(plantId)),
   getReelIssues: (params?: any) => api.get("/api/inventory/reel-issues", { params }),
   closeReelIssue: (id: string, { plantId, ...data }: any) => api.post(`/api/inventory/reel-issues/${id}/close`, data, onPlant(plantId)),

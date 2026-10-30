@@ -16,8 +16,9 @@ Output tolerance: planning is exact, but a shift may produce up to +10% over its
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Iterable, Optional, Sequence
+from zoneinfo import ZoneInfo
 
 import math
 
@@ -199,3 +200,64 @@ def is_missed_slot(*, plan_date: Optional[date], shift_code: Optional[str], has_
     if plan_date is None or has_any_entry:
         return False
     return now_local >= missed_slot_deadline(plan_date, shift_code)
+
+
+# ── plant clock (India time + shift rule) ─────────────────────────────────
+# The containers run on UTC; every business "today" is India time (client 2026-10-30: a partial entry at
+# 01:31 IST was refused as "in the future" because date.today() was still the UTC day before).
+PLANT_TZ = ZoneInfo("Asia/Kolkata")
+
+
+def _clock() -> datetime:
+    """Now, timezone-aware. Tests patch this one function to freeze the plant clock."""
+    return datetime.now(timezone.utc)
+
+
+def plant_now(now: Optional[datetime] = None) -> datetime:
+    """Now in India time (aware). A naive ``now`` is read as UTC, like server timestamps."""
+    moment = now or _clock()
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(PLANT_TZ)
+
+
+def plant_today(now: Optional[datetime] = None) -> date:
+    """The India calendar date (never the container's UTC date)."""
+    return plant_now(now).date()
+
+
+def shift_slot(now: Optional[datetime] = None) -> tuple[date, str]:
+    """(business date, shift) for a moment by the shift rule (``SHIFT_START``).
+
+    Shift A runs 08:00–20:00 IST and Shift B 20:00–08:00 IST. The business date is the day the shift
+    started, so 01:30 IST on 31 Oct is Shift B of 30 Oct.
+    """
+    local = plant_now(now)
+    clock = local.time().replace(tzinfo=None)
+    start_a, start_b = SHIFT_START["SHIFT_A"], SHIFT_START["SHIFT_B"]
+    if start_a <= clock < start_b:
+        return local.date(), "SHIFT_A"
+    if clock >= start_b:
+        return local.date(), "SHIFT_B"
+    return local.date() - timedelta(days=1), "SHIFT_B"
+
+
+def shift_business_date(shift_code: Optional[str], now: Optional[datetime] = None) -> date:
+    """Business date of the latest started run of ``shift_code`` (the running one, or the one just ended).
+
+    At 01:30 IST on 31 Oct both Shift A and Shift B are 30 Oct; at 10:00 IST on 31 Oct Shift A is 31 Oct
+    and Shift B (the night just ended) is 30 Oct.
+    """
+    day, shift = shift_slot(now)
+    if shift_code == "SHIFT_B" and shift == "SHIFT_A":
+        return day - timedelta(days=1)
+    return day
+
+
+def latest_entry_date(now: Optional[datetime] = None) -> date:
+    """The latest business date a floor entry may carry: the India calendar date.
+
+    After midnight the running shift (B) belongs to yesterday by the shift rule, but an operator who
+    writes today's calendar date is not in the future either, so both are accepted.
+    """
+    return plant_today(now)

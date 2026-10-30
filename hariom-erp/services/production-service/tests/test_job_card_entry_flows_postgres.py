@@ -234,7 +234,7 @@ def test_reschedule_onto_a_small_winder_auto_splits_across_shifts(db):
 
 def test_moving_to_another_winder_than_released_is_allowed_and_audited(db, monkeypatch):
     job = _card(db)
-    monkeypatch.setattr(planning, '_winder_override_warning', lambda card, machine_id: 'Released for W-01; planned on W-02')
+    monkeypatch.setattr(planning, '_winder_override_warning', lambda card, machine_id, **_: 'Released for W-01, planned on W-02.')
     _schedule(db, job, machine=SMALL_WINDER)
     assert 'winder_override' in _audits(db, job)
 

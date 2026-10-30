@@ -7,13 +7,14 @@ import { ColorChip, JobCardNo, LifecycleBadge } from "@/components/production/li
 import { useApp } from "@/context/AppContext"
 import { apiErrorText, newRequestId, useJobCardLifecycle, useRunningEntry, type JobCardLifecycle } from "@/hooks/use-lifecycle"
 import { cn } from "@/lib/utils"
+import { shiftSlotNow } from "@/lib/shift"
 import { usePlanningJobCard } from "@/hooks/use-production"
 
 const fmt = (value: number | null | undefined) => Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 1 })
 
-function currentShift() {
-  const hour = new Date().getHours()
-  return hour >= 8 && hour < 20 ? "SHIFT_A" : "SHIFT_B"
+// The running shift by the shift rule, in India time.
+function currentShift(): string {
+  return shiftSlotNow().shift
 }
 
 /**

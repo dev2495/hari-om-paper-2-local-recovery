@@ -20,6 +20,7 @@ from ..models import (
     TransactionType,
 )
 from ..services.books import assert_books_open, ist_today
+from ..services.shift_rule import floor_shift_now
 from ..services import (
     get_batch_balance,
     get_item_balance,
@@ -110,6 +111,45 @@ class IssueResponse(BaseModel):
     item_balance: float
     batch_balance: float
     message: str
+    # How the server dated it (client 2026-10-30): the shift and business date of the moment it was registered.
+    shift: Optional[str] = None
+    effective_date: Optional[date] = None
+    shift_label: Optional[str] = None
+    issued_at: Optional[datetime] = None
+    idempotent: bool = False
+
+
+def _shift_words(shift: Optional[str], day: Optional[date]) -> str:
+    code = str(shift or "").strip().upper()
+    name = f"Shift {code}" if code in {"A", "B", "C"} else ("General shift" if code == "GENERAL" else (code.title() or "Shift not recorded"))
+    return f"{name} · {day.day} {day.strftime('%b')}" if day else name
+
+
+def _replayed_issue(db: Session, plant_id: str, external_ref: str, item: ItemMaster) -> Optional[IssueResponse]:
+    """The same desk key again (double tap, retry): the first issue's answer, nothing issued twice."""
+    first = db.query(StockTransaction).filter(
+        StockTransaction.plant_id == plant_id, StockTransaction.external_ref == external_ref,
+        StockTransaction.transaction_type == TransactionType.ISSUE_PRODUCTION,
+    ).first()
+    if first is None:
+        return None
+    if str(first.item_id) != str(item.id):
+        raise HTTPException(status_code=409, detail="This issue key was already used for another material. Issue it again.")
+    parts = db.query(StockTransaction).filter(
+        StockTransaction.plant_id == plant_id, StockTransaction.reference_id == first.reference_id,
+        StockTransaction.transaction_type == TransactionType.ISSUE_PRODUCTION,
+        StockTransaction.item_id == first.item_id,
+    ).all()
+    mine = [row for row in parts if row.external_ref == external_ref or str(row.external_ref or "").startswith(f"{external_ref[:114]}#")] or [first]
+    qty = round(-sum(float(row.qty_change or 0.0) for row in mine), 6)
+    meta = first.movement_metadata or {}
+    label = _shift_words(meta.get("shift"), first.effective_date)
+    return IssueResponse(
+        transaction_id=first.id, item_id=first.item_id, batch_id=first.batch_id, qty_issued=qty,
+        item_balance=get_item_balance(str(first.item_id), db), batch_balance=get_batch_balance(str(first.batch_id), db),
+        message=f"Already issued: {_qty_text(qty, item.uom.value)} of {item.name} went to the floor · {label}. Nothing was issued twice.",
+        shift=meta.get("shift"), effective_date=first.effective_date, shift_label=label, issued_at=first.created_at, idempotent=True,
+    )
 
 
 @router.post("/", response_model=IssueResponse)
@@ -124,8 +164,13 @@ def create_issue(
     shift = str(issue.shift or "").strip().upper() or None
     if shift and shift not in VALID_SHIFTS:
         raise HTTPException(status_code=400, detail="Invalid shift")
-    if reason_code == "FLOOR_ISSUE" and not shift:
-        raise HTTPException(status_code=422, detail="Choose the shift the material is issued for")
+    # Registered now (client 2026-10-30): a floor issue never takes a shift or date from the desk; both come
+    # from this moment by the shift rule (A 08-20, B 20-08 IST; the business date is the day the shift began).
+    floor = floor_shift_now()
+    if reason_code == "FLOOR_ISSUE":
+        shift = floor.shift
+    elif not shift:
+        shift = floor.shift
     if reason_code != "FLOOR_ISSUE" and issue.production_job_id is None:
         raise HTTPException(status_code=422, detail="A correction issue names the job card it corrects")
     if reason_code not in MANUAL_REASON_CODES:
@@ -149,8 +194,15 @@ def create_issue(
         )
 
     uom = item.uom.value
-    # The issue day is the IST business day; a closed month takes no more issues (spec 2.5).
-    effective_date_value = issue.effective_date or ist_today()
+    external_ref = (issue.external_ref or "").strip() or None
+    if external_ref:
+        # The material row is locked above, so a second identical request waits here and then finds the first.
+        replay = _replayed_issue(db, plant_id, external_ref, item)
+        if replay is not None:
+            return replay
+    # The issue day is the shift's business day; a closed month takes no more issues (spec 2.5). A correction
+    # against a job card may still name its own date.
+    effective_date_value = floor.business_date if reason_code == "FLOOR_ISSUE" else (issue.effective_date or floor.business_date)
     assert_books_open(db, plant_id, effective_date_value)
     # A chosen lot is checked on its own balance below (it may be released by concession).
     cleared = [] if issue.batch_id else _issuable_batches(db, issue.item_id, plant_id)
@@ -176,7 +228,9 @@ def create_issue(
             customer_id=issue.customer_id,
             sales_order_id=issue.sales_order_id,
             allowed_statuses={"UNRESTRICTED", "WIP"},
-            blocked_detail=f"Batch is not issuable ({batch.stock_status})",
+            blocked_detail=f"Lot {(batch.inward_metadata or {}).get('amigo_no') or batch.batch_no} cannot be issued: "
+                           + ("it was rejected by incoming QC." if str(batch.stock_status).upper() == "BLOCKED" else "it has not passed incoming QC yet.")
+                           + " Only QC-cleared lots go to the floor.",
         )
         batch_left = get_batch_balance(str(selected_batch_id), db)
         if float(issue.qty) > batch_left + 1e-9:
@@ -215,6 +269,8 @@ def create_issue(
                 "production_job_id": str(issue.production_job_id) if issue.production_job_id else None,
                 "destination": "FLOOR" if reason_code == "FLOOR_ISSUE" else "JOB_CARD",
                 "shift": shift,
+                "issued_by": current_user.get("sub"),
+                "issued_at": floor.at_utc.isoformat(),
                 "reason_code": reason_code,
                 "notes": issue.notes,
                 "allow_raw_paper_exception": bool(issue.allow_raw_paper_exception),
@@ -222,8 +278,9 @@ def create_issue(
                 **({"split_part": index, "split_parts": len(allocations)} if len(allocations) > 1 else {}),
             },
             # One request may draw on several lots (oldest first); each part keeps a unique ref.
-            external_ref=(issue.external_ref if index == 1 or not issue.external_ref else f"{issue.external_ref[:114]}#{index}"),
+            external_ref=(external_ref if index == 1 or not external_ref else f"{external_ref[:114]}#{index}"),
             effective_date=effective_date_value,
+            created_at=floor.at_utc,
         ))
     db.add_all(transactions)
     db.commit()
@@ -238,7 +295,7 @@ def create_issue(
             plant_id=str(plant_id),
             actor_role=current_user.get("role"),
             actor_email=current_user.get("sub"),
-            summary=(f"Floor issue: {issue.qty} {item.uom.value} of {item.name} for shift {shift}" if reason_code == "FLOOR_ISSUE" else f"Manual issue: {issue.qty} {item.uom.value} of {item.name} ({reason_code})"),
+            summary=(f"Floor issue: {issue.qty} {item.uom.value} of {item.name}, {_shift_words(shift, effective_date_value)}" if reason_code == "FLOOR_ISSUE" else f"Manual issue: {issue.qty} {item.uom.value} of {item.name} ({reason_code})"),
             payload={
                 "item_id": str(issue.item_id),
                 "batch_id": str(selected_batch_id),
@@ -253,6 +310,7 @@ def create_issue(
     except Exception as exc:
         logger.warning("audit emit failed for stock_issued (%s): %s", transaction.id, exc)
 
+    label = _shift_words(shift, effective_date_value)
     return IssueResponse(
         transaction_id=transaction.id,
         item_id=issue.item_id,
@@ -260,7 +318,8 @@ def create_issue(
         qty_issued=issue.qty,
         item_balance=get_item_balance(str(issue.item_id), db),
         batch_balance=get_batch_balance(str(selected_batch_id), db),
-        message=(f"Issued {issue.qty} {item.uom.value} of {item.name} to the floor for shift {shift}" if reason_code == "FLOOR_ISSUE" else f"Issued {issue.qty} {item.uom.value} of {item.name} as a manual exception against production"),
+        message=(f"Issued {_qty_text(issue.qty, uom)} of {item.name} to the floor · {label}" if reason_code == "FLOOR_ISSUE" else f"Issued {issue.qty} {item.uom.value} of {item.name} as a manual exception against production"),
+        shift=shift, effective_date=effective_date_value, shift_label=label, issued_at=floor.at_utc,
     )
 
 

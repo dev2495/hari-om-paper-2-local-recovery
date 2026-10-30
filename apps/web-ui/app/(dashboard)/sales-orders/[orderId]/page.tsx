@@ -56,7 +56,7 @@ import { cn } from "@/lib/utils"
 import { peopleInText, personLabel } from "@/lib/people"
 import { lineHasReleaseWork } from "@/lib/sales-release"
 import { isInternalOrigin, salesOrderOriginLabel } from "@/lib/sales-order-entry"
-import { canMakeChallan, cardReadyToDispatch, cardState, cardSummary, formatDateTime, formatShortDate, nextAction, orderDue, orderHealth, orderTotals, whatIsNext } from "@/lib/sales-order-tracker"
+import { canMakeChallan, cardReadyToDispatch, cardState, cardSummary, formatDateTime, formatShortDate, nextAction, orderDue, orderHealth, orderTotals, selfApprovalRole, waitsForAnotherApprover, whatIsNext } from "@/lib/sales-order-tracker"
 
 const fmt = (value: unknown) => Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })
 /** Phone (< 640 px) table cells become labelled blocks: the label comes from data-label. */
@@ -147,17 +147,20 @@ export default function SalesOrderPage() {
   const due = useMemo(() => orderDue(order), [order])
   // Sales views challans only: the challan actions go to the roles that can seal one (Owner, Admin, Dispatch).
   const canChallan = canMakeChallan(user)
-  const action = useMemo(() => nextAction(order, cards, user?.email, canChallan), [order, cards, user?.email, canChallan])
+  // Owner and Admin may approve an order they entered themselves (user decision 2026-10-30).
+  const selfApprove = selfApprovalRole(user)
+  const action = useMemo(() => nextAction(order, cards, user?.email, canChallan, selfApprove), [order, cards, user?.email, canChallan, selfApprove])
   const scheduleItems: any[] = useMemo(() => (Array.isArray((schedulesQuery.data as any)?.items) ? (schedulesQuery.data as any).items : []), [schedulesQuery.data])
   const scheduleRevision = Number((schedulesQuery.data as any)?.schedule_revision ?? order?.schedule_revision ?? 0)
   const health = useMemo(() => orderHealth(order, totals, { ...cards, made }, due), [order, totals, cards, made, due])
-  const next = useMemo(() => whatIsNext(order, totals, cards, orderJobs, scheduleItems, canChallan), [order, totals, cards, orderJobs, scheduleItems, canChallan])
+  const next = useMemo(() => whatIsNext(order, totals, cards, orderJobs, scheduleItems, canChallan, selfApprove), [order, totals, cards, orderJobs, scheduleItems, canChallan, selfApprove])
   const history = historyQuery.data
   const lastChange = history?.events?.[0]
 
   const status = String(order?.status || "").toLowerCase()
   const canApprove = ["draft", "submitted"].includes(status)
-  const isMine = Boolean(user?.email) && String(order?.created_by || "").toLowerCase() === String(user?.email || "").toLowerCase()
+  const enteredByMe = Boolean(user?.email) && String(order?.created_by || "").toLowerCase() === String(user?.email || "").toLowerCase()
+  const isMine = waitsForAnotherApprover(order, user?.email, selfApprove)
   const releasableLineIds = (order?.lines || []).filter((line: any) => lineHasReleaseWork(line)).map((line: any) => String(line.id))
   const canRelease = ["approved", "released", "partially_released", "partially_dispatched"].includes(status) && !order?.is_held && releasableLineIds.length > 0
   const closure = orderClosureAction(order)
@@ -240,7 +243,7 @@ export default function SalesOrderPage() {
               ? <button type="button" className="erp-btn-primary !h-11 sm:!h-9" onClick={() => void handleSubmit()} disabled={submitOrder.isPending} title="You entered this order, so another user approves it (maker-checker)" data-testid="sales-order:submit"><Send className="h-4 w-4" />Send for approval</button>
               : <span className="rounded-lg border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-[12.5px] font-medium text-signal-amber-ink" title="Maker-checker: the person who created the order cannot approve it, even after switching role.">Waiting for another user to approve</span>
           ) : (
-            <button type="button" className="erp-btn-primary !h-11 sm:!h-9" onClick={() => void handleApprove()} disabled={approveOrder.isPending} data-testid="sales-order:approve"><CheckCircle2 className="h-4 w-4" />Approve</button>
+            <button type="button" className="erp-btn-primary !h-11 sm:!h-9" onClick={() => void handleApprove()} disabled={approveOrder.isPending} title={enteredByMe && selfApprove ? `You entered this order; as ${selfApprove} you may approve it yourself. The history records it as approved by the same person.` : undefined} data-testid="sales-order:approve"><CheckCircle2 className="h-4 w-4" />Approve</button>
           )
         ) : null}
         <button type="button" className={cn(canApprove ? actionBtn : "erp-btn-primary !h-11 sm:!h-9")} disabled={!canRelease} title={!canRelease ? (order.is_held ? "Lift the customer hold to release" : canApprove ? "Approve the order first" : finished ? "The order is closed" : "All lines are already released to job cards") : "Make job cards for the open lines"} onClick={() => handleOpenRelease()} data-testid="sales-order:release"><Rocket className="h-4 w-4" />Release lines</button>
@@ -395,7 +398,7 @@ export default function SalesOrderPage() {
                 <dt className="text-muted-foreground">Valid till</dt><dd>{formatShortDate(order.expiry_date)}</dd>
                 <dt className="text-muted-foreground">Plant</dt><dd>{String(order.plant_id || "—").slice(-2).toUpperCase() === "A1" ? "Plant A" : String(order.plant_id || "—")}</dd>
                 <dt className="text-muted-foreground">Created</dt><dd>{formatDateTime(order.created_at)} · {personLabel(order.created_by)}</dd>
-                <dt className="text-muted-foreground">Approved</dt><dd>{order.approved_at ? `${formatDateTime(order.approved_at)} · ${personLabel(order.approved_by)}` : "—"}</dd>
+                <dt className="text-muted-foreground">Approved</dt><dd data-testid="sales-order:approved">{order.approved_at ? `${formatDateTime(order.approved_at)} · ${personLabel(order.approved_by)}${order.self_approved_role ? ` · approved by the same person (${order.self_approved_role})` : ""}` : "—"}</dd>
                 {order.released_at ? <><dt className="text-muted-foreground">Released</dt><dd>{formatDateTime(order.released_at)} · {personLabel(order.released_by)}</dd></> : null}
                 {order.is_held ? <><dt className="text-muted-foreground">On hold</dt><dd>{formatDateTime(order.held_at)} · {personLabel(order.held_by)}{order.hold_reason ? ` · ${order.hold_reason}` : ""}</dd></> : null}
                 {order.notes ? <><dt className="text-muted-foreground">Notes</dt><dd className="whitespace-pre-wrap">{order.notes}</dd></> : null}

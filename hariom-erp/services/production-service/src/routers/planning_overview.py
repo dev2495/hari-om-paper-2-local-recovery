@@ -237,7 +237,7 @@ def _build(db: Session, plant_scope: dict, stages: list[str], start: date, end: 
             "window_start": window_start.isoformat(), "window_end": window_end.isoformat(),
             "part_no": part_no.get(slot.key, 1), "parts": parts[(slot.card, slot.stage)],
             "planned_qty": round(slot.planned, 2), "planned_pcs": round(float(segment.planned_qty or 0), 2), "unit": stage_unit(slot.stage),
-            "required_capacity": round(float(segment.required_capacity or 0), 2),
+            **_slot_capacity(slot.stage, segment, snapshot),
             "segment_status": segment.status, "card_status": str(job.status), "current_stage": job.current_stage,
             "result": "FLOOR_PLACED" if placed else result, "result_label": "Logged before planning" if placed else RESULT_LABEL[result],
             "placed_by_floor": placed,
@@ -336,14 +336,26 @@ def _queue_summary(db: Session, plant_scope: dict, stages: list[str], today: dat
     return out
 
 
+def _slot_capacity(stage: str, segment: Any, snapshot: dict[str, Any]) -> dict[str, Any]:
+    """A slot's load in the machine's capacity unit. Winding is metres from the spec (whole bamboos x bamboo
+    length); a spec without a tube length is "length missing", never 0 m or pcs (client 2026-10-30)."""
+    if stage == "WINDER":
+        metres = planning._winder_metres_or_none(float(segment.planned_qty or 0), snapshot or {})
+        return {"required_capacity": metres or 0.0, "length_missing": metres is None and float(segment.planned_qty or 0) > 0}
+    return {"required_capacity": round(float(segment.required_capacity or 0), 2), "length_missing": False}
+
+
 def _load(slots: list[dict[str, Any]], machines: list[dict[str, Any]]) -> list[dict[str, Any]]:
     capacity = {m["id"]: m for m in machines}
     buckets: dict[tuple[str, str, str], dict[str, Any]] = {}
     for slot in slots:
         key = (slot["machine_id"], slot["plan_date"], slot["shift_code"] or "")
         bucket = buckets.setdefault(key, {"machine_id": slot["machine_id"], "stage": slot["stage"], "plan_date": slot["plan_date"], "shift_code": slot["shift_code"],
-                                          "load": 0.0, "slots": 0, "planned_qty": 0.0, "made_qty": 0.0, "unit": slot["unit"]})
+                                          "load": 0.0, "slots": 0, "planned_qty": 0.0, "planned_pcs": 0.0, "made_qty": 0.0, "unit": slot["unit"],
+                                          "length_missing_slots": 0})
         bucket["load"] += slot["required_capacity"]
+        bucket["planned_pcs"] += float(slot.get("planned_pcs") or 0)
+        bucket["length_missing_slots"] += 1 if slot.get("length_missing") else 0
         bucket["slots"] += 1
         bucket["planned_qty"] += slot["planned_qty"]
         bucket["made_qty"] += slot["made_in_slot"]

@@ -47,7 +47,7 @@ from ..models import (
     TransactionType,
 )
 from .books import assert_books_open, ist_today, locked_months, month_label, month_start
-from .labels import batch_label_payload, reel_label_payload, scan_url
+from .labels import batch_label_payload, reel_label_facts, reel_label_payload, scan_url
 from .locations import RECEIVING_DEFAULT_CODE, RECEIVING_PURPOSES, default_receiving_location
 from .receipt_quality import initial_quality
 from .stock_lots import batch_balances, location_brief, lot_row
@@ -788,6 +788,10 @@ def batch_labels(db: Session, header: InventoryOpeningLoad) -> list[dict[str, An
             "qr_value": payload["qr_value"],
             "scan_url": scan_url(payload["qr_value"]),
         })
+        if line.reel_id:
+            # The readable reel / coil lines (client 2026-10-30): QC averages, else the spec marked "(spec)";
+            # the vendor typed on the batch, received on the go-live date.
+            row.update(reel_label_facts(db, entity, item, vendor=meta.get("vendor_name"), received=header.effective_date))
         labels.append(row)
     return labels
 

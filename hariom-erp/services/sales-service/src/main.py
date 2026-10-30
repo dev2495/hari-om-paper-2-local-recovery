@@ -50,6 +50,8 @@ def _ensure_schema_compatibility():
         )
         for statement in (
             "ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS expiry_date DATE",
+            # Owner / Admin approving an order they entered themselves (user decision 2026-10-30).
+            "ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS self_approved_role VARCHAR(20)",
             "ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS hold_reason TEXT",
             "ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS held_at TIMESTAMP",
             "ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS held_by VARCHAR(200)",

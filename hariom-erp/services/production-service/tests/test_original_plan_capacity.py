@@ -88,7 +88,7 @@ def test_plan06_missing_capacity_policy_is_not_labelled_feasible():
         resolved_unit=None,
     )
     assert warning == MISSING_CAPACITY_POLICY_WARNING
-    assert "feasible" in warning
+    assert "not checked" in warning
 
 
 def test_plan07_closed_dates_are_skipped_and_horizon_remainder_stays_finite():

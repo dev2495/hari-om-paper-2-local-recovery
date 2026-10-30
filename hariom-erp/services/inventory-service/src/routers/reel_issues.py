@@ -5,6 +5,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from sqlalchemy import text
 from sqlalchemy.orm import Session, joinedload
 
 from ..concession_use import guard_concession_stock
@@ -21,6 +22,7 @@ from ..models import (
     ReelStatus,
 )
 from ..services.books import assert_books_open
+from ..services.shift_rule import floor_shift_now
 from ..utils.audit_client import emit_audit_event
 from ..utils.auth import get_current_plant, get_current_plant_scope, get_current_user, require_role
 
@@ -109,18 +111,22 @@ class ReelIssueCreate(BaseModel):
     machine_id: Optional[uuid.UUID] = None
     # Older screens sent the winder under this name; it was silently dropped.
     winder_machine_id: Optional[uuid.UUID] = None
-    shift: str
-    issue_date: date
+    # Never chosen at the desk (client 2026-10-30): the server registers the issue now and takes the
+    # shift and business date from that moment (shift rule). Older screens still send them; they are ignored.
+    shift: Optional[str] = None
+    issue_date: Optional[date] = None
     # The whole reel / coil goes to the floor and is consumed in full (client rule 2026-10-18);
     # when given, it must equal the reel's current weight.
     issued_weight_kg: Optional[float] = Field(default=None, gt=0)
     customer_id: Optional[uuid.UUID] = None
     sales_order_id: Optional[uuid.UUID] = None
+    # The desk's key for this issue: the same key again (double tap, retry) returns the first issue.
+    request_id: Optional[uuid.UUID] = None
 
     @field_validator("shift")
     @classmethod
-    def validate_shift(cls, value: str) -> str:
-        return _normalize_shift(value)
+    def validate_shift(cls, value: Optional[str]) -> Optional[str]:
+        return None if value in (None, "") else _normalize_shift(value)
 
     @field_validator("issue_section")
     @classmethod
@@ -151,14 +157,16 @@ class WeightIssueCreate(BaseModel):
 
     item_id: uuid.UUID
     qty_kg: float = Field(gt=0)
-    shift: str
-    issue_date: date
+    # Derived from the moment the issue is registered (shift rule); older screens still send them.
+    shift: Optional[str] = None
+    issue_date: Optional[date] = None
     notes: Optional[str] = Field(default=None, max_length=500)
+    request_id: Optional[uuid.UUID] = None
 
     @field_validator("shift")
     @classmethod
-    def validate_shift(cls, value: str) -> str:
-        return _normalize_shift(value)
+    def validate_shift(cls, value: Optional[str]) -> Optional[str]:
+        return None if value in (None, "") else _normalize_shift(value)
 
 
 def plan_weight_issue(coils: list[tuple[str, float]], qty_kg: float) -> list[tuple[str, float]]:
@@ -213,11 +221,25 @@ class ReelIssueResponse(BaseModel):
     paper_name: Optional[str] = None
     gsm: Optional[float] = None
     width_mm: Optional[float] = None
+    # Issue history (2026-10-30): when it was registered (naive UTC), the shift in words, who issued it
+    # and the rack it was picked from.
+    issued_at: Optional[datetime] = None
+    shift_label: Optional[str] = None
+    issued_by: Optional[str] = None
+    from_location_id: Optional[uuid.UUID] = None
+    idempotent: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
 
-def _serialize_issue(issue: ReelIssue) -> ReelIssueResponse:
+def shift_words(shift: Optional[str], day: Optional[date]) -> str:
+    """"Shift B · 30 Oct"; older rows written as GENERAL read "General shift · 30 Oct"."""
+    code = str(shift or "").strip().upper()
+    name = f"Shift {code}" if code in {"A", "B", "C"} else ("General shift" if code == "GENERAL" else (code.title() or "Shift not recorded"))
+    return f"{name} · {day.day} {day.strftime('%b')}" if day else name
+
+
+def _serialize_issue(issue: ReelIssue, *, idempotent: bool = False) -> ReelIssueResponse:
     reel = getattr(issue, "reel", None)
     return ReelIssueResponse(
         id=issue.id,
@@ -244,7 +266,37 @@ def _serialize_issue(issue: ReelIssue) -> ReelIssueResponse:
         paper_name=reel.paper.name if reel is not None and getattr(reel, "paper", None) is not None else None,
         gsm=float(reel.gsm) if reel is not None and reel.gsm is not None else None,
         width_mm=float(reel.width_mm) if reel is not None and reel.width_mm is not None else None,
+        issued_at=issue.created_at,
+        shift_label=shift_words(issue.shift, issue.issue_date),
+        issued_by=getattr(issue, "issued_by", None),
+        from_location_id=getattr(issue, "from_location_id", None) or (reel.location_id if reel is not None else None),
+        idempotent=idempotent,
     )
+
+
+def _lock_request(db: Session, kind: str, plant_id: str, request_id: Optional[uuid.UUID]) -> None:
+    """One desk request at a time per key: a double tap waits for the first, then finds it."""
+    if request_id is None or db.bind is None or db.bind.dialect.name != "postgresql":
+        return
+    db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": f"{kind}:{plant_id}:{request_id}"})
+
+
+def _held_words(status: str) -> str:
+    status = str(status or "").upper()
+    if status == "BLOCKED":
+        return "it was rejected by incoming QC"
+    if status in {"QC_HOLD", "QUARANTINE", "PENDING"}:
+        return "it is waiting for incoming QC"
+    return f"it is on hold ({status.replace('_', ' ').lower() or 'not cleared'})"
+
+
+def _already_issued_detail(db: Session, reel: PaperReel) -> str:
+    last = db.query(ReelIssue).filter(ReelIssue.reel_id == reel.id).order_by(ReelIssue.created_at.desc()).first()
+    if last is not None:
+        return f"{reel.reel_code} was already issued to the floor ({shift_words(last.shift, last.issue_date)}) and is used up. Nothing is left to issue."
+    if reel.status == ReelStatus.SCRAP:
+        return f"{reel.reel_code} was scrapped. It cannot be issued."
+    return f"{reel.reel_code} has no weight left. Nothing is left to issue."
 
 
 @router.post("", response_model=ReelIssueResponse)
@@ -254,6 +306,15 @@ def create_reel_issue(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Store", "PlantManager", "RMIssue"])),
 ):
+    _lock_request(db, "reel-issue", plant_id, payload.request_id)
+    if payload.request_id is not None:
+        replay = db.query(ReelIssue).options(joinedload(ReelIssue.reel)).filter(
+            ReelIssue.plant_id == _to_uuid(plant_id), ReelIssue.request_id == payload.request_id,
+        ).first()
+        if replay is not None:
+            if replay.reel_id != payload.reel_id:
+                raise HTTPException(status_code=409, detail="This issue key was already used for another reel. Scan again to issue it.")
+            return _serialize_issue(replay, idempotent=True)
     reel = db.query(PaperReel).filter(
         PaperReel.id == payload.reel_id,
         PaperReel.plant_id == _to_uuid(plant_id),
@@ -261,8 +322,10 @@ def create_reel_issue(
     if not reel:
         raise HTTPException(status_code=404, detail="Reel not found in this plant")
     if reel.status in {ReelStatus.CONSUMED, ReelStatus.SCRAP} or float(reel.current_weight_kg or 0.0) <= 0:
-        raise HTTPException(status_code=400, detail="Reel is not issuable")
-    assert_books_open(db, plant_id, payload.issue_date)
+        raise HTTPException(status_code=400, detail=_already_issued_detail(db, reel))
+    # Registered now: the shift and business date come from this moment (shift rule), never from the desk.
+    floor = floor_shift_now()
+    assert_books_open(db, plant_id, floor.business_date)
     if _item_type(reel.paper) in WEIGHT_ISSUE_TYPES:
         raise HTTPException(
             status_code=400,
@@ -283,7 +346,7 @@ def create_reel_issue(
         customer_id=payload.customer_id,
         sales_order_id=payload.sales_order_id,
         allowed_statuses=ISSUABLE_STOCK_STATUSES,
-        blocked_detail=f"Reel is not QC-approved for issue ({reel.stock_status})",
+        blocked_detail=f"{reel.reel_code} is not QC-approved for issue: {_held_words(reel.stock_status)}. It goes to the floor once incoming QC passes it.",
     )
     if payload.issued_weight_kg > float(reel.current_weight_kg or 0.0):
         raise HTTPException(status_code=400, detail="Issued weight exceeds available reel weight")
@@ -293,9 +356,9 @@ def create_reel_issue(
         ReelIssue.status == ReelIssueStatus.OPEN,
     ).first()
     if existing_open_issue:
-        raise HTTPException(status_code=400, detail="This reel already has an open issue")
+        raise HTTPException(status_code=400, detail=f"{reel.reel_code} is already on the floor (open issue). Nothing is left to issue.")
 
-    now = datetime.utcnow()
+    now = floor.at_utc
     is_reel = section == "SLITTING_SECTION"
     issue = ReelIssue(
         plant_id=_to_uuid(plant_id),
@@ -304,8 +367,12 @@ def create_reel_issue(
         winder_machine_id=payload.machine_id,
         sales_order_id=payload.sales_order_id,
         customer_id=payload.customer_id,
-        shift=payload.shift,
-        issue_date=payload.issue_date,
+        shift=floor.shift,
+        issue_date=floor.business_date,
+        created_at=now,
+        issued_by=current_user.get("sub"),
+        from_location_id=reel.location_id,
+        request_id=payload.request_id,
         issued_weight_kg=payload.issued_weight_kg,
         consumed_weight_kg=payload.issued_weight_kg,
         remaining_weight_kg=0.0,
@@ -330,7 +397,10 @@ def create_reel_issue(
                 "issue_id": str(issue.id),
                 "issue_section": section,
                 "machine_id": str(payload.machine_id) if payload.machine_id else None,
-                "shift": payload.shift,
+                "shift": floor.shift,
+                "issue_date": floor.business_date.isoformat(),
+                "issued_by": current_user.get("sub"),
+                "from_location_id": str(reel.location_id) if reel.location_id else None,
                 "issued_weight_kg": float(payload.issued_weight_kg),
                 "physical_form": _reel_form(reel),
             },
@@ -347,13 +417,13 @@ def create_reel_issue(
             plant_id=str(plant_id),
             actor_role=str((current_user.get("roles") or ["?"])[0]),
             actor_email=current_user.get("sub"),
-            summary=f"{'Reel' if is_reel else 'Coil'} {reel.reel_code} issued to the floor ({payload.issued_weight_kg} kg, {'slitting' if is_reel else 'winding'}) on shift {payload.shift}",
+            summary=f"{'Reel' if is_reel else 'Coil'} {reel.reel_code} issued to the floor ({payload.issued_weight_kg} kg, {'slitting' if is_reel else 'winding'}), {floor.label}",
             payload={
                 "reel_id": str(payload.reel_id),
                 "issue_section": section,
                 "machine_id": str(payload.machine_id) if payload.machine_id else None,
-                "shift": payload.shift,
-                "issue_date": payload.issue_date.isoformat(),
+                "shift": floor.shift,
+                "issue_date": floor.business_date.isoformat(),
                 "issued_weight_kg": float(payload.issued_weight_kg),
             },
         )
@@ -380,7 +450,15 @@ def issue_parchment_by_weight(
         raise HTTPException(status_code=404, detail="Material not found in this plant")
     if _item_type(item) not in WEIGHT_ISSUE_TYPES:
         raise HTTPException(status_code=400, detail=f"{item.name} is not issued by weight. Reels and coils of paper are issued by their AT label.")
-    assert_books_open(db, plant_id, payload.issue_date)
+    _lock_request(db, "weight-issue", plant_id, payload.request_id)
+    if payload.request_id is not None:
+        replay = db.query(ReelIssue).options(joinedload(ReelIssue.reel)).filter(
+            ReelIssue.plant_id == _to_uuid(plant_id), ReelIssue.request_id == payload.request_id,
+        ).order_by(ReelIssue.created_at.asc()).all()
+        if replay:
+            return _weight_issue_replay(db, item, plant_id, replay)
+    floor = floor_shift_now()
+    assert_books_open(db, plant_id, floor.business_date)
     coils = (
         db.query(PaperReel)
         .filter(
@@ -406,15 +484,16 @@ def issue_parchment_by_weight(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"{item.name}: {exc}") from exc
     by_id = {str(coil.id): coil for coil in coils}
-    now = datetime.utcnow()
+    now = floor.at_utc
     touched = []
     for key, take in plan:
         coil = by_id[key]
         issue = ReelIssue(
             plant_id=_to_uuid(plant_id), reel_id=coil.id, issue_section="WINDER_SECTION",
-            shift=payload.shift, issue_date=payload.issue_date, issued_weight_kg=take,
+            shift=floor.shift, issue_date=floor.business_date, issued_weight_kg=take,
             consumed_weight_kg=take, remaining_weight_kg=0.0, status=ReelIssueStatus.CLOSED,
-            closed_at=now, issue_mode="FLOOR",
+            closed_at=now, issue_mode="FLOOR", created_at=now, issued_by=current_user.get("sub"),
+            from_location_id=coil.location_id, request_id=payload.request_id,
         )
         left = round(float(coil.current_weight_kg or 0.0) - take, 3)
         coil.current_weight_kg = 0.0 if left <= 0.0005 else left
@@ -425,7 +504,8 @@ def issue_parchment_by_weight(
         db.add(ReelScanEvent(
             plant_id=_to_uuid(plant_id), reel_id=coil.id, event_type=ReelScanEventType.ISSUE_SCAN,
             source=ReelScanSource.INVENTORY,
-            event_metadata={"issue_id": str(issue.id), "issue_mode": "BY_WEIGHT", "shift": payload.shift,
+            event_metadata={"issue_id": str(issue.id), "issue_mode": "BY_WEIGHT", "shift": floor.shift,
+                            "issue_date": floor.business_date.isoformat(), "issued_by": current_user.get("sub"),
                             "issued_weight_kg": take, "left_kg": coil.current_weight_kg, "notes": payload.notes},
         ))
         touched.append({"issue_id": str(issue.id), "reel_code": coil.reel_code, "issued_kg": take, "left_kg": coil.current_weight_kg})
@@ -437,16 +517,39 @@ def issue_parchment_by_weight(
             token=current_user.get("token", ""), event_type="parchment_issued_by_weight", entity_type="item",
             entity_id=str(item.id), plant_id=str(plant_id), actor_role=str((current_user.get("roles") or ["?"])[0]),
             actor_email=current_user.get("sub"),
-            summary=f"{issued:g} kg of {item.name} issued to the floor for shift {payload.shift}",
-            payload={"item_id": str(item.id), "qty_kg": issued, "shift": payload.shift, "issue_date": payload.issue_date.isoformat(), "coils": touched},
+            summary=f"{issued:g} kg of {item.name} issued to the floor, {floor.label}",
+            payload={"item_id": str(item.id), "qty_kg": issued, "shift": floor.shift, "issue_date": floor.business_date.isoformat(), "coils": touched},
         )
     except Exception as exc:
         _audit_logger.warning("audit emit failed for parchment_issued_by_weight %s: %s", item.id, exc)
     return {
         "item_id": str(item.id), "item_code": item.item_code, "item_name": item.name, "uom": "KG",
-        "issued_kg": issued, "available_after_kg": available_after, "shift": payload.shift,
-        "issue_date": payload.issue_date.isoformat(), "coils": touched,
-        "message": f"{issued:g} kg of {item.name} issued to the floor for shift {payload.shift}. {available_after:g} kg left in stock.",
+        "issued_kg": issued, "available_after_kg": available_after, "shift": floor.shift,
+        "issue_date": floor.business_date.isoformat(), "shift_label": floor.label, "issued_at": now.isoformat(),
+        "coils": touched, "idempotent": False,
+        "message": f"{issued:g} kg of {item.name} issued to the floor · {floor.label}. {available_after:g} kg left in stock.",
+    }
+
+
+def _weight_issue_replay(db: Session, item: ItemMaster, plant_id: str, rows: list[ReelIssue]) -> dict:
+    """The answer the first by-weight request got, for the same key sent again (nothing is issued twice)."""
+    issued = round(sum(float(row.issued_weight_kg or 0.0) for row in rows), 3)
+    available = db.query(PaperReel).filter(
+        PaperReel.plant_id == _to_uuid(plant_id), PaperReel.paper_id == item.id, PaperReel.status == ReelStatus.IN_STOCK,
+        PaperReel.stock_status.in_(sorted(ISSUABLE_STOCK_STATUSES)), PaperReel.current_weight_kg > 0,
+    ).all()
+    available_after = round(sum(float(coil.current_weight_kg or 0.0) for coil in available), 3)
+    first = rows[0]
+    label = shift_words(first.shift, first.issue_date)
+    return {
+        "item_id": str(item.id), "item_code": item.item_code, "item_name": item.name, "uom": "KG",
+        "issued_kg": issued, "available_after_kg": available_after, "shift": first.shift,
+        "issue_date": first.issue_date.isoformat(), "shift_label": label,
+        "issued_at": first.created_at.isoformat() if first.created_at else None,
+        "coils": [{"issue_id": str(row.id), "reel_code": row.reel.reel_code if row.reel else None, "issued_kg": float(row.issued_weight_kg or 0.0),
+                   "left_kg": float(row.reel.current_weight_kg or 0.0) if row.reel else None} for row in rows],
+        "idempotent": True,
+        "message": f"Already issued: {issued:g} kg of {item.name} went to the floor · {label}. Nothing was issued twice.",
     }
 
 

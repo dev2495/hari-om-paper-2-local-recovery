@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..entry_models import StageEntry
-from ..lifecycle_rules import SHIFT_HOURS, SHIFT_START, canonical_shift, planned_in_stage_units, stage_unit
+from ..lifecycle_rules import SHIFT_HOURS, SHIFT_START, canonical_shift, plant_today, planned_in_stage_units, stage_unit
 from ..models import AuditEvent, JobCard, JobCardStage, JobCardStageSegment
 from ..plan_match import Run, Slot, match_runs
 from ..utils.auth import get_current_plant_scope, require_role
@@ -136,7 +136,7 @@ def plan_vs_actual(
     plant_scope: dict = Depends(get_current_plant_scope),
     user: dict = Depends(require_role(REPORT_ROLES)),
 ):
-    today = date.today()
+    today = plant_today()
     end = date_to or today
     start = date_from or (end - timedelta(days=30))
     stages = [stage.upper()] if stage and stage.upper() in FLOOR_STAGES else list(FLOOR_STAGES)

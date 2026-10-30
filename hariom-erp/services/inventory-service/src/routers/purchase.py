@@ -461,6 +461,26 @@ def _order_for_plant(db: Session, po_id: uuid.UUID, plant_id: str) -> PurchaseOr
     return order
 
 
+def _po_decider_role(current_user: dict) -> Optional[str]:
+    """"Owner" or "Admin" when this login may decide (approve / reject) a PO revision, else None.
+
+    The Owner and an Admin decide POs, and may decide a revision they made or submitted themselves
+    (user decision 2026-10-30). Both the real (assigned) role and the role the session acts as must be
+    Owner or Admin: switching role does not change who you are."""
+    def _set(raw: Any) -> set[str]:
+        return {str(role).strip() for role in (raw if isinstance(raw, (list, tuple, set)) else [raw]) if str(role or "").strip()}
+
+    real = _set(current_user.get("actual_roles") or current_user.get("roles") or [])
+    acting = _set(current_user.get("roles") or [])
+    if not ({"Owner", "Admin"} & acting):
+        return None
+    if "Owner" in real:
+        return "Owner"
+    if "Admin" in real:
+        return "Admin"
+    return None
+
+
 def _owner_may_decide_own(order: PurchaseOrder) -> bool:
     """A scheduled PO is the Owner's own decision from the RM inward calendar: he may approve or reject
     a revision of it that he made or submitted himself (checker 2026-10-28: the only Owner filled a
@@ -1204,6 +1224,25 @@ def purchase_order_history(
     if not order:
         raise HTTPException(status_code=404, detail="Purchase order not found")
     revisions = db.query(PurchaseOrderRevision).filter(PurchaseOrderRevision.purchase_order_id == order.id).order_by(PurchaseOrderRevision.revision_no.desc()).all()
+    # Who approved each revision, as which role; an approval by its own maker or submitter (Owner / Admin,
+    # user decision 2026-10-30) reads "approved by the same person (Owner)".
+    approvals: dict[Any, PurchaseApprovalDecision] = {}
+    if revisions:
+        for decision in db.query(PurchaseApprovalDecision).filter(
+            PurchaseApprovalDecision.revision_id.in_([revision.id for revision in revisions]),
+            PurchaseApprovalDecision.decision == "APPROVED",
+        ).order_by(PurchaseApprovalDecision.decided_at.asc()).all():
+            approvals[decision.revision_id] = decision
+
+    def _same_person(revision: PurchaseOrderRevision) -> bool:
+        approver = str(revision.approved_by or "").strip().lower()
+        return bool(approver) and approver in {str(revision.created_by or "").strip().lower(), str(revision.submitted_by or "").strip().lower()}
+
+    def _approved_as(revision: PurchaseOrderRevision) -> Optional[str]:
+        decision = approvals.get(revision.id)
+        role = str(getattr(decision, "actor_role", "") or "").strip()
+        return role if role in {"Owner", "Admin"} else None
+
     return {"po_id": str(order.id), "po_no": order.po_no, "items": [{
         "id": str(revision.id), "revision_no": revision.revision_no, "approval_state": revision.approval_state,
         "content_hash": revision.content_hash, "change_reason": revision.change_reason, "version": revision.version,
@@ -1211,6 +1250,7 @@ def purchase_order_history(
         "submitted_by": revision.submitted_by,
         "submitted_at": revision.submitted_at.isoformat() if revision.submitted_at else None,
         "approved_by": revision.approved_by, "approved_at": revision.approved_at.isoformat() if revision.approved_at else None,
+        "approved_by_same_person": _same_person(revision), "approved_as": _approved_as(revision),
         "rejected_by": revision.rejected_by, "rejected_at": revision.rejected_at.isoformat() if revision.rejected_at else None,
         "rejection_reason": revision.rejection_reason, "snapshot": revision.snapshot_json,
     } for revision in revisions]}
@@ -1224,8 +1264,9 @@ def approve_purchase_order(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "PlantManager", "Owner"])),
 ):
-    if "Owner" not in set(current_user.get("actual_roles", current_user.get("roles")) or []) or "Owner" not in set(current_user.get("roles") or []):
-        raise HTTPException(status_code=403, detail="Only the Owner may decide purchase order approval")
+    decider_role = _po_decider_role(current_user)
+    if decider_role is None:
+        raise HTTPException(status_code=403, detail="Only the Owner or an Admin may decide purchase order approval")
     order = db.query(PurchaseOrder).filter(
         PurchaseOrder.id == po_id,
         PurchaseOrder.plant_id == plant_id,
@@ -1250,15 +1291,9 @@ def approve_purchase_order(
             raise HTTPException(status_code=422, detail=f"Fill the rate for {', '.join(missing)} first (Edit / vendor change).")
     actor = _actor(current_user).strip().lower()
     makers = {str(revision.created_by or "").strip().lower(), str(revision.submitted_by or "").strip().lower()}
-    if actor in makers and not _owner_may_decide_own(order):
-        # Maker-checker: switching role on the same login is still the same person.
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                f"This revision was prepared by {revision.submitted_by or revision.created_by}, so the same person cannot approve it — "
-                "switching role does not change who you are. Sign in as a different Owner to approve."
-            ),
-        )
+    # The Owner and an Admin may approve a revision they made or submitted (user decision 2026-10-30);
+    # the history records it as approved by the same person.
+    same_person = actor in makers
     order.status = "APPROVED"
     order.approved_by = _actor(current_user)
     order.approved_at = datetime.utcnow()
@@ -1271,7 +1306,7 @@ def approve_purchase_order(
     db.add(PurchaseApprovalDecision(
         revision_id=revision.id, decision="APPROVED", reason=payload.reason,
         content_hash=revision.content_hash, actor=_actor(current_user),
-        actor_role=str((current_user.get("roles") or [""])[0]),
+        actor_role=decider_role,
     ))
     db.commit()
     db.refresh(order)
@@ -1282,14 +1317,16 @@ def approve_purchase_order(
             entity_type="purchase_order",
             entity_id=str(order.id),
             plant_id=str(plant_id),
-            actor_role=str((current_user.get("roles") or ["?"])[0]),
+            actor_role=decider_role,
             actor_email=current_user.get("sub"),
-            summary=f"Purchase order {order.po_no} approved",
+            summary=f"Purchase order {order.po_no} approved" + (f" by the same person ({decider_role})" if same_person else ""),
             payload={
                 "po_no": order.po_no,
                 "supplier_id": str(order.supplier_id),
                 "supplier_name": order.supplier_name_snapshot,
                 "approved_by": _actor(current_user),
+                "approved_by_same_person": same_person,
+                "approved_as": decider_role,
             },
         )
     except Exception as exc:
@@ -1307,8 +1344,9 @@ def reject_purchase_order(
 ):
     if not payload.reason or len(payload.reason.strip()) < 3:
         raise HTTPException(status_code=422, detail="A rejection reason is required")
-    if "Owner" not in set(current_user.get("actual_roles", current_user.get("roles")) or []) or "Owner" not in set(current_user.get("roles") or []):
-        raise HTTPException(status_code=403, detail="Only the Owner may decide purchase order approval")
+    decider_role = _po_decider_role(current_user)
+    if decider_role is None:
+        raise HTTPException(status_code=403, detail="Only the Owner or an Admin may decide purchase order approval")
     order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id, PurchaseOrder.plant_id == plant_id).with_for_update().first()
     if not order:
         raise HTTPException(status_code=404, detail="Purchase order not found")
@@ -1318,8 +1356,7 @@ def reject_purchase_order(
     if payload.content_hash and payload.content_hash != revision.content_hash:
         raise HTTPException(status_code=409, detail="Purchase order content changed; reload before rejecting")
     actor = _actor(current_user)
-    if actor.strip().lower() in {str(revision.created_by).lower(), str(revision.submitted_by).lower()} and not _owner_may_decide_own(order):
-        raise HTTPException(status_code=403, detail="A different authorized person must decide this purchase order revision")
+    # The Owner or an Admin may also send back a revision they made themselves (user decision 2026-10-30).
     revision.approval_state = "REJECTED"
     revision.rejected_by = actor
     revision.rejected_at = datetime.utcnow()
@@ -1328,7 +1365,7 @@ def reject_purchase_order(
     order.status = "REJECTED"
     order.version += 1
     db.add(PurchaseApprovalDecision(revision_id=revision.id, decision="REJECTED", reason=payload.reason,
-        content_hash=revision.content_hash, actor=actor, actor_role=str((current_user.get("roles") or [""])[0])))
+        content_hash=revision.content_hash, actor=actor, actor_role=decider_role))
     db.commit()
     db.refresh(order)
     return _serialize_order(order)

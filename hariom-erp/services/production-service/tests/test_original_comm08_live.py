@@ -105,3 +105,31 @@ def test_comm08_live_order_snapshot_keeps_recipe_and_records_conflict():
         )
     finally:
         db.close()
+
+
+def test_old_recipe_without_parchment_prints_the_release_colour():
+    """30 Oct 2026: an old spec saved "parchment not used" no longer turns the release colour into a CONFLICT;
+    the card header and the printed parchment paper read the colour chosen at release (also for cards
+    released before the fix, which still carry the old CONFLICT)."""
+    db = Session()
+    try:
+        old_spec = {"parchment_color": None, "parchment_allowed": False, "product_code": "OLD-SPEC", "length_min_mm": 149.8, "length_max_mm": 150.2}
+        fresh = _apply_commercial_parchment(dict(old_spec), {"parchment_required": True, "parchment_color": "RED / SAGAR POLYFILMS"})
+        assert fresh["parchment_resolution"] == "ALIGNED"
+        legacy = {**old_spec, "sales_order_line_parchment_required": True, "sales_order_line_parchment_color": "RED / SAGAR POLYFILMS",
+                  "parchment_resolution": "CONFLICT", "parchment_conflict": {"reasons": ["parchment_not_allowed_on_recipe"]}}
+        order = SalesOrder(plant_id=PLANT_A_UUID, customer_id=uuid.uuid4(), spec_id=uuid.uuid4(), order_qty=10, due_date=date.today())
+        db.add(order)
+        db.flush()
+        for snapshot in (fresh, legacy):
+            job = JobCard(plant_id=PLANT_A_UUID, sales_order_id=order.id, spec_id=order.spec_id, spec_snapshot=snapshot, planned_qty=10,
+                          released_qty=10, status="PLANNED", current_stage="WINDER", product_code="OLD-SPEC")
+            db.add(job)
+            db.flush()
+            header = _build_document_snapshot(job_card=job, sales_order=order, spec_snapshot=dict(snapshot), stages=[], snapshot_mode="stored")["header"]
+            assert header["parchment_resolution"] == "ALIGNED" and header["parchment_conflict"] is None
+            assert header["color"] == "RED / SAGAR POLYFILMS"
+            assert header["parchment_paper"] == "RED / SAGAR POLYFILMS"
+        db.rollback()
+    finally:
+        db.close()

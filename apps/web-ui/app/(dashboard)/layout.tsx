@@ -162,8 +162,8 @@ const navigationUnits: NavGroup[] = [
       { name: "Expected arrivals", href: "/purchase/supplier-deliveries", icon: Truck, description: "What vendors should deliver: overdue, today, this week and later, each with Make GRN.", roles: ["Owner", "Admin", "Store", "Planner", "PlantManager", "GRN"] },
       { name: "Create purchase order", href: "/purchase/new", icon: FileText, description: "Multi-item PO with automatic numbering and vendor terms.", roles: ["Owner", "Admin", "Store", "Planner", "PlantManager"] },
       { name: "Purchase requisitions", href: "/purchase/requisitions", icon: FileText, description: "Request a tool or material for Owner approval." },
-      // The page is the Owner's decision desk (RoleGate Owner, Admin not included), so only a real Owner sees the link.
-      { name: "PO approvals", href: "/purchase/approvals", icon: ShieldCheck, description: "Approve RM arrivals, requisitions and submitted PO revisions.", ownerOnly: true },
+      // Owner and Admin decide POs (client 2026-10-30); RM arrivals and requisitions on the page stay Owner-only.
+      { name: "PO approvals", href: "/purchase/approvals", icon: ShieldCheck, description: "Approve RM arrivals, requisitions and submitted PO revisions.", roles: ["Owner", "Admin"] },
       { name: "Invoice differences", href: "/purchase/discrepancies", icon: ScrollText, description: "Review rates, quantities and specifications.", roles: ["Owner", "Admin", "Store", "Accounts", "PlantManager"] },
       { name: "Debit notes", href: "/purchase/debit-notes", icon: FileText, description: "Vendor claims, approvals and settlements.", roles: ["Owner", "Admin", "Accounts", "PlantManager"] },
       { name: "Purchase reports", href: "/purchase/registers", icon: LineChart, description: "Excel exports and printable commercial registers.", roles: ["Owner", "Admin", "Store", "Accounts", "Planner", "PlantManager"] },
@@ -176,6 +176,7 @@ const navigationUnits: NavGroup[] = [
       { name: "GRN register & labels", href: "/purchase/receipts", icon: ClipboardList, description: "Saved receipts, pending invoices, QC and label reprints.", roles: ["Owner", "Admin", "Store", "PlantManager", "Accounts", "GRN", "InwardQC"] },
       { name: "Reel & coil issue", href: "/inventory/reels/issue", icon: Layers, description: "Issue reels and coils to the floor by shift; each reel gets a slitting card.", roles: ["Owner", "Admin", "Store", "PlantManager", "RMIssue"] },
       { name: "Material issue", href: "/inventory/production-issue", icon: Boxes, description: "Issue adhesive, parchment and packing to the floor by shift.", roles: ["Owner", "Admin", "Store", "PlantManager", "RMIssue"] },
+      { name: "Issue history", href: "/inventory/issue-history", icon: ScrollText, description: "Every issue to the floor: shift, material, reel or lot, who issued it and the rack. CSV.", roles: ["Owner", "Admin", "Store", "PlantManager", "RMIssue", "Planner", "GRN"] },
       {
         // Every logged-in role may start a count and count (client 2026-10-28); only the Owner approves.
         name: "Stock counts & book",

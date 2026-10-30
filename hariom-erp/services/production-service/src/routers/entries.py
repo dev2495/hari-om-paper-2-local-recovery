@@ -26,7 +26,12 @@ router=APIRouter(tags=["continuous entries"])
 CONTINUOUS={("WINDER","OVEN"),("OVEN","PROCESS")}
 
 
-from ..lifecycle_rules import canonical_shift
+from ..lifecycle_rules import canonical_shift, latest_entry_date, shift_slot
+
+
+def shift_label_now():
+    day,shift=shift_slot()
+    return f"{'Shift A' if shift=='SHIFT_A' else 'Shift B'} of {day:%d %b}"
 
 
 class Mutation(BaseModel):
@@ -487,7 +492,9 @@ def validate_entry(e,job):
     if e.kind=="QC_ONLY":
         if any((e.produced,e.accepted,e.input_quantity,e.cutting_loss_pcs,e.carry_in_pcs,e.carry_out_pcs)) or not e.samples:raise HTTPException(422,"QC-only entry needs observations and zero quantities")
         return
-    if not e.business_date or e.business_date>date.today():raise HTTPException(422,"Valid business date is required")
+    # India time, never the container's UTC day (client 2026-10-30: 01:31 IST was refused as "the future").
+    if not e.business_date:raise HTTPException(422,"Choose the date of the shift")
+    if e.business_date>latest_entry_date():raise HTTPException(422,f"{e.business_date:%d %b %Y} is in the future. Use the date the shift started (now: {shift_label_now()}).")
     if e.shift_code not in ("SHIFT_A","SHIFT_B"):raise HTTPException(422,"Select Shift A or Shift B")
     if not e.operator_id:raise HTTPException(422,"Operator is required")
     if e.kind=="DISPOSITION":

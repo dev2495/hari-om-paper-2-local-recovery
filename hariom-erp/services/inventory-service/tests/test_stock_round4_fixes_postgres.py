@@ -283,7 +283,8 @@ def test_a_waiting_gain_approved_after_the_reel_went_to_the_floor_is_refused():
 
         # The Owner sees before approving that it was issued and approving posts nothing.
         waiting = next(row for row in list_corrections("DRAFT", db, plant, OWNER)["items"] if row["id"] == plus["id"])
-        assert waiting["lines"][0]["issued_since"] == ist_today().isoformat() and waiting["lines"][0]["still_to_post"] == 0
+        from src.services.shift_rule import floor_shift_now
+        assert waiting["lines"][0]["issued_since"] == floor_shift_now().business_date.isoformat() and waiting["lines"][0]["still_to_post"] == 0
 
         refusal = _refused(lambda: approve_correction(uuid.UUID(plus["id"]), CorrectionDecisionPayload(), db, plant, OWNER), 409, "Nothing comes back from the floor")
         assert refusal.detail["code"] == "ISSUED_SINCE_RAISED"

@@ -645,7 +645,7 @@ def _job_card_activity_date(job_card: JobCard) -> date:
             if value:
                 candidates.append(value)
     if not candidates:
-        return date.today()
+        return _consumption_ist_today()
     return max(candidates).date()
 
 

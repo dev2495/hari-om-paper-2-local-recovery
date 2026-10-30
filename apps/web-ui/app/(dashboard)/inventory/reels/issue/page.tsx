@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useRef, useState } from "react"
-import { ArrowUpRight, Barcode, Check, CircleAlert, ClipboardList, Hourglass, PackageCheck, Scissors, Search, Truck } from "lucide-react"
+import { ArrowUpRight, Barcode, Check, CircleAlert, Clock3, ClipboardList, History, Hourglass, PackageCheck, Scissors, Search, Truck } from "lucide-react"
 
 import { QrScanner } from "@/components/common/qr-scanner"
 import { Field, MessageBar, ProcurementShell, WorkPanel, fieldClass, primaryButton, secondaryButton } from "@/components/procurement/procurement-shell"
@@ -14,17 +14,16 @@ import { useAuth } from "@/context/AuthContext"
 import { useCloseReelIssue, useCreateReelIssue, useInventoryItems, useInventoryLocations, usePendingInventoryQuality, useRecordSlittingCard, useReelIssues, useReels } from "@/hooks/use-inventory"
 import { usePlants } from "@/hooks/use-system"
 import { inventoryApi } from "@/lib/api"
-import { businessDate } from "@/lib/business-date"
 import { canonicalPlantScopeValue, displayPlantScope } from "@/lib/plant-scope"
 import { parseScanCode } from "@/lib/scan-code"
-import { pickFromText } from "@/lib/stock-format"
+import { pickFromText, who } from "@/lib/stock-format"
+import { shiftAt, shiftWords } from "@/lib/shift"
 import { cn } from "@/lib/utils"
 
 const ISSUABLE = ["UNRESTRICTED", "WIP"]
-const SHIFTS = [{ value: "A", label: "Shift A" }, { value: "B", label: "Shift B" }, { value: "GENERAL", label: "General" }]
-const clockShift = () => { const hour = new Date().getHours(); return hour >= 8 && hour < 20 ? "A" : "B" }
+/** IST time of a naive-UTC server stamp, "21:45". */
+const istTime = (value?: string | null) => value ? new Date(/[zZ]|[+-]\d\d:\d\d$/.test(value) ? value : `${value}Z`).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false }) : "—"
 const kg = (value: any) => `${Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 3 })} kg`
-const day = (value?: string) => value ? new Date(value).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "—"
 const errorText = (error: any) => {
   const detail = error?.response?.data?.detail
   if (typeof detail === "string") return detail
@@ -91,8 +90,14 @@ export default function ReelAndCoilIssuePage() {
   const [search, setSearch] = useState("")
   const [form, setForm] = useState<"ALL" | "REEL" | "COIL">("ALL")
   const [picked, setPicked] = useState<string[]>([])
-  const [shift, setShift] = useState(clockShift())
-  const [issueDate, setIssueDate] = useState(businessDate())
+  // No shift or date is asked (client 2026-10-30): the server dates the issue from the moment it is
+  // registered by the shift rule. The desk only shows which shift that is, from the IST clock.
+  const [clock, setClock] = useState(() => shiftAt())
+  useEffect(() => { const timer = window.setInterval(() => setClock(shiftAt()), 20_000); return () => window.clearInterval(timer) }, [])
+  // One key per reel being issued: a double tap or a retry after a dropped line sends the same key, and the
+  // server returns the first issue instead of issuing twice. Cleared once the reel is issued.
+  const requestKeys = useRef(new Map<string, string>())
+  const inFlight = useRef(false)
   const [issuing, setIssuing] = useState(false)
   const [cardFor, setCardFor] = useState<string | null>(null)
   const [card, setCard] = useState(EMPTY_CARD)
@@ -109,7 +114,7 @@ export default function ReelAndCoilIssuePage() {
   const plantsQuery = usePlants()
   const pendingQc = usePendingInventoryQuality()
   const openQuery = useReelIssues({ status: "OPEN", limit: 300 })
-  const todayQuery = useReelIssues({ date_from: businessDate(), date_to: businessDate(), limit: 300 })
+  const todayQuery = useReelIssues({ date_from: clock.businessDate, date_to: clock.businessDate, limit: 300 })
   const createIssue = useCreateReelIssue()
   const recordCard = useRecordSlittingCard()
   const closeLegacy = useCloseReelIssue()
@@ -189,7 +194,7 @@ export default function ReelAndCoilIssuePage() {
       let when = ""
       try {
         const last = rowsOf((await inventoryApi.getReelIssues({ reel_id: row.id, limit: 1 })).data)[0]
-        if (last?.issue_date) when = ` on ${day(last.issue_date)}${last.shift ? `, shift ${last.shift}` : ""}`
+        if (last?.issue_date) when = ` (${shiftWords(last.shift, last.issue_date)}${last.issued_at ? `, ${istTime(last.issued_at)}` : ""})`
       } catch { /* the reason stands without the date */ }
       return setNotice({ tone: "error", text: `${code} was already issued to the floor${when} and is used up. Nothing is left to issue.` })
     }
@@ -203,9 +208,11 @@ export default function ReelAndCoilIssuePage() {
         : { tone: "error", text: `${code} cannot go to the floor yet: ${reason}. Ask QC to inspect it.` })
     }
     if (!stockRows.some((item) => String(item.id) === String(row.id))) setExtraRows((current) => [...current, row])
+    const again = picked.includes(String(row.id))
     setPicked((current) => (current.includes(String(row.id)) ? current : [...current, String(row.id)]))
     setScanCode("")
-    setNotice({ tone: "info", text: `${code} added · ${isCoil(row) ? "coil → winders" : "reel → slitter"}.` })
+    // Scanned twice: it stays picked once and goes to the floor once.
+    setNotice({ tone: "info", text: again ? `${code} is already picked. It goes to the floor once.` : `${code} added · ${isCoil(row) ? "coil → winders" : "reel → slitter"}.` })
     // On a phone the issue button can be off screen: bring it up so the scan is one tap from issue.
     if (window.innerWidth < 1280) window.setTimeout(() => submitButton.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 80)
   }
@@ -273,25 +280,36 @@ export default function ReelAndCoilIssuePage() {
 
   async function issueSelected() {
     if (!selected.length) return setNotice({ tone: "error", text: "Pick or scan the reels and coils going to the floor." })
+    if (inFlight.current) return
+    inFlight.current = true
     setIssuing(true)
     const done: string[] = []
     const failed: string[] = []
+    let dated = ""
     for (const row of selected) {
+      const id = String(row.id)
+      const key = requestKeys.current.get(id) || crypto.randomUUID()
+      requestKeys.current.set(id, key)
       try {
-        await createIssue.mutateAsync({ plantId: row.plant_id || undefined, reel_id: row.id, shift, issue_date: issueDate, issued_weight_kg: Number(row.current_weight_kg) })
-        done.push(String(row.id))
+        const { data } = await createIssue.mutateAsync({ plantId: row.plant_id || undefined, reel_id: row.id, issued_weight_kg: Number(row.current_weight_kg), request_id: key })
+        dated = data?.shift_label || dated
+        done.push(id)
+        requestKeys.current.delete(id)
       } catch (error) {
         failed.push(`${row.reel_code}: ${errorText(error)}`)
       }
     }
+    inFlight.current = false
     setIssuing(false)
+    setClock(shiftAt())
     setPicked((current) => current.filter((id) => !done.includes(id)))
     setExtraRows((current) => current.filter((row) => !done.includes(String(row.id))))
     const slit = selected.filter((row) => done.includes(String(row.id)) && !isCoil(row)).length
+    const when = dated || shiftAt().label
     if (failed.length) {
-      setNotice({ tone: "error", text: `${done.length} issued. Not issued — ${failed.join(" · ")}` })
+      setNotice({ tone: "error", text: `${done.length} issued (${when}). Not issued — ${failed.join(" · ")}` })
     } else {
-      setNotice({ tone: "success", text: `${done.length} issued to the floor for shift ${shift}.${slit ? ` Write the slitting card for ${slit === 1 ? "the reel" : `the ${slit} reels`} once slit.` : ""}` })
+      setNotice({ tone: "success", text: `${done.length} issued to the floor · ${when}.${slit ? ` Write the slitting card for ${slit === 1 ? "the reel" : `the ${slit} reels`} once slit.` : ""}`, action: { label: "Issue history", href: "/inventory/issue-history" } })
     }
   }
 
@@ -325,7 +343,7 @@ export default function ReelAndCoilIssuePage() {
       <ProcurementShell
         eyebrow="Stores"
         title="Reel & coil issue to floor"
-        description="Issue to the floor by shift, never to a machine. A reel goes to the slitter and gets a slitting card; a coil goes straight to the winders. Everything issued is used in full. Any reel that passed incoming QC can go — invoice or rate questions never hold it."
+        description="Issue to the floor, never to a machine. The shift and date are taken from the clock when you press Issue. A reel goes to the slitter and gets a slitting card; a coil goes straight to the winders. Everything issued is used in full. Any reel that passed incoming QC can go — invoice or rate questions never hold it."
         actions={<IssueDeskTabs />}
         allPlants
       >
@@ -347,7 +365,7 @@ export default function ReelAndCoilIssuePage() {
           <Stat icon={PackageCheck} label="Ready for the floor" value={ready.length} hint={kg(readyKg)} tone="emerald" />
           <Stat icon={Hourglass} label="Not cleared yet" value={waiting.length} hint={waiting.length ? "QC decides — see the list" : "Nothing waiting"} tone={waiting.length ? "blue" : "slate"} />
           <Stat icon={Scissors} label="Slitting cards to write" value={cardsDue.length} hint={cardsDue.length ? "Coils made + wastage" : "All written"} tone={cardsDue.length ? "amber" : "slate"} />
-          <Stat icon={Truck} label="Issued today" value={today.length} hint={kg(todayKg)} tone="slate" />
+          <Stat icon={Truck} label={`Issued · ${clock.label.replace(/^Shift [AB] · /, "")}`} value={today.length} hint={kg(todayKg)} tone="slate" />
         </div>
 
         <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
@@ -414,21 +432,19 @@ export default function ReelAndCoilIssuePage() {
             </div>
 
             <div className="sticky bottom-0 -mx-4 mt-3 space-y-3 border-t border-border bg-card/95 px-4 pt-3 backdrop-blur sm:-mx-5 sm:px-5">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Shift">
-                  <div role="radiogroup" aria-label="Shift" className="flex gap-1 rounded-lg bg-muted p-1">
-                    {SHIFTS.map((item) => <button key={item.value} type="button" role="radio" aria-checked={shift === item.value} onClick={() => setShift(item.value)} className={cn("min-h-11 flex-1 rounded-md text-[13px] font-semibold sm:min-h-9", shift === item.value ? "bg-card shadow-sm ring-1 ring-border" : "text-muted-foreground")}>{item.label}</button>)}
-                  </div>
-                </Field>
-                <Field label="Issue date"><input className={phoneField} type="date" value={issueDate} max={businessDate()} onChange={(e) => setIssueDate(e.target.value)} /></Field>
-              </div>
+              <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-xl border border-border bg-muted/50 px-3 py-2 text-[13px]" data-testid="floor-issue-shift">
+                <Clock3 className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <b className="font-semibold">{clock.label}</b>
+                <span className="text-muted-foreground">(now {clock.clock})</span>
+                <span className="basis-full text-[11.5px] text-muted-foreground sm:basis-auto">Shift and date are taken from the clock when you press Issue.</span>
+              </p>
               <div className="flex flex-wrap items-center gap-2">
                 {selected.length ? (
                   <button type="button" className="text-[12.5px] font-semibold text-muted-foreground hover:text-foreground" onClick={() => setPicked([])}>Clear</button>
                 ) : null}
                 <button ref={submitButton} type="button" data-testid="floor-issue-submit" className={cn(primaryButton, "h-10 flex-1 justify-center")} disabled={busy || !selected.length} onClick={() => void issueSelected()}>
                   <PackageCheck className="h-4 w-4" />
-                  {issuing ? "Issuing…" : selected.length ? `Issue ${selected.length} to floor · ${kg(selectedKg)} · shift ${shift}` : "Pick reels or coils to issue"}
+                  {issuing ? "Issuing…" : selected.length ? `Issue ${selected.length} to floor · ${kg(selectedKg)}` : "Pick reels or coils to issue"}
                 </button>
               </div>
             </div>
@@ -479,7 +495,7 @@ export default function ReelAndCoilIssuePage() {
                       <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5">
                         <div className="min-w-0">
                           <p className="font-semibold">{row.reel_code} <span className="font-normal text-muted-foreground">· {row.paper_code || "paper"}{row.gsm ? ` · ${row.gsm} GSM` : ""}</span></p>
-                          <p className="text-[12.5px] text-muted-foreground">{kg(row.issued_weight_kg)} · issued {day(row.issue_date)} · shift {row.shift}</p>
+                          <p className="text-[12.5px] text-muted-foreground">{kg(row.issued_weight_kg)} · issued {shiftWords(row.shift, row.issue_date)}</p>
                         </div>
                         <button type="button" className={cardFor === row.id ? secondaryButton : primaryButton} onClick={() => { setCardFor(cardFor === row.id ? null : row.id); setCard(EMPTY_CARD) }}>{cardFor === row.id ? "Cancel" : <><ClipboardList className="h-4 w-4" />Write card</>}</button>
                       </div>
@@ -524,17 +540,17 @@ export default function ReelAndCoilIssuePage() {
             ) : <p className="text-sm text-muted-foreground">No paper reels or coils in stock.</p>}
           </WorkPanel>
 
-          <WorkPanel title={`Issued today · ${today.length}`} description="Reels and coils that went to the floor on today's business date.">
+          <WorkPanel title={`Issued today · ${today.length}`} description={`Business day ${clock.label.replace(/^Shift [AB] · /, "")}: Shift A from 08:00 and Shift B until 08:00 next morning.`} action={<Link href="/inventory/issue-history" className="inline-flex min-h-11 items-center gap-1 text-[13px] font-semibold text-primary hover:underline sm:min-h-0" data-testid="reel-issue-history-link"><History className="h-4 w-4" aria-hidden="true" />Issue history</Link>}>
             {today.length ? (
               <div className="overflow-x-auto">
-                <table className="tube-grid w-full min-w-[520px]">
-                  <thead><tr><th>Reel / coil</th><th>Went to</th><th>Shift</th><th className="text-right">Weight</th><th>Slitting card</th></tr></thead>
+                <table className="tube-grid w-full min-w-[560px]">
+                  <thead><tr><th>Reel / coil</th><th>Went to</th><th>Shift · time</th><th className="text-right">Weight</th><th>Slitting card</th></tr></thead>
                   <tbody>
                     {today.map((row) => (
                       <tr key={row.id}>
                         <td className="font-medium">{row.reel_code}<span className="block text-[12px] font-normal text-muted-foreground">{row.paper_code || ""}</span></td>
                         <td>{row.issue_section === "SLITTING_SECTION" ? "Slitter" : "Winders"}</td>
-                        <td>{row.shift}</td>
+                        <td>{shiftWords(row.shift, row.issue_date).replace(/ · .*$/, "")} · {istTime(row.issued_at || row.created_at)}<span className="block text-[12px] text-muted-foreground">{row.issued_by ? who(row.issued_by) : ""}</span></td>
                         <td className="text-right tabular-nums">{kg(row.issued_weight_kg)}</td>
                         <td>{row.issue_section !== "SLITTING_SECTION" ? <span className="text-muted-foreground">—</span> : row.slitting_card ? `${row.slitting_card.coils_made} coils · ${kg(row.slitting_card.wastage_kg)} wastage` : <span className="font-semibold text-signal-amber-ink">To write</span>}</td>
                       </tr>
@@ -551,7 +567,7 @@ export default function ReelAndCoilIssuePage() {
             <ul className="divide-y divide-border">
               {legacyOpen.map((row) => (
                 <li key={row.id} className="flex flex-wrap items-end justify-between gap-3 py-2.5">
-                  <div><p className="font-medium">{row.reel_code}</p><p className="text-[12.5px] text-muted-foreground">{kg(row.issued_weight_kg)} · {row.issue_section === "SLITTING_SECTION" ? "slitting" : "winder"} · {day(row.issue_date)} · shift {row.shift}</p></div>
+                  <div><p className="font-medium">{row.reel_code}</p><p className="text-[12.5px] text-muted-foreground">{kg(row.issued_weight_kg)} · {row.issue_section === "SLITTING_SECTION" ? "slitting" : "winder"} · {shiftWords(row.shift, row.issue_date)}</p></div>
                   {row.issue_section === "SLITTING_SECTION" ? (
                     <button type="button" className={secondaryButton} disabled={busy} onClick={() => void closeOld(row, 0)} title="The reel comes back into stock unchanged; issue it to the floor again from above">Back to stock, then issue to floor</button>
                   ) : (

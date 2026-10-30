@@ -442,14 +442,14 @@ def test_owner_fills_a_missing_rate_himself_and_decides_scheduled_pos_without_a_
         returned = list_purchase_orders(None, None, None, "returned", 100, 0, db, PLANT, STORE)
         assert str(third.id) in {str(row["id"]) for row in returned["items"]} and returned["summary"]["queues"]["returned"] >= 1
 
-        # Hand-made POs keep maker-checker: the Owner cannot approve one he made himself.
+        # A hand-made PO the Owner made himself: the Owner (or an Admin) may approve their own PO
+        # (user decision 2026-10-30); the history says it was approved by the same person.
         made = create_purchase_order(PurchaseOrderCreate(request_id=uuid.uuid4(), supplier_id=vendor, supplier_name="New Mill",
             expected_date=tue, lines=[{"item_id": paper.id, "qty_ordered": 10, "unit_cost": 40, "uom": "KG"}]), db, PLANT, OWNER)
         waiting = submit_purchase_order(made["id"], RevisionActionPayload(expected_version=made["version"]), db, PLANT, STORE)
         assert waiting["owner_may_decide_own"] is False and OWNER["sub"] in waiting["revision_makers"]
-        with pytest.raises(HTTPException) as own:
-            approve_purchase_order(made["id"], RevisionActionPayload(expected_version=waiting["version"]), db, PLANT, OWNER)
-        assert own.value.status_code == 403
+        own = approve_purchase_order(made["id"], RevisionActionPayload(expected_version=waiting["version"]), db, PLANT, OWNER)
+        assert own["status"] == "APPROVED" and own["approved_by"] == OWNER["sub"]
 
 
 def test_moving_an_arrival_into_another_week_regroups_it_and_vendor_dates_are_never_past():

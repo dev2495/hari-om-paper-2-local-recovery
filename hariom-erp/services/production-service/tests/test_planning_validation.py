@@ -18,6 +18,7 @@ from src.routers.planning import (
     _quality_failures_for_stage,
     _routing_stages_from_snapshot,
     _validate_machine_compatibility,
+    _effective_parchment_resolution,
     _validate_winder_queue_identity,
     preflight_sales_order_release,
 )
@@ -400,12 +401,20 @@ class PlanningValidationTests(unittest.TestCase):
         machine = _machine()
         machine["id_max_mm"] = 52
         warning = _validate_machine_compatibility(machine, "WINDER", _snapshot(), "00000000-0000-0000-0000-0000000000a1")
-        self.assertIn("advisory", warning)
+        self.assertIn("inside diameter", warning)
+        self.assertTrue(warning.endswith("Check the setup before running."))
         with self.assertRaises(HTTPException):
             _validate_machine_compatibility(machine, "WINDER", _snapshot(), "00000000-0000-0000-0000-0000000000a1", strict_winder_capabilities=True)
+        # Planning never blocks (client 2026-10-30): a Process/Oven machine outside the spec range is a flag too.
         machine["department"] = "PROCESS"
-        with self.assertRaises(HTTPException):
-            _validate_machine_compatibility(machine, "PROCESS", _snapshot(), "00000000-0000-0000-0000-0000000000a1")
+        self.assertIn("inside diameter", _validate_machine_compatibility(machine, "PROCESS", _snapshot(), "00000000-0000-0000-0000-0000000000a1"))
+
+    def test_capability_advisory_names_the_machine_in_plain_words(self):
+        machine = {**_machine(), "code": "W-03", "name": "Winder 3", "length_min_mm": 100, "length_max_mm": 1200}
+        spec = {**_snapshot(), "length_min_mm": 1500, "length_max_mm": 1500}
+        warning = _validate_machine_compatibility(machine, "WINDER", spec, "00000000-0000-0000-0000-0000000000a1")
+        self.assertEqual(warning, "W-03 makes 100–1,200 mm tubes; this spec needs 1,500 mm. Check the setup before running.")
+        self.assertNotRegex(warning, r"[0-9a-f]{8}")
 
     def test_winder_missing_capability_is_advisory_but_inactive_is_blocked(self):
         machine = _machine()
@@ -436,12 +445,11 @@ class PlanningValidationTests(unittest.TestCase):
         machine = _machine()
         machine["supported_mandrel_ids"] = ["00000000-0000-0000-0000-000000000111"]
         warning = _validate_machine_compatibility(machine, "WINDER", _snapshot(), "00000000-0000-0000-0000-0000000000a1")
-        self.assertIn("advisory", warning)
+        self.assertIn("mandrel", warning)
         with self.assertRaises(HTTPException):
             _validate_machine_compatibility(machine, "WINDER", _snapshot(), "00000000-0000-0000-0000-0000000000a1", strict_winder_capabilities=True)
         machine["department"] = "PROCESS"
-        with self.assertRaises(HTTPException):
-            _validate_machine_compatibility(machine, "PROCESS", _snapshot(), "00000000-0000-0000-0000-0000000000a1")
+        self.assertIn("mandrel", _validate_machine_compatibility(machine, "PROCESS", _snapshot(), "00000000-0000-0000-0000-0000000000a1"))
 
     def test_stage_output_stage_validation(self):
         payload = StageOutputPayload(stage="process", output_qty=10, scrap_qty=1)
@@ -602,13 +610,24 @@ class PlanningValidationTests(unittest.TestCase):
         self.assertEqual(result["sales_order_line_parchment_color"], "Blue · Floral")
         self.assertIn("parchment_color_mismatch", result["parchment_conflict"]["reasons"])
 
-    def test_comm08_parchment_disallowed_on_recipe_is_conflict_not_silent_enable(self):
+    def test_old_recipe_without_parchment_takes_the_release_colour(self):
+        # 28 Oct 2026: parchment is compulsory at release, there is no "none". An old recipe saved
+        # "parchment not used" is no longer a conflict; the recipe itself is not rewritten.
         snapshot = {"parchment_color": None, "parchment_allowed": False}
-        line = {"parchment_required": True, "parchment_color": "Natural"}
+        line = {"parchment_required": True, "parchment_color": "RED"}
         result = _apply_commercial_parchment(snapshot, line)
-        self.assertEqual(result["parchment_resolution"], "CONFLICT")
+        self.assertEqual(result["parchment_resolution"], "ALIGNED")
+        self.assertNotIn("parchment_conflict", result)
         self.assertIsNone(result["parchment_color"])
-        self.assertIn("parchment_not_allowed_on_recipe", result["parchment_conflict"]["reasons"])
+        self.assertFalse(result["parchment_allowed"])
+        self.assertEqual(result["sales_order_line_parchment_color"], "RED")
+
+    def test_cards_released_before_the_fix_read_aligned_with_the_release_colour(self):
+        legacy = {"parchment_color": None, "parchment_allowed": False, "sales_order_line_parchment_color": "RED",
+                  "parchment_resolution": "CONFLICT", "parchment_conflict": {"reasons": ["parchment_not_allowed_on_recipe"]}}
+        self.assertEqual(_effective_parchment_resolution(legacy), ("ALIGNED", None))
+        mismatch = {**legacy, "parchment_conflict": {"reasons": ["parchment_not_allowed_on_recipe", "parchment_color_mismatch"]}}
+        self.assertEqual(_effective_parchment_resolution(mismatch)[0], "CONFLICT")
 
     def test_comm08_aligned_variant_keeps_recipe_and_records_commercial_fields(self):
         snapshot = {"parchment_color": "Natural", "parchment_allowed": True}

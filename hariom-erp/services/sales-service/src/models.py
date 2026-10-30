@@ -41,6 +41,9 @@ class SalesOrder(Base):
 
     created_by = Column(String(200), nullable=False)
     approved_by = Column(String(200), nullable=True)
+    # Set when the person who entered the order approved it themselves, which only an Owner or Admin
+    # may do (user decision 2026-10-30): the role that allowed it ("Owner" or "Admin"), for the history.
+    self_approved_role = Column(String(20), nullable=True)
     released_by = Column(String(200), nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)

@@ -317,6 +317,8 @@ class SalesOrderResponse(BaseModel):
     status: str
     created_by: str
     approved_by: Optional[str]
+    # "Owner" / "Admin" when the person who entered the order approved it (user decision 2026-10-30).
+    self_approved_role: Optional[str] = None
     released_by: Optional[str]
     created_at: datetime
     approved_at: Optional[datetime]
@@ -545,6 +547,7 @@ def _serialize_order(order: SalesOrder) -> dict:
         "status": display_status(order),
         "created_by": order.created_by,
         "approved_by": order.approved_by,
+        "self_approved_role": getattr(order, "self_approved_role", None),
         "released_by": order.released_by,
         "created_at": order.created_at,
         "approved_at": order.approved_at,
@@ -2025,15 +2028,20 @@ def get_sales_order_timeline(
     warnings = []
 
     if order.approved_at:
+        self_role = getattr(order, "self_approved_role", None)
         events.append(
             _timeline_event(
                 event_id=f"{order.id}:approved",
                 event_type="SALES_ORDER_APPROVED",
-                title="Sales order approved",
-                message="Commercial approval completed.",
+                title=f"Sales order approved by the same person ({self_role})" if self_role else "Sales order approved",
+                message=(
+                    f"Entered and approved by the same login. An {self_role} may approve an order they entered themselves."
+                    if self_role
+                    else "Commercial approval completed."
+                ),
                 created_at=order.approved_at,
                 actor=order.approved_by,
-                metadata={"order_no": order.order_no, "status": order.status.value},
+                metadata={"order_no": order.order_no, "status": order.status.value, **({"approved_as": self_role} if self_role else {})},
             )
         )
 
@@ -2751,6 +2759,20 @@ def _drop_unreleased_balance(order: SalesOrder) -> float:
     return round(dropped, 4)
 
 
+def self_approval_role(current_user: dict) -> Optional[str]:
+    """The real role that lets this login approve its own order: "Owner" or "Admin", else None.
+
+    Real roles are the assigned ones (``actual_roles`` on a switched-role session), never the role
+    the session is acting as."""
+    raw = current_user.get("actual_roles") or current_user.get("roles") or []
+    real = {str(role).strip() for role in (raw if isinstance(raw, (list, tuple, set)) else [raw]) if str(role or "").strip()}
+    if "Owner" in real:
+        return "Owner"
+    if "Admin" in real:
+        return "Admin"
+    return None
+
+
 @router.post("/{order_id}/approve", response_model=ActionResponse)
 def approve_sales_order(
     order_id: uuid.UUID,
@@ -2776,18 +2798,23 @@ def approve_sales_order(
         raise _http_commercial(exc) from exc
 
     actor = str(current_user.get("actual_sub") or current_user.get("sub") or "").strip().lower()
+    self_role = None
     if str(order.created_by or "").strip().lower() == actor:
-        # Maker-checker: switching role on the same login is still the same person.
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                f"This order was created by {order.created_by}, so the same person cannot approve it — "
-                "switching role does not change who you are. Sign in as a different Owner, Admin, Sales or Planner user to approve."
-            ),
-        )
+        # Maker-checker, except for an Owner or Admin (user decision 2026-10-30): they may approve an
+        # order they entered themselves. Their real role decides; switching role does not change who you are.
+        self_role = self_approval_role(current_user)
+        if self_role is None:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"This order was entered by {order.created_by}, so the same person cannot approve it — "
+                    "switching role does not change who you are. Another Sales or Planner user, the Owner or an Admin approves it."
+                ),
+            )
     order.status = SalesOrderStatus.APPROVED
     order.approved_by = actor
     order.approved_at = datetime.utcnow()
+    order.self_approved_role = self_role
     db.commit()
 
     try:
@@ -2800,7 +2827,7 @@ def approve_sales_order(
             plant_id=str(plant_id),
             actor_role=str((current_user.get("roles") or ["?"])[0]),
             actor_email=current_user.get("sub"),
-            summary=f"Sales order {order.order_no} approved",
+            summary=f"Sales order {order.order_no} approved" + (f" by the same person ({self_role})" if self_role else ""),
         )
     except Exception:
         pass

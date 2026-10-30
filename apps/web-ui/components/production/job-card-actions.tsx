@@ -19,6 +19,7 @@ import { apiErrorText, newRequestId, useAmendJobCard, useEmergencyInsert, useFor
 import { productionApi } from "@/lib/api"
 import { dayText, shiftText, stageWord } from "@/lib/job-card-tracking"
 import { cn } from "@/lib/utils"
+import { addDays, istToday } from "@/lib/shift"
 
 export type LifecycleAction = "split" | "edit" | "emergency" | "force_close" | "cancel"
 
@@ -835,7 +836,7 @@ export function EmergencyAction({ data, machines = [], onDone, wide }: ActionPro
     const dept = String(row.department || row.stage || row.machine_type || "").toUpperCase()
     return stage === "SLITTING" ? dept.includes("SLIT") : dept.includes(stage === "WINDER" ? "WIND" : stage)
   })
-  const today = new Date().toLocaleDateString("en-CA")
+  const today = istToday()
   const [machineId, setMachineId] = useState(String(stageMachines[0]?.id || ""))
   const [planDate, setPlanDate] = useState(today)
   const [shift, setShift] = useState("SHIFT_A")
@@ -867,9 +868,7 @@ export function EmergencyAction({ data, machines = [], onDone, wide }: ActionPro
   const capacityUnit = lane ? String(lane.capacity_unit || "").replace(/_/g, " ").toLowerCase() : ""
   const when = `${dayText(planDate)} · ${shiftText(shift)}${machineName ? ` · ${machineName}` : ""}`
   const quickSlots = useMemo(() => {
-    const next = new Date()
-    next.setDate(next.getDate() + 1)
-    const tomorrow = next.toLocaleDateString("en-CA")
+    const tomorrow = addDays(today, 1)
     return [
       { label: "Today · Shift A", date: today, shift: "SHIFT_A" },
       { label: "Today · Shift B", date: today, shift: "SHIFT_B" },

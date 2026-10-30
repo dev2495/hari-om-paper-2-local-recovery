@@ -63,7 +63,7 @@ from ..models import (
     TransactionType,
 )
 from ..quality_task_queue import enqueue_incoming_qc_task
-from ..services.labels import reel_label_payload, batch_label_payload
+from ..services.labels import reel_label_payload, batch_label_payload, with_reel_facts
 from ..services.receipt_quality import initial_quality, inward_stock_status, refresh_receipt_stock
 from ..services.procurement import (
     ProcurementRuleError,
@@ -182,7 +182,8 @@ def _receipt_payload(receipt: PurchaseReceipt, db: Session) -> dict[str, Any]:
                     "physical_form": reel.physical_form, "net_weight_kg": float(reel.inward_weight_kg or 0),
                     "current_weight_kg": float(reel.current_weight_kg or 0), "width_mm": reel.width_mm,
                     "stock_status": reel.stock_status, "commercial_status": reel.commercial_status,
-                    "label": label.content_snapshot if label else None,
+                    # Saved snapshot (its QR unchanged) plus the label lines as of now (client 2026-10-30).
+                    "label": with_reel_facts(db, label.content_snapshot, reel) if label else None,
                 })
         elif allocation.batch_id:
             batch = db.get(StockBatch, allocation.batch_id)
@@ -619,7 +620,7 @@ def post_governed_receipt(
                 reel = PaperReel(
                     plant_id=_plant_uuid(plant_id), reel_code=at_no, purchase_receipt_line_id=receipt_line.id,
                     paper_id=po_line.item_id, gsm=spec.get("gsm") or nominals.get("gsm"),
-                    bf=spec.get("plybond") or nominals.get("bf"), supplier_id=order.supplier_id,
+                    bf=spec.get("bf") or nominals.get("bf"), supplier_id=order.supplier_id,
                     supplier_name=order.supplier_name_snapshot, supplier_name_snapshot=order.supplier_name_snapshot,
                     inward_weight_kg=lot.net_weight_kg, net_weight_kg=lot.net_weight_kg,
                     gross_weight_kg=lot.gross_weight_kg, tare_weight_kg=lot.tare_weight_kg,
@@ -650,7 +651,7 @@ def post_governed_receipt(
                     source=ReelScanSource.INVENTORY, event_metadata={"receipt_id": str(receipt.id), "at_no": at_no, "source_reel_no": source_no}))
                 result_lots.append({"id": str(reel.id), "at_no": at_no, "source_reel_no": source_no,
                     "physical_form": form, "width_mm": lot.width_mm, "net_weight_kg": lot.net_weight_kg, "stock_status": stock_status,
-                    "label": label_snapshot})
+                    "label": with_reel_facts(db, label_snapshot, reel, po_line.item)})
         else:
             batch_no = (requested.batch_no or f"{grn_no}-B{index:03d}").strip().upper()
             batch = StockBatch(item_id=po_line.item_id, batch_no=batch_no, received_qty=float(qty),
@@ -2315,6 +2316,9 @@ def label_job_pdf(job_id: uuid.UUID, db: Session = Depends(get_db), plant_id: st
         if reel:
             for key, value in {"width_mm": reel.width_mm, "physical_form": reel.physical_form, "source_reel_no": reel.source_reel_no}.items():
                 if not label.get(key): label[key] = value
+            # Every reel / coil label printed from now on (new or reprint) carries the readable lines
+            # worked out at print time: QC averages, else the spec marked "(spec)" (client 2026-10-30).
+            label = with_reel_facts(db, label, reel)
         labels.append(label)
     return StreamingResponse(BytesIO(build_lot_label_pdf(labels, job.copies, job.profile)), media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="lot-labels-{job.id}.pdf"'})
 

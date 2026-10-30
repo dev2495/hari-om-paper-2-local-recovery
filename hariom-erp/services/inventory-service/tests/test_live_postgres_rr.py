@@ -213,7 +213,8 @@ def test_partial_concession_keeps_residual_hold_and_blocks_issue():
                 current_user=actor,
             )
         assert blocked_issue.value.status_code == 400
-        assert "QC_HOLD" in str(blocked_issue.value.detail)
+        # Plain words since 2026-10-30: a held lot "has not passed incoming QC yet".
+        assert "has not passed incoming QC" in str(blocked_issue.value.detail)
 
         with pytest.raises(HTTPException) as blocked_wip:
             issue_batch_to_wip(

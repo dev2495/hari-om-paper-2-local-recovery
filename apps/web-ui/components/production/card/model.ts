@@ -8,6 +8,7 @@ import { CheckCircle2, Flame, Package, Scissors, SlidersHorizontal, Truck, Wind,
 
 import { useAuth } from "@/context/AuthContext"
 import { displayStageRule } from "@/lib/qc-measurement"
+import { addDays, canonicalShift, istToday, shiftBusinessDate, shiftSlotNow } from "@/lib/shift"
 import { OPTIONAL_QC_CODES } from "../SeasonQcMatrix"
 
 export const STAGE_ORDER = ["SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING", "QC", "DISPATCH"]
@@ -60,20 +61,23 @@ export const stampDay = (value: any) => {
   const date = new Date(/(?:Z|[+-]\d{2}:\d{2})$/i.test(text) ? text : `${text}Z`)
   return Number.isNaN(date.getTime()) ? dayLabel(text) : date.toLocaleDateString("en-IN", { day: "numeric", month: "short" })
 }
-export const today = () => new Date().toLocaleDateString("en-CA")
-export const yesterday = () => {
-  const d = new Date()
-  d.setDate(d.getDate() - 1)
-  return d.toLocaleDateString("en-CA")
-}
-export const clockShift = () => {
-  const hour = new Date().getHours()
-  return hour >= 8 && hour < 20 ? "SHIFT_A" : "SHIFT_B"
-}
-// "HH:MM" on the business date; an end time before the start is the next morning (night shift).
-export const stamp = (day: string, time: string, after?: string) => {
+/**
+ * The business date of the running shift (shift rule, India time): 01:30 IST on 31 Oct is Shift B of 30 Oct,
+ * so a night-shift run defaults to 30 Oct (client 2026-10-30). Never the browser's own date.
+ */
+export const today = () => shiftSlotNow().date
+export const yesterday = () => addDays(today(), -1)
+export const clockShift = (): string => shiftSlotNow().shift
+/** The latest date a run may carry: the India calendar date (the server refuses only later dates). */
+export const latestDate = () => istToday()
+/** The date that goes with a shift picked on the form: the latest started run of that shift. */
+export const dateForShift = (shift: string) => shiftBusinessDate(shift)
+// "HH:MM" on the business date. Shift B runs 20:00-08:00, so its times before 08:00 fall on the next calendar
+// day (00:30 in Shift B of 30 Oct is 31 Oct 00:30); otherwise an end before the start is the next morning.
+export const stamp = (day: string, time: string, after?: string, shift?: string) => {
   if (!day || !time) return null
-  if (after && time < after) {
+  const nightNextDay = canonicalShift(shift) === "SHIFT_B" ? time < "08:00" : Boolean(after && time < after)
+  if (nightNextDay) {
     const next = new Date(`${day}T00:00:00`)
     next.setDate(next.getDate() + 1)
     return `${next.toLocaleDateString("en-CA")}T${time}`

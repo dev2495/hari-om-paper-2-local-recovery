@@ -95,7 +95,7 @@ def test_plan07_live_holiday_http_skips_closed_date_and_keeps_horizon_remainder(
     )
     assert overflow
     assert "exceeds" in overflow.lower()
-    assert "40.00" in overflow
+    assert "40 m planned on 10 m" in overflow
 
 
 def test_plan08_live_two_oven_jobs_then_third_cannot_overbook():

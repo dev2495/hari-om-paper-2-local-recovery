@@ -60,6 +60,7 @@ from .planning import (
     _sync_stage_row_from_segments,
     _to_uuid,
     _winder_capacity_meters_for_qty,
+    _winder_bamboo_plan_from_snapshot,
 )
 
 router = APIRouter(tags=["job-card-lifecycle"])
@@ -844,12 +845,16 @@ def winder_queue_load(
     machines: dict[str, dict[str, Any]] = {}
     for segment, job in rows:
         machine_key = str(segment.machine_id or job.assigned_winder_machine_id or "unassigned")
-        bucket = machines.setdefault(machine_key, {"machine_id": machine_key, "cards": set(), "by_day": {},
+        bucket = machines.setdefault(machine_key, {"machine_id": machine_key, "cards": set(), "by_day": {}, "length_missing": set(), "length_missing_pcs": 0.0,
                                                    **{f"{kind}_{unit}": 0.0 for kind in ("queued", "scheduled", "running") for unit in ("pcs", "m")}})
         ppb = _ppb(job) or 1
         remaining_pcs = max(0.0, float(segment.planned_qty or 0.0) - float(segment.output_qty or 0.0) * ppb)
         remaining_m = _winder_capacity_meters_for_qty(remaining_pcs, job.spec_snapshot or {}) if remaining_pcs > 0 else 0.0
         bucket["cards"].add(str(job.id))
+        if remaining_pcs > 0 and not _winder_bamboo_plan_from_snapshot(job.spec_snapshot or {}):
+            # No tube length on the spec: its metres are unknown, shown as "length missing", never as 0 m.
+            bucket["length_missing"].add(str(job.id))
+            bucket["length_missing_pcs"] += remaining_pcs
         if segment.status == "RUNNING":
             kind = "running"
         elif segment.shift_code and segment.machine_id:
@@ -875,6 +880,8 @@ def winder_queue_load(
             "capacity_m_per_day": round(per_day, 1) or None,
             "days_of_work": round(open_m / per_day, 1) if per_day > 0 else None,
             "cards": len(value["cards"]),
+            "length_missing_cards": len(value["length_missing"]),
+            "length_missing_pcs": round(value["length_missing_pcs"], 0),
             "by_day": [{"date": day, "pcs": round(load["pcs"], 0), "m": round(load["m"], 1)} for day, load in sorted(value["by_day"].items())],
         })
     return {"as_of": str(today), "machines": out}

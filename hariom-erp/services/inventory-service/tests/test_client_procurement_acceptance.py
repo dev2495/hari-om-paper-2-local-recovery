@@ -53,7 +53,8 @@ def test_requisition_roles_retry_cross_plant_conversion_and_no_bypass():
         assert duplicate.value.status_code==409
         rev=db.query(PurchaseOrderRevision).filter_by(purchase_order_id=created['id']).one()
         submitted=submit_purchase_order(created['id'],RevisionActionPayload(expected_version=1,reason='Terms checked'),db,PLANT,STORE)
-        with pytest.raises(HTTPException) as denied: approve_purchase_order(created['id'],RevisionActionPayload(expected_version=submitted['version']),db,PLANT,ADMIN)
+        # Only the Owner or an Admin decides a PO (Admin added by the user decision of 2026-10-30).
+        with pytest.raises(HTTPException) as denied: approve_purchase_order(created['id'],RevisionActionPayload(expected_version=submitted['version']),db,PLANT,{'sub':'pm@acceptance.test','roles':['PlantManager']})
         assert denied.value.status_code==403
         final=approve_purchase_order(created['id'],RevisionActionPayload(expected_version=submitted['version']),db,PLANT,OWNER)
         assert final['status']=='APPROVED' and final['metadata_json']['pr_no']==saved['pr_no']

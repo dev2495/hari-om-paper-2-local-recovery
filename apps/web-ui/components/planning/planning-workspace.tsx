@@ -191,9 +191,11 @@ function plannerSize(job: any) {
     : job?.spec_reference || job?.product_code || "Spec pending"
 }
 
+/** Winding metres of a card (whole bamboos x bamboo length); 0 when its spec has no tube length ("length missing"). */
 function winderMeterLoad(job: any) {
-  const requiredCapacity = Number(job?.required_capacity ?? 0)
-  if (Number.isFinite(requiredCapacity) && requiredCapacity > 0) return requiredCapacity
+  if (job?.length_missing) return 0
+  const metres = Number(job?.winding_m ?? job?.required_capacity ?? 0)
+  if (Number.isFinite(metres) && metres > 0) return metres
   const bambooCount = Number(job?.target_bamboo_count ?? 0)
   const bambooLengthMm = Number(job?.selected_bamboo_length_mm ?? 0)
   if (bambooCount > 0 && bambooLengthMm > 0) return (bambooCount * bambooLengthMm) / 1000
@@ -1006,40 +1008,57 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
     setHoverDetail({ job, label, x, y, placement: hasRoomRight ? "right" : "left" })
   }
 
-  const moveInFlight = useRef(false)
-  async function scheduleSegment(job: any, target: DropTarget) {
-    if (!job || moveInFlight.current) return
-    moveInFlight.current = true
-    let preflightWarning = ""
-    if (stage === "WINDER" && target.machine_id) {
-      const assignedWinder = job.assigned_winder_machine_id
-      if (!assignedWinder) {
-        preflightWarning = "No release winder was captured; planner is assigning this WINDER job manually."
-      } else if (String(assignedWinder) !== String(target.machine_id)) {
-        const assignedMachine = machineStatsMap.get(String(assignedWinder))
-        const targetMachine = machineStatsMap.get(String(target.machine_id))
-        preflightWarning = `Other winder used. Release selected ${assignedMachine?.code || assignedMachine?.name || "target winder"}; planner assigned ${targetMachine?.code || targetMachine?.name || "this winder"}.`
+  // Drops are saved one after another, never refused: a card dropped while the last move is still saving
+  // (or while the board refreshes) waits its turn instead of silently doing nothing (client 2026-10-30).
+  const moveChain = useRef<Promise<void>>(Promise.resolve())
+  const enqueueMove = (task: () => Promise<void>) => {
+    const run = moveChain.current.then(task, task)
+    moveChain.current = run.catch(() => undefined)
+    return run
+  }
+  /** "W-01 (Winder 1)": code and name, never an id fragment. */
+  const machineTitle = (id?: string | null) => {
+    const machine = id ? machineStatsMap.get(String(id)) : null
+    if (!machine) return ""
+    const code = String(machine.code || "").trim()
+    const name = String(machine.name || "").trim()
+    return code && name && name.toUpperCase() !== code.toUpperCase() ? `${code} (${name})` : code || name
+  }
+
+  function scheduleSegment(job: any, target: DropTarget) {
+    if (!job) return Promise.resolve()
+    return enqueueMove(async () => {
+      let preflightWarning = ""
+      if (stage === "WINDER" && target.machine_id) {
+        const assignedWinder = job.assigned_winder_machine_id
+        const planned = machineTitle(target.machine_id) || "another winder"
+        if (!assignedWinder) preflightWarning = `No winder was chosen at release; planned on ${planned}.`
+        else if (String(assignedWinder) !== String(target.machine_id)) preflightWarning = `Released for ${machineTitle(assignedWinder) || "another winder"}, planned on ${planned}.`
       }
-    }
-    try {
-      const response = await moveCard.mutateAsync({
-        segment_id: job.segment_id,
-        stage,
-        machine_id: target.machine_id,
-        plan_date: target.plan_date,
-        shift_code: target.shift_code,
-        sequence_no: target.sequence_no,
-      })
-      const warnings = Array.isArray(response?.data?.warnings) ? response.data.warnings.filter(Boolean) : []
-      const warningMessage = warnings.length ? warnings.join(" ") : preflightWarning
-      showToast(warningMessage || "Planner card moved.", warningMessage ? "info" : "success")
-    } catch (error: any) {
-      const detail = error?.response?.data?.detail || error?.message || "Unable to move planner card."
-      showToast(describeErrorDetail(detail), "error")
-    } finally {
-      moveInFlight.current = false
-      setDraggedJob(null)
-    }
+      try {
+        const response = await moveCard.mutateAsync({
+          segment_id: job.segment_id || job.active_segment_id || null,
+          job_card_id: job.job_card_id || job.id || null,
+          stage,
+          machine_id: target.machine_id,
+          plan_date: target.plan_date,
+          shift_code: target.shift_code,
+          sequence_no: target.sequence_no,
+        })
+        const warnings = Array.isArray(response?.data?.warnings) ? response.data.warnings.filter(Boolean) : []
+        const warningMessage = warnings.length ? warnings.join(" ") : preflightWarning
+        const card = jobCardRef(job)
+        const where = target.machine_id ? `${machineTitle(target.machine_id) || "machine"} · ${formatDate(target.plan_date)} · ${String(target.shift_code || "").replace("SHIFT_", "Shift ")}` : "the queue"
+        // An advisory is a flag: the card is placed either way and the toast says so first.
+        const done = target.machine_id ? `${card} placed on ${where}.` : `${card} is back in the queue.`
+        showToast(warningMessage ? `${done} ${warningMessage}` : done, warningMessage ? "info" : "success")
+      } catch (error: any) {
+        const detail = error?.response?.data?.detail || error?.message || "Unable to move planner card."
+        showToast(describeErrorDetail(detail), "error")
+      } finally {
+        setDraggedJob(null)
+      }
+    })
   }
 
   async function handleDrop(target: DropTarget) {
@@ -1048,40 +1067,39 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
   }
 
   /** Several ticked queue cards onto one slot: one call, all or nothing, in queue order. */
-  async function scheduleMany(jobs: any[], target: DropTarget) {
-    if (!jobs.length || moveInFlight.current) return
+  function scheduleMany(jobs: any[], target: DropTarget) {
+    if (!jobs.length) return Promise.resolve()
     if (jobs.length === 1) return scheduleSegment(jobs[0], target)
     if (jobs.length > 50) {
       showToast("Place up to 50 cards at a time.", "error")
-      return
+      return Promise.resolve()
     }
-    moveInFlight.current = true
-    const moves = jobs.map((job, index) => ({
-      job_card_id: job.job_card_id || job.id || null,
-      segment_id: job.segment_id || null,
-      stage,
-      machine_id: target.machine_id,
-      plan_date: target.plan_date,
-      shift_code: target.shift_code,
-      sequence_no: target.sequence_no + index,
-    }))
-    try {
-      const response = await moveMany.mutateAsync(moves)
-      const warnings = Array.isArray(response?.data?.warnings) ? Array.from(new Set(response.data.warnings.filter(Boolean))) : []
-      const moved = Number(response?.data?.moved || jobs.length)
-      const machine = target.machine_id ? machineStatsMap.get(String(target.machine_id)) : null
-      const where = target.machine_id
-        ? `${machine?.code || machine?.name || "machine"} · ${formatDate(target.plan_date)} · ${String(target.shift_code || "").replace("SHIFT_", "Shift ")}`
-        : "the queue"
-      showToast(`${moved} cards placed on ${where}.${warnings.length ? ` ${warnings.join(" ")}` : ""}`, warnings.length ? "info" : "success")
-      clearSelection()
-    } catch (error: any) {
-      const detail = error?.response?.data?.detail || error?.message || "Unable to move the selected cards."
-      showToast(describeErrorDetail(detail), "error")
-    } finally {
-      moveInFlight.current = false
-      setDraggedJob(null)
-    }
+    return enqueueMove(async () => {
+      const moves = jobs.map((job, index) => ({
+        job_card_id: job.job_card_id || job.id || null,
+        segment_id: job.segment_id || null,
+        stage,
+        machine_id: target.machine_id,
+        plan_date: target.plan_date,
+        shift_code: target.shift_code,
+        sequence_no: target.sequence_no + index,
+      }))
+      try {
+        const response = await moveMany.mutateAsync(moves)
+        const warnings = Array.isArray(response?.data?.warnings) ? Array.from(new Set(response.data.warnings.filter(Boolean))) : []
+        const moved = Number(response?.data?.moved || jobs.length)
+        const where = target.machine_id
+          ? `${machineTitle(target.machine_id) || "machine"} · ${formatDate(target.plan_date)} · ${String(target.shift_code || "").replace("SHIFT_", "Shift ")}`
+          : "the queue"
+        showToast(`${moved} cards placed on ${where}.${warnings.length ? ` ${warnings.join(" ")}` : ""}`, warnings.length ? "info" : "success")
+        clearSelection()
+      } catch (error: any) {
+        const detail = error?.response?.data?.detail || error?.message || "Unable to move the selected cards."
+        showToast(describeErrorDetail(detail), "error")
+      } finally {
+        setDraggedJob(null)
+      }
+    })
   }
 
   async function handleSplit() {

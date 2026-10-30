@@ -222,11 +222,26 @@ export function canMakeChallan(user?: { role?: string | null; roles?: Array<stri
   return roles.some((role) => ["Owner", "Admin", "Dispatch"].includes(String(role || "")))
 }
 
+/**
+ * The role that lets this login approve an order it entered itself: "Owner" or "Admin", else null
+ * (user decision 2026-10-30). Everyone else keeps maker-checker. Same rule as the sales service.
+ */
+export function selfApprovalRole(user?: { role?: string | null; roles?: Array<string | null> | null } | null): "Owner" | "Admin" | null {
+  const roles = new Set([user?.role, ...(user?.roles || [])].map((role) => String(role || "")))
+  return roles.has("Owner") ? "Owner" : roles.has("Admin") ? "Admin" : null
+}
+
+/** Is this order the user's own entry that maker-checker keeps them from approving? */
+export function waitsForAnotherApprover(order: any, meEmail?: string | null, selfApprove: string | null = null): boolean {
+  if (selfApprove) return false
+  return Boolean(meEmail) && String(order?.created_by || "").trim().toLowerCase() === String(meEmail || "").trim().toLowerCase()
+}
+
 /** The one thing to do next on this order, for the row button and the page's action bar. */
-export function nextAction(order: any, cards: CardSummary, meEmail?: string | null, canChallan = true): NextAction {
+export function nextAction(order: any, cards: CardSummary, meEmail?: string | null, canChallan = true, selfApprove: string | null = null): NextAction {
   const status = String(order?.status || "").toLowerCase()
   const totals = orderTotals(order)
-  const mine = Boolean(meEmail) && String(order?.created_by || "").trim().toLowerCase() === String(meEmail || "").trim().toLowerCase()
+  const mine = waitsForAnotherApprover(order, meEmail, selfApprove)
   if (order?.is_held) return { key: "resume", label: "Resume", tone: "secondary", hint: "Lift the customer hold; the order goes back to its earlier status" }
   if (status === "cancelled" || status === "closed") return { key: "open", label: "View", tone: "ghost" }
   if (status === "draft") {
@@ -299,15 +314,16 @@ export function formatShortDate(value?: string | null, today = plantToday()) {
 }
 
 /** Plain words for what to do next on an order, in order of urgency (Order page › What is next). */
-export function whatIsNext(order: any, totals: OrderTotals, cards: CardSummary, jobs: any[], callOffs: any[], canChallan = true): Array<{ title: string; detail: string }> {
+export function whatIsNext(order: any, totals: OrderTotals, cards: CardSummary, jobs: any[], callOffs: any[], canChallan = true, selfApprove: string | null = null): Array<{ title: string; detail: string }> {
   const fmt = (value: number) => value.toLocaleString("en-IN", { maximumFractionDigits: 0 })
   const status = String(order?.status || "")
   const items: Array<{ title: string; detail: string }> = []
   if (status === "cancelled") return [{ title: "Nothing pending", detail: "The order was cancelled; enter a new order if the customer comes back." }]
   if (status === "closed") return [{ title: "Nothing pending", detail: order?.closure_kind === "SHORT_CLOSED" ? "The balance was dropped; everything released is dispatched." : "Everything is dispatched." }]
   if (order?.is_held) items.push({ title: "Resume when the customer is ready", detail: `${fmt(totals.hold)} pcs are held. Lifting the hold puts the order back to its earlier status.` })
-  if (status === "draft") items.push({ title: "Send for approval", detail: "Another user approves the commercial terms (maker-checker), then the lines can be released." })
-  if (status === "submitted") items.push({ title: "Approve the order", detail: "A user other than the one who entered it approves; then release the lines." })
+  if (status === "draft" && selfApprove) items.push({ title: "Approve the order", detail: `As ${selfApprove} you may approve an order you entered yourself; the history records it. Then release the lines.` })
+  else if (status === "draft") items.push({ title: "Send for approval", detail: "Another user approves the commercial terms (maker-checker), then the lines can be released." })
+  if (status === "submitted") items.push({ title: "Approve the order", detail: selfApprove ? `As ${selfApprove} you may approve it, also if you entered it; then release the lines.` : "A user other than the one who entered it approves; then release the lines." })
   if (["approved", "released", "partially_released", "partially_dispatched"].includes(status) && totals.unreleased > 0 && !order?.is_held) {
     items.push({ title: `Release ${fmt(totals.unreleased)} pcs`, detail: "Release makes one job card per line and colour and puts it in the winder queue." })
   }
