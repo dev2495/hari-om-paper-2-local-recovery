@@ -152,6 +152,7 @@ function LoginPageContent() {
             </form>
           </div>
           <p className="mt-5 text-center text-[12px] text-muted-foreground">Sessions end after 15 minutes of inactivity. Access is scoped to your role and plants.</p>
+          <p className="mt-2 text-center text-[13px]"><a className="font-medium text-primary underline-offset-4 hover:underline" href="/docs/handbook/index.html" target="_blank" rel="noreferrer" data-testid="login-help-link">New here? Read the help guide</a></p>
         </section>
       </div>
     </main>

@@ -738,7 +738,7 @@ function VendorsBody() {
         title="Delete vendor?"
         body={
           <>
-            <strong>{selectedVendor?.name}</strong> will be permanently removed. This cannot be undone. If transactions exist, the backend will reject the delete and you should deactivate instead.
+            <strong>{selectedVendor?.name}</strong> will be deactivated. It is hidden from active lists; its purchase history is kept, and you can reactivate it later.
           </>
         }
         confirmLabel="Delete vendor"

@@ -178,7 +178,7 @@ function HoldsAndInspections() {
         {tab === "jobs" ? (
           <section className="overflow-hidden rounded-xl border border-border bg-card" data-testid="job-holds">
             <header className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-4 py-3">
-              <div><h2 className="font-semibold">Job cards on hold</h2><p className="text-[12.5px] text-muted-foreground">A batch that fails its stage QC is held and the plant head, Admin and Owner are notified to decide. The next stage cannot take it; other batches on the card keep moving.</p></div>
+              <div><h2 className="font-semibold">Job cards on hold</h2><p className="text-[12.5px] text-muted-foreground">Cards put on hold by hand by QC, the plant head, Admin or Owner; only the plant head, Admin or Owner can release them. An out-of-band stage reading is only flagged (see In-process QC); it does not hold the card. A held card cannot move to the next stage; other batches on the card keep moving.</p></div>
               {canRaiseHolds ? <button type="button" className="erp-btn-secondary !h-9" onClick={() => setManualOpen(!manualOpen)}><LockKeyhole className="h-4 w-4" />Put a job card on hold</button> : null}
             </header>
             {manualOpen ? (

@@ -26,7 +26,7 @@ export function QualityDeskNav() {
   const inProcessOnly = roles.has("InProcessQC") && !["QC", "InwardQC", "Owner", "Admin", "PlantManager"].some((role) => roles.has(role))
   return (
     <nav aria-label="Quality" className="flex flex-wrap gap-1 rounded-xl border border-border bg-card p-1.5" data-testid="quality-desk-nav">
-      {LINKS.filter((link) => (!incomingOnly || link.incoming) && (!inProcessOnly || !["/quality/incoming", "/quality/material-standards", "/quality/returns"].includes(link.href))).map((link) => {
+      {LINKS.filter((link) => (!incomingOnly || link.incoming) && (!inProcessOnly || !["/quality/incoming", "/quality/material-standards", "/quality/returns", "/reports/quality"].includes(link.href))).map((link) => {
         const active = link.exact ? pathname === link.href : pathname === link.href || pathname.startsWith(`${link.href}/`)
         return (
           <Link

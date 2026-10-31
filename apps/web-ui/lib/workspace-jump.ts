@@ -15,7 +15,7 @@ export const WORKSPACE_JUMP_ITEMS: WorkspaceJumpItem[] = [
   { name: "Goods inward", href: "/purchase/inward", description: "Measured receipt and distinct physical lot labels.", group: "Stores & inventory", keywords: ["grn", "receipt"] },
   { name: "GRN register", href: "/purchase/receipts", description: "Receipts, invoice status and saved labels.", group: "Stores & inventory" },
   { name: "Dashboard", href: "/dashboard", description: "Control room overview, alerts, and operating posture.", group: "Overview" },
-  { name: "Guide", href: "/help", description: "Flow maps, field rules, and operator checklists.", group: "Overview" },
+  { name: "Guide", href: "/help", description: "The full handbook, page guides, flow maps and chapter PDFs.", group: "Overview" },
   { name: "Sales Orders", href: "/sales-orders", description: "Commercial demand, releases, and customer intake.", group: "Operations", keywords: ["so", "po", "customer"] },
   { name: "New sales order", href: "/sales-orders/new", description: "Create a customer PO or internal sales order.", group: "Operations" },
   { name: "Pending Orders", href: "/sales-orders?unreleased=1", description: "Sales register filtered to orders with unreleased or undelivered qty.", group: "Operations" },

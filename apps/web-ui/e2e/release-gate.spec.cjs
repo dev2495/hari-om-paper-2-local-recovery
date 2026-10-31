@@ -136,9 +136,9 @@ test("login page keeps credentials private and contextual guide pages work", asy
   await login(page, "admin")
   await page.goto("/help?route=/inventory/production-issue", { waitUntil: "domcontentloaded" })
   await expect(page.getByTestId("guide-page")).toBeVisible()
-  await expect(page.getByRole("heading", { name: /production issue and wip movement guide/i })).toBeVisible()
+  await expect(page.getByRole("heading", { name: /material issue guide/i })).toBeVisible()
   await expect(page.getByTestId("guide-flow-svg")).toBeVisible()
-  await expect(page.getByText(/issue movement must reference a job card/i)).toBeVisible()
+  await expect(page.getByText(/adhesive, parchment and packing go to the floor by quantity/i)).toBeVisible()
 
   await page.goto("/purchase", { waitUntil: "domcontentloaded" })
   await page.getByRole("link", { name: "Open page guide", exact: true }).click()

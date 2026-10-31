@@ -1,11 +1,12 @@
 "use client"
 
 import Link from "next/link"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { PageHeader } from "@/components/workspace/page-header"
-import { ArrowRight, BookOpen, CheckCircle2, ClipboardCheck, ExternalLink, ListChecks, Route, ShieldCheck } from "lucide-react"
+import { ArrowRight, BookOpen, CheckCircle2, ClipboardCheck, ExternalLink, FileText, ListChecks, Route, ShieldCheck } from "lucide-react"
 
 import { getAllGuides, getGuideForRoute, type GuideContent, type GuideStep } from "@/lib/guide-content"
+import { HANDBOOK_CHAPTERS, HANDBOOK_EXTRAS } from "@/lib/handbook-chapters"
 import { cn } from "@/lib/utils"
 
 function wrapWords(value: string, maxLength = 18) {
@@ -162,18 +163,121 @@ function GuideIndex({ activeGuide, guides }: { activeGuide: GuideContent; guides
   )
 }
 
-export function HelpPageClient({ route }: { route?: string }) {
+type HelpTab = "guide" | "handbook" | "pdfs"
+
+const HANDBOOK_URL = "/docs/handbook/index.html"
+const FULL_PDF_URL = "/docs/Hari-Om-TubeOS-Help-Guide.pdf"
+
+function HelpTabs({ active, route }: { active: HelpTab; route?: string }) {
+  const href = (tab: HelpTab) => `/help?${new URLSearchParams({ tab, ...(route ? { route } : {}) }).toString()}`
+  const tabs: { id: HelpTab; label: string }[] = [
+    { id: "guide", label: "This page's guide" },
+    { id: "handbook", label: "Full handbook" },
+    { id: "pdfs", label: "Chapter PDFs" },
+  ]
+  return (
+    <nav aria-label="Help sections" data-testid="help-tabs" className="flex flex-wrap gap-1 rounded-xl border border-border bg-card p-1.5">
+      {tabs.map((tab) => (
+        <Link
+          key={tab.id}
+          data-testid={`help-tab:${tab.id}`}
+          href={href(tab.id)}
+          aria-current={tab.id === active ? "page" : undefined}
+          className={cn(
+            "inline-flex min-h-11 items-center rounded-lg px-3 text-[13px] font-semibold transition-colors sm:min-h-9",
+            tab.id === active ? "bg-primary text-primary-foreground" : "text-foreground/75 hover:bg-muted hover:text-foreground",
+          )}
+        >
+          {tab.label}
+        </Link>
+      ))}
+    </nav>
+  )
+}
+
+function HandbookFrame({ chapter }: { chapter?: string }) {
+  const [theme, setTheme] = useState<"light" | "dark">("light")
+  useEffect(() => {
+    setTheme(document.documentElement.dataset.theme === "dark" ? "dark" : "light")
+  }, [])
+  const hash = chapter && /^ch-\d\d$/.test(chapter) ? `#${chapter}` : ""
+  const src = `${HANDBOOK_URL}?embed=1&theme=${theme}${hash}`
+  return (
+    <section className="erp-panel overflow-hidden rounded-xl p-0" data-testid="handbook-frame">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
+        <p className="text-sm text-muted-foreground">Every page of TubeOS explained with screens, flow diagrams and samples. Use the search box inside to find a word.</p>
+        <a href={`${HANDBOOK_URL}${hash}`} target="_blank" rel="noreferrer" className="erp-btn-secondary">Open full screen <ExternalLink size={13} /></a>
+      </div>
+      <iframe key={src} title="Hari Om TubeOS handbook" src={src} className="block h-[calc(100dvh-17rem)] min-h-[560px] w-full border-0 bg-background" loading="lazy" />
+    </section>
+  )
+}
+
+function ChapterPdfs() {
+  const groups = Array.from(new Set(HANDBOOK_CHAPTERS.map((chapter) => chapter.group)))
+  return (
+    <div className="space-y-5" data-testid="chapter-pdfs">
+      <section className="erp-panel rounded-xl p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold">Whole handbook</h2>
+            <p className="mt-1 text-xs text-muted-foreground">All chapters in one PDF, with screens and diagrams. Print it or share it.</p>
+          </div>
+          <a href={FULL_PDF_URL} className="erp-btn-primary" download><FileText size={15} /> Download full PDF</a>
+        </div>
+      </section>
+      {groups.map((group) => (
+        <section key={group} className="erp-panel rounded-xl p-5">
+          <h2 className="text-sm font-semibold">{group}</h2>
+          <ul className="mt-3 grid gap-2 md:grid-cols-2">
+            {HANDBOOK_CHAPTERS.filter((chapter) => chapter.group === group).map((chapter) => (
+              <li key={chapter.id}>
+                <a href={`/docs/chapters/${chapter.file}.pdf`} download className="flex items-center gap-3 rounded-lg border border-border bg-muted/60 px-3 py-2.5 text-sm transition hover:border-signal-cyan-line hover:bg-card">
+                  <span className="w-6 shrink-0 text-xs text-muted-foreground">{String(chapter.num).padStart(2, "0")}</span>
+                  <span className="min-w-0 flex-1 truncate font-medium">{chapter.title}</span>
+                  <FileText size={14} className="shrink-0 text-muted-foreground" />
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+      <section className="erp-panel rounded-xl p-5">
+        <h2 className="text-sm font-semibold">Quick references</h2>
+        <ul className="mt-3 grid gap-2 md:grid-cols-2">
+          {HANDBOOK_EXTRAS.map((item) => (
+            <li key={item.file}>
+              <a href={`/docs/chapters/${item.file}.pdf`} download className="flex items-center gap-3 rounded-lg border border-border bg-muted/60 px-3 py-2.5 text-sm transition hover:border-signal-cyan-line hover:bg-card">
+                <span className="min-w-0 flex-1 truncate font-medium">{item.title}</span>
+                <FileText size={14} className="shrink-0 text-muted-foreground" />
+              </a>
+            </li>
+          ))}
+        </ul>
+      </section>
+    </div>
+  )
+}
+
+export function HelpPageClient({ route, tab, chapter, hasRoute = false }: { route?: string; tab?: string; chapter?: string; hasRoute?: boolean }) {
   const guide = getGuideForRoute(route)
   const guides = getAllGuides()
+  const active: HelpTab = tab === "handbook" || tab === "pdfs" ? tab : "guide"
+  const guideChapter = (guide as { chapter?: string }).chapter
 
   const [query, setQuery] = useState("")
   const matching = guides.filter(item => `${item.title} ${item.summary}`.toLowerCase().includes(query.toLowerCase()))
+  const title = active === "guide" ? guide.title : active === "handbook" ? "Hari Om TubeOS handbook" : "Handbook chapters as PDF"
+  const description = active === "guide" ? guide.summary : active === "handbook" ? "The full guide to every page, in plain words. Pick a chapter on the left, or search." : "Download one chapter, or the whole handbook, to read offline or to print."
   return <div data-testid="guide-page" className="space-y-6">
-    <PageHeader title={guide.title} description={guide.summary} actions={<>
-      <a href="/docs/Hari-Om-TubeOS-Client-Guide.pdf" className="erp-btn-secondary" download>Download PDF guide</a>
-      <a href="/docs/Hari-Om-TubeOS-Client-Guide.html" className="erp-btn-secondary" target="_blank" rel="noreferrer">Full client handbook</a>
+    <PageHeader title={title} description={description} actions={<>
+      <a href={FULL_PDF_URL} className="erp-btn-secondary" download>Download PDF guide</a>
+      <a href={HANDBOOK_URL} className="erp-btn-secondary" target="_blank" rel="noreferrer">Full client handbook</a>
     </>} />
-    <div className="grid min-w-0 gap-6 xl:grid-cols-[240px_minmax(0,1fr)]">
+    <HelpTabs active={active} route={route} />
+    {active === "handbook" ? <HandbookFrame chapter={chapter || (hasRoute ? guideChapter : undefined)} /> : null}
+    {active === "pdfs" ? <ChapterPdfs /> : null}
+    {active === "guide" ? <div className="grid min-w-0 gap-6 xl:grid-cols-[240px_minmax(0,1fr)]">
       <aside className="order-2 min-w-0 xl:order-1">
         <div className="erp-panel rounded-xl p-4 xl:sticky xl:top-24">
           <h2 className="text-sm font-semibold">Guide library</h2>
@@ -190,6 +294,7 @@ export function HelpPageClient({ route }: { route?: string }) {
           <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-base font-semibold">{guide.flowTitle}</h2><p className="mt-1 text-xs text-muted-foreground">Follow the steps in order; each saved record stays linked to its source.</p></div><Link href={guide.route} className="erp-btn-primary">Open workspace <ArrowRight size={15} /></Link></div>
           <div className="mt-4 overflow-x-auto"><GuideFlowSvg steps={guide.steps} /></div>
         </section>
+        {guideChapter ? <section className="erp-panel flex flex-wrap items-center justify-between gap-3 rounded-xl p-4" data-testid="guide-chapter-link"><p className="text-sm text-muted-foreground">Want screens, a worked sample and common questions for this page?</p><Link href={`/help?${new URLSearchParams({ tab: "handbook", chapter: guideChapter, route: guide.route }).toString()}`} className="erp-btn-secondary"><BookOpen size={14} /> Read the full chapter</Link></section> : null}
         <ol className="grid gap-4 md:grid-cols-2">
           {guide.steps.map((step,index)=><li key={step.label} className="erp-panel flex items-start gap-4 rounded-xl p-5"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-secondary text-sm font-semibold text-primary">{index+1}</span><div><h2 className="text-sm font-semibold">{step.label}</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">{step.detail}</p></div></li>)}
         </ol>
@@ -197,6 +302,6 @@ export function HelpPageClient({ route }: { route?: string }) {
         <InfoPanel title="Actions and outputs" icon={<ClipboardCheck size={16} />} items={[...guide.primaryActions, ...guide.outputs.map(output=>`Output: ${output}`)]} tone="cyan" />
         <section className="erp-panel rounded-xl p-5"><h2 className="text-sm font-semibold">Continue the workflow</h2><div className="mt-3 flex flex-wrap gap-2">{guide.relatedRoutes.map(route=><Link key={route} href={route} className="erp-btn-secondary">{getGuideForRoute(route).title.replace(/ Guide$/, "")}<ExternalLink size={13} /></Link>)}</div></section>
       </div>
-    </div>
+    </div> : null}
   </div>
 }

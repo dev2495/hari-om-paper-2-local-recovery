@@ -1,0 +1,5 @@
+# Rebuilt by build_guide.py and make_*.cjs
+dist/
+dist-web/
+notebooklm-pack/sources/
+notebooklm-pack/*.html
