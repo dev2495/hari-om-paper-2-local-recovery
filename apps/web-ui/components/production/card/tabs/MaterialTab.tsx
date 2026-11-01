@@ -207,9 +207,10 @@ export function MaterialTab({ card, flow }: { card: any; flow: any }) {
               rows={flow.residual_wip}
               canResolve={canSubmit}
               busy={mutation.isPending}
+              plantId={card.plant_id}
               onResolve={(row, disposition, reason) =>
                 mutation.mutate(async () => {
-                  const r = await entryApi.resolveResidual(card.id, row.id, stableCommand({ expected_version: row.row_version, disposition, reason }, `residual:${row.id}`))
+                  const r = await entryApi.resolveResidual(card.id, row.id, stableCommand({ expected_version: row.row_version, disposition, ...reason }, `residual:${row.id}`))
                   reset()
                   return r
                 })

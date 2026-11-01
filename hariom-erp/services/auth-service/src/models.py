@@ -41,6 +41,9 @@ class Plant(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     legal_name = Column(String(200), nullable=True)
     gstin = Column(String(32), nullable=True)
+    # Heading printed on reel / coil labels (owner decision 6, 1 Nov 2026), e.g. "AMIGO INDUSTRIES UNIT II".
+    # Blank means the legal name (else the plant name) is used.
+    label_heading = Column(String(200), nullable=True)
 
     users = relationship("User", back_populates="plant")
     allowed_users = relationship("User", secondary=user_allowed_plants, back_populates="allowed_plants")

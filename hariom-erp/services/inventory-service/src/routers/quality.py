@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.orm.attributes import flag_modified
 
 from ..database import get_db
+from ..reasons import reason_input, resolve_reason, token_of
 from ..quality_pin import approved_profile_payload, is_missing_profile_pin, pin_quality_profile_metadata
 from ..concession_partition import (
     CONCESSION_STOCK_STATUS,
@@ -344,6 +345,10 @@ class QualityInspectionCreate(BaseModel):
     sample_ids: Optional[list[str]] = None
     disposition: Optional[str] = None
     notes: Optional[str] = Field(default=None, max_length=1000)
+    # INCOMING_QC code from Masters › Reason codes (owner decision 4, 1 Nov 2026): needed for a reading out
+    # of band, a Hold / Reject and closing earlier holds. Free-text `reasons` alone are refused.
+    reason_code: Optional[str] = Field(default=None, max_length=80)
+    reason_note: Optional[str] = Field(default=None, max_length=1000)
 
     resolve_hold_ids: list[uuid.UUID] = Field(default_factory=list, max_length=100)
 
@@ -403,6 +408,9 @@ class QualityInspectionResponse(BaseModel):
     stock_status: Optional[str] = None
     notes: Optional[str] = None
     reasons: dict[str, Any] = Field(default_factory=dict)
+    reason_code: Optional[str] = None
+    reason_label: Optional[str] = None
+    reason_note: Optional[str] = None
     evaluation: dict[str, Any] = Field(default_factory=dict)
     entity_label: Optional[str] = None
     created_by: Optional[str] = None
@@ -460,8 +468,11 @@ class CustomerRejectionCreate(BaseModel):
     customer_id: Optional[uuid.UUID] = None
     invoice_ref: Optional[str] = Field(default=None, max_length=120)
     dispatch_ref: Optional[str] = Field(default=None, max_length=120)
+    # A CUSTOMER_COMPLAINT code from Masters › Reason codes, checked against the master (owner decision 4,
+    # 1 Nov 2026); CC-OTHER needs a note of 5+ characters. ``reason_note`` is the new name of ``reason_notes``.
     reason_code: str = Field(min_length=1, max_length=80)
     reason_notes: Optional[str] = Field(default=None, max_length=1000)
+    reason_note: Optional[str] = Field(default=None, max_length=1000)
     complaint_batch: Optional[str] = Field(default=None, max_length=120)
     size_label: Optional[str] = Field(default=None, max_length=160)
     effective_date: Optional[date] = None
@@ -512,6 +523,7 @@ class CustomerRejectionResponse(BaseModel):
     invoice_ref: Optional[str] = None
     dispatch_ref: Optional[str] = None
     reason_code: str
+    reason_label: Optional[str] = None
     reason_notes: Optional[str] = None
     effective_date: Optional[date] = None
     source_job_card_id: Optional[uuid.UUID] = None
@@ -566,6 +578,9 @@ def _inspection_response(row: InventoryQualityInspection, stock_status: Optional
         stock_status=stock_status,
         notes=row.notes,
         reasons=dict(getattr(row, "reasons", None) or {}),
+        reason_code=getattr(row, "reason_code", None),
+        reason_label=getattr(row, "reason_label", None),
+        reason_note=getattr(row, "reason_note", None),
         evaluation=dict(getattr(row, "evaluation", None) or {}),
         created_by=row.created_by,
         ignored_client_status=None,
@@ -585,6 +600,7 @@ def _customer_rejection_response(row: CustomerRejection) -> CustomerRejectionRes
         invoice_ref=row.invoice_ref,
         dispatch_ref=row.dispatch_ref,
         reason_code=row.reason_code,
+        reason_label=getattr(row, "reason_label", None),
         reason_notes=row.reason_notes,
         effective_date=row.effective_date,
         source_job_card_id=row.source_job_card_id,
@@ -898,7 +914,10 @@ class SupplierReturnCreate(BaseModel):
 
     entity_type: str
     entity_id: uuid.UUID
-    reason: str = Field(min_length=3, max_length=1000)
+    # An RM_ISSUE code from Masters › Reason codes (owner decision 4, 1 Nov 2026); old free text alone is refused.
+    reason: Optional[str] = Field(default=None, max_length=1000)
+    reason_code: Optional[str] = Field(default=None, max_length=80)
+    reason_note: Optional[str] = Field(default=None, max_length=1000)
     return_reference: Optional[str] = Field(default=None, max_length=120)
 
     @field_validator("entity_type")
@@ -924,6 +943,9 @@ def return_rejected_lot_to_supplier(
     QUALITY discrepancy so Accounts can put it on a debit note.
     """
     actor = str(current_user.get("sub") or "unknown")
+    return_code, return_note = reason_input(payload)
+    return_reason = resolve_reason(category="RM_ISSUE", code=return_code, note=return_note, plant_id=plant_id,
+                                   token=token_of(current_user), what="returning this lot")
     if payload.entity_type == "BATCH":
         entity = (
             db.query(StockBatch)
@@ -990,7 +1012,10 @@ def return_rejected_lot_to_supplier(
     return_meta = {
         "kind": "SUPPLIER_RETURN",
         "inspection_id": str(inspection.id),
-        "reason": payload.reason.strip(),
+        "reason": return_reason.text,
+        "reason_code": return_reason.code,
+        "reason_label": return_reason.label,
+        "reason_note": return_reason.note,
         "return_reference": (payload.return_reference or "").strip() or None,
         "actor": actor,
         "at": now.isoformat(),
@@ -1080,7 +1105,8 @@ def return_rejected_lot_to_supplier(
                     "entity_id": str(payload.entity_id),
                     "quantity": round(quantity, 3),
                     "actor": actor,
-                    "reason": payload.reason.strip(),
+                    "reason": return_reason.text,
+                    "reason_code": return_reason.code,
                     "at": now.isoformat(),
                     "claim_raised": claim is not None,
                 },
@@ -1115,6 +1141,13 @@ def create_quality_inspection(
     quality_roles = {"QC", "Owner", "Admin"} | ({"InwardQC"} if payload.entity_type in {"BATCH", "REEL"} else set())
     if not quality_roles.intersection(current_user.get("actual_roles", current_user.get("roles")) or []) or not quality_roles.intersection(current_user.get("roles") or []):
         raise HTTPException(status_code=403, detail="Incoming inspection requires QC, Inward QC, Owner or Admin access")
+    # Reasons are master codes only (owner decision 4): one INCOMING_QC code explains every failing check of
+    # this lot, a Hold / Reject and closing earlier holds. Its "Label — note" fills the per-check reasons and
+    # the notes; free-text reasons without a code are refused.
+    reason_code, reason_note = reason_input(payload)
+    reason_needed = bool(payload.reasons) or bool(payload.resolve_hold_ids) or str(payload.disposition or "").upper() in {"HOLD", "REJECT", "BLOCK", "SCRAP"}
+    reason_choice = resolve_reason(category="INCOMING_QC", code=reason_code, note=reason_note, plant_id=plant_id,
+                                   token=token_of(current_user), required=reason_needed, what="this incoming QC result")
     stock_status: Optional[str] = None
     batch: Optional[StockBatch] = None
     reel: Optional[PaperReel] = None
@@ -1151,7 +1184,10 @@ def create_quality_inspection(
     profile = _pin_quality_profile(item, pin_entity)
     evaluation_payload: dict[str, Any] = {}
     computed_failures: list[dict[str, Any]] = []
-    reasons = payload.reasons or {}
+    if reason_choice is not None:
+        reasons = {code: reason_choice.text for code in (payload.reasons or payload.readings or {})}
+    else:
+        reasons = {}
     reason_pending = False
     received_on = None
     if batch is not None:
@@ -1231,11 +1267,16 @@ def create_quality_inspection(
             ),
         )
     reject_fail_accept_shortcut("FAIL" if status in {"FAIL", "INVALID", "INCOMPLETE"} else status, payload.disposition)
+    if reason_choice is not None:
+        # Keep the reason only against the checks that failed; the notes carry it for the whole lot.
+        failed_codes = {str(row.get("code") or row.get("parameter") or "") for row in computed_failures if isinstance(row, dict)}
+        reasons = {code: text for code, text in reasons.items() if code in failed_codes}
+    notes_text = reason_choice.text if reason_choice is not None else payload.notes
 
     if payload.resolve_hold_ids:
         if status != "PASS" or payload.disposition not in {None, "ACCEPT"} or not (batch or reel):
             raise HTTPException(422, "Earlier inspection holds can close only after a complete passing reinspection")
-        if len((payload.notes or "").strip()) < 3:
+        if len((notes_text or "").strip()) < 3:
             raise HTTPException(422, "Explain the reinspection and why the selected earlier holds can close")
         holds = db.query(InventoryQualityHold).filter(
             InventoryQualityHold.id.in_(payload.resolve_hold_ids), InventoryQualityHold.plant_id == plant_id,
@@ -1249,7 +1290,9 @@ def create_quality_inspection(
             hold.released_by = current_user.get("sub")
             hold.released_at = datetime.utcnow()
         evaluation_payload["resolved_inspection_holds"] = [str(hold.id) for hold in holds]
-        evaluation_payload["hold_resolution_reason"] = payload.notes.strip()
+        evaluation_payload["hold_resolution_reason"] = notes_text.strip()
+        if reason_choice is not None:
+            evaluation_payload["hold_resolution_reason_code"] = reason_choice.code
 
     inspection = InventoryQualityInspection(
         plant_id=plant_id,
@@ -1263,7 +1306,10 @@ def create_quality_inspection(
         reasons=reasons,
         evaluation=evaluation_payload,
         disposition=payload.disposition,
-        notes=payload.notes,
+        notes=notes_text,
+        reason_code=reason_choice.code if reason_choice else None,
+        reason_label=reason_choice.label if reason_choice else None,
+        reason_note=reason_choice.note if reason_choice else None,
         created_by=current_user.get("sub"),
     )
     db.add(inspection)
@@ -1382,7 +1428,10 @@ class QualityConcessionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     inspection_id: uuid.UUID
-    reason: str = Field(min_length=1, max_length=2000)
+    # A CONCESSION code from Masters › Reason codes (owner decision 4, 1 Nov 2026); old free text alone is refused.
+    reason: Optional[str] = Field(default=None, max_length=2000)
+    reason_code: Optional[str] = Field(default=None, max_length=80)
+    reason_note: Optional[str] = Field(default=None, max_length=2000)
     quantity: Optional[float] = Field(default=None, ge=0)
     release_stock: bool = False
     operation_id: Optional[str] = Field(default=None, max_length=120)
@@ -1595,6 +1644,9 @@ def create_quality_concession(
             released_stock_status=_released_entity_stock_status(db, existing),
         )
 
+    concession_code, concession_note = reason_input(payload)
+    concession_reason = resolve_reason(category="CONCESSION", code=concession_code, note=concession_note,
+                                       plant_id=inspection.plant_id or plant_id, token=token_of(current_user), what="the concession")
     try:
         expires_at = normalize_expires_at(payload.expires_at)
     except ConcessionScopeError as exc:
@@ -1662,7 +1714,7 @@ def create_quality_concession(
     inspection.status = "FAIL"
     inspection.disposition = inspection.disposition or "ACCEPT"
     inspection.eligibility_status = CONCESSION_ELIGIBILITY
-    inspection.concession_reason = payload.reason
+    inspection.concession_reason = concession_reason.text
     inspection.concession_approved_by = current_user.get("sub")
     inspection.concession_approved_at = datetime.utcnow()
     evaluation = dict(inspection.evaluation or {})
@@ -1807,7 +1859,10 @@ def create_quality_concession(
         stock_status_before=stock_status_before,
         stock_status_after=stock_status,
         hold_released=hold_released,
-        reason=payload.reason,
+        reason=concession_reason.text,
+        reason_code=concession_reason.code,
+        reason_label=concession_reason.label,
+        reason_note=concession_reason.note,
         quantity=release_qty,
         inspector_id=inspection.created_by,
         approved_by=current_user.get("sub"),
@@ -2130,6 +2185,7 @@ def quality_analytics(
         customer["open"] += 0 if row.closed_at else 1
         customer["cost_impact"] += float(row.cost_impact or 0.0)
         reason = by_reason[row.reason_code or "UNSPECIFIED"]
+        reason["label"] = getattr(row, "reason_label", None) or reason.get("label")
         reason["cases"] += 1
         reason["qty"] += float(row.rejected_qty or 0.0)
         reason["open"] += 0 if row.closed_at else 1
@@ -2162,7 +2218,7 @@ def quality_analytics(
                 key=lambda row: -row["qty"],
             ),
             "by_reason": sorted(
-                ({"reason_code": name, "cases": bucket["cases"], "qty": round(bucket["qty"], 3), "open": bucket["open"]} for name, bucket in by_reason.items()),
+                ({"reason_code": name, "reason_label": bucket.get("label") or name, "cases": bucket["cases"], "qty": round(bucket["qty"], 3), "open": bucket["open"]} for name, bucket in by_reason.items()),
                 key=lambda row: -row["cases"],
             ),
             "weekly": [{"week": week, "cases": bucket["cases"], "qty": round(bucket["qty"], 3)} for week, bucket in sorted(return_weeks.items())],
@@ -2288,6 +2344,9 @@ def create_customer_rejection(
         raise HTTPException(status_code=404, detail="Item not found")
     if item.type != ItemType.FINISHED_GOOD:
         raise HTTPException(status_code=400, detail="Customer rejection inward requires a FINISHED_GOOD item")
+    complaint_code, complaint_note = reason_input(payload, note_keys=("reason_note", "reason_notes"))
+    complaint_reason = resolve_reason(category="CUSTOMER_COMPLAINT", code=complaint_code, note=complaint_note, plant_id=plant_id,
+                                      token=token_of(current_user), what="the complaint")
     if payload.location_id:
         location = db.query(InventoryLocation).filter(InventoryLocation.id == payload.location_id, InventoryLocation.plant_id == plant_id).first()
         if not location:
@@ -2333,10 +2392,11 @@ def create_customer_rejection(
         rejected_qty=payload.rejected_qty,
         invoice_ref=payload.invoice_ref,
         dispatch_ref=payload.dispatch_ref,
-        reason_code=payload.reason_code.strip().upper(),
+        reason_code=complaint_reason.code,
+        reason_label=complaint_reason.label,
         complaint_batch=(payload.complaint_batch or "").strip() or None,
         size_label=(payload.size_label or "").strip() or None,
-        reason_notes=payload.reason_notes,
+        reason_notes=complaint_reason.note,
         effective_date=effective_date_value,
         source_job_card_id=payload.source_job_card_id
         or (uuid.UUID(dispatch_trace["production_job_id"]) if dispatch_trace.get("production_job_id") else None),

@@ -806,6 +806,41 @@ def ensure_stock_count_and_schedule_schema() -> None:
 ensure_stock_count_and_schedule_schema()
 
 
+# Reason codes from Masters › Reason codes (owner decision 4, 1 Nov 2026): records keep the code, the
+# label at the time and the note next to the old free-text column. Nullable columns, so old rows stay.
+REASON_CODE_SCHEMA_STATEMENTS = tuple(
+  f"ALTER TABLE IF EXISTS {table} ADD COLUMN IF NOT EXISTS {column}"
+  for table, columns in (
+    ("purchase_order_revisions", ("change_reason_code VARCHAR(80)", "change_reason_label VARCHAR(200)", "change_reason_note TEXT",
+                                  "rejection_reason_code VARCHAR(80)", "rejection_reason_label VARCHAR(200)", "rejection_reason_note TEXT")),
+    ("purchase_debit_notes", ("reason_code VARCHAR(80)", "reason_label VARCHAR(200)", "reason_note TEXT", "void_reason TEXT",
+                              "void_reason_code VARCHAR(80)", "void_reason_label VARCHAR(200)", "void_reason_note TEXT")),
+    ("procurement_plan_entries", ("cancel_reason_code VARCHAR(80)", "cancel_reason_label VARCHAR(200)", "cancel_reason_note TEXT")),
+    ("inventory_quality_concessions", ("reason_code VARCHAR(80)", "reason_label VARCHAR(200)", "reason_note TEXT")),
+    ("customer_rejections", ("reason_label VARCHAR(200)",)),
+    ("stock_adjustment_vouchers", ("reason_label VARCHAR(200)", "cancel_reason_code VARCHAR(80)", "cancel_reason_label VARCHAR(200)")),
+    ("inventory_certifications", ("sent_back_reason_code VARCHAR(80)", "sent_back_reason_label VARCHAR(200)")),
+    ("inventory_quality_inspections", ("reason_code VARCHAR(80)", "reason_label VARCHAR(200)", "reason_note TEXT")),
+    ("label_print_jobs", ("reprint_reason_code VARCHAR(80)", "reprint_reason_label VARCHAR(200)", "reprint_reason_note TEXT")),
+    ("reel_serial_settings", ("reason_code VARCHAR(80)", "reason_label VARCHAR(200)", "reason_note TEXT")),
+    ("stock_alert_policies", ("change_reason_code VARCHAR(80)", "change_reason_label VARCHAR(200)", "change_reason_note TEXT")),
+    ("rm_cost_versions", ("change_reason_code VARCHAR(80)", "change_reason_label VARCHAR(200)", "change_reason_note TEXT")),
+    ("purchase_requisitions", ("reason_code VARCHAR(80)", "reason_label VARCHAR(200)", "reason_note TEXT")),
+    ("inventory_quality_standard_events", ("reason_code VARCHAR(80)", "reason_label VARCHAR(200)", "reason_note TEXT")),
+  )
+  for column in columns
+)
+
+
+def ensure_reason_code_schema() -> None:
+  with engine.begin() as connection:
+    for statement in REASON_CODE_SCHEMA_STATEMENTS:
+      connection.execute(text(statement))
+
+
+ensure_reason_code_schema()
+
+
 def backfill_fail_accept_concession_eligibility() -> dict[str, int]:
     """Classify pre-existing FAIL+ACCEPT inspections that never got a concession.
 
@@ -1135,6 +1170,7 @@ app.include_router(valuation.router)
 app.include_router(stock_control.router)
 app.include_router(stock_count.router)
 from .routers import opening_stock; app.include_router(opening_stock.router)  # noqa: E402,E702 go-live opening stock page
+from .routers import reel_serial; app.include_router(reel_serial.router)  # noqa: E402,E702 AIT reel serial setting (2026-11-01)
 app.include_router(books.router)
 app.include_router(tool_assets.router)
 

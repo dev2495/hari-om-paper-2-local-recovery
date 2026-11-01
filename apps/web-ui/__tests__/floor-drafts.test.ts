@@ -104,5 +104,19 @@ assert.ok(doc.includes("const runGaps = seasonalCard ? v2Rows(stage)"), "the V2 
 assert.ok(doc.includes('stageReadingsShort(stage: "WINDER" | "OVEN" | "PROCESS"') && doc.includes('data-testid={`stage-qc-${pairKey}-sample-2`}'), "old-form Winder, Oven and Process need two readings; Oven and Process take a second sample")
 assert.ok(doc.includes('data-testid="process-reject-reason-needed"'), "old-form Process rejects ask for a reason")
 
+// Owner decision 4 (1 Nov 2026): every floor "why" is a code from Masters › Reason codes; no free-text-only reason.
+assert.ok(output.includes('category="SCRAP"') && output.includes('category="OVERRIDE"') && !output.includes("REJECT_CODES"), "Log output picks rejection and override codes from the master")
+assert.ok(output.includes('reasonDetailKeys("reject_reason", "reject_code", "reject_note"'), "a rejection sends code, note and the old text key")
+assert.ok(close.includes('category="STAGE_SHORT_CLOSE"') && close.includes('category="LEFTOVER_INPUT"') && close.includes("residual_reason_code"), "Close stage asks a short-close code and a leftover-input code")
+assert.ok(runs.includes('category="ENTRY_CORRECTION"') && !runs.includes("window.prompt"), "voiding a run picks an entry-correction code")
+const page = read("components/production/card/JobCardPage.tsx")
+assert.ok(page.includes('category="ENTRY_CORRECTION"') && !page.includes("window.prompt"), "reopening a stage picks an entry-correction code")
+assert.ok(qc.includes('category="ENTRY_CORRECTION"') && qc.includes("the reason for changing readings"), "changing recorded readings picks an entry-correction code")
+assert.ok(whole.includes('category={p.category}') && !whole.includes('aria-label="Whole-card entry reason"'), "the whole printed card picks codes, not one free-text reason")
+assert.ok(doc.includes('category="STAGE_SHORT_CLOSE"') && doc.includes("SHORT_REASON_REQUIRED") && doc.includes("short_reason_code"), "an old-form stage completed below plan shows the server's message and a short-close picker")
+assert.ok(doc.includes('category="OVERRIDE"') && doc.includes("override_reason_code") && doc.includes("override_reason: null") && !doc.includes("Required only when completing out of sequence"), "the old form picks an override code instead of free text")
+assert.ok(doc.includes('category="SCRAP"') && doc.includes("reject_reason_code: next.code") && !doc.includes('testId="process-reject-reason"'), "old-form Winder, Oven and Process rejects pick a floor-rejection code")
+assert.ok(model.includes("export function rejectReasonText") && read("components/production/SeasonPrintLog.tsx").includes("rejectReasonText(e.details)"), "run lists and the print log show the label saved with the code")
+
 ;(Object as any).keys = realKeys
 console.log("floor drafts, Process count flag and stage-close print contracts passed")

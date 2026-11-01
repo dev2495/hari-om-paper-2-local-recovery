@@ -149,7 +149,7 @@ def test_a_rejected_bulk_lot_goes_back_to_the_supplier():
         db.add(InventoryQualityInspection(plant_id=plant, entity_type="BATCH", entity_id=lot.id, material_type="ADHESIVE",
                                           status="FAIL", disposition="REJECT"))
         db.commit()
-        result = return_rejected_lot_to_supplier(SupplierReturnCreate(entity_type="BATCH", entity_id=lot.id, reason="Wrong viscosity, sent back"), db, plant, OWNER)
+        result = return_rejected_lot_to_supplier(SupplierReturnCreate(entity_type="BATCH", entity_id=lot.id, reason_code="RM-GSM", reason_note="Wrong viscosity, sent back"), db, plant, OWNER)
         assert result["entity_id"] == str(lot.id)
         db.expire_all()
         assert db.get(StockBatch, lot.id).stock_status == "RETURNED"

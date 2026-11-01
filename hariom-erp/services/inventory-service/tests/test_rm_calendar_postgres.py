@@ -216,7 +216,7 @@ def test_send_unchanged_is_approved_on_schedule_changed_needs_owner_then_confirm
         other = db.get(PurchaseOrder, uuid.UUID(second["id"]))
         line = other.lines[0]
         revised = create_purchase_order_revision(other.id, PurchaseRevisionCreate(request_id=uuid.uuid4(), supplier_id=other.supplier_id,
-            supplier_name=other.supplier_name_snapshot, expected_date=other.expected_date, change_reason="Vendor asked for a full truck",
+            supplier_name=other.supplier_name_snapshot, expected_date=other.expected_date, change_reason="Vendor asked for a full truck", reason_code="PV-QTY", reason_note="Vendor asked for a full truck",
             expected_version=other.version, lines=[{"item_id": line.item_id, "logical_line_id": line.logical_line_id, "qty_ordered": 450,
                                                     "unit_cost": line.unit_cost, "uom": "KG"}]), db, PLANT, STORE)
         assert revised["send_check"]["mode"] == "SUBMIT_FOR_APPROVAL"
@@ -274,16 +274,21 @@ def test_cancel_drops_the_line_from_a_draft_and_proposals_need_no_owner():
         proposal = _propose(db, [{"item_id": paper.id, "entry_date": wed, "qty": 5, "supplier_id": vendor, "supplier_name": "Cancel Mill"}])[0]
         moved = calendar_update(uuid.UUID(proposal["id"]), CalendarEntryUpdate(qty=7), db, PLANT, STORE)
         assert moved["qty"] == 7
-        assert calendar_cancel(uuid.UUID(proposal["id"]), CalendarEntryCancel(reason="Not needed"), db, PLANT, STORE)["approval_status"] == "CANCELLED"
+        assert calendar_cancel(uuid.UUID(proposal["id"]), CalendarEntryCancel(reason_code="SCH-STOCK-OK"), db, PLANT, STORE)["approval_status"] == "CANCELLED"
         result = _approve(db, [uuid.UUID(row["id"]) for row in rows])
         order = db.get(PurchaseOrder, uuid.UUID(result["purchase_orders"][0]["id"]))
         with pytest.raises(HTTPException) as refused:
             calendar_cancel(uuid.UUID(rows[1]["id"]), CalendarEntryCancel(), db, PLANT, PLANNER)
         assert refused.value.status_code == 403
-        calendar_cancel(uuid.UUID(rows[1]["id"]), CalendarEntryCancel(reason="Mill short"), db, PLANT, OWNER)
+        calendar_cancel(uuid.UUID(rows[1]["id"]), CalendarEntryCancel(reason_code="SCH-OTHER", reason_note="Mill short"), db, PLANT, OWNER)
         db.refresh(order)
         assert order.lines[0].qty_ordered == 200 and order.approved_schedule_hash == schedule_hash(db, order)
-        calendar_cancel(uuid.UUID(rows[0]["id"]), CalendarEntryCancel(), db, PLANT, OWNER)
+        # Cancelling now needs a SUPPLIER_SCHEDULE code (owner decision 4, 1 Nov 2026).
+        with pytest.raises(HTTPException) as no_code:
+            calendar_cancel(uuid.UUID(rows[0]["id"]), CalendarEntryCancel(reason="Not needed"), db, PLANT, OWNER)
+        assert no_code.value.status_code == 422
+        last = calendar_cancel(uuid.UUID(rows[0]["id"]), CalendarEntryCancel(reason_code="SCH-PLAN-CHANGE", reason_note="Plan moved"), db, PLANT, OWNER)
+        assert "Cancelled: Sch plan change — Plan moved" in (last["note"] or "")
         db.refresh(order)
         assert order.status == "CANCELLED"
         with pytest.raises(HTTPException) as past:
@@ -306,7 +311,7 @@ def test_desk_revision_moves_delivery_rows_and_keeps_the_po_facts():
         sent = send_purchase_order(order.id, SendToVendorPayload(expected_version=order.version, channel="EMAIL"), db, PLANT, STORE)
         line = order.lines[0]
         revised = create_purchase_order_revision(order.id, PurchaseRevisionCreate(request_id=uuid.uuid4(), supplier_id=vendor,
-            supplier_name="Box Mill", expected_date=order.expected_date, change_reason="Vendor has 80 boxes", expected_version=sent["version"],
+            supplier_name="Box Mill", expected_date=order.expected_date, change_reason="Vendor has 80 boxes", reason_code="PV-QTY", reason_note="Vendor has 80 boxes", expected_version=sent["version"],
             lines=[{"item_id": box.id, "logical_line_id": line.logical_line_id, "qty_ordered": 80, "unit_cost": 12, "uom": "PCS"}]), db, PLANT, STORE)
         schedule = revised["lines"][0]["schedules"]
         assert [(row["scheduled_qty"], row["open_qty"]) for row in schedule] == [(80, 80)]
@@ -324,7 +329,7 @@ def test_desk_revision_moves_delivery_rows_and_keeps_the_po_facts():
         db.expire_all()
         order = db.get(PurchaseOrder, order.id)
         grown = create_purchase_order_revision(order.id, PurchaseRevisionCreate(request_id=uuid.uuid4(), supplier_id=vendor,
-            supplier_name="Box Mill", expected_date=order.expected_date, change_reason="Full truck", expected_version=order.version,
+            supplier_name="Box Mill", expected_date=order.expected_date, change_reason="Full truck", reason_code="PV-QTY", reason_note="Full truck", expected_version=order.version,
             lines=[{"item_id": box.id, "logical_line_id": line.logical_line_id, "qty_ordered": 120, "unit_cost": 12.5, "uom": "PCS"}]), db, PLANT, STORE)
         assert [row["scheduled_qty"] for row in grown["lines"][0]["schedules"]] == [120]
         assert grown["lines"][0]["rate_source"] == "DESK" and grown["send_check"]["mode"] == "SUBMIT_FOR_APPROVAL"
@@ -388,7 +393,7 @@ def test_calendar_roles_qc_pending_and_late_proposals():
 def _revise(db, order, user, *, rate=None, qty=None, reason="Desk change"):
     order = db.get(PurchaseOrder, order.id)
     return create_purchase_order_revision(order.id, PurchaseRevisionCreate(request_id=uuid.uuid4(), supplier_id=order.supplier_id,
-        supplier_name=order.supplier_name_snapshot, expected_date=order.expected_date, notes=order.notes, change_reason=reason, expected_version=order.version,
+        supplier_name=order.supplier_name_snapshot, expected_date=order.expected_date, notes=order.notes, change_reason=reason, reason_code="PV-QTY", reason_note=reason, expected_version=order.version,
         lines=[{"item_id": line.item_id, "logical_line_id": line.logical_line_id, "qty_ordered": qty if qty is not None else line.qty_ordered,
                 "unit_cost": rate if rate is not None else line.unit_cost, "uom": line.uom} for line in order.lines]), db, PLANT, user)
 
@@ -432,7 +437,7 @@ def test_owner_fills_a_missing_rate_himself_and_decides_scheduled_pos_without_a_
         revised = _revise(db, third, PLANNER, qty=150)
         submitted = submit_purchase_order(third.id, RevisionActionPayload(expected_version=revised["version"]), db, PLANT, OWNER)
         assert submitted["revision_makers"] == [PLANNER["sub"], OWNER["sub"]] and submitted["owner_may_decide_own"] is True
-        rejected = reject_purchase_order(third.id, RevisionActionPayload(expected_version=submitted["version"], reason="Too much"), db, PLANT, OWNER)
+        rejected = reject_purchase_order(third.id, RevisionActionPayload(expected_version=submitted["version"], reason_code="PJ-WRONG-ITEM", reason_note="Too much"), db, PLANT, OWNER)
         assert rejected["status"] == "REJECTED"
 
         # A rejected PO is no cover: its arrival shows as "PO rejected" and counts nothing; the desk sees it under "returned".
@@ -521,7 +526,7 @@ async def _bytes(response):
 def _revise_terms(db, order, user, *, payment_terms=None, gsm=None, qc=True, reason="Desk change"):
     order = db.get(PurchaseOrder, order.id)
     return create_purchase_order_revision(order.id, PurchaseRevisionCreate(request_id=uuid.uuid4(), supplier_id=order.supplier_id,
-        supplier_name=order.supplier_name_snapshot, expected_date=order.expected_date, notes=order.notes, change_reason=reason, expected_version=order.version,
+        supplier_name=order.supplier_name_snapshot, expected_date=order.expected_date, notes=order.notes, change_reason=reason, reason_code="PV-QTY", reason_note=reason, expected_version=order.version,
         payment_terms=payment_terms, lines=[{"item_id": line.item_id, "logical_line_id": line.logical_line_id, "qty_ordered": line.qty_ordered,
             "unit_cost": line.unit_cost, "uom": line.uom, "gsm": gsm, "incoming_qc_required": qc} for line in order.lines]), db, PLANT, user)
 

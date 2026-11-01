@@ -23,6 +23,7 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { ActionPanel, actionAvailability, fmt, inputClass, isBatchEntry, stateWord, type ActionInfo, type LifecycleAction } from "@/components/production/job-card-actions"
 import { ColorChip, JobCardNo, LifecycleBadge, TrackBadge } from "@/components/production/lifecycle-chips"
+import { ReasonPicker, useReasonChoice } from "@/components/reasons"
 import { PageHeader } from "@/components/workspace/page-header"
 import { useApp } from "@/context/AppContext"
 import { apiErrorText, invalidateJobCardViews, useJobCardLifecycle, useMissedSlotSweep, type JobCardLifecycle } from "@/hooks/use-lifecycle"
@@ -559,7 +560,7 @@ function CardSummary({ data, row, hold, machineLabel, parent, onOpen }: { data: 
         <Stat label="Planned" value={fmt(planned)} sub={data.pcs_per_bamboo ? `${fmt(Math.ceil(planned / data.pcs_per_bamboo))} bamboo × ${data.pcs_per_bamboo}` : "pcs"} />
         <Stat label="Made" value={fmt(made)} sub={data.pcs_per_bamboo ? `${fmt(data.made_in_anchor_unit)} bamboo ${String(data.anchor_stage).toUpperCase() === "WINDER" ? "wound" : `at ${stageWord(data.anchor_stage).toLowerCase()}`}` : `at ${stageWord(data.anchor_stage).toLowerCase()}`} />
         <Stat label="Not started" value={fmt(data.open_first_stage_qty)} sub={`on ${stageWord(data.first_stage).toLowerCase()}`} tone={data.open_first_stage_qty > 0 && data.state !== "QUEUED" ? "violet" : undefined} />
-        <Stat label="Back to order" value={fmt(data.returned_qty)} sub={data.returned_qty ? "not released again yet" : "nothing returned"} tone={data.returned_qty ? "rose" : undefined} />
+        <Stat label="Back to order" value={fmt(data.returned_qty)} sub={data.returned_qty ? "given back to the order (Sales releases it again or short-closes it)" : "nothing returned"} tone={data.returned_qty ? "rose" : undefined} />
       </div>
       <div className="mt-2">
         <div className="relative h-2 overflow-hidden rounded-full bg-muted" aria-hidden="true">
@@ -911,26 +912,31 @@ function bulkVerdict(job: any, holdReason: (job: any) => string | null): BulkVer
 }
 
 function BulkCloseDialog({ open, rows: ticked, holdReason, onClose, onFinished }: { open: boolean; rows: any[]; holdReason: (job: any) => string | null; onClose: () => void; onFinished: (doneIds: string[]) => void }) {
-  const [reason, setReason] = useState("")
   const [running, setRunning] = useState(false)
   const [results, setResults] = useState<Record<string, { ok: boolean; message: string }>>({})
   // The cards as they were when the dialog opened: closed ones leave the ticked set, but the result stays readable.
   const [rows, setRows] = useState<any[]>([])
   const [eligible, setEligible] = useState<any[]>([])
+  // One JOB_CARD_CLOSE code from Masters › Reason codes for every card (owner decision 4); each card's plant checks it.
+  const reasonPlant = (eligible[0] || rows[0])?.plant_id || null
+  const reason = useReasonChoice("JOB_CARD_CLOSE", reasonPlant)
+  const resetReason = reason.reset
   useEffect(() => {
     if (!open) return
-    setReason(""); setResults({}); setRunning(false)
+    resetReason(); setResults({}); setRunning(false)
     setRows(ticked)
     setEligible(ticked.filter((job) => bulkVerdict(job, holdReason).tone === "ok"))
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
   const finished = Object.keys(results).length > 0 && !running
   const run = async () => {
+    if (!reason.validate()) return
+    const why = { reason_code: reason.value.code, ...reason.payload("reason") }
     setRunning(true)
     const next: Record<string, { ok: boolean; message: string }> = {}
     for (const job of eligible) {
       const id = String(job.id)
       try {
-        const response = await productionApi.forceCloseJobCard(id, { reason: reason.trim() })
+        const response = await productionApi.forceCloseJobCard(id, why)
         const made = Number(response?.data?.made_qty || 0)
         const back = Number(response?.data?.returned_qty || 0)
         next[id] = { ok: true, message: response?.data?.close_mode === "CANCELLED" ? `Cancelled · ${fmt(back)} pcs back to the order` : `Closed at ${fmt(made)} pcs · ${fmt(back)} pcs back to the order` }
@@ -970,10 +976,19 @@ function BulkCloseDialog({ open, rows: ticked, holdReason, onClose, onFinished }
           })}
         </ul>
         {!finished ? (
-          <label className="block space-y-1">
-            <span className="text-[12px] font-medium text-muted-foreground">Reason (one for all) <span className="text-signal-rose-ink">*</span></span>
-            <input className={inputClass} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="e.g. customer cancelled PO 0872F" disabled={running || eligible.length === 0} data-testid="manager-bulk-reason" />
-          </label>
+          <ReasonPicker
+            category="JOB_CARD_CLOSE"
+            plantId={reasonPlant}
+            rows={reason.list.data}
+            value={reason.value}
+            onChange={reason.setValue}
+            showErrors={reason.touched}
+            label="Reason (one for all)"
+            notePlaceholder="e.g. customer cancelled PO 0872F"
+            disabled={running || eligible.length === 0}
+            compact
+            testIdPrefix="manager-bulk-reason"
+          />
         ) : (
           <p className="text-[12.5px]" role="status">{okCount} of {eligible.length} closed.{eligible.length - okCount ? " The others were refused with the message shown." : ""}</p>
         )}
@@ -983,7 +998,7 @@ function BulkCloseDialog({ open, rows: ticked, holdReason, onClose, onFinished }
           ) : (
             <>
               <button type="button" className="erp-btn-secondary" onClick={onClose} disabled={running}>Cancel</button>
-              <button type="button" className="erp-btn-primary !bg-signal-rose-ink !text-white hover:!opacity-90" disabled={running || reason.trim().length < 3 || eligible.length === 0} onClick={() => void run()} data-testid="manager-bulk-close-confirm">
+              <button type="button" className="erp-btn-primary !bg-signal-rose-ink !text-white hover:!opacity-90" disabled={running || !reason.complete || eligible.length === 0} onClick={() => void run()} data-testid="manager-bulk-close-confirm">
                 {running ? "Closing…" : eligible.length ? `Yes, force close ${eligible.length} card${eligible.length === 1 ? "" : "s"}` : "No card can be force closed"}
               </button>
             </>

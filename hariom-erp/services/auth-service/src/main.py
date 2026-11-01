@@ -28,6 +28,8 @@ def ensure_runtime_schema() -> None:
         connection.execute(text("ALTER TABLE IF EXISTS notifications ADD COLUMN IF NOT EXISTS event_id VARCHAR(120)"))
         connection.execute(text("ALTER TABLE IF EXISTS notifications ADD COLUMN IF NOT EXISTS delivery_status VARCHAR(30) DEFAULT 'DELIVERED'"))
         connection.execute(text("ALTER TABLE IF EXISTS notifications ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMP"))
+        # Reel / coil label heading on the plant master (owner decision 6, 1 Nov 2026).
+        connection.execute(text("ALTER TABLE IF EXISTS plants ADD COLUMN IF NOT EXISTS label_heading VARCHAR(200)"))
 
 
 ensure_runtime_schema()

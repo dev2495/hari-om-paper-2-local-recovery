@@ -6,6 +6,9 @@
 
 ## At a glance
 - **Masters feed the dropdowns.** Specs pick papers, mandrels, tube sizes, adhesives, parchments, packaging and tools. Orders pick customers. POs and GRNs pick vendors. Floor screens pick shifts, employees and reasons.
+- **Every reason in the app is a code from Reason codes.** There is one list per kind of action (for example Stage closed short, Floor rejection, QC hold placed, PO cancel / short close). No screen takes a reason as free text only.
+- **Employee departments matter.** Floor logs list only the active employees of the stage's department (WINDER, OVEN, PROCESS).
+- **Packaging weights matter.** Box, plastic and fadda weights per piece feed the month's packing theory; a missing weight shows a warning.
 - **Nothing is ever erased.** **Disable**, **Deactivate** and even **Delete** only hide a record from new dropdowns. Old orders, specs, job cards and ledgers keep pointing to it, and you can reactivate it later.
 - **Saved specs keep the values they were saved with.** A spec recipe stores each paper's GSM, BF and bulk at save time, so editing a paper master changes new work only, never an approved recipe version.
 - **Every material master becomes a stock item automatically** (same code). Inward QC bands are set per material type, group, colour or line, and are versioned.
@@ -45,7 +48,7 @@ The masters and their key fields:
 | Tube sizes | Inner Dia, Outer Dia, Length (mm), Description (for example 76.4 x 81 x 150) | Spec and customer ask |
 | Parchments | Company, then Sub Parchment / Color (for example SUNRISE POLYFILMS · BLUE / BLACK STRIP) | Spec allows by company; orders, release and stock use the colour |
 | Adhesives | Variety, Internal Code, Solid %, Viscosity, pH | Spec glue, material issue, inward QC |
-| Packaging | Three kinds: Boxes, Plastic Sheets, Fadda (code, SKU, size, dimensions, colour, weight kg) | Spec packing, packing handoff, dispatch |
+| Packaging | Three kinds: Boxes (code, size label such as 400x300x200, dimensions, **Weight per box (kg)**), Plastic Sheets (**Weight per sheet (kg)**), Fadda, the sheet inside the box (**Weight per piece (kg)**) | Spec packing (picked by code), job card boxes, packing theory, challan packing block |
 
 **Parchments** has two panels. **Companies** (parchment families allowed on spec sheets, with **Add company**, a QC band per company, and rename) and **Parchments** (the colour rows, with **Add parchment**). A note under the table reads: "Records are never deleted. Disabling hides a record from new dropdowns; old orders, specs, job cards and ledgers keep their references."
 
@@ -61,7 +64,7 @@ What you see:
 ![Vendors master with GSTIN, category and detail panel](../screens/masters-vendors.jpg)
 *Figure: The Vendors master: Total vendors 6, Active 6, With GSTIN 3, Categories 3. Filters for Search, Category, GSTIN and Status, with **Export CSV** and **+ New vendor**. Rows show code, category (Paper, Parchment, Raw paper), name, city, GSTIN and **Edit**. A side panel says "Select a row from the grid to open its detail panel."*
 
-The vendor form has: Code, Vendor name, Legal name, Trade name (as on the GST certificate), Categories, GSTIN, PAN, MSME / Udyam number, the address (Address line 1 and 2, City, State, PIN code, Country), Payment terms (days), Credit days, Credit limit (₹), the bank (Bank name, Account number, IFSC), the main contact (Contact person, Phone, Alternate phone, Email) and Notes. Only code and name are required; whatever else you fill prints on the PO.
+The vendor form has: Code, Vendor name, **Mill / short name** (for example AKSHAT; "Prints as MILL NAME on reel and coil labels"; when blank, reel labels print the vendor name), Legal name, Trade name (as on the GST certificate), Categories, GSTIN, PAN, MSME / Udyam number, the address (Address line 1 and 2, City, State, PIN code, Country), Payment terms (days), Credit days, Credit limit (₹), the bank (Bank name, Account number, IFSC), the main contact (Contact person, Phone, Alternate phone, Email) and Notes. Only code and name are required; whatever else you fill prints on the PO.
 
 **Contact directory** (/masters/contact-directory) is a read-only list of every customer and vendor contact with Type, Master, Contact Name, Number and Email, plus a search box and Customers / Vendors counts. Edit contacts on the customer or vendor record.
 
@@ -82,9 +85,54 @@ Tools come in five fixed categories: **Notch**, **Blade**, **Holder**, **V + Fla
 ![Order close reasons with add form and the active reasons list](../screens/order-close-reasons.jpg)
 *Figure: Order close reasons. Chips show where they are used: Cancel order, Short close, Customer hold, and the note "A code with the word OTHER in it (for example SO-OTHER) asks for a note when used." The **Add a reason** form has Name, Code (stays fixed) and When to use it. The list shows "13 active · 15 inactive", with reasons like "Customer cancelled the order (SO-CUST-CANCEL)", each with **Rename** and **Deactivate**.*
 
-**Reason codes** (/masters/reason-codes) holds the floor reason lists in categories: Downtime, Scrap, QC reject, Short-close, RM issue, Return, Customer complaints and Other. Each has a Code (for example DT-POWER), Label, Description, **Severity** (OK, WATCH, CRITICAL) and Status. Tiles show Total reasons, Downtime, Scrap and Short-close. Order close reasons are listed under their own page.
+![Alt: Reason codes master with list cards grouped by area and the codes of one list](../screens/reason-codes-master.jpg)
+*Figure: Masters › Reason codes. Header "Every 'why' in the app · N lists · N active codes" with the chip "Owner / Admin / Plant Manager write" and **+ New reason**. Tiles Reason lists, Active codes and Lists with no code. Below, list cards grouped under Sales, Job cards and floor, Quality, Stores and stock, Purchase, Dispatch and Not linked yet, each with its code count; picking a card shows where the list is used and its codes (Code, Label, Description, Severity, Status, Edit, Deactivate).*
 
-**Employees**: Code (EMP-001), Name, Role (Operator, Supervisor, Packer, QC Inspector, Storeman, Dispatcher, Manager), Dept (WINDER, OVEN, PROCESS, PACKING, QC, DISPATCH, STORE, GENERAL), Default shift, Skills (for example WINDER, OVEN), Phone and Email. These people feed the per-operator productivity reports. They are not login users; logins are made under System > Users.
+**Reason codes** (/masters/reason-codes): "Every place that asks for a reason picks a code from one of these lists, with an optional note. Codes with OTHER in them always need a short note. Each list says where it is used." What you see:
+1. **Tiles**: **Reason lists**, **Active codes** ("N in all"), **Lists with no code** (amber when a list in use has no active code).
+2. **List cards** grouped by area, with **All lists** to show every code. A list with no active code has an amber border. Picking one shows **Used in** (the screens that read it) and its codes. A list under **Not linked yet** says "No screen uses this list. Kept so older records stay readable."
+3. **Codes table**: **Code** (fixed), **Label** (what people see), **Description**, **Severity** (OK, WATCH, CRITICAL), **Status** (Active / Inactive), **Edit**, **Deactivate** / **Reactivate** ("will be hidden from new entries. Existing rows referencing this code stay intact.").
+4. **+ New reason**: **List** (required), **Code**, **Label**, **Severity**, **Description**. The Order cancel / short close list is changed on its own page: "Order close reasons are changed on their own page." with **Open Order close reasons**.
+
+Every plant starts with standard codes in each list, and each list has an OTHER code (for example SO-OTHER, QH-OTHER, RJ-OTHER) that needs a note of at least 5 characters. The lists and where they are used:
+
+| Area | List (category) | Used when | Example codes |
+|---|---|---|---|
+| Sales | Order cancel / short close (SO_CLOSE) | Cancel order, Short close, Customer hold & close | SO-CUST-CANCEL, SO-QTY-REDUCED, SO-BALANCE-NOT-REQ |
+| Sales | Order hold lifted (ORDER_RESUME) | Resume after a customer hold | RS-CUST-CONFIRMED, RS-PAYMENT, RS-HOLD-ERROR |
+| Job cards and floor | Job card close early / cancel (JOB_CARD_CLOSE) | Force close, cancel, close several cards | JC-CUST-CANCEL, JC-RELEASED-TWICE, JC-MATERIAL-SHORT |
+| Job cards and floor | Job card split / edit / insert (JOB_CARD_CHANGE) | Split card, edit qty or colour, emergency insert | CH-CUST-REQUEST, CH-URGENT, CH-MACHINE-LOAD |
+| Job cards and floor | Stage closed short (STAGE_SHORT_CLOSE) | Close stage with a shortfall; old-form stage below plan | SS-MATERIAL-SHORT, SS-HIGH-REJECT, SS-MACHINE |
+| Job cards and floor | Job card short close, final QC shortage (SHORT_CLOSE) | Dispatch tab › Close job card short; Operations control short close | SH-REJECT, SH-COUNT, SH-CUST-ACCEPT |
+| Job cards and floor | Leftover input at stage close (LEFTOVER_INPUT) | Unused input held or scrapped at a stage close | LI-EXTRA-MADE, LI-DAMAGED, LI-NEXT-RUN |
+| Job cards and floor | Floor rejection (SCRAP) | Rejected pieces and cutting loss on every stage | WL, PG, ID, OD, LN, WT, CS, DM, MS, NT, RJ-OTHER |
+| Job cards and floor | Entry correction / void / reopen (ENTRY_CORRECTION) | Void a run, change saved readings, reopen a stage | EC-WRONG-QTY, EC-DUPLICATE, EC-REOPEN-MORE |
+| Job cards and floor | Override (OVERRIDE) | Above 110% of target, carryover, run outside the plan, taking batches before QC | OV-CUST-EXTRA, OV-SETUP-LOSS, OV-PLAN-CHANGE |
+| Job cards and floor | Machine downtime (DOWNTIME) | Operations control › log or edit downtime | DT-POWER, DT-BREAKDOWN, DT-CHANGEOVER |
+| Quality | Customer complaints (CUSTOMER_COMPLAINT) | Record a complaint | CC-DAMAGE, CC-SIZE, CC-STRENGTH |
+| Quality | QC hold placed (QC_HOLD) | Place a hold; opening stock put on hold | QH-SUSPECT, QH-CUST-COMPLAINT, QH-RETEST |
+| Quality | QC hold release (QC_RELEASE) | Release a hold | QR-RETEST-OK, QR-REWORKED, QR-MGMT-OK |
+| Quality | Incoming material rejected / returned (RM_ISSUE) | Return a rejected lot to the supplier | RM-GSM, RM-MOISTURE, RM-WEIGHT |
+| Quality | Concession (CONCESSION) | Use a failed lot under concession | CN-MINOR, CN-URGENT, CN-SUPPLIER-CREDIT |
+| Stores and stock | Stock correction (STOCK_CORRECTION) | Raise a stock correction | COUNT_SHORT, COUNT_EXTRA, WRONG_GRN_WEIGHT |
+| Stores and stock | Correction rejected / count sent back (APPROVAL_REJECT) | Reject a correction; send a count back for recount | AR-RECOUNT, AR-NO-PROOF, AR-WRONG-QTY |
+| Stores and stock | Manual FG inward (MANUAL_FG) | FG inward › Manual inward | FG-REWORK, FG-ADJUSTMENT, FG-OPENING |
+| Stores and stock | Receipt without PO (MANUAL_RECEIPT) | Receive without a PO | MR-URGENT, MR-SAMPLE, MR-CASH |
+| Stores and stock | Books unlock (BOOKS_UNLOCK) | Unlock a closed month's store books | BU-LATE-GRN, BU-CORRECTION, BU-AUDIT |
+| Stores and stock | Month-end variance (MONTH_END_VARIANCE) | Explain an item's variance outside tolerance | MV-WASTAGE, MV-COUNT, MV-MOISTURE |
+| Purchase | Purchase approval rejected (PURCHASE_REJECT) | Reject a PO, requisition or purchase plan | PJ-RATE-HIGH, PJ-NOT-NEEDED, PJ-STOCK-OK |
+| Purchase | PO cancel / short close (PO_CLOSE) | Cancel or short close a PO | PC-SUPPLIER-CANNOT, PC-NOT-NEEDED, PC-DELAY |
+| Purchase | PO revision (PO_REVISION) | Edit a PO (new revision) | PV-RATE, PV-QTY, PV-DATE |
+| Purchase | Receiving more than the PO (OVER_RECEIPT) | GRN above the PO quantity | OR-ROLL-WEIGHT, OR-MIN-LOT, OR-TOLERANCE |
+| Purchase | Invoice difference (INVOICE_DIFF) | Accept variance, reject invoice, release stock | ID-RATE, ID-FREIGHT, ID-TAX |
+| Purchase | Debit note (DEBIT_NOTE) | Raise or void a debit note | DN-SHORT, DN-REJECT, DN-VOID-ERROR |
+| Purchase | Supplier schedule change (SUPPLIER_SCHEDULE) | Change a supplier delivery; cancel an RM calendar delivery | SCH-SUPPLIER-DELAY, SCH-PLAN-CHANGE |
+| Dispatch | Surplus kept (SURPLUS_RETAIN) | Retain surplus FG | SR-NEXT-ORDER, SR-CUST-LATER, SR-SAMPLE |
+| Not linked yet | QC reject, Customer return, Other (general) | No screen; kept so older records stay readable | (old codes only) |
+
+Each record that uses a reason keeps the code, the label at that moment and the note, so renaming a label later never changes old records; reports and histories show the label. Records made before 1 Nov 2026 keep their old typed text.
+
+**Employees**: Code (EMP-001), Name, Role (Operator, Supervisor, Packer, QC Inspector, Storeman, Dispatcher, Manager), Dept (WINDER, OVEN, PROCESS, PACKING, QC, DISPATCH, STORE, GENERAL), Default shift, Skills (for example WINDER, OVEN), Phone and Email. **The department decides where a person can be picked as operator**: Log output and Log QC on Winding list only active WINDER employees, Oven only OVEN, Process only PROCESS (operators first). The server refuses anyone else. The operator chosen on every floor log feeds Reports › **Employee performance**. Employees are not login users; logins are made under System > Users.
 
 **Shifts**: Code, Name, Start time, End time, Break (min), Hours / day and Night premium (%). Shifts are marked DAY or NIGHT. They feed machine availability, planner day boundaries and night-premium reports.
 
@@ -141,9 +189,29 @@ Owner or Admin. Sales, Plant Manager and Planner see the list read-only.
 2. Click **Add reason**.
 3. To change the wording, click **Rename**. To stop offering it, click **Deactivate** and confirm.
 
-### How to add a reason code, employee, shift or holiday
-1. Open the master and click **+ New reason code**, **+ New employee**, **+ New shift** or **+ New holiday**.
-2. Fill the fields shown above and save. Use **Deactivate** / **Reactivate** for reasons, employees and shifts. Holidays can be edited or deleted.
+### How to add a reason code
+Owner, Admin or Plant Manager.
+1. Open **Reason codes**. Click the list card (for example **Stage closed short**) to see its codes and where it is used.
+2. Click **+ New reason**. Pick the **List**, type the **Code** (for example SS-NO-ADHESIVE; it stays fixed), the **Label** people will see ("Adhesive not available"), the **Severity** and an optional **Description**. Click **Create**.
+3. The code appears at once in every picker of that list in this plant.
+4. To change the words, click **Edit** and change the label; records already saved keep the label they were saved with. To stop offering it, click **Deactivate**; old records keep it.
+5. A code with OTHER in it (as a whole word, for example SS-OTHER) always asks for a note of at least 5 characters when used.
+
+### How to add an employee so they can log runs
+Owner or Admin.
+1. Open **Employees**, click **+ New employee**.
+2. Fill **Code**, **Name**, **Role** (Operator) and **Dept**: WINDER for winding, OVEN for the oven, PROCESS for the process line. Save.
+3. The person now appears in the **Operator** list of Log output and Log QC for that stage only. To move someone to another stage, change the **Dept**. To stop listing them, **Deactivate** them.
+
+### How to add a shift or holiday
+1. Open the master and click **+ New shift** or **+ New holiday**.
+2. Fill the fields shown above and save. Use **Deactivate** / **Reactivate** for shifts. Holidays can be edited or deleted.
+
+### How to add a packaging item with its weight
+Owner or Admin.
+1. Open **Packaging**, pick **Boxes**, **Plastic Sheets** or **Fadda**, click add.
+2. Type the code (the same code the spec and stock use, for example R-150), the **Size label** (for example 400x300x200), dimensions and the weight: **Weight per box (kg)**, **Weight per sheet (kg)** or **Weight per piece (kg)**. Save.
+3. The item can now be picked on spec sheets and on Packing setup. When it is the only active plastic (or fadda) master, specs take it by default.
 
 ## Rules the system enforces
 - **Who can change masters**: Owner and Admin (all). Reason codes also allow the Plant Manager. Order close reasons are Owner or Admin only ("Only the Owner or an Admin can change order close reasons."). Others are shown "This page is not open to your role" (BLOCKS).
@@ -159,12 +227,17 @@ Owner or Admin. Sales, Plant Manager and Planner see the list read-only.
 - **Inward QC bands**: the most specific band wins (line, then colour, then group, then type default). Each save is a new version. New GRN lots are checked against the band in force; earlier lots keep theirs. A reading outside the band holds an incoming lot.
 - **Tools**: the category is fixed after creation ("Tool category is fixed after creation"). Each category has required fields (BLOCKS). Tool names are unique within a category, and dropdown values are unique.
 - **Order close reasons**: the code never changes once made ("An order close reason keeps its code, because closed orders still point to it."). A code containing OTHER makes the close dialog ask for a note (automatic). They are stored as reason codes of category SO_CLOSE.
-- **Reason codes**: the category must be one of Downtime, Scrap, QC reject, Short-close, RM issue, Return, Customer complaint, SO close or Other; the severity must be OK, WATCH or CRITICAL (BLOCKS).
+- **Reason codes**: the list must be one of the lists above and the severity OK, WATCH or CRITICAL (BLOCKS). Every service checks a chosen code itself: it must be active, of the right list and of the record's plant, and an OTHER code needs a note of at least 5 characters ("Write a short note (at least 5 characters) for the reason 'Other'."). A code from another list is refused ("SS-MACHINE belongs to the list 'Stage closed short', not 'Machine downtime'."); an unknown code says to pick one from the list or ask a Plant Manager, Admin or the Owner to add it (BLOCKS). If master data cannot be reached, the save waits and says to try again.
+- **Operators by department**: a floor log refuses an employee whose department is not the stage (BLOCKS).
+- **Packaging weights** feed packing theory; a material with no weight is listed as a warning, not dropped (WARNS).
+- **Vendor mill / short name** prints as MILL NAME on reel and coil labels; blank prints the vendor name (AUTOMATIC).
 
 ## Sample
 **New customer for the challan.** The Admin adds Sharma Tubes Pvt Ltd: Code WB-SHARMA, GSTIN 24AAKCS4821M1Z3. The system fills PAN AAKCS4821M and the billing state Gujarat (24). Billing address: Plot 14, GIDC Phase II, Vapi 396195. The Dispatch (ship-to) address is their Daman warehouse with stores contact Mr Patel, 98250 12345. The row now shows **Ready**. When Dispatch makes a challan for SO/26/10/412, it prints the GSTIN and the Daman ship-to address.
 
 **Paper edit.** The Admin changes paper 350 (Kraft) bulk factor from 1.55 to 1.50, so the derived thickness goes from 0.5425 to 0.525 mm. Recipe version 3 of spec 76.4 x 81 x 150 for Sharma Tubes, approved last week, keeps 1.55 in its layers. The next recipe version saved will use 1.50.
+
+**Reason code.** Paper often runs out because adhesive is late. The Plant Manager adds SS-NO-ADHESIVE "Adhesive not available" to the list **Stage closed short**. The next day, when Winding on 26/10/318 closes at 52 of 60 bamboo, the plant manager picks it; the card history, the order history and the returned balance all show "Adhesive not available".
 
 **Order close reason.** The Owner adds "Customer moved the plant" and the code becomes SO-CUSTOMER-MOVED-THE-PLANT. Later the Owner renames it "Customer shifted the plant"; the code stays the same, so orders already closed with it still show it.
 
@@ -184,6 +257,12 @@ Owner or Admin. Sales, Plant Manager and Planner see the list read-only.
 **Q: Where do I change who can log in?** A: Not here. Employees are shop-floor people for reports. Logins are under System > Users.
 
 **Q: Why can't the Plant Manager edit papers?** A: Masters are Owner and Admin only, except Reason codes, which the Plant Manager may also change.
+
+**Q: A reason picker says "No reasons are set up for this list".** A: That list has no active code in this plant. Add one in Reason codes (the picker links there).
+
+**Q: An operator is missing from the Log output list.** A: Check their **Dept** and that they are active in Employees. Winding shows WINDER people only, Oven OVEN, Process PROCESS.
+
+**Q: What is the mill name on a reel label?** A: The vendor's **Mill / short name** (for example AKSHAT). Fill it on the vendor; until then the label prints the vendor name.
 
 ## Related chapters
 - Specifications (recipes, tools, parchment allowed)

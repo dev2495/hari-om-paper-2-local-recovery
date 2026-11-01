@@ -16,6 +16,7 @@ import { purchaseApi } from "@/lib/api"
 import { apiErrorText, type ExpectedArrival } from "@/lib/api-rm-calendar"
 import { businessDate } from "@/lib/business-date"
 import { cn } from "@/lib/utils"
+import { ReasonPicker, useReasonChoice } from "@/components/reasons"
 
 const BUCKETS: Array<{ id: ExpectedArrival["bucket"]; title: string; detail: string; icon: typeof AlarmClock; tone: "rose" | "amber" | "cyan" | "slate" }> = [
   { id: "OVERDUE", title: "Overdue", detail: "Date passed, not received", icon: AlarmClock, tone: "rose" },
@@ -71,18 +72,23 @@ function ArrivalLine({ row, today, canEdit, canReceive, onNotice }: { row: Expec
   const [mode, setMode] = useState<null | "confirm" | "date">(null)
   const [day, setDay] = useState(row.date >= today ? row.date : today)
   const [reason, setReason] = useState("")
+  // Moving a delivery picks a SUPPLIER_SCHEDULE code (owner decision 4, 1 Nov 2026); a vendor confirming the
+  // same date needs only an optional note.
+  const moveWhy = useReasonChoice("SUPPLIER_SCHEDULE")
+  const moved = day !== row.date
+  const needsCode = Boolean(row.schedule_id) && (mode === "date" || moved)
   const save = useMutation({
     mutationFn: async () => {
       if (row.schedule_id) {
         return purchaseApi.updateSchedule(row.schedule_id, { expected_version: row.schedule_version || 1, current_date: day,
-          confirmation_status: mode === "confirm" ? "CONFIRMED" : "TENTATIVE", reason: mode === "confirm" ? (reason.trim() || "Vendor confirmed") : reason.trim() })
+          confirmation_status: mode === "confirm" ? "CONFIRMED" : "TENTATIVE", ...(needsCode ? moveWhy.payload("reason") : { reason: reason.trim() || "Vendor confirmed" }) })
       }
       return purchaseApi.commitSchedules(row.po_id!, { rows: [{ purchase_order_line_id: row.po_line_id, scheduled_qty: row.open_qty, promised_date: day, current_date: day, confirmation_status: mode === "confirm" ? "CONFIRMED" : "TENTATIVE", notes: reason.trim() || null }] })
     },
-    onSuccess: () => { refresh(); setMode(null); setReason(""); onNotice({ tone: "success", text: `${row.po_no} · ${row.item_name}: ${mode === "confirm" ? "vendor confirmed for" : "date changed to"} ${longDate(day)}.` }) },
+    onSuccess: () => { refresh(); setMode(null); setReason(""); moveWhy.reset(); onNotice({ tone: "success", text: `${row.po_no} · ${row.item_name}: ${mode === "confirm" ? "vendor confirmed for" : "date changed to"} ${longDate(day)}.` }) },
     onError: (failure) => onNotice({ tone: "error", text: apiErrorText(failure) }),
   })
-  const reasonNeeded = mode === "date" && reason.trim().length < 3
+  const reasonNeeded = row.schedule_id ? needsCode && !moveWhy.complete : mode === "date" && reason.trim().length < 3
   return (
     <li className="px-3 py-3 sm:px-4">
       <div className="grid gap-2 sm:grid-cols-[124px_minmax(0,1fr)_auto] sm:items-center">
@@ -111,9 +117,9 @@ function ArrivalLine({ row, today, canEdit, canReceive, onNotice }: { row: Expec
         </div>
       </div>
       {mode ? (
-        <form className="mt-3 grid gap-3 rounded-lg border border-border bg-[hsl(var(--surface-2))] p-3 sm:grid-cols-[180px_minmax(0,1fr)_auto] sm:items-end" onSubmit={(event) => { event.preventDefault(); if (!reasonNeeded) save.mutate() }}>
+        <form className="mt-3 grid gap-3 rounded-lg border border-border bg-[hsl(var(--surface-2))] p-3 sm:grid-cols-[180px_minmax(0,1fr)_auto] sm:items-end" onSubmit={(event) => { event.preventDefault(); if (needsCode && !moveWhy.validate()) return; if (!reasonNeeded) save.mutate() }}>
           <Field label={mode === "confirm" ? "Date the vendor gives" : "New date"}><input className={cn(fieldClass, "max-sm:h-11")} type="date" required min={today} value={day} onChange={(event) => setDay(event.target.value)} /></Field>
-          <Field label={mode === "confirm" ? "Note" : "Why it moved"} hint={mode === "confirm" ? "optional" : "required"}><input className={cn(fieldClass, "max-sm:h-11")} value={reason} minLength={mode === "date" ? 3 : undefined} required={mode === "date"} onChange={(event) => setReason(event.target.value)} placeholder={mode === "confirm" ? "Confirmed on call" : "Mill shut, truck late…"} /></Field>
+          {needsCode ? <ReasonPicker category="SUPPLIER_SCHEDULE" label="Why it moved" value={moveWhy.value} onChange={moveWhy.setValue} showErrors={moveWhy.touched} compact testIdPrefix={`delivery:${row.schedule_id}`} /> : <Field label={mode === "confirm" ? "Note" : "Why it moved"} hint={mode === "confirm" ? "optional" : "required"}><input className={cn(fieldClass, "max-sm:h-11")} value={reason} minLength={mode === "date" ? 3 : undefined} required={mode === "date"} onChange={(event) => setReason(event.target.value)} placeholder={mode === "confirm" ? "Confirmed on call" : "Mill shut, truck late…"} /></Field>}
           <div className="flex gap-2"><button className={cn(primaryButton, "max-sm:h-11")} disabled={save.isPending || reasonNeeded}>{save.isPending ? "Saving…" : "Save"}</button><button type="button" className={cn(secondaryButton, "max-sm:h-11")} onClick={() => setMode(null)}>Close</button></div>
         </form>
       ) : null}

@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..reasons import reason_input, resolve_reason, token_of
 from ..models import InventoryQualityStandardEvent, InventoryQualityTemplate, InventoryQualityTolerance, ItemMaster
 from ..quality_standards import (
     MATERIAL_TYPES,
@@ -248,7 +249,11 @@ class ToleranceSave(BaseModel):
     scope: str
     scope_key: str = ""
     lines: list[ToleranceLine] = Field(default_factory=list, max_length=60)
+    # Why the band changed (optional): a QC_RULE_CHANGE code from Masters › Reason codes (owner decision 4,
+    # 1 Nov 2026) with an optional note. `note` is the old free text and is refused without a code.
     note: str = Field(default="", max_length=500)
+    reason_code: Optional[str] = Field(default=None, max_length=80)
+    reason_note: Optional[str] = Field(default=None, max_length=500)
     # Line saves from a master row also carry the row's nominal values and group (e.g. paper
     # variety), written onto every stock material with that code.
     nominals: Optional[dict[str, Optional[float]]] = None
@@ -286,6 +291,12 @@ def save_tolerances(payload: ToleranceSave, db: Session = Depends(get_db),
                     current_user: dict = Depends(require_role(TOLERANCE_ROLES))):
     # Bands are master data for every plant (keyed by material code / group), so no plant is needed.
     material = _material(payload.material_type)
+    code, extra = reason_input(payload, note_keys=("reason_note",))
+    if not code and payload.note.strip():
+        raise HTTPException(422, "Choose a reason for this band change from the list (Masters › Reason codes), or leave it blank.")
+    why = resolve_reason(category="QC_RULE_CHANGE", code=code, note=extra, plant_id=None, token=token_of(current_user),
+                         required=False, what="this band change")
+    note_text = why.text if why else ""
     scope, key = _validate_scope(db, material, payload.scope, payload.scope_key)
     measured = {row.parameter_key: row for row in parameters_for(db, material) if is_numeric(row.input_type)}
     actor = current_user.get("sub")
@@ -335,7 +346,7 @@ def save_tolerances(payload: ToleranceSave, db: Session = Depends(get_db),
         if blank:
             if row:
                 db.delete(row)
-                record_event(db, material_type=material, kind="TOLERANCE_CLEARED", actor=actor, before=before, scope=scope, scope_key=key, parameter_key=line.parameter_key, note=payload.note, version=version)
+                record_event(db, material_type=material, kind="TOLERANCE_CLEARED", actor=actor, before=before, scope=scope, scope_key=key, parameter_key=line.parameter_key, note=note_text or None, version=version, reason=why)
                 changed_codes.append(line.parameter_key)
             continue
         values = {"mode": mode, "min_value": line.min_value if mode == "RANGE" else None, "max_value": line.max_value if mode == "RANGE" else None,
@@ -347,12 +358,12 @@ def save_tolerances(payload: ToleranceSave, db: Session = Depends(get_db),
             db.add(row)
         for field, value in values.items():
             setattr(row, field, value)
-        row.version, row.note, row.updated_by, row.updated_at = version, payload.note.strip() or None, actor, datetime.utcnow()
+        row.version, row.note, row.updated_by, row.updated_at = version, note_text or None, actor, datetime.utcnow()
         db.flush()
-        record_event(db, material_type=material, kind="TOLERANCE_SET", actor=actor, before=before, after=tolerance_dict(row), scope=scope, scope_key=key, parameter_key=line.parameter_key, note=payload.note, version=version)
+        record_event(db, material_type=material, kind="TOLERANCE_SET", actor=actor, before=before, after=tolerance_dict(row), scope=scope, scope_key=key, parameter_key=line.parameter_key, note=note_text or None, version=version, reason=why)
         changed_codes.append(line.parameter_key)
     if item_changed and not changed_codes:
-        record_event(db, material_type=material, kind="LINE_NOMINALS", actor=actor, scope=scope, scope_key=key, after={"nominals": payload.nominals, "material_group": payload.material_group}, note=payload.note, version=version)
+        record_event(db, material_type=material, kind="LINE_NOMINALS", actor=actor, scope=scope, scope_key=key, after={"nominals": payload.nominals, "material_group": payload.material_group}, note=note_text or None, version=version, reason=why)
     if not changed_codes and not item_changed:
         return {"changed": [], "items_updated": 0, "version": version - 1}
     db.flush()

@@ -24,6 +24,7 @@ import { useAttachJobCardQcProfile, useCompleteJobCardQc, useCreateQualityInspec
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
 import { frozenStageRules, inspectionProfileRevision, qcExceptionIssues, type QcStageKey } from "@/lib/qc-measurement"
 import { describeErrorDetail } from "@/lib/api-error"
+import { ReasonPicker, useReasonChoice } from "@/components/reasons"
 
 // "QC" is the final acceptance check against the spec sheet's own final limits
 // (I.D./O.D./Length/Weight/C.S.); dispatch requires a current passing one.
@@ -230,7 +231,6 @@ export function LegacyStageInspection({ backHref = "/quality/stage" }: { backHre
     revision: number
     sampleId?: string
   } | null>(null)
-  const [correctionReason, setCorrectionReason] = useState("")
   const [lastOriginalStatus, setLastOriginalStatus] = useState("")
   const [lastCorrectionRevision, setLastCorrectionRevision] = useState("")
   const [cardIssues, setCardIssues] = useState<any[]>([])
@@ -246,6 +246,8 @@ export function LegacyStageInspection({ backHref = "/quality/stage" }: { backHre
   const jobs = useMemo(() => asArray(jobCardsQuery.data).filter((job: any) => !isBatchEntryCard(job)), [jobCardsQuery.data])
   const selectedJob = jobs.find((job: any) => String(job.id) === selectedJobId) || null
   const plantId = plantForJob(selectedJob) || (activePlant && activePlant.toUpperCase() !== "ALL" ? activePlant : undefined)
+  // Correcting a recorded FAIL picks an ENTRY_CORRECTION code from Masters › Reason codes (owner decision 4, 1 Nov 2026).
+  const correctionReason = useReasonChoice("ENTRY_CORRECTION", plantId, { required: false, enabled: Boolean(originalInspection) })
   const templateQuery = useJobQcTemplate(selectedJobId || undefined, stageType, plantId)
   const instrumentsQuery = useQcInstruments(plantId)
   const registeredInstruments = (instrumentsQuery.data || []).filter((row) => row.active)
@@ -376,7 +378,8 @@ export function LegacyStageInspection({ backHref = "/quality/stage" }: { backHre
           ...(originalInspection
             ? {
                 parent_inspection_id: originalInspection.id,
-                correction_reason: correctionReason.trim() || undefined,
+                correction_reason_code: correctionReason.value.code || undefined,
+                correction_reason_note: correctionReason.value.note.trim() || undefined,
                 expected_revision: originalInspection.revision,
               }
             : {}),
@@ -547,7 +550,7 @@ export function LegacyStageInspection({ backHref = "/quality/stage" }: { backHre
                     setLastMovementGate("")
                     setCardIssues([])
                     setOriginalInspection(null)
-                    setCorrectionReason("")
+                    correctionReason.reset()
                     setLastOriginalStatus("")
                     setLastCorrectionRevision("")
                   }}
@@ -717,16 +720,17 @@ export function LegacyStageInspection({ backHref = "/quality/stage" }: { backHre
                 <div className="text-sm text-foreground" data-testid="quality-stage-original-height">
                   {String(originalInspection.readings?.height ?? "")}
                 </div>
-                <label className="block space-y-1">
-                  <span className="text-[11.5px] font-semibold text-muted-foreground">Correction reason</span>
-                  <input
-                    data-testid="quality-stage-correction-reason"
-                    value={correctionReason}
-                    onChange={(event) => setCorrectionReason(event.target.value)}
-                    className="h-10 w-full rounded-xl border border-foreground/80 px-3 text-sm text-foreground"
-                    placeholder="Why the previously recorded number is being corrected"
-                  />
-                </label>
+                <ReasonPicker
+                  category="ENTRY_CORRECTION"
+                  plantId={plantId}
+                  label="Correction reason (when a recorded number changes)"
+                  required={false}
+                  value={correctionReason.value}
+                  onChange={correctionReason.setValue}
+                  showErrors={correctionReason.touched}
+                  compact
+                  testIdPrefix="quality-stage-correction-reason"
+                />
               </div>
             ) : null}
             {draftContext ? (

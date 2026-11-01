@@ -221,6 +221,20 @@ class VendorApiTests(unittest.TestCase):
         self.assertEqual(cleared.status_code, 200, cleared.text)
         self.assertIsNone(cleared.json()["gst_no"])
 
+    def test_mill_short_name_for_reel_labels(self):
+        """Owner decision 6 (1 Nov 2026): the reel label's MILL NAME is the vendor's short name, e.g. AKSHAT."""
+        created = self.client.post("/master/suppliers/", json={"supplier_code": "V-AKS", "name": "Akshat Paper Mills Pvt Ltd", "short_name": "  akshat  "})
+        self.assertEqual(created.status_code, 200, created.text)
+        vendor = created.json()
+        self.assertEqual(vendor["short_name"], "AKSHAT")
+        updated = self.client.put(f"/master/suppliers/{vendor['id']}", json={"short_name": "akshat   mills"})
+        self.assertEqual(updated.json()["short_name"], "AKSHAT MILLS")
+        cleared = self.client.put(f"/master/suppliers/{vendor['id']}", json={"short_name": " "})
+        self.assertIsNone(cleared.json()["short_name"])
+        too_long = self.client.put(f"/master/suppliers/{vendor['id']}", json={"short_name": "X" * 31})
+        self.assertEqual(too_long.status_code, 422)
+        self.assertIn("Mill / short name", too_long.text)
+
     def test_bad_formats_are_rejected_with_a_plain_message(self):
         for field, value, word in (
             ("gst_no", "24ABCDE1234F1Z", "GSTIN"),

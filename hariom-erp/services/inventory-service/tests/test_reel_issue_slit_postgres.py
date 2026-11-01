@@ -142,8 +142,10 @@ def test_po_linked_reel_goes_to_floor_whole_gets_a_slitting_card_and_kg_is_conse
         with pytest.raises(HTTPException) as second:
             _card(db, slit_issue.id, coils_made=7, wastage_kg=10)
         assert second.value.status_code == 403
-        corrected = _card(db, slit_issue.id, user=CHECKER, coils_made=7, wastage_kg=10, correction_reason="Recounted coils at the winder")
+        corrected = _card(db, slit_issue.id, user=CHECKER, coils_made=7, wastage_kg=10, correction_reason_code="EC-WRONG-QTY", correction_reason_note="Recounted coils at the winder")
         assert corrected.slitting_card["coils_made"] == 7 and corrected.slitting_card["history"][0]["coils_made"] == 6
+        assert corrected.slitting_card["history"][0]["corrected_because_code"] == "EC-WRONG-QTY"
+        assert corrected.slitting_card["history"][0]["corrected_because"] == "Ec wrong qty — Recounted coils at the winder"
 
         # Coil → winders, closed on issue.
         coil_issue = _issue(db, coil_id)

@@ -46,6 +46,8 @@ interface CrudTableProps {
         onCancel: () => void
     }>
     dialogContentClassName?: string
+    /** Open the add dialog on first render with these values filled in (deep link such as "Add box R.125"). */
+    initialAdd?: any
 }
 
 function describeDataset(title: string) {
@@ -105,13 +107,14 @@ export function CrudTable({
     qcBand,
     embedded = false,
     FormComponent,
-    dialogContentClassName
+    dialogContentClassName,
+    initialAdd
 }: CrudTableProps) {
     const pathname = usePathname()
     const [search, setSearch] = useState("")
     const [status, setStatus] = useState<"ACTIVE" | "DISABLED" | "ALL">("ACTIVE")
     const [bandTarget, setBandTarget] = useState<QcBandTarget | null>(null)
-    const [isAddOpen, setIsAddOpen] = useState(false)
+    const [isAddOpen, setIsAddOpen] = useState(Boolean(initialAdd))
     const [editItem, setEditItem] = useState<any>(null)
     const [submitError, setSubmitError] = useState<string | null>(null)
     const { activePlant } = useAuth()
@@ -198,6 +201,7 @@ export function CrudTable({
                     </div>
                 ) : null}
                 <FormComponent
+                    initialData={initialAdd}
                     onSubmit={handleAdd}
                     onCancel={() => {
                         setSubmitError(null)

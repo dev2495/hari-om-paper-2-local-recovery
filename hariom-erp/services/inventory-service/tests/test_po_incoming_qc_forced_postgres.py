@@ -54,7 +54,7 @@ def test_create_and_revise_store_incoming_qc_true_whatever_is_sent():
         assert db.query(PurchaseOrderLine).filter_by(purchase_order_id=created["id"]).one().incoming_qc_required is True
         line = created["lines"][0]
         revised = create_purchase_order_revision(created["id"], PurchaseRevisionCreate(
-            request_id=uuid.uuid4(), **header, change_reason="More quantity", expected_version=created["version"], lines=[
+            request_id=uuid.uuid4(), **header, change_reason="More quantity", reason_code="PV-QTY", reason_note="More quantity", expected_version=created["version"], lines=[
                 {"item_id": item.id, "logical_line_id": line["logical_line_id"], "qty_ordered": 120, "unit_cost": 20, "uom": "KG", "incoming_qc_required": False},
                 {"item_id": item.id, "qty_ordered": 10, "unit_cost": 20, "uom": "KG", "incoming_qc_required": False}]), db, PLANT, MAKER)
         stored = db.query(PurchaseOrderLine).filter_by(purchase_order_id=created["id"]).all()

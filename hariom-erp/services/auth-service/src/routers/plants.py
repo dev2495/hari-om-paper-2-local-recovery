@@ -21,6 +21,7 @@ class PlantCreate(BaseModel):
     address: str | None = None
     legal_name: str | None = Field(default=None, max_length=200)
     gstin: str | None = Field(default=None, max_length=32)
+    label_heading: str | None = Field(default=None, max_length=200)
     is_active: bool = True
 
 
@@ -30,6 +31,7 @@ class PlantUpdate(BaseModel):
     address: str | None = None
     legal_name: str | None = Field(default=None, max_length=200)
     gstin: str | None = Field(default=None, max_length=32)
+    label_heading: str | None = Field(default=None, max_length=200)
     is_active: bool | None = None
 
 
@@ -40,12 +42,21 @@ def _serialize_plant(plant: models.Plant, *, allowed_ids: set[str] | None = None
         "code": plant.code,
         "name": plant.name,
         "legal_name": plant.legal_name,
+        # What reel / coil labels print as the heading: the label heading, else the legal name, else the name.
+        "label_heading": plant.label_heading,
+        "label_heading_effective": label_heading_for(plant),
         "address": plant.address,
         "gstin": plant.gstin,
         "is_active": plant.is_active,
         "is_allowed": privileged or str(plant.id) in allowed,
         "user_count": len(plant.users),
     }
+
+
+def label_heading_for(plant: models.Plant) -> str:
+    """Heading of the plant's reel / coil labels (owner decision 6): set, else legal name, else name; upper case."""
+    text = str(getattr(plant, "label_heading", None) or plant.legal_name or plant.name or "").strip()
+    return " ".join(text.split()).upper()
 
 
 def _plant_lookup(db: Session, plant_id: str) -> models.Plant | None:
@@ -133,6 +144,7 @@ def create_plant(
         name=name,
         address=_blank_to_none(payload.address),
         legal_name=_blank_to_none(payload.legal_name),
+        label_heading=_blank_to_none(payload.label_heading),
         gstin=_validated_gstin(payload.gstin),
         is_active=payload.is_active,
     )
@@ -167,7 +179,7 @@ def update_plant(
         updates["name"] = updates["name"].strip()
         if not updates["name"]:
             raise HTTPException(status_code=422, detail="Plant name is required")
-    for key in ("address", "legal_name"):
+    for key in ("address", "legal_name", "label_heading"):
         if key in updates:
             updates[key] = _blank_to_none(updates[key])
     if "gstin" in updates:

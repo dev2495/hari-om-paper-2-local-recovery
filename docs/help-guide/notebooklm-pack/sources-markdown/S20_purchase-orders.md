@@ -19,7 +19,7 @@ Screenshots named in this file are in the visual handbook (Hari-Om-TubeOS-Help-G
 
 Flow diagram: Hand-made purchase order
 Steps: 1. Create PO (done by Store/Plant Manager) -> 2. Save PO draft - number given -> 3. Submit for approval (done by Store/Planner/Plant Manager) -> 4. Approve (done by Owner/Admin) -> 5. Send to vendor (done by Purchase desk) -> 6. Vendor confirms dates (done by Purchase desk) -> 7. Receive goods (done by Store/GRN) - GRN
-If it goes wrong after 'Approve': 1. Reject with reason (done by Owner/Admin) -> 2. Sent back by Owner -> 3. Edit / vendor change (done by Purchase desk) -> 4. Submit for approval
+If it goes wrong after 'Approve': 1. Reject with reason code (done by Owner/Admin) -> 2. Sent back by Owner -> 3. Edit / vendor change (done by Purchase desk) -> 4. Submit for approval
 
 
 
@@ -82,8 +82,8 @@ What you see:
 
 1. **Tiles**: **Waiting** (submitted revisions), **Value to review** and **Who approves**.
 2. **RM arrivals to approve** (Owner only): arrivals proposed on the RM inward calendar, with **Review on the calendar** and **Approve all with a vendor**. An arrival with "no vendor yet" cannot be approved until a vendor is picked.
-3. **Requisitions waiting for your decision** (Owner only): each request with a reason box, **Approve** and **Reject**.
-4. **Purchase order approval inbox**: each submitted PO with its revision, vendor, materials, quantity and value, a **Decision reason** box, **Approve** and **Reject**. Click the PO number to read the full PO first.
+3. **Requisitions waiting for your decision** (Owner only): each request with an **Approval note (optional)**, a **Reason to reject** picker, **Approve** and **Reject**.
+4. **Purchase order approval inbox** ("Step 3 of purchasing. Open the full saved PO before deciding. Sending one back needs a reason from the list."): each submitted PO with its revision, vendor, materials, quantity and value, an **Approval note** (optional), a **Reason to send back** picker (list **Purchase approval rejected**), **Approve** and **Reject**. Click the PO number to read the full PO first.
 
 [Screenshot "po-requisitions": Purchase requisitions page with a new request form and the requests list]
 *Figure: Purchase requisitions. A New request panel has Request date, Material or tool (grouped by type), Quantity and "Why is this needed?", with Submit requisition. Below, Requests and decisions lists the requests.*
@@ -119,8 +119,8 @@ Roles: Owner or Admin. They may also approve a revision they made themselves; th
 
 1. Open **PO approvals**, or open the PO itself.
 2. Click the PO number and read the saved document and the revision history.
-3. To approve, optionally type a reason and click **Approve**. The PO becomes **Approved**; the desk sends it next, and GRN can now receive against it.
-4. To reject, type the reason (at least 3 characters) and click **Reject**. The PO becomes **Rejected** and appears under **Sent back by Owner**. On the RM inward calendar its arrivals show **PO rejected** and no longer count as cover.
+3. To approve, optionally type an **Approval note** and click **Approve**. The PO becomes **Approved**; the desk sends it next, and GRN can now receive against it.
+4. To reject, pick the **Reason to send back** from **Purchase approval rejected** (PJ-RATE-HIGH Rate too high, PJ-NOT-NEEDED Not needed now, PJ-STOCK-OK Enough stock in hand, PJ-WRONG-VENDOR Wrong supplier, PJ-WRONG-ITEM Wrong item or quantity, PJ-BUDGET Over budget, PJ-OTHER), add a note if useful, and click **Reject**. The PO becomes **Rejected** and appears under **Sent back by Owner**. On the RM inward calendar its arrivals show **PO rejected** and no longer count as cover.
 
 ### How to send a PO to the vendor
 Roles: Store, Planner, Plant Manager, Owner.
@@ -148,12 +148,12 @@ A draft that was never approved or sent is just edited: the button says **Save d
 ### How to short-close or cancel a PO
 Roles: Plant Manager, Owner (Admin also passes).
 
-1. **Short-close**: on an approved or partly received PO, type the **Close reason** and click **Short-close remaining quantities**. The open balance is closed and its delivery rows are cancelled.
-2. **Cancel**: on a Draft, Waiting approval, Rejected or Approved PO with nothing received, type the reason and click **Cancel unreceived PO**. History is kept.
+1. **Short-close**: on an approved or partly received PO, pick the **Close reason** from **PO cancel / short close** (PC-SUPPLIER-CANNOT Supplier cannot supply, PC-NOT-NEEDED Balance not needed, PC-RATE Rate changed or not agreed, PC-DELAY Supplier delayed too long, PC-QUALITY Quality problems with the supplier, PC-DUPLICATE Duplicate PO, PC-ENTRY-ERROR PO made by mistake, PC-OTHER) and click **Short-close remaining quantities**. The open balance is closed and its delivery rows are cancelled.
+2. **Cancel**: on a Draft, Waiting approval, Rejected or Approved PO with nothing received, pick the reason from the same list and click **Cancel unreceived PO**. History is kept.
 
 ### How to raise and approve a requisition
 1. Anyone: open **Purchase requisitions**, fill **Material or tool**, **Quantity** and **Why is this needed?**, then click **Submit requisition**. A PR number like PR-261031-001 is given and the Owner is notified.
-2. Owner: open the requisition (or PO approvals), type a reason and click **Approve request** or **Reject**.
+2. Owner: open the requisition (or PO approvals). To approve, add an optional note and click **Approve request**; to reject, pick a **Reason to reject** (list **Purchase approval rejected**) and click **Reject**.
 3. Store or Plant Manager: click **Create linked PO**. The PO form opens with the OT series and the requested material and quantity. Add the vendor and rate, save and submit.
 
 ### How to print or download a PO
@@ -161,7 +161,7 @@ Roles: Plant Manager, Owner (Admin also passes).
 
 ## Rules the system enforces
 - **BLOCKS:** only Store, Plant Manager, Owner and Admin can create a PO. Only the Owner or an Admin can approve or reject one ("Only the Owner or an Admin may decide purchase order approval").
-- **BLOCKS:** a rejection needs a reason ("A rejection reason is required"). Short-close and cancel need a reason too.
+- **BLOCKS:** a rejection needs a **Purchase approval rejected** code; short-close and cancel need a **PO cancel / short close** code. Codes with OTHER need a note of at least 5 characters, and free text alone is refused. The **Change reason** of a PO revision is still typed in words (at least 3 characters).
 - **BLOCKS:** a scheduled draft with a missing rate cannot be approved: "Fill the rate for … first (Edit / vendor change)."
 - **BLOCKS:** paper lines must be in kg ("Paper PO line 1 must use KG"). Each line's unit must match the material master.
 - **BLOCKS:** a PO of the OT series, or with a Tool or Other item, needs an Owner-approved requisition ("Tools and other purchases require an Owner-approved requisition before PO creation"). The PO must match the requisition's material, unit and quantity. A requisition becomes a PO only once.
@@ -181,7 +181,7 @@ Store makes a PO for Bharat Paper Mills on 31 Oct 2026.
 | 1 | Kraft 230 GSM | 2,000 kg | ₹44.50 / kg | ₹89,000 |
 | 2 | Kraft 300 GSM | 1,500 kg | ₹46 / kg | ₹69,000 |
 
-**Save PO draft** gives **RP-PM/54**, Draft, total "2 lines · 3,500 kg · ₹1,58,000". Store clicks **Submit for approval**. The Owner approves it with the reason "Rates as agreed on call". Store clicks **Send to vendor** › **WhatsApp**; the chip reads "Sent on WhatsApp · 31 Oct". Bharat Paper Mills confirms 6 Nov for line 1 and 10 Nov for line 2; Store records both. On 6 Nov the truck brings 2,012 kg of Kraft 230 GSM, which Store receives with **Make GRN** (see the Goods inward chapter).
+**Save PO draft** gives **RP-PM/54**, Draft, total "2 lines · 3,500 kg · ₹1,58,000". Store clicks **Submit for approval**. The Owner approves it with the note "Rates as agreed on call". Store clicks **Send to vendor** › **WhatsApp**; the chip reads "Sent on WhatsApp · 31 Oct". Bharat Paper Mills confirms 6 Nov for line 1 and 10 Nov for line 2; Store records both. On 6 Nov the truck brings 2,012 kg of Kraft 230 GSM, which Store receives with **Make GRN** (see the Goods inward chapter).
 
 ## Common questions
 **Q: Why can't I see the New purchase order button?** A: Only Store, Plant Manager, Owner and Admin make POs. A Planner proposes arrivals on the RM inward calendar; when the Owner approves them, the draft PO is made automatically.
@@ -198,7 +198,7 @@ Store makes a PO for Bharat Paper Mills on 31 Oct 2026.
 
 **Q: Can I receive goods on a PO that is still waiting approval?** A: No. Goods inward lists only approved POs with an open balance. Ask the Owner or an Admin to approve it.
 
-**Q: The vendor will not send the last 120 kg. How do I close the PO?** A: The Plant Manager or Owner types a close reason and clicks **Short-close remaining quantities**.
+**Q: The vendor will not send the last 120 kg. How do I close the PO?** A: The Plant Manager or Owner picks a close reason (for example PC-SUPPLIER-CANNOT) and clicks **Short-close remaining quantities**.
 
 **Q: I changed a sent PO. Does the vendor get it automatically?** A: No. The PO shows "Revision 2 approved; send it again". Use **Send again**.
 

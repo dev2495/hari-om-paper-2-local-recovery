@@ -247,6 +247,8 @@ class Supplier(Base):
     # Basic vendor details (client 2026-10-27), all optional; added by startup ALTER TABLE.
     legal_name = Column(String(200), nullable=True)
     trade_name = Column(String(200), nullable=True)
+    # Mill / short name printed on reel labels (owner decision 6, 1 Nov 2026); startup ALTER TABLE adds it.
+    short_name = Column(String(60), nullable=True)
     alt_phone = Column(String(50), nullable=True)
     address_line2 = Column(String(300), nullable=True)
     city = Column(String(120), nullable=True)

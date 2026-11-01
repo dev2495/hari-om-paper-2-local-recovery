@@ -40,9 +40,11 @@ import {
 } from "@/hooks/use-inventory"
 import { applicableRules, groupIncomingQueue, lotItemName, lotKey, lotName, materialLabel, type IncomingQueueGroup } from "@/lib/incoming-qc"
 import { parseScanCode } from "@/lib/scan-code"
+import { reelSerial } from "@/lib/lot-find"
 import { personLabel } from "@/lib/people"
 import { dayText, unitWord } from "@/lib/stock-format"
 import { RackLabelHint } from "@/components/inventory/rack-label-hint"
+import { ReasonPicker, useReasonChoice } from "@/components/reasons"
 import { cn } from "@/lib/utils"
 
 const asArray = (value: any) => (Array.isArray(value) ? value : [])
@@ -183,10 +185,8 @@ function IncomingQualityPage() {
   const [search, setSearch] = useState("")
   const [selection, setSelection] = useState<{ key: string; lots: any[] } | null>(null)
   const [resolveKey, setResolveKey] = useState("")
-  const [concessionReason, setConcessionReason] = useState("")
   const [concessionQty, setConcessionQty] = useState("")
   const [concessionExpiry, setConcessionExpiry] = useState("")
-  const [returnReason, setReturnReason] = useState("")
   const [returnRef, setReturnRef] = useState("")
   const [showAllConcessions, setShowAllConcessions] = useState(false)
 
@@ -206,9 +206,12 @@ function IncomingQualityPage() {
   const scanned = parseScanCode(search)
   const scannedLot = (scanned.kind === "REEL" || scanned.kind === "BATCH") && scanned.id ? `${scanned.kind}:${scanned.id.toLowerCase()}` : ""
   const query = (scanned.kind === "REEL" || scanned.kind === "BATCH" ? scanned.code : search).trim().toLowerCase()
+  const querySerial = reelSerial(query)
   const matchesSearch = (row: any) => {
     if (scannedLot) return `${String(row.entity_type || "").toUpperCase()}:${String(row.entity_id || "").toLowerCase()}` === scannedLot
     if (!query) return true
+    // A loosely typed AIT serial (ait6284, AIT-06284) finds the reel labelled "AIT 06284".
+    if (querySerial && [row.unit_label, row.label].some((value) => String(value || "").toUpperCase().startsWith(querySerial))) return true
     return [row.label, row.grn_no, row.supplier_or_customer, row.unit_ref, row.po_no, row.invoice_no, row.challan_no].some((value) => String(value || "").toLowerCase().includes(query))
   }
   const inMaterial = (row: any) => material === "ALL" || String(row.material_type || "OTHER") === material
@@ -284,26 +287,30 @@ function IncomingQualityPage() {
       return last && (String(last.status).toUpperCase() === "FAIL" || ["REJECT", "BLOCK", "SCRAP"].includes(String(last.disposition || "").toUpperCase()))
     })
   const resolving = resolvable.find((lot: any) => lotKey(lot) === resolveKey) || resolvable[0] || null
+  // Concession (CONCESSION) and return to supplier (RM_ISSUE) pick a code from Masters › Reason codes of
+  // the lot's plant (owner decision 4, 1 Nov 2026).
+  const concessionReason = useReasonChoice("CONCESSION", resolving?.plant_id)
+  const returnReason = useReasonChoice("RM_ISSUE", resolving?.plant_id)
   const failedInspection = resolving?.last_inspection && String(resolving.last_inspection.status).toUpperCase() === "FAIL" ? resolving.last_inspection : null
   const concessions = asArray(concessionsQuery.data)
   const recent = asArray(recentQuery.data)
 
   const resetResolution = () => {
-    setConcessionReason("")
+    concessionReason.reset()
     setConcessionQty("")
     setConcessionExpiry("")
-    setReturnReason("")
+    returnReason.reset()
     setReturnRef("")
   }
 
   async function handleConcession() {
     if (!failedInspection) return
-    if (concessionReason.trim().length < 3) return showToast("Write why this material is still fit for use.", "error")
+    if (!concessionReason.validate()) return showToast("Choose why this material is still fit for use.", "error")
     try {
       await createConcession.mutateAsync({
         plantId: resolving?.plant_id || undefined,
         inspection_id: failedInspection.id,
-        reason: concessionReason.trim(),
+        ...concessionReason.payload("reason"),
         quantity: concessionQty.trim() ? Number(concessionQty) : undefined,
         release_stock: true,
         operation_id: `concession-${failedInspection.id}-${concessionQty || "all"}`,
@@ -318,14 +325,14 @@ function IncomingQualityPage() {
 
   async function handleReturn() {
     if (!resolving) return
-    if (returnReason.trim().length < 3) return showToast("Write the reason for returning this material.", "error")
+    if (!returnReason.validate()) return showToast("Choose the reason for returning this material.", "error")
     if (!window.confirm(`Return ${Number(resolving.qty || 0).toLocaleString("en-IN")} ${unitWord(resolving.uom || "KG")} of ${resolving.label} to the supplier? It is written out of stock.`)) return
     try {
       const response = await returnLot.mutateAsync({
         plantId: resolving.plant_id || undefined,
         entity_type: resolving.entity_type,
         entity_id: String(resolving.entity_id),
-        reason: returnReason.trim(),
+        ...returnReason.payload("reason"),
         return_reference: returnRef.trim() || undefined,
       })
       showToast(response?.data?.message || "Returned to supplier.", "success")
@@ -574,7 +581,7 @@ function IncomingQualityPage() {
                         ) : canConcede ? (
                           <>
                             <p className="text-[12px] text-muted-foreground">The FAIL stays on record. Plant head, Owner or Admin — never the inspector. Critical checks cannot be conceded.</p>
-                            <textarea className="min-h-16 w-full rounded-lg border border-input bg-card px-3 py-2 text-[13px]" value={concessionReason} onChange={(event) => setConcessionReason(event.target.value)} placeholder="Why this material is still fit for use" data-testid="incoming-concession-reason" />
+                            <ReasonPicker category="CONCESSION" plantId={resolving?.plant_id} label="Why it is still fit for use" value={concessionReason.value} onChange={concessionReason.setValue} showErrors={concessionReason.touched} compact testIdPrefix="incoming-concession" />
                             <div className="grid gap-3 sm:grid-cols-2">
                               <label className="block text-[12px] font-medium">Quantity (blank = whole lot)
                                 <input type="number" min={0} step="0.001" className="mt-1 h-11 w-full sm:h-9 rounded-lg border border-input bg-card px-3" value={concessionQty} onChange={(event) => setConcessionQty(event.target.value)} />
@@ -596,7 +603,7 @@ function IncomingQualityPage() {
                         {canReturn ? (
                           <>
                             <p className="text-[12px] text-muted-foreground">Writes the whole lot out of stock and marks the inward line rejected. With an invoice attached, a quality claim opens for the debit note.</p>
-                            <textarea className="min-h-16 w-full rounded-lg border border-input bg-card px-3 py-2 text-[13px]" value={returnReason} onChange={(event) => setReturnReason(event.target.value)} placeholder="Reason, e.g. GSM 150 against 291–309" data-testid="incoming-return-reason" />
+                            <ReasonPicker category="RM_ISSUE" plantId={resolving?.plant_id} label="Reason for the return" value={returnReason.value} onChange={returnReason.setValue} showErrors={returnReason.touched} compact testIdPrefix="incoming-return" />
                             <input className="h-11 w-full rounded-lg border border-input bg-card px-3 text-[13px] sm:h-9" value={returnRef} onChange={(event) => setReturnRef(event.target.value)} placeholder="Return challan / vehicle no. (optional)" />
                             <button type="button" data-testid="incoming-return-submit" disabled={returnLot.isPending} onClick={() => void handleReturn()} className="inline-flex h-11 w-full items-center justify-center rounded-lg border border-signal-rose-line sm:h-9 bg-signal-rose-soft text-[13px] font-semibold text-signal-rose-ink disabled:opacity-60">
                               Return to supplier

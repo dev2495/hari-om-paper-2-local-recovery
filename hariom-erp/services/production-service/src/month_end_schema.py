@@ -20,6 +20,10 @@ MONTH_END_CLOSE_MIGRATIONS = [
     "ALTER TABLE monthly_material_close ADD COLUMN IF NOT EXISTS reopened_at TIMESTAMP",
     "ALTER TABLE monthly_material_close ADD COLUMN IF NOT EXISTS reopen_reason TEXT",
     "ALTER TABLE monthly_material_close ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1",
+    # MONTH_END_VARIANCE reason per item (owner decision 4, 1 Nov 2026); `note` keeps "Label — note".
+    "ALTER TABLE monthly_material_notes ADD COLUMN IF NOT EXISTS reason_code VARCHAR(40)",
+    "ALTER TABLE monthly_material_notes ADD COLUMN IF NOT EXISTS reason_label VARCHAR(200)",
+    "ALTER TABLE monthly_material_notes ADD COLUMN IF NOT EXISTS reason_note TEXT",
     "CREATE INDEX IF NOT EXISTS ix_monthly_material_close_plant_month ON monthly_material_close (plant_id, month_start)",
     # Months approved before this release count as closed by their approver (no frozen figures).
     "UPDATE monthly_material_close SET closed_by = approved_by, closed_at = COALESCE(approved_at, locked_at), "

@@ -132,7 +132,7 @@ Tip: on a rack's own page, **Count this rack** starts a spot count of that rack,
 
 ### How to send racks back for a recount (Owner)
 1. On a submitted count, click **Send back**.
-2. Write what should be counted again (needed, at least 3 characters) and tick the racks. If you tick none, all racks go back.
+2. Pick **Why it is counted again** from the list **Correction rejected / count sent back** (AR-RECOUNT Recount needed, AR-NO-PROOF No proof or photo, AR-WRONG-ITEM Wrong item or lot, AR-WRONG-QTY Quantity looks wrong, AR-OTHER), write in the note what should be counted again, and tick the racks. If you tick none, all racks go back.
 3. Click **Send back**. The racks show **Count again** with your note. Scans already made stay. Lines made by Rack done are cleared so they are rebuilt when the rack is finished again.
 
 ### How to cancel a count
@@ -143,15 +143,15 @@ Tip: on a rack's own page, **Count this rack** starts a spot count of that rack,
 Store, RM issue, GRN, Plant Manager, Owner or Admin.
 1. On the **Corrections** tab click **Raise a correction** (or **Raise correction** on a location page).
 2. Under **What to correct**, choose **A lot or reel** or **Found without a label**.
-3. For a lot or reel: scan or type the code (for example AT-261027-026 or IN/26/005-5). The sheet shows **Book now**. Enter **Quantity really there**, or tick **Not here / damaged (nothing usable left)**.
+3. For a lot or reel: scan or type the code (for example AIT 06243, an older AT-261027-026, or IN/26/005-5). The sheet shows **Book now**. Enter **Quantity really there**, or tick **Not here / damaged (nothing usable left)**.
 4. For stock found without a label: choose the **Material**, the quantity and, if you like, the location. If you leave the location empty, the RM store is used. It will be added as a new lot on QC hold.
-5. Choose a **Reason**. **Other** needs a written note.
+5. Choose a **Reason** from the list **Stock correction**: COUNT_SHORT Count short, COUNT_EXTRA Count extra, DAMAGED_IN_STORE Damaged in store, WRONG_GRN_WEIGHT Wrong GRN weight, LABEL_LOST_FOUND Label lost / found, STOCK-OTHER Other. **Other** needs a written note of at least 5 characters.
 6. Save. The correction waits for the Owner with a number like ADJ-20261030-020. Stock does not change yet.
 
 ### How to approve or reject a correction (Owner)
 1. Open **Corrections** > **Waiting for the Owner**.
 2. Read the amber note if the lot changed since it was raised. When nothing is left to post, **Reject** becomes the main button.
-3. Click **Approve** to post it, dated today. Or click **Reject**, write why (needed) and confirm; the person who raised it sees your note.
+3. Click **Approve** to post it, dated today. Or click **Reject**, pick a reason from **Correction rejected / count sent back** (for example AR-NO-PROOF) with a note, and confirm; the person who raised it sees the reason and your note.
 
 ### How to read the stock book
 1. Open the **Stock book** tab and choose the month with the arrows.
@@ -166,7 +166,7 @@ Store, Plant Manager, Owner or Admin.
 
 ### How to print rack labels and lot labels
 1. On **Locations** click **Print labels**, tick racks (or none for all) and click **Print N labels**. The **Rack labels** sheet prints on A4: a big code, the name and a QR. Stick one at eye level on each rack. Laminate them so they last. Scanning a rack QR with a phone camera opens that rack's page.
-2. **Lot labels** for new lots made by a count are printed from the count page (**Print its label** or **Print N new labels**). They print on A4 with a QR that opens the lot. A lot on QC hold says so on its label.
+2. **Lot labels** for new lots made by a count are printed from the count page (**Print its label** or **Print N new labels**), or from **Lot labels**. Pick the **Label paper**: **A4 sheet · 8 per page** (cut them apart) or **One label per page**. Reels and coils print the plant's own reel label (heading, MILL NAME, invoice no., date, PLYBOND, VARIETY, GSM, ROLL NO., the AIT serial in big letters, WEIGHT and the QR; see "Goods inward, GRN register and labels"). Bulk lots print a lot label with the code and QR. Reel and coil labels do not print the QC state: "Lots on QC hold stay on hold until incoming QC clears them. Reel and coil labels do not print the QC state: scan the QR to see it."
 
 ### How to move stock to a rack
 Store, GRN, RM issue, Plant Manager, Owner or Admin. Dispatch moves finished goods only.
@@ -177,9 +177,9 @@ Store, GRN, RM issue, Plant Manager, Owner or Admin. Dispatch moves finished goo
 ### How to enter go-live opening stock (Owner or Admin)
 1. Open **Opening stock**. For the first batch, choose the **Go-live date** (not after today).
 2. Add rows with **Add reel / coil** (weight in kg) and **Add bulk lot** (quantity in its unit), or use **Paste from Excel**. The columns, in order, are: item code or name, type (reel / coil / bulk), weight or qty, location, old mark, vendor, rate. A header row is skipped.
-3. For each row, pick the material and location (the RM store by default), and keep **Cleared** or put it on hold with a reason. Optionally fill the old mark, rate, vendor and vendor ref.
+3. For each row, pick the material and location (the RM store by default), and keep **Cleared** or put it on hold with a **Why on hold** code from the list **QC hold placed** (for example QH-MOISTURE). Optionally fill the old mark, rate, vendor and vendor ref.
 4. Review the totals per material. Fix any red row errors and read the warnings. Then post. The first posted batch fixes the plant's go-live date.
-5. Print the QR labels for the new reels and lots and stick them on.
+5. Print the labels for the new reels and lots and stick them on. Reels and coils get the next numbers of the plant's AIT series and print in the plant's own reel label layout. "Reels and coils print the plant's own label with a QR, numbered in the plant's AIT series. Print the A4 sheet (8 per page) and cut, or one label per page."
 6. Enter the next rack the same way on later days. All batches use the same go-live date, until that month is closed.
 
 ## Rules the system enforces
@@ -196,12 +196,12 @@ Store, GRN, RM issue, Plant Manager, Owner or Admin. Dispatch moves finished goo
 - **Approval posts one voucher** (VAR-YYYYMMDD-NNN) with exact reel and lot lines. A gain on a known lot keeps its QC state. Unknown or loose stock becomes a new lot on QC hold. A spot count posts today. A month-end count posts on the month's last day, or today if the month is still running. Lots received after the month end are changed on the approval day, on a second voucher.
 - **A back-dated month-end posting may not push a material or lot below zero** in that month (BLOCKS; "Send the count back to recount that rack").
 - **Value** uses each line's rate. Lines with no rate yet (usually a GRN whose invoice is pending) are left out of the ₹ total, but their stock change still posts in full (WARNS).
-- **Corrections**: the reason is required, and **Other** needs a note. Only one waiting correction per lot (BLOCKS, CORRECTION_WAITING). A lot returned to the supplier, or a reel already issued to the floor, cannot be corrected ("Nothing comes back from the floor; if it is in the store, record it in a stock count."). If the book already equals the quantity typed, there is nothing to correct (BLOCKS).
-- **At approval, a correction is re-based on the stock now.** If another count or correction already changed the lot, only the remaining difference posts (automatic). If the lot was issued after the correction was raised, approval is refused (ISSUED_SINCE_RAISED). Rejecting needs a note.
+- **Corrections**: a **Stock correction** code is required, and **Other** needs a note of at least 5 characters; rejecting a correction or sending a count back needs a **Correction rejected / count sent back** code. Free text alone is refused (BLOCKS). Only one waiting correction per lot (BLOCKS, CORRECTION_WAITING). A lot returned to the supplier, or a reel already issued to the floor, cannot be corrected ("Nothing comes back from the floor; if it is in the store, record it in a stock count."). If the book already equals the quantity typed, there is nothing to correct (BLOCKS).
+- **At approval, a correction is re-based on the stock now.** If another count or correction already changed the lot, only the remaining difference posts (automatic). If the lot was issued after the correction was raised, approval is refused (ISSUED_SINCE_RAISED). Rejecting needs a reason code.
 - **Closed months take no stock movement.** Counts, corrections and opening stock dated in a closed month are refused; ask the Owner to re-open the month.
 - **Locations**: the production floor is never a move target, and stock reaches it only through the issue desks. A dispatch bay holds finished goods only. A switched-off location cannot receive stock. A location that still holds stock cannot be switched off. Each plant has exactly one RM store (receiving default), and it must be an active store rack or QC bay. Location codes are unique per plant.
-- **Opening stock**: Owner or Admin only. The first batch fixes the go-live date, and later batches must use the same date (GO_LIVE_DATE_FIXED). The date cannot be in the future. Once the go-live month is closed, opening stock is closed ("Opening stock is closed. Use a stock count to correct stock."). Only raw materials can be entered, not finished goods or tools. A material kept as reels must be entered as a reel, and a material kept as lots as a bulk lot. Whole units (pcs, boxes, bags) need whole numbers. The floor, dispatch bays and scrap bays are refused as locations. On-hold rows need a reason, and a rate cannot be below zero. The system WARNS (does not block) about a reel over 3,000 kg, a lot over 50,000, a repeated old mark, or a missing rate (counted at ₹0). Each batch posts all or nothing, once.
-- **Opening stock is cleared at once** (no incoming QC) unless put on hold; held lots are cleared by incoming QC like any held lot. New numbers are AT-yymmdd-nnn for reels and RM-<item>-yymmdd-nnn for lots, dated the go-live date. In the stock book they show as **Opening loads**.
+- **Opening stock**: Owner or Admin only. The first batch fixes the go-live date, and later batches must use the same date (GO_LIVE_DATE_FIXED). The date cannot be in the future. Once the go-live month is closed, opening stock is closed ("Opening stock is closed. Use a stock count to correct stock."). Only raw materials can be entered, not finished goods or tools. A material kept as reels must be entered as a reel, and a material kept as lots as a bulk lot. Whole units (pcs, boxes, bags) need whole numbers. The floor, dispatch bays and scrap bays are refused as locations. On-hold rows need a **QC hold placed** code, and a rate cannot be below zero. The system WARNS (does not block) about a reel over 3,000 kg, a lot over 50,000, a repeated old mark, or a missing rate (counted at ₹0). Each batch posts all or nothing, once.
+- **Opening stock is cleared at once** (no incoming QC) unless put on hold; held lots are cleared by incoming QC like any held lot. New reels and coils get the plant's AIT serial (AIT + 5 digits, the series of the financial year of the go-live date); lots get RM-<item>-yymmdd-nnn, dated the go-live date. Reels entered before 1 Nov 2026 keep their AT-yymmdd-nnn numbers. In the stock book they show as **Opening loads**.
 
 ## Sample
 **Month-end count of October 2026, Plant A.** On 29 Oct the store opens the October card (it opened on 29 Oct, the last 3 days) and clicks **Start the October count**. It becomes CNT-20261029-001 with 12 racks plus "Not in any location".
@@ -231,6 +231,10 @@ The count is sent to the Owner on 31 Oct. The Owner chooses **Leave as used** fo
 **Q: Why does the stock book say "Opens from the book on the 1st" and not from last month's close?** A: The previous month is not closed yet. After it is closed, the chip says "Opens from last month's close".
 
 **Q: Why is the Value on a count shown in amber, with "with no rate"?** A: Some lines have no rate yet, usually because the GRN invoice is pending. Those lines are left out of the ₹ total, but their stock change still posts in full.
+
+**Q: Can I scan an old AT label in a count?** A: Yes. Old AT numbers and new AIT serials are both found by scan or by typing ("ait 6243" finds AIT 06243).
+
+**Q: Why doesn't the reel label say "QC hold"?** A: The reel label matches the plant's own label and does not print the QC state. Scan its QR to see whether it is cleared.
 
 **Q: We forgot one rack at go-live. Can we still add it?** A: Yes, as a new batch on the same go-live date, until the go-live month is closed. After that, add the stock through a stock count.
 

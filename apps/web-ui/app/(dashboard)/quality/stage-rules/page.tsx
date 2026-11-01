@@ -7,7 +7,7 @@ import { useAuth } from "@/context/AuthContext"
 import { QualityDeskNav } from "@/components/qc/QualityDeskNav"
 import { PageHeader } from "@/components/workspace/page-header"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { ReasonPicker, useReasonChoice } from "@/components/reasons"
 import { command, errorText, seasonApi, seasonApiForPlant, seasonLabel, type Season } from "@/lib/season-api"
 import { specApi } from "@/lib/api"
 import { useCustomers } from "@/hooks/use-master-data"
@@ -54,7 +54,8 @@ export default function StageRulesPage() {
   const [season, setSeason] = useState<Season>("ROY")
   const [rows, setRows] = useState<any[]>([])
   const [editing, setEditing] = useState<string[]>([])
-  const [note, setNote] = useState("")
+  // Why this version / override: a QC_RULE_CHANGE code from Masters › Reason codes (owner decision 4, 1 Nov 2026).
+  const why = useReasonChoice("QC_RULE_CHANGE", hasConcretePlant ? activePlant : undefined)
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
   const [showHistory, setShowHistory] = useState(false)
@@ -78,7 +79,7 @@ export default function StageRulesPage() {
     const override = tab === "overlays" ? existingOverride : null
     setRows(baseRules.map((r: any) => override?.rules.find((o: any) => o.rule_id === r.rule_id) || structuredClone(r)))
     setOverlayCodes(override?.rules.map((o: any) => o.rule_id) || [])
-    setNote(override?.reason || ""); setError(""); setEditing([])
+    why.reset(); setError(""); setEditing([])
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature, season, targetType, targetId, overlaySeason])
   const changedIds = rows.filter((row) => JSON.stringify(row) !== JSON.stringify(baseRules.find((r: any) => r.rule_id === row.rule_id))).map((row) => row.rule_id)
@@ -96,11 +97,12 @@ export default function StageRulesPage() {
 
   const saveVersion = () => mutation.mutate(async () => {
     // One step for QC: save the edited rules and make them the version in use.
-    const saved = await seasonApi.saveRules(season, command({ expected_version: rules.data?.draft?.row_version, rules: rows, note }))
-    const published = await seasonApi.publishRules(season, command({ expected_version: saved.data?.row_version, note }))
+    const reason = { reason_code: why.value.code, reason_note: why.value.note.trim() || undefined }
+    const saved = await seasonApi.saveRules(season, command({ expected_version: rules.data?.draft?.row_version, rules: rows, ...reason }))
+    const published = await seasonApi.publishRules(season, command({ expected_version: saved.data?.row_version, ...reason }))
     const impact = published.data?.impact
     setNotice(`Saved as version ${published.data?.published?.version ?? ""}. ${impact ? `${impact.specs_checked} specifications checked${impact.blocked_count ? ` · ${impact.blocked_count} need attention before release: ${(impact.blocked || []).map((v: any) => v.customer).join(", ")}` : " · all can release on it"}.` : ""}`)
-    setNote("")
+    why.reset()
     return published
   })
 
@@ -164,7 +166,7 @@ export default function StageRulesPage() {
         <span className="rounded-full bg-signal-emerald-soft px-3 py-1 font-semibold text-signal-emerald-ink ring-1 ring-signal-emerald-line">{rules.data?.published ? `In use: version ${rules.data.published.version}` : "Not yet in use"}</span>
         {rules.data?.published?.published_at ? <span className="text-muted-foreground">since {new Date(`${rules.data.published.published_at}Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}{rules.data.published.published_by ? ` · ${rules.data.published.published_by}` : ""}{rules.data.published.change_note ? ` · “${rules.data.published.change_note}”` : ""}</span> : null}
         <span className="text-muted-foreground">Every batch needs at least 2 readings per check; QC may add more.</span>
-        {rules.data?.draft && rules.data?.published && canEdit && tab === "rules" ? <span className="flex items-center gap-2 text-signal-amber-ink">A saved draft (version {rules.data.draft.version}) is not in use yet.<Button size="sm" variant="outline" onClick={() => { setRows(structuredClone(rules.data.draft.rules)); setNote(rules.data.draft.change_note || "") }}>Review that draft</Button></span> : null}
+        {rules.data?.draft && rules.data?.published && canEdit && tab === "rules" ? <span className="flex items-center gap-2 text-signal-amber-ink">A saved draft (version {rules.data.draft.version}) is not in use yet.<Button size="sm" variant="outline" onClick={() => { setRows(structuredClone(rules.data.draft.rules)); why.reset() }}>Review that draft</Button></span> : null}
       </div>
       {tab === "overlays" && <section className="space-y-3 rounded-xl border border-border bg-card p-4"><h2 className="font-semibold">Override rules for one customer or specification</h2><p className="text-sm text-muted-foreground">Pick the customer or spec, tick the rules it overrides and edit them. A possibly wider rule needs Owner/Admin to publish it.</p><div className="flex flex-wrap gap-2"><select className={control} aria-label="Override target type" value={targetType} onChange={e => { setTargetType(e.target.value); setTargetId("") }}><option value="CUSTOMER">Customer</option><option value="SPEC">Specification</option></select><select className={control} aria-label="Override target" value={targetId} onChange={e => setTargetId(e.target.value)}><option value="">Select {targetType.toLowerCase()}</option>{(targetType === "CUSTOMER" ? customers.data || [] : specs.data || []).map((v: any) => <option key={v.id} value={targetType === "CUSTOMER" ? v.id : v.lineage_id || v.id}>{v.name || v.customer_name} {v.spec_reference || ""}</option>)}</select><select className={control} aria-label="Override season" value={overlaySeason} onChange={e => { setOverlaySeason(e.target.value); if (e.target.value !== "BOTH") setSeason(e.target.value as Season) }}><option value="BOTH">Both seasons</option><option value="ROY">Rest of year</option><option value="MONSOON">Monsoon</option></select></div></section>}
       {stages.map(stage => (
@@ -199,11 +201,12 @@ export default function StageRulesPage() {
       {canEdit && (dirty || tab === "overlays") ? (
         <section className="sticky bottom-2 z-10 space-y-3 rounded-xl border border-primary/30 bg-card p-4 shadow-lg" data-testid="stage-rules-save">
           <p className="text-sm font-semibold">{tab === "overlays" ? `${overlayCodes.length} rule(s) ticked for this override` : `${changedIds.length} rule(s) changed`}</p>
-          <Input aria-label="Change reason" placeholder="Reason for this version (required) — e.g. customer asked for tighter C.S." value={note} onChange={e => setNote(e.target.value)} />
+          {tab === "overlays" && existingOverride?.reason ? <p className="text-[12.5px] text-muted-foreground">Last saved reason: {existingOverride.reason}</p> : null}
+          <ReasonPicker category="QC_RULE_CHANGE" plantId={hasConcretePlant ? activePlant : undefined} label={tab === "overlays" ? "Reason for this override" : "Reason for this version"} value={why.value} onChange={why.setValue} showErrors={why.touched} compact testIdPrefix="stage-rules-reason" />
           <div className="flex flex-wrap gap-2">
             {tab === "overlays"
-              ? <Button disabled={!targetId || !note.trim() || !overlayCodes.length || mutation.isPending} onClick={() => mutation.mutate(() => overlayApi.saveOverlay(command({ target_type: targetType, target_id: targetId, season: overlaySeason, expected_version: existingOverride?.status === "DRAFT" ? existingOverride.row_version : undefined, note, rules: rows.filter(r => overlayCodes.includes(r.rule_id)) })))}>Save override draft</Button>
-              : <Button disabled={!note.trim() || mutation.isPending} onClick={saveVersion}><Save className="mr-2 h-4 w-4" />Save as new version</Button>}
+              ? <Button disabled={!targetId || !overlayCodes.length || mutation.isPending} onClick={() => { if (why.validate()) mutation.mutate(() => overlayApi.saveOverlay(command({ target_type: targetType, target_id: targetId, season: overlaySeason, expected_version: existingOverride?.status === "DRAFT" ? existingOverride.row_version : undefined, reason_code: why.value.code, reason_note: why.value.note.trim() || undefined, rules: rows.filter(r => overlayCodes.includes(r.rule_id)) }))) }}>Save override draft</Button>
+              : <Button disabled={mutation.isPending} onClick={() => { if (why.validate()) saveVersion() }}><Save className="mr-2 h-4 w-4" />Save as new version</Button>}
             {season === "MONSOON" && tab === "rules" ? <Button variant="outline" disabled={mutation.isPending} onClick={() => mutation.mutate(async () => { const r = await seasonApi.rules("ROY"); setRows(structuredClone((r.data.published || r.data.draft).rules)); return r })}><Copy className="mr-2 h-4 w-4" />Copy rest-of-year rules</Button> : null}
             {dirty ? <Button variant="outline" disabled={mutation.isPending} onClick={() => { setRows(structuredClone(baseRules)); setEditing([]) }}>Discard changes</Button> : null}
           </div>
@@ -211,7 +214,7 @@ export default function StageRulesPage() {
       ) : canEdit && tab === "rules" && season === "MONSOON" ? (
         <Button variant="outline" disabled={mutation.isPending} onClick={() => mutation.mutate(async () => { const r = await seasonApi.rules("ROY"); setRows(structuredClone((r.data.published || r.data.draft).rules)); return r })}><Copy className="mr-2 h-4 w-4" />Start from the rest-of-year rules</Button>
       ) : null}
-      {tab === "overlays" && <section className="space-y-2"><h2 className="font-semibold">Override history</h2>{overlays.isLoading ? <p>Loading overrides…</p> : overlays.isError ? <p className="text-sm text-destructive">Override history is unavailable. Retry above.</p> : !overlays.data?.length ? <p className="text-sm text-muted-foreground">No overrides yet.</p> : overlays.data.map((o: any) => <div key={o.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card p-3"><div><p className="font-medium">{o.target_type === "CUSTOMER" ? "Customer" : "Specification"} · {o.season === "BOTH" ? "both seasons" : seasonLabel(o.season)} · v{o.version} · {String(o.status).toLowerCase()}</p><p className="text-sm text-muted-foreground">{o.reason}</p></div>{canEdit && o.status === "DRAFT" && <Button size="sm" disabled={mutation.isPending} onClick={() => mutation.mutate(() => overlayApi.publishOverlay(o.id, command({ expected_version: o.row_version, note: o.reason })))}>Publish override</Button>}</div>)}</section>}
+      {tab === "overlays" && <section className="space-y-2"><h2 className="font-semibold">Override history</h2>{overlays.isLoading ? <p>Loading overrides…</p> : overlays.isError ? <p className="text-sm text-destructive">Override history is unavailable. Retry above.</p> : !overlays.data?.length ? <p className="text-sm text-muted-foreground">No overrides yet.</p> : overlays.data.map((o: any) => <div key={o.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card p-3"><div><p className="font-medium">{o.target_type === "CUSTOMER" ? "Customer" : "Specification"} · {o.season === "BOTH" ? "both seasons" : seasonLabel(o.season)} · v{o.version} · {String(o.status).toLowerCase()}</p><p className="text-sm text-muted-foreground">{o.reason}</p></div>{canEdit && o.status === "DRAFT" && <Button size="sm" disabled={mutation.isPending} onClick={() => mutation.mutate(() => overlayApi.publishOverlay(o.id, command({ expected_version: o.row_version })))}>Publish override</Button>}</div>)}</section>}
       {showHistory && <section className="rounded-xl border border-border bg-card p-4" data-testid="stage-rules-history"><h2 className="mb-3 font-semibold">{seasonLabel(season)} version history</h2>{rules.data?.versions?.map((version: any, i: number, all: any[]) => {
         const previous = all.slice(i + 1).find((v: any) => v.status !== "DRAFT")
         const changes = previous ? version.rules.filter((r: any) => JSON.stringify(r) !== JSON.stringify(previous.rules.find((v: any) => v.rule_id === r.rule_id))) : []

@@ -6,7 +6,6 @@ from datetime import date, datetime
 
 import pytest
 from fastapi import HTTPException
-from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
@@ -133,7 +132,7 @@ def test_only_the_owner_locks_and_only_closed_months_refuse_store_movements():
         october = post_governed_receipt(_receipt(po, [_reel_line(po, 500)], date(2026, 10, 15)), db, plant, MAKER)
         reel_id = uuid.UUID(october["lots"][0]["id"])
         _refused(lambda: post_manual_receipt(ManualReceiptCreate(
-            request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name="Glue works", reason="Local purchase",
+            request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name="Glue works", reason_code="MR-URGENT", reason_note="Local purchase",
             received_date=date(2026, 9, 10), supplier_challan_no="DC 1", invoice_pending=True,
             lines=[{"item_id": adhesive.id, "quantity": 50}],
         ), db, plant, MAKER))
@@ -160,14 +159,17 @@ def test_only_the_owner_locks_and_only_closed_months_refuse_store_movements():
         _refused(lambda: create_opening_load(OpeningLoadPayload(effective_date=date(2026, 9, 1), lines=[{"item_id": adhesive.id, "qty": 10}]), db, plant, OWNER))
         db.rollback()
 
-        with pytest.raises(ValidationError):
-            BooksUnlockPayload(month="2026-09", reason="  ")
-        reopened = unlock_books_month(BooksUnlockPayload(month="2026-09", reason="Late GRN found"), db, plant, OWNER)
-        assert reopened["status"] == "UNLOCKED" and reopened["unlock_reason"] == "Late GRN found"
+        # Re-opening needs a BOOKS_UNLOCK code (owner decision 4, 1 Nov 2026); blank text is refused.
+        with pytest.raises(HTTPException) as blank:
+            unlock_books_month(BooksUnlockPayload(month="2026-09", reason="  "), db, plant, OWNER)
+        assert blank.value.status_code == 422
+        reopened = unlock_books_month(BooksUnlockPayload(month="2026-09", reason_code="BU-LATE-GRN", reason_note="Late GRN found"), db, plant, OWNER)
+        assert reopened["status"] == "UNLOCKED" and reopened["unlock_reason"] == "Bu late grn — Late GRN found"
         assert [event["action"] for event in reopened["history"]] == ["LOCKED", "UNLOCKED"]
+        assert reopened["history"][-1]["reason_code"] == "BU-LATE-GRN" and reopened["history"][-1]["reason_label"] == "Bu late grn"
         assert_books_open(db, plant, date(2026, 9, 30))
         assert_books_open(db, plant, date(2026, 8, 31))
-        assert unlock_books_month(BooksUnlockPayload(month="2026-07", reason="Never closed"), db, plant, OWNER)["status"] == "OPEN"
+        assert unlock_books_month(BooksUnlockPayload(month="2026-07", reason_code="BU-ERROR", reason_note="Never closed"), db, plant, OWNER)["status"] == "OPEN"
         september = post_governed_receipt(_receipt(po, [_reel_line(po, 300)], date(2026, 9, 15)), db, plant, MAKER)
         assert september["grn_no"]
 
@@ -181,7 +183,7 @@ def test_an_open_month_before_a_closed_month_stays_open():
         lock_books_month(BooksLockPayload(month="2026-09"), db, plant, OWNER)
         adhesive = _item(db, plant, "ADHESIVE")
         posted = post_manual_receipt(ManualReceiptCreate(
-            request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name="Glue works", reason="Local purchase",
+            request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name="Glue works", reason_code="MR-URGENT", reason_note="Local purchase",
             received_date=date(2026, 7, 20), supplier_challan_no="DC 7", invoice_pending=True,
             lines=[{"item_id": adhesive.id, "quantity": 5}],
         ), db, plant, MAKER)
@@ -193,7 +195,7 @@ def test_an_open_month_before_a_closed_month_stays_open():
                      "August 2026 is closed. Ask the owner to re-open it.")
         db.rollback()
         assert_books_open(db, plant, date(2026, 10, 1))
-        unlock_books_month(BooksUnlockPayload(month="2026-09", reason="Late bill"), db, plant, OWNER)
+        unlock_books_month(BooksUnlockPayload(month="2026-09", reason_code="BU-LATE-GRN", reason_note="Late bill"), db, plant, OWNER)
         _refused(lambda: assert_books_open(db, plant, date(2026, 8, 25)), "August 2026 is closed. Ask the owner to re-open it.")
         assert_books_open(db, plant, date(2026, 9, 25))
 
@@ -243,7 +245,7 @@ def test_grn_without_a_location_goes_to_the_rm_store():
             db.rollback()
 
         manual = post_manual_receipt(ManualReceiptCreate(
-            request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name="Glue works", reason="Local purchase",
+            request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name="Glue works", reason_code="MR-URGENT", reason_note="Local purchase",
             received_date=date(2026, 10, 23), supplier_challan_no="DC 7", invoice_pending=True,
             lines=[{"item_id": adhesive.id, "quantity": 40}],
         ), db, plant, MAKER)

@@ -380,7 +380,7 @@ export function useCreateQualityHold() {
 export function useReleaseQualityHold() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ holdId, plantId, data }: { holdId: string; plantId?: string; data?: { reason: string; disposition?: string; affected_qty?: number } }) =>
+    mutationFn: ({ holdId, plantId, data }: { holdId: string; plantId?: string; data?: { reason_code?: string; reason_note?: string; reason?: string; disposition?: string; affected_qty?: number } }) =>
       productionApi.releaseQualityHold(holdId, plantId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["quality-holds"] })

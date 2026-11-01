@@ -8,6 +8,7 @@ import { matchesShortageReview, shortageRecoveryIsConclusive, type ShortageDecis
 import { errorText, seasonTimestamp } from "@/lib/season-api"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { ReasonPicker, reasonComplete, reasonNeedsNote } from "@/components/reasons"
 
 const decisionLabel: Record<ShortageDecision, string> = { CARRY_FORWARD: "Carry forward", HOLD: "Hold for follow-up", SHORT_CLOSE_SO: "Reduce sales order quantity" }
 const decisionDescription: Record<ShortageDecision, string> = {
@@ -56,7 +57,7 @@ export function JobCardShortagePanel({ card, flow }: { card: any; flow: any }) {
       try {
         const response = snapshot.kind === "RESOLVE"
           ? await productionApi.resolveHold(snapshot.short_close_id!, { decision: snapshot.decision, notes: snapshot.notes || null }, card.plant_id)
-          : await productionApi.shortCloseJobCard(card.id, { produced_qty: snapshot.produced_qty, reason_code: snapshot.reason_code, decision: snapshot.decision, stage_type: "JOB_CARD", notes: snapshot.notes || null }, card.plant_id)
+          : await productionApi.shortCloseJobCard(card.id, { produced_qty: snapshot.produced_qty, reason_code: snapshot.reason_code, reason_note: snapshot.notes || null, decision: snapshot.decision, stage_type: "JOB_CARD", notes: snapshot.notes || null }, card.plant_id)
         return response.data
       } catch (writeError) {
         try {
@@ -80,7 +81,7 @@ export function JobCardShortagePanel({ card, flow }: { card: any; flow: any }) {
   const upstreamClosed = flow.stages?.every((stage: any) => stage.stage === "DISPATCH" || stage.status === "COMPLETED")
   const selectedReason = reasons.data?.find((row: any) => row.code === reason)
   const canReview = concretePlant && history.isSuccess && upstreamClosed && !frozen
-    && (resolving ? openHold : !record && gap > 0 && Boolean(selectedReason))
+    && (resolving ? openHold : !record && gap > 0 && Boolean(selectedReason) && reasonComplete({ code: reason, note: notes }))
     && (decision !== "SHORT_CLOSE_SO" || Boolean(card.sales_order_line_id) && notes.trim().length > 0)
 
   function openReview() {
@@ -88,7 +89,7 @@ export function JobCardShortagePanel({ card, flow }: { card: any; flow: any }) {
     setReview({ kind: resolving ? "RESOLVE" : "CREATE", job_card_id: card.id, short_close_id: resolving ? record!.id : undefined,
       planned_qty: resolving ? Number(record!.planned_qty) : planned, produced_qty: resolving ? Number(record!.produced_qty) : accepted,
       gap_qty: resolving ? Number(record!.gap_qty) : gap, reason_code: resolving ? record!.reason_code : reason,
-      reason_label: resolving ? record!.reason_code : selectedReason.label, decision, notes: notes.trim() })
+      reason_label: resolving ? ((record as any).reason_label || record!.reason_code) : selectedReason.label, decision, notes: notes.trim() })
     mutation.reset(); setRefreshError(""); setOpen(true)
   }
   async function refreshReview() {
@@ -116,17 +117,18 @@ export function JobCardShortagePanel({ card, flow }: { card: any; flow: any }) {
       : <>
         {record && <div className="space-y-2 rounded-lg border border-border bg-muted p-3 text-sm">
           <p className="font-medium">{record.decision === "HOLD" ? openHold ? "Open hold · follow-up required" : `Hold resolved · ${decisionLabel[record.resolution_decision || "CARRY_FORWARD"]}` : decisionLabel[record.decision]}</p>
-          <p>{record.reason_code} · {seasonTimestamp(record.created_at)}{record.notes ? ` · ${record.notes}` : ""}</p>
+          <p>{(record as any).reason_label ? `${(record as any).reason_label} (${record.reason_code})` : record.reason_code} · {seasonTimestamp(record.created_at)}{record.notes ? ` · ${record.notes}` : ""}</p>
           {record.resolved_at && <p className="text-muted-foreground">Resolved {seasonTimestamp(record.resolved_at)}{record.resolved_by ? ` · ${record.resolved_by}` : ""}{record.resolution_note ? ` · ${record.resolution_note}` : ""}</p>}
           {record.carry_forward_job_card_id && <Button asChild size="sm" variant="outline"><Link href={`/production/job-cards/${record.carry_forward_job_card_id}`}>Open carry-forward job card</Link></Button>}
           {openHold && !resolving && <div><p className="mb-2 text-muted-foreground">This shortage still needs a final decision, even if the original card has finished dispatch.</p><Button size="sm" variant="outline" disabled={frozen} onClick={() => { setResolving(true); setDecision("CARRY_FORWARD"); setNotes("") }}>Resolve hold</Button></div>}
         </div>}
         {(!record || resolving && openHold) && <div className="space-y-3">
           {!upstreamClosed && <p className="text-sm text-muted-foreground">Close Packing, QC and every upstream stage before confirming the shortage decision.</p>}
-          {!resolving && (reasons.isLoading ? <p role="status" className="text-sm">Loading shortage reasons…</p> : reasons.isError ? <div><p role="alert" className="text-sm text-destructive">Could not load shortage reasons: {errorText(reasons.error)}</p><Button size="sm" variant="outline" onClick={() => { void reasons.refetch() }}>Retry reasons</Button></div> : reasons.data?.length ? <label className="grid gap-1 text-sm">Reason code *<select className={selectClass} value={reason} onChange={event => setReason(event.target.value)} disabled={frozen}><option value="">Choose shortage reason</option>{reasons.data.map((row: any) => <option key={row.id} value={row.code}>{row.code} · {row.label}</option>)}</select></label> : <p className="text-sm text-muted-foreground">No active shortage reasons are available for this plant. <Link className="underline" href="/masters/reason-codes">Add a SHORT_CLOSE reason code</Link>.</p>)}
+          {!resolving && (reasons.isLoading ? <p role="status" className="text-sm">Loading shortage reasons…</p> : reasons.isError ? <div><p role="alert" className="text-sm text-destructive">Could not load shortage reasons: {errorText(reasons.error)}</p><Button size="sm" variant="outline" onClick={() => { void reasons.refetch() }}>Retry reasons</Button></div> : reasons.data?.length ? <ReasonPicker category="SHORT_CLOSE" plantId={card.plant_id} rows={reasons.data} value={{ code: reason, note: notes }} onChange={value => setReason(value.code)}
+            showErrors={Boolean(reason)} disabled={frozen} hideNote label="Shortage reason" testIdPrefix="shortage-reason" /> :<p className="text-sm text-muted-foreground">No active shortage reasons are available for this plant. <Link className="underline" href="/masters/reason-codes">Add a SHORT_CLOSE reason code</Link>.</p>)}
           <label className="grid gap-1 text-sm">{resolving ? "Final decision" : "Decision"}<select className={selectClass} value={decision} onChange={event => setDecision(event.target.value as ShortageDecision)} disabled={frozen}><option value="CARRY_FORWARD">Carry forward · remake shortage</option>{!resolving && <option value="HOLD">Hold for follow-up</option>}<option value="SHORT_CLOSE_SO" disabled={!card.sales_order_line_id}>Reduce sales order quantity</option></select></label>
           <p className={`text-sm ${decision === "SHORT_CLOSE_SO" ? "text-signal-amber-ink" : "text-muted-foreground"}`}>{decisionDescription[decision]}</p>
-          <label className="grid gap-1 text-sm">Notes {decision === "SHORT_CLOSE_SO" ? "* · explain the order reduction" : "(optional)"}<textarea className="min-h-20 rounded-lg border border-border bg-background p-3" value={notes} onChange={event => setNotes(event.target.value)} disabled={frozen} /></label>
+          <label className="grid gap-1 text-sm">Notes {decision === "SHORT_CLOSE_SO" ? "* · explain the order reduction" : reasonNeedsNote(reason) ? "* · say what Other means (5+ characters)" : "(optional)"}<textarea className="min-h-20 rounded-lg border border-border bg-background p-3" value={notes} onChange={event => setNotes(event.target.value)} disabled={frozen} /></label>
           <div className="flex flex-wrap gap-2"><Button disabled={!canReview} onClick={openReview}>Review {resolving ? "hold resolution" : "shortage decision"}</Button>{resolving && <Button variant="ghost" disabled={frozen} onClick={() => setResolving(false)}>Cancel resolution</Button>}</div>
         </div>}
       </>}

@@ -3,7 +3,7 @@ from sqlalchemy import text
 
 from .database import engine
 from . import models, season_models
-from .routers import calculations, recipes, spec_fields, specs, trials, seasonal
+from .routers import calculations, packing_setup, recipes, spec_fields, specs, trials, seasonal
 
 
 app = FastAPI(
@@ -13,6 +13,7 @@ app = FastAPI(
 )
 
 app.include_router(seasonal.router)
+app.include_router(packing_setup.router)  # before specs: /specs/packing-setup is not a spec id
 app.include_router(specs.router)
 app.include_router(spec_fields.router)
 app.include_router(recipes.router)
@@ -203,6 +204,11 @@ with engine.begin() as connection:
         "ALTER TABLE recipe_header ADD COLUMN IF NOT EXISTS content_hash VARCHAR(64)",
         "ALTER TABLE recipe_header ADD COLUMN IF NOT EXISTS row_version INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE recipe_header ADD COLUMN IF NOT EXISTS change_note TEXT",
+        # Reasons are master codes only (owner decision 4, 1 Nov 2026): the season event keeps the code,
+        # the label at the time and the note beside the "Label — note" text.
+        "ALTER TABLE production_season_events ADD COLUMN IF NOT EXISTS reason_code VARCHAR(80)",
+        "ALTER TABLE production_season_events ADD COLUMN IF NOT EXISTS reason_label VARCHAR(200)",
+        "ALTER TABLE production_season_events ADD COLUMN IF NOT EXISTS reason_note TEXT",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_recipe_lineage_season_revision ON recipe_header(lineage_id,season,season_revision) WHERE lineage_id IS NOT NULL",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_qc_season_published ON season_qc_rule_versions(scope_id,season) WHERE status='PUBLISHED'",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_qc_season_draft ON season_qc_rule_versions(scope_id,season) WHERE status='DRAFT'",

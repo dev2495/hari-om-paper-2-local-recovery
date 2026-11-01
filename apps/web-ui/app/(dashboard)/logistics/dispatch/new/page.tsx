@@ -5,7 +5,8 @@ import { businessDate } from "@/lib/business-date"
 import { Suspense, useState, useEffect, useRef, type ReactNode } from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { AlertTriangle, Building2, CheckCircle2, Eye, ExternalLink, RefreshCw, Scale, UserRound } from "lucide-react"
+import { AlertTriangle, Building2, CheckCircle2, Eye, ExternalLink, PackageCheck, RefreshCw, Scale, ScanLine, UserRound } from "lucide-react"
+import { useQuery } from "@tanstack/react-query"
 import { useDispatchByJobCard, useCreateOrUpdateDispatch, useReadyJobs } from "@/hooks/use-dispatch"
 import { usePlanningJobCard } from "@/hooks/use-production"
 import { useCustomers } from "@/hooks/use-master-data"
@@ -17,6 +18,8 @@ import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { jobCardRef } from "@/lib/job-card-display"
 import { errorText } from "@/lib/season-api"
+import { boxReady, boxSelectionTotals, boxStateText, boxesApi, pickBox, selectReadyWithin, type Box } from "@/lib/boxes"
+import { previewBoxPacking } from "@/lib/dispatch-document"
 
 /** Plain words when the challan's details do not load (no axios wording such as "timeout of 30000ms exceeded"). */
 function challanLoadError(error: any): string {
@@ -43,6 +46,34 @@ import {
 } from "@/lib/dispatch-challan"
 
 const sameParty = (a: any, b: any) => JSON.stringify(a || {}) === JSON.stringify(b || {})
+
+/**
+ * A box card's challan data with these boxes ticked: box_ids, and the goods line as the boxes (packing "Box",
+ * units = boxes, pcs per unit = qty per box, total = box pcs). Net weight = pcs × tube weight unless typed by hand.
+ */
+function withBoxes(data: any, ids: string[], boxes: Box[], tube: { grams: number } | null, specPacking: any, keepTypedWeight: boolean) {
+    const picked = boxSelectionTotals(boxes, ids)
+    const items = Array.isArray(data?.items) && data.items.length ? [...data.items] : [{}]
+    const row = { ...items[0] }
+    const perBox = Number(specPacking?.qty_per_box) || Math.max(0, ...picked.boxes.filter((box) => !box.is_part).map((box) => Number(box.qty) || 0)) || null
+    row.packing_type = "Box"
+    row.qty_units = picked.count
+    row.pcs_per_unit = perBox
+    row.total_pcs = picked.pcs
+    if (tube && !(keepTypedWeight && row.net_weight_source === "TYPED")) {
+        row.net_weight = netWeightKg(picked.pcs, tube.grams)
+        row.net_weight_source = "SPEC"
+        row.tube_weight_g = tube.grams
+    }
+    items[0] = row
+    return { ...boxSnapshotForSave(data), items, box_ids: picked.boxes.map((box) => box.id) }
+}
+
+/** What a box card sends: never a dispatch qty (the server takes it from the boxes) nor the preview's box list. */
+function boxSnapshotForSave(data: any) {
+    const { qty, dispatch_qty, quantity, total_qty, packed_qty, summary, boxes, box_packing, packing_type, units, ...rest } = data || {}
+    return rest
+}
 
 function MasterCard({ icon, title, rows, ok, fixHref, fixLabel, canFix, testId }: {
     icon: ReactNode
@@ -83,6 +114,93 @@ function MasterCard({ icon, title, rows, ok, fixHref, fixLabel, canFix, testId }
     )
 }
 
+/** Box card: the challan is built from boxes (tick, scan the box label, or type the box code). */
+function BoxPicker({ boxes, selectedIds, maxShipQty, locked, loading, error, onRetry, onChange }: {
+    boxes: Box[]
+    selectedIds: string[]
+    maxShipQty: number
+    locked: boolean
+    loading: boolean
+    error: string
+    onRetry: () => void
+    onChange: (ids: string[]) => void
+}) {
+    const [scan, setScan] = useState("")
+    const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null)
+    const totals = boxSelectionTotals(boxes, selectedIds)
+    const readyCount = boxes.filter(boxReady).length
+    const over = totals.pcs > maxShipQty
+    const toggle = (box: Box, on: boolean) => onChange(on ? [...selectedIds, box.id] : selectedIds.filter((id) => id !== box.id))
+    const submitScan = () => {
+        const result = pickBox(boxes, scan, selectedIds)
+        setNote({ ok: result.ok, text: result.message })
+        if (result.added && result.box) onChange([...selectedIds, result.box.id])
+        if (result.ok) setScan("")
+    }
+    const selectAll = () => {
+        const pick = selectReadyWithin(boxes, maxShipQty)
+        onChange(pick.ids)
+        setNote(pick.left_out
+            ? { ok: true, text: `${pick.ids.length} ready box${pick.ids.length === 1 ? "" : "es"} ticked. ${pick.left_out} more do${pick.left_out === 1 ? "es" : ""} not fit in the ${maxShipQty.toLocaleString("en-IN")} pcs that can ship now.` }
+            : { ok: true, text: `${pick.ids.length} ready box${pick.ids.length === 1 ? "" : "es"} ticked.` })
+    }
+    return (
+        <section className="erp-panel min-w-0 space-y-3 rounded-xl border border-border bg-card p-4" data-testid="challan-box-picker">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground"><PackageCheck className="h-4 w-4 text-muted-foreground" aria-hidden="true" />Boxes on this challan</h3>
+                <p className="text-xs text-muted-foreground">Up to {maxShipQty.toLocaleString("en-IN")} pcs can ship now · {readyCount} box{readyCount === 1 ? "" : "es"} in stock</p>
+            </div>
+            <div className={`rounded-lg border px-3 py-2 text-sm ${over ? "border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink" : totals.count ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink" : "border-border bg-muted text-muted-foreground"}`} data-testid="challan-box-totals" aria-live="polite">
+                <p className="font-semibold">{totals.count} box{totals.count === 1 ? "" : "es"} · {totals.pcs.toLocaleString("en-IN")} pcs{totals.flagged ? ` · ${totals.flagged} QC flagged` : ""}</p>
+                <p className="text-xs">{totals.count ? totals.text : "Tick boxes below, scan a box label, or press Select all ready."}{over ? ` That is more than the ${maxShipQty.toLocaleString("en-IN")} pcs that can ship now; untick a box.` : ""}</p>
+            </div>
+            <form className="flex min-w-0 flex-col gap-2 sm:flex-row" onSubmit={(event) => { event.preventDefault(); submitScan() }}>
+                <label htmlFor="challan-qty" className="sr-only">Scan or type a box code</label>
+                <div className="relative min-w-0 flex-1">
+                    <ScanLine className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                    <Input id="challan-qty" data-testid="challan-box-scan" className="min-h-11 pl-9 text-base sm:min-h-0 sm:text-[13px]" value={scan} disabled={locked || loading} autoComplete="off" autoCapitalize="characters" placeholder="Scan box label or type B261014-001" onChange={(event) => setScan(event.target.value)} />
+                </div>
+                <div className="grid grid-cols-3 gap-2 sm:flex">
+                    <Button type="submit" variant="secondary" className="min-h-11 sm:min-h-0" disabled={locked || loading || !scan.trim()}>Tick box</Button>
+                    <Button type="button" variant="outline" className="min-h-11 whitespace-nowrap sm:min-h-0" data-testid="challan-box-select-all" disabled={locked || loading || !readyCount} onClick={selectAll}>Select all ready</Button>
+                    <Button type="button" variant="ghost" className="min-h-11 sm:min-h-0" disabled={locked || !selectedIds.length} onClick={() => { onChange([]); setNote(null) }}>Clear</Button>
+                </div>
+            </form>
+            {note && <p role="status" data-no-mirror className={`text-sm ${note.ok ? "text-signal-emerald-ink" : "text-signal-amber-ink"}`} data-testid="challan-box-note">{note.text}</p>}
+            {error ? (
+                <div className="flex flex-wrap items-center gap-2 text-sm text-destructive" role="alert"><span>{error}</span><Button variant="outline" size="sm" className="min-h-11 sm:min-h-0" onClick={onRetry}>Retry</Button></div>
+            ) : loading ? (
+                <p className="text-sm text-muted-foreground">Loading the boxes…</p>
+            ) : !boxes.length ? (
+                <p className="text-sm text-muted-foreground">No boxes are packed on this card yet.</p>
+            ) : (
+                <ul className="grid max-h-[28rem] min-w-0 gap-1.5 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3" data-testid="challan-box-list-picker">
+                    {boxes.map((box) => {
+                        const ready = boxReady(box)
+                        const checked = selectedIds.includes(box.id)
+                        return (
+                            <li key={box.id} className="min-w-0">
+                                <label className={`flex min-h-11 min-w-0 items-center gap-3 rounded-lg border px-3 py-2 text-sm ${checked ? "border-signal-emerald-line bg-signal-emerald-soft" : "border-border bg-card"} ${ready && !locked ? "cursor-pointer hover:bg-muted" : "opacity-70"}`}>
+                                    <input type="checkbox" className="h-4 w-4 shrink-0 accent-current" checked={checked} disabled={locked || (!ready && !checked)} onChange={(event) => toggle(box, event.target.checked)} aria-label={`Box ${box.box_code}, ${box.qty} pcs`} />
+                                    <span className="min-w-0 flex-1">
+                                        <span className="flex flex-wrap items-center gap-1.5">
+                                            <span className="font-mono font-semibold text-foreground">{box.box_code}</span>
+                                            {box.is_part && <span className="rounded-full border border-signal-violet-line bg-signal-violet-soft px-1.5 text-[10px] font-semibold uppercase text-signal-violet-ink">Part</span>}
+                                            {box.qc_flagged && <span className="rounded-full border border-signal-amber-line bg-signal-amber-soft px-1.5 text-[10px] font-semibold uppercase text-signal-amber-ink" title={(box.qc_flags || []).map((flag) => flag.label || flag.parameter).filter(Boolean).join(", ") || undefined}>QC flagged</span>}
+                                        </span>
+                                        <span className={`block text-xs ${ready ? "text-muted-foreground" : box.fg_status === "FAILED" ? "text-signal-rose-ink" : "text-muted-foreground"}`}>{boxStateText(box)}</span>
+                                    </span>
+                                    <span className="shrink-0 tabular-nums font-semibold text-foreground">{Number(box.qty).toLocaleString("en-IN")} pcs</span>
+                                </label>
+                            </li>
+                        )
+                    })}
+                </ul>
+            )}
+        </section>
+    )
+}
+
 function NewDispatchForm() {
     const router = useRouter()
     const searchParams = useSearchParams()
@@ -100,6 +218,15 @@ function NewDispatchForm() {
     const handoffsQuery = useReadyJobs(jobCard?.plant_id || activePlant)
     const handoff = handoffsQuery.data?.find((job: any) => job.id === jobCardId)
     const maxShipQty = Number(handoff?.max_ship_qty || 0)
+    // Box card (owner decision 1 Nov 2026): the challan is built from the card's boxes, not a typed quantity.
+    const boxMode = Boolean(handoff?.box_mode)
+    const boxesQuery = useQuery({
+        queryKey: ["dispatch-card-boxes", jobCardId],
+        queryFn: async () => (await boxesApi.cardBoxes(String(jobCardId))).data,
+        enabled: Boolean(jobCardId) && boxMode,
+    })
+    const cardBoxes: Box[] = boxesQuery.data?.boxes || []
+    const specPacking = boxesQuery.data?.spec_packing
     const updateDispatch = useCreateOrUpdateDispatch(jobCard?.plant_id)
     const roles = [user?.role, ...(user?.roles || [])]
     const canSeal = roles.some(role => ["Owner", "Admin", "Dispatch"].includes(role || ""))
@@ -137,6 +264,7 @@ function NewDispatchForm() {
 
     useEffect(() => {
         if (!jobCard || !customers || loadingDispatch || loadingPlants || handoffsQuery.isFetching || !handoff) return
+        if (handoff.box_mode && !boxesQuery.data) return
         if (initializedJob.current === jobCardId) return
         initializedJob.current = jobCardId || null
 
@@ -176,6 +304,27 @@ function NewDispatchForm() {
             ],
             remarks: ""
         }
+        if (handoff.box_mode) {
+            // A saved draft keeps its ticked boxes that can still ship; a new challan starts with every ready box
+            // that fits in what may ship now (the old path also started at the full quantity).
+            const boxes: Box[] = boxesQuery.data?.boxes || []
+            const savedIds: string[] = Array.isArray(existingDispatch?.dispatch_snapshot?.box_ids) ? existingDispatch.dispatch_snapshot.box_ids.map(String) : []
+            const keep = savedIds.filter((id) => boxes.some((box) => box.id === id && boxReady(box)))
+            const ids = existingDispatch ? keep : selectReadyWithin(boxes, Number(handoff.max_ship_qty || 0)).ids
+            const saved = existingDispatch?.dispatch_snapshot || {}
+            const base = existingDispatch ? {
+                ...saved,
+                company: { ...(saved.company || {}), ...initialData.company },
+                customer: { ...(saved.customer || {}), ...initialData.customer },
+                items: Array.isArray(saved.items) && saved.items.length ? saved.items : initialData.items,
+            } : initialData
+            if (recovering) {
+                setDispatchData(saved)
+                return
+            }
+            setDispatchData(withBoxes(base, ids, boxes, weight, boxesQuery.data?.spec_packing, saved.items?.[0]?.net_weight_source === "TYPED"))
+            return
+        }
         if (!existingDispatch) {
             setDispatchData(initialData)
             return
@@ -200,7 +349,7 @@ function NewDispatchForm() {
             customer: { ...(saved.customer || {}), ...initialData.customer },
             items: [first, ...savedItems.slice(1)],
         })
-    }, [jobCard, customers, existingDispatch, loadingDispatch, loadingPlants, plants, jobCardId, handoff, handoffsQuery.isFetching, recovering, plantRow, customerRow])
+    }, [jobCard, customers, existingDispatch, loadingDispatch, loadingPlants, plants, jobCardId, handoff, handoffsQuery.isFetching, recovering, plantRow, customerRow, boxesQuery.data])
 
     // Plant and customer details always come from their masters until the challan is sealed: after a fix in
     // the master (another tab), the challan picks it up without retyping anything.
@@ -253,7 +402,7 @@ function NewDispatchForm() {
         return <div className="p-6">No Job Card selected.</div>
     }
 
-    const failedQuery = [jobQuery, dispatchQuery, customersQuery, plantsQuery, handoffsQuery].find(query => query.isError)
+    const failedQuery = [jobQuery, dispatchQuery, customersQuery, plantsQuery, handoffsQuery, boxesQuery].find(query => query.isError)
     if (failedQuery) {
         const denied = (failedQuery.error as any)?.response?.status === 403
         return (
@@ -281,6 +430,18 @@ function NewDispatchForm() {
     const plantReady = Boolean((company.legal_name || company.name) && company.address && company.gstin)
     const customerReady = Boolean(customer.name && customer.address)
     const item = dispatchData.items?.[0] || {}
+    const boxIds: string[] = Array.isArray(dispatchData.box_ids) ? dispatchData.box_ids.map(String) : []
+    const pickedBoxes = boxSelectionTotals(cardBoxes, boxIds)
+    const boxSummary = handoff?.boxes || {}
+    const changeBoxes = (next: string[]) => {
+        setSaveError("")
+        setDispatchData((current: any) => current ? withBoxes(current, next, cardBoxes, tube, specPacking, false) : current)
+    }
+    // The preview shows the boxes and the packing block the server writes at sealing.
+    const previewData = boxMode && !isSealed && !recovering
+        ? { ...dispatchData, boxes: pickedBoxes.boxes.map((box) => ({ id: box.id, box_code: box.box_code, qty: box.qty, is_part: box.is_part, qc_flagged: box.qc_flagged })), box_packing: previewBoxPacking(specPacking, pickedBoxes.boxes), packing_type: "Box", units: pickedBoxes.count }
+        : dispatchData
+    const changeDocument = (next: any) => setDispatchData(boxMode && !isSealed && !recovering ? boxSnapshotForSave(next) : next)
 
     const getDispatchRequestId = () => {
         const storageKey = `dispatch-request:${jobCardId}`
@@ -309,7 +470,30 @@ function NewDispatchForm() {
         if (sealedId) return
         setSaveError("")
         setSealGaps([])
-        if (status === "SEALED") {
+        if (status === "SEALED" && boxMode && !recovering) {
+            const picked = boxSelectionTotals(cardBoxes, boxIds)
+            if (!picked.count) {
+                setSaveError("Tick or scan at least one box for this challan.")
+                return
+            }
+            if (picked.boxes.some((box) => !boxReady(box))) {
+                setSaveError("A ticked box is no longer in stock or has already shipped. Refresh the boxes and tick again.")
+                return
+            }
+            if (picked.pcs > maxShipQty) {
+                setSaveError(`These ${picked.count} boxes hold ${picked.pcs.toLocaleString("en-IN")} pcs, but only ${maxShipQty.toLocaleString("en-IN")} pcs can ship now. Untick a box.`)
+                return
+            }
+            const gaps = challanGaps(dispatchData, ids)
+            if (gaps.length) {
+                showGaps(gaps)
+                return
+            }
+            if (!confirmed) {
+                setConfirming(true)
+                return
+            }
+        } else if (status === "SEALED") {
             const qty = Number(dispatchData.items?.[0]?.total_pcs || dispatchData.dispatch_qty || dispatchData.qty)
             if (!Number.isInteger(qty) || qty <= 0 || qty > maxShipQty) {
                 setSaveError(maxShipQty > 0 ? `Shipment quantity must be a whole number from 1 to ${maxShipQty.toLocaleString("en-IN")} pcs.` : "No quantity remains within this card's shipment allowance. Refresh the dispatch register before continuing.")
@@ -335,7 +519,13 @@ function NewDispatchForm() {
         }
 
         updateDispatch.mutate(
-            recovering ? existingDispatch.dispatch_snapshot.seal_request : {
+            recovering ? existingDispatch.dispatch_snapshot.seal_request : boxMode ? {
+                // Box card: no dispatch_qty — the server sets the qty from the boxes and writes the box list itself.
+                job_card_id: jobCardId,
+                dispatch_snapshot: boxSnapshotForSave(dispatchData),
+                status,
+                dispatch_request_id: status === "SEALED" ? getDispatchRequestId() : undefined,
+            } : {
                 job_card_id: jobCardId,
                 dispatch_snapshot: { ...dispatchData, qty: Number(dispatchData.items?.[0]?.total_pcs || 0), dispatch_qty: Number(dispatchData.items?.[0]?.total_pcs || 0) },
                 status,
@@ -344,6 +534,7 @@ function NewDispatchForm() {
             },
             {
                 onSuccess: (response: any) => {
+                    if (boxMode) void boxesQuery.refetch()
                     if (status === "SEALED") {
                         setConfirming(false)
                         setSealedId(String(response.data.id))
@@ -385,7 +576,8 @@ function NewDispatchForm() {
             }
         }
         if (field === "net_weight") row.net_weight_source = "TYPED"
-        row.qty_units = Number(row.pcs_per_unit) > 0 ? Math.ceil((Number(row.total_pcs) || 0) / Number(row.pcs_per_unit)) : 0
+        // A box card's units are its ticked boxes (set by the picker), never worked out from pcs.
+        if (!boxMode) row.qty_units = Number(row.pcs_per_unit) > 0 ? Math.ceil((Number(row.total_pcs) || 0) / Number(row.pcs_per_unit)) : 0
         items[0] = row
         const { qty, dispatch_qty, quantity, total_qty, packed_qty, summary, ...snapshot } = dispatchData
         setDispatchData({ ...snapshot, items })
@@ -413,10 +605,23 @@ function NewDispatchForm() {
                     <p className="text-sm text-muted-foreground">
                         {sealedId ? "Sealed and locked. Opening the challan to print…" : isSealed ? "This challan is sealed and locked." : `Job card ${jobCardRef(jobCard)}. Plant and customer details come from their masters.`}
                     </p>
+                    {boxMode ? (
+                        <>
+                            <p className="mt-1 text-sm text-muted-foreground" data-testid="challan-box-summary">Boxes: {Number(boxSummary.total || 0)} packed ({Number(boxSummary.boxed_pcs || 0).toLocaleString("en-IN")} pcs) · {Number(boxSummary.ready || 0)} in stock ({Number(boxSummary.ready_pcs || 0).toLocaleString("en-IN")} pcs) · {Number(boxSummary.dispatched || 0)} shipped{Number(boxSummary.retained || 0) ? ` · ${boxSummary.retained} kept as surplus` : ""}{Number(boxSummary.flagged || 0) ? ` · ${boxSummary.flagged} QC flagged` : ""}</p>
+                            <p className="mt-1 text-sm text-muted-foreground">Shipped {Number(handoff?.dispatched_qty || 0).toLocaleString("en-IN")} pcs · up to {maxShipQty.toLocaleString("en-IN")} pcs can ship now{String(jobCard.current_stage || "").toUpperCase() === "PROCESS" ? " · Process is still running; more boxes can follow on a later challan" : ""}</p>
+                            {handoff?.handoff_state === "AWAITING_FG" && <p className="mt-1 text-sm text-signal-amber-ink">The packed boxes are waiting for the stock posting. A box can go on a challan once it is in stock.</p>}
+                            {handoff?.handoff_state === "PACKING" && <p className="mt-1 text-sm text-signal-amber-ink">No box is packed and waiting on this card.</p>}
+                            {handoff?.handoff_state === "QC_HOLD" && <p className="mt-1 text-sm text-signal-amber-ink">A hold on this card stops all movement. Release it in Quality before sealing.</p>}
+                            {handoff?.handoff_state === "BOXES_READY" && maxShipQty === 0 && <p className="mt-1 text-sm text-signal-amber-ink">No box in stock fits in the released quantity left. Keep the leftover boxes with Retain surplus from the dispatch register once Process is closed.</p>}
+                        </>
+                    ) : (
+                        <>
                     <p className="mt-1 text-sm text-muted-foreground">Accepted FG {handoff?.dispatchable_qty || 0} pcs · QC rejected {handoff?.qc_rejected_qty || 0} pcs · unused / uninspected {handoff?.qc_uninspected_qty || 0} pcs · gross packed {handoff?.packed_qty || 0} pcs</p>
                     <p className="mt-1 text-sm text-muted-foreground">Shipped {handoff?.dispatched_qty || 0} pcs · available to ship {maxShipQty} pcs · accepted FG remaining {handoff?.remaining_qty || 0} pcs{handoff?.retained_qty > 0 ? ` · retained FG ${handoff.retained_qty} pcs` : ""}</p>
                     {maxShipQty === 0 && handoff?.handoff_state === "UNSEALED" && handoff?.remaining_qty > 0 && <p className="mt-1 text-sm text-signal-amber-ink">The shipment allowance for this card has been fulfilled. Return to the dispatch register to review retention of the accepted surplus.</p>}
                     {handoff && !["UNSEALED", "SEALED"].includes(handoff.handoff_state) && <p className="mt-1 text-sm text-signal-amber-ink">Close Process (packing and its two QC readings close with it), post FG, and resolve any QC hold before sealing.</p>}
+                        </>
+                    )}
                     {recovering && <p className="mt-1 text-sm text-signal-amber-ink">This shipment was interrupted. Retry its original command to finish stock and sales posting once. Its saved details remain locked.</p>}
                 </div>
                 <div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0 sm:flex-nowrap sm:items-center sm:justify-end">
@@ -426,7 +631,7 @@ function NewDispatchForm() {
                             <Button variant="secondary" className="min-h-11 whitespace-nowrap sm:min-h-0" onClick={() => handleSave("DRAFT")} disabled={updateDispatch.isPending || recovering || maxShipQty <= 0}>
                                 Save draft
                             </Button>
-                            {canSeal && <Button className="col-span-2 min-h-11 whitespace-nowrap sm:min-h-0" data-testid="challan-seal" onClick={() => handleSave("SEALED")} disabled={updateDispatch.isPending || maxShipQty <= 0 || handoff?.handoff_state !== "UNSEALED"} >
+                            {canSeal && <Button className="col-span-2 min-h-11 whitespace-nowrap sm:min-h-0" data-testid="challan-seal" onClick={() => handleSave("SEALED")} disabled={updateDispatch.isPending || maxShipQty <= 0 || handoff?.handoff_state !== (boxMode ? "BOXES_READY" : "UNSEALED")} >
                                 {recovering ? "Retry shipment" : "Seal & print challan"}
                             </Button>}
                         </>
@@ -512,7 +717,38 @@ function NewDispatchForm() {
                 </div>
             )}
 
-            {!isSealed && (
+            {!isSealed && boxMode && !recovering && (
+                <>
+                    <BoxPicker
+                        boxes={cardBoxes}
+                        selectedIds={boxIds}
+                        maxShipQty={maxShipQty}
+                        locked={locked}
+                        loading={boxesQuery.isLoading}
+                        error={boxesQuery.isError ? `The boxes could not load: ${errorText(boxesQuery.error)}` : ""}
+                        onRetry={() => { void boxesQuery.refetch() }}
+                        onChange={changeBoxes}
+                    />
+                    <div className="grid gap-4 rounded-xl border border-border bg-card p-4 sm:grid-cols-3">
+                        <label className="text-sm font-medium sm:col-span-1" htmlFor="challan-weight">Net weight (kg)
+                            <Input id="challan-weight" data-testid="challan-net-weight" className="mt-1 min-h-11 text-base sm:min-h-0 sm:text-[13px]" type="number" inputMode="decimal" min="0" step="0.001" value={item.net_weight ?? ""} disabled={locked} placeholder={tube ? undefined : "Type the net weight"} aria-invalid={sealGaps.some((gap) => gap.key === "net_weight") || undefined} onChange={e => updateShipment("net_weight", e.target.value)} />
+                        </label>
+                        <div className="self-end sm:col-span-2" data-testid="challan-weight-hint">
+                            {tube ? (
+                                <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                                    <Scale className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                    <span>{Number(item.total_pcs || 0).toLocaleString("en-IN")} pcs × {formatGrams(tube.grams)} g ({tube.source}) = <strong className="text-foreground">{formatKg(workedOut)} kg</strong>.{typedWeight ? (String(item.net_weight ?? "").trim() === "" ? " The net weight field is empty; the challan cannot be sealed without it." : ` You typed ${formatKg(item.net_weight)} kg; it is worked out again when the boxes change.`) : viewOnly ? "" : " Worked out again when the boxes change; you can still change it."}</span>
+                                    {typedWeight && !locked ? <button type="button" onClick={resetNetWeight} className="inline-flex min-h-11 items-center font-semibold text-foreground underline underline-offset-2 sm:min-h-0">Use {formatKg(workedOut)} kg</button> : null}
+                                </p>
+                            ) : (
+                                <p className="flex items-start gap-2 text-xs text-signal-amber-ink"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />The spec sheet of this card has no tube weight, so the net weight cannot be worked out.{viewOnly ? "" : " Type it in (kg)."}</p>
+                            )}
+                        </div>
+                    </div>
+                </>
+            )}
+
+            {!isSealed && !boxMode && (
                 <div className="grid gap-4 rounded-xl border border-border bg-card p-4 sm:grid-cols-3">
                     <label className="text-sm font-medium" htmlFor="challan-qty">Shipment quantity (pcs)
                         <Input id="challan-qty" className="mt-1 min-h-11 text-base sm:min-h-0 sm:text-[13px]" type="number" inputMode="numeric" min="1" max={maxShipQty} step="1" value={item.total_pcs ?? ""} disabled={locked} onChange={e => updateShipment("total_pcs", e.target.value)} />
@@ -540,11 +776,11 @@ function NewDispatchForm() {
             )}
 
             <DispatchDocument
-                dispatchData={dispatchData}
-                onChange={isSealed || locked ? undefined : setDispatchData}
+                dispatchData={previewData}
+                onChange={isSealed || locked ? undefined : changeDocument}
                 printMode={false}
             />
-            <Dialog open={confirming} onOpenChange={setConfirming}><DialogContent><DialogHeader><DialogTitle>{recovering ? "Resume shipment" : "Seal this challan?"}</DialogTitle><DialogDescription>Sealing locks the challan and records stock going out and the sales order delivery for this shipment. The card completes after all accepted finished goods are shipped or the surplus is retained.</DialogDescription></DialogHeader><dl className="grid grid-cols-[110px_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm"><dt className="text-muted-foreground">Quantity</dt><dd>{Number(item.total_pcs || dispatchData.dispatch_qty || 0).toLocaleString("en-IN")} pcs · {formatKg(item.net_weight)} kg</dd><dt className="text-muted-foreground">Customer</dt><dd className="break-words">{customer.name}</dd><dt className="text-muted-foreground">Dispatch to</dt><dd className="break-words">{customer.address}</dd><dt className="text-muted-foreground">Vehicle</dt><dd>{dispatchData.transporter?.vehicle_no} · {dispatchData.transporter?.name}</dd><dt className="text-muted-foreground">Job card</dt><dd>{jobCardRef(jobCard)}</dd></dl><DialogFooter><Button variant="outline" className="min-h-11 sm:min-h-0" onClick={() => setConfirming(false)}>Keep editing</Button><Button className="min-h-11 sm:min-h-0" data-testid="challan-confirm-seal" disabled={updateDispatch.isPending} onClick={() => { setConfirming(false); handleSave("SEALED", true) }}>Confirm and seal</Button></DialogFooter></DialogContent></Dialog>
+            <Dialog open={confirming} onOpenChange={setConfirming}><DialogContent><DialogHeader><DialogTitle>{recovering ? "Resume shipment" : "Seal this challan?"}</DialogTitle><DialogDescription>Sealing locks the challan and records stock going out and the sales order delivery for this shipment. The card completes after all accepted finished goods are shipped or the surplus is retained.</DialogDescription></DialogHeader><dl className="grid grid-cols-[110px_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">{boxMode && !recovering ? <><dt className="text-muted-foreground">Boxes</dt><dd data-testid="challan-confirm-boxes">{pickedBoxes.count} box{pickedBoxes.count === 1 ? "" : "es"} · {pickedBoxes.text}{pickedBoxes.flagged ? ` · ${pickedBoxes.flagged} QC flagged` : ""}</dd></> : null}<dt className="text-muted-foreground">Quantity</dt><dd>{Number(item.total_pcs || dispatchData.dispatch_qty || 0).toLocaleString("en-IN")} pcs · {formatKg(item.net_weight)} kg</dd><dt className="text-muted-foreground">Customer</dt><dd className="break-words">{customer.name}</dd><dt className="text-muted-foreground">Dispatch to</dt><dd className="break-words">{customer.address}</dd><dt className="text-muted-foreground">Vehicle</dt><dd>{dispatchData.transporter?.vehicle_no} · {dispatchData.transporter?.name}</dd><dt className="text-muted-foreground">Job card</dt><dd>{jobCardRef(jobCard)}</dd></dl><DialogFooter><Button variant="outline" className="min-h-11 sm:min-h-0" onClick={() => setConfirming(false)}>Keep editing</Button><Button className="min-h-11 sm:min-h-0" data-testid="challan-confirm-seal" disabled={updateDispatch.isPending} onClick={() => { setConfirming(false); handleSave("SEALED", true) }}>Confirm and seal</Button></DialogFooter></DialogContent></Dialog>
         </div>
     )
 }

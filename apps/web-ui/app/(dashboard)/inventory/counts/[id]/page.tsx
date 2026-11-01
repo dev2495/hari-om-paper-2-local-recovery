@@ -22,6 +22,7 @@ import {
 } from "@/lib/api-stock"
 import { businessDate } from "@/lib/business-date"
 import { cn } from "@/lib/utils"
+import { ReasonPicker, reasonPayload, useReasonChoice } from "@/components/reasons"
 
 // Every line sits in exactly one group (the same words as the tiles above and the rack pages).
 const GROUPS: Array<{ key: string; title: string; tone: Tone; icon: any; help: string }> = [
@@ -195,6 +196,8 @@ export default function CountHubPage() {
   const submit = useSubmitCount()
   const approve = useApproveCount()
   const sendBack = useSendBackCount()
+  // Sending a count back picks an APPROVAL_REJECT code from Masters › Reason codes (owner decision 4, 1 Nov 2026).
+  const backWhy = useReasonChoice("APPROVAL_REJECT")
   const cancel = useCancelCount()
   const decide = useDecide()
   const [sheet, setSheet] = useState<"" | "approve" | "back" | "cancel" | "submit">("")
@@ -205,7 +208,7 @@ export default function CountHubPage() {
   const count = query.data
 
   const groups = useMemo(() => GROUPS.map((group) => ({ ...group, rows: (count?.entries || []).filter((entry) => groupOf(entry) === group.key) })).filter((group) => group.rows.length), [count])
-  const openSheet = (name: typeof sheet) => { setNote(""); setBackRacks([]); setMessage(null); setSheet(name) }
+  const openSheet = (name: typeof sheet) => { setNote(""); backWhy.reset(); setBackRacks([]); setMessage(null); setSheet(name) }
   const run = async (task: () => Promise<unknown>, ok: string) => {
     try { await task(); setSheet(""); setMessage({ tone: "emerald", text: ok }) } catch (error) { setMessage({ tone: "rose", text: errorText(error) }) }
   }
@@ -367,8 +370,8 @@ export default function CountHubPage() {
       </Sheet>
 
       <Sheet open={sheet === "back"} onOpenChange={(open) => !open && setSheet("")} title="Send back for a recount" description="The chosen racks go back to counting with your note. Scans already made stay." testId="count-back-sheet"
-        footer={<><button type="button" className="erp-btn-secondary !h-11" onClick={() => setSheet("")}>Cancel</button><button type="button" className="erp-btn-primary !h-11" disabled={note.trim().length < 3 || sendBack.isPending} onClick={() => run(() => sendBack.mutateAsync({ id: countId, note: note.trim(), racks: backRacks }), "Sent back for a recount.")} data-testid="count-back-confirm">Send back</button></>}>
-        <Field label="What should be counted again? (needed)"><textarea className={`${fieldClass} !h-20 py-2`} value={note} onChange={(event) => setNote(event.target.value)} maxLength={500} data-testid="count-back-note" /></Field>
+        footer={<><button type="button" className="erp-btn-secondary !h-11" onClick={() => setSheet("")}>Cancel</button><button type="button" className="erp-btn-primary !h-11" disabled={sendBack.isPending} onClick={() => { if (backWhy.validate()) run(() => sendBack.mutateAsync({ id: countId, ...reasonPayload(backWhy.rows, backWhy.value, null), racks: backRacks }), "Sent back for a recount.") }} data-testid="count-back-confirm">Send back</button></>}>
+        <ReasonPicker category="APPROVAL_REJECT" label="Why it is counted again" notePlaceholder="What should be counted again" value={backWhy.value} onChange={backWhy.setValue} showErrors={backWhy.touched} compact testIdPrefix="count-back" />
         <p className="mt-3 text-[12.5px] font-semibold text-foreground">Racks to count again <span className="font-normal text-muted-foreground">(none ticked = all)</span></p>
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
           {count.racks.map((rack) => (

@@ -47,6 +47,7 @@ from ..services.books import ist_today
 from ..services.procurement_documents import render_purchase_order_pdf
 from ..services import rm_calendar
 from ..utils.audit_client import emit_audit_event
+from ..reasons import reason_input, resolve_reason, token_of
 from ..utils.auth import get_current_plant, get_current_user, is_actual_owner, require_role
 
 _audit_logger = logging.getLogger(__name__)
@@ -349,6 +350,9 @@ class RevisionActionPayload(BaseModel):
     expected_version: int = Field(gt=0)
     content_hash: Optional[str] = Field(default=None, min_length=64, max_length=64)
     reason: Optional[str] = Field(default=None, max_length=1000)
+    # Reject / cancel pick a code from Masters › Reason codes (owner decision 4, 1 Nov 2026).
+    reason_code: Optional[str] = Field(default=None, max_length=80)
+    reason_note: Optional[str] = Field(default=None, max_length=1000)
 
 
 class ShortCloseLine(BaseModel):
@@ -360,12 +364,16 @@ class ShortCloseLine(BaseModel):
 class ShortClosePayload(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     expected_version: int = Field(gt=0)
-    reason: str = Field(min_length=3, max_length=1000)
+    reason: Optional[str] = Field(default=None, max_length=1000)
+    reason_code: Optional[str] = Field(default=None, max_length=80)
+    reason_note: Optional[str] = Field(default=None, max_length=1000)
     lines: list[ShortCloseLine] = Field(default_factory=list)
 
 
 class PurchaseRevisionCreate(PurchaseOrderCreate):
-    change_reason: str = Field(min_length=3, max_length=1000)
+    change_reason: Optional[str] = Field(default=None, max_length=1000)
+    reason_code: Optional[str] = Field(default=None, max_length=80)
+    reason_note: Optional[str] = Field(default=None, max_length=1000)
     expected_version: int = Field(gt=0)
 
 
@@ -448,6 +456,17 @@ class RejectRemainderPayload(BaseModel):
         if normalized not in {"REJECT", "REPLACE"}:
             raise ValueError("disposition must be REJECT or REPLACE")
         return normalized
+
+    # Optional RM_ISSUE reason code (owner decision 4): checked and stored when sent.
+    reason_code: Optional[str] = Field(default=None, max_length=80)
+    reason_note: Optional[str] = Field(default=None, max_length=1000)
+
+
+def _reason_choice(payload: Any, category: str, plant_id: Any, current_user: dict, what: str, *, required: bool = True):
+    """The reason picked from Masters › Reason codes (owner decision 4, 1 Nov 2026); free text alone is refused."""
+    code, note = reason_input(payload)
+    return resolve_reason(category=category, code=code, note=note, plant_id=plant_id,
+                          token=token_of(current_user), required=required, what=what)
 
 
 def _order_for_plant(db: Session, po_id: uuid.UUID, plant_id: str) -> PurchaseOrder:
@@ -1026,6 +1045,12 @@ def create_purchase_order_revision(
         pr = db.query(PurchaseRequisition).filter_by(id=pr_id, plant_id=plant_id).first()
         if not pr or len(payload.lines) != 1 or payload.lines[0].item_id != pr.item_id or payload.lines[0].uom != pr.uom or abs(payload.lines[0].qty_ordered - float(pr.quantity)) > 0.000001:
             raise HTTPException(422, "An approved requisition fixes the PO material, unit and quantity")
+    # A draft that was never approved is just being edited: nothing asks why (the web sends no code).
+    # Any later revision needs a PO_REVISION code from the master (owner decision 4, 1 Nov 2026).
+    draft_only = order.status == "DRAFT" and not order.approved_at and db.query(PurchaseOrderRevision.id).filter(
+        PurchaseOrderRevision.purchase_order_id == order.id, PurchaseOrderRevision.approval_state == "APPROVED").first() is None
+    change = _reason_choice(payload, "PO_REVISION", order.plant_id or plant_id, current_user, "the PO change", required=not draft_only)
+    change_text = change.text if change else "Draft changed before approval"
     existing_by_logical = {str(line.logical_line_id): line for line in order.lines or []}
     touched: set[str] = set()
     revised_lines: list[PurchaseOrderLine] = []
@@ -1112,7 +1137,7 @@ def create_purchase_order_revision(
         order.metadata_json = {**order.metadata_json,
             "send_history": [*(previous.get("send_history") or []), {"sent_at": order.sent_at.isoformat(), "sent_by": order.sent_by,
                 "channel": order.sent_channel, "revision_no": int(order.current_revision_no or 1)}],
-            "resend_reason": f"Revision {next_revision}: {payload.change_reason or 'PO changed'}"}
+            "resend_reason": f"Revision {next_revision}: {change_text}"}
         order.sent_at = order.sent_by = order.sent_channel = None
         order.vendor_confirmed_at = order.vendor_confirmed_by = None
     order.current_revision_no = next_revision
@@ -1122,7 +1147,9 @@ def create_purchase_order_revision(
     order.approval_source = None
     order.version += 1
     db.flush()
-    revision = _persist_revision(db, order, revised_lines, revision_no=order.current_revision_no, request_id=payload.request_id, actor=_actor(current_user), change_reason=payload.change_reason)
+    revision = _persist_revision(db, order, revised_lines, revision_no=order.current_revision_no, request_id=payload.request_id, actor=_actor(current_user), change_reason=change_text)
+    if change is not None:
+        revision.change_reason_code, revision.change_reason_label, revision.change_reason_note = change.code, change.label, change.note
     db.flush()
     # Delivery rows follow the revised quantities (calendar cover, Expected arrivals, vendor PDF).
     revision_lines = {row.source_order_line_id: row.id for row in db.query(PurchaseOrderRevisionLine).filter(PurchaseOrderRevisionLine.revision_id == revision.id).all()}
@@ -1246,6 +1273,7 @@ def purchase_order_history(
     return {"po_id": str(order.id), "po_no": order.po_no, "items": [{
         "id": str(revision.id), "revision_no": revision.revision_no, "approval_state": revision.approval_state,
         "content_hash": revision.content_hash, "change_reason": revision.change_reason, "version": revision.version,
+        "change_reason_code": revision.change_reason_code, "change_reason_label": revision.change_reason_label,
         "created_by": revision.created_by, "created_at": revision.created_at.isoformat() if revision.created_at else None,
         "submitted_by": revision.submitted_by,
         "submitted_at": revision.submitted_at.isoformat() if revision.submitted_at else None,
@@ -1253,6 +1281,7 @@ def purchase_order_history(
         "approved_by_same_person": _same_person(revision), "approved_as": _approved_as(revision),
         "rejected_by": revision.rejected_by, "rejected_at": revision.rejected_at.isoformat() if revision.rejected_at else None,
         "rejection_reason": revision.rejection_reason, "snapshot": revision.snapshot_json,
+        "rejection_reason_code": revision.rejection_reason_code, "rejection_reason_label": revision.rejection_reason_label,
     } for revision in revisions]}
 
 
@@ -1342,11 +1371,10 @@ def reject_purchase_order(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "PlantManager", "Owner"])),
 ):
-    if not payload.reason or len(payload.reason.strip()) < 3:
-        raise HTTPException(status_code=422, detail="A rejection reason is required")
     decider_role = _po_decider_role(current_user)
     if decider_role is None:
         raise HTTPException(status_code=403, detail="Only the Owner or an Admin may decide purchase order approval")
+    choice = _reason_choice(payload, "PURCHASE_REJECT", plant_id, current_user, "rejecting this PO")
     order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id, PurchaseOrder.plant_id == plant_id).with_for_update().first()
     if not order:
         raise HTTPException(status_code=404, detail="Purchase order not found")
@@ -1360,11 +1388,14 @@ def reject_purchase_order(
     revision.approval_state = "REJECTED"
     revision.rejected_by = actor
     revision.rejected_at = datetime.utcnow()
-    revision.rejection_reason = payload.reason.strip()
+    revision.rejection_reason = choice.text
+    revision.rejection_reason_code, revision.rejection_reason_label, revision.rejection_reason_note = choice.code, choice.label, choice.note
     revision.version += 1
     order.status = "REJECTED"
     order.version += 1
-    db.add(PurchaseApprovalDecision(revision_id=revision.id, decision="REJECTED", reason=payload.reason,
+    order.metadata_json = {**(order.metadata_json or {}), "rejection_reason": choice.text, "rejection_reason_code": choice.code,
+        "rejection_reason_label": choice.label, "rejection_reason_note": choice.note}
+    db.add(PurchaseApprovalDecision(revision_id=revision.id, decision="REJECTED", reason=choice.text,
         content_hash=revision.content_hash, actor=actor, actor_role=decider_role))
     db.commit()
     db.refresh(order)
@@ -1386,6 +1417,7 @@ def short_close_purchase_order(
         raise HTTPException(status_code=409, detail="Purchase order changed; reload before short-closing")
     if order.status not in {"APPROVED", "PARTIALLY_RECEIVED"}:
         raise HTTPException(status_code=409, detail="Only an approved open purchase order can be short-closed")
+    choice = _reason_choice(payload, "PO_CLOSE", order.plant_id or plant_id, current_user, "the short close")
     requested = {row.po_line_id: row.qty for row in payload.lines}
     if len(requested) != len(payload.lines):
         raise HTTPException(status_code=422, detail="A PO line may appear only once")
@@ -1422,7 +1454,8 @@ def short_close_purchase_order(
     if not closed_any:
         raise HTTPException(status_code=409, detail="No open quantity was selected for short-close")
     order.status = "SHORT_CLOSED" if all(line.line_status == "CLOSED" for line in order.lines or []) else "PARTIALLY_RECEIVED"
-    order.metadata_json = {**(order.metadata_json or {}), "short_close_reason": payload.reason,
+    order.metadata_json = {**(order.metadata_json or {}), "short_close_reason": choice.text,
+        "short_close_reason_code": choice.code, "short_close_reason_label": choice.label, "short_close_reason_note": choice.note,
         "short_closed_by": _actor(current_user), "short_closed_at": datetime.utcnow().isoformat()}
     order.version += 1
     db.commit()
@@ -1438,8 +1471,6 @@ def cancel_purchase_order(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["PlantManager", "Owner"])),
 ):
-    if not payload.reason or len(payload.reason.strip()) < 3:
-        raise HTTPException(status_code=422, detail="A cancellation reason is required")
     order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id, PurchaseOrder.plant_id == plant_id).with_for_update().first()
     if not order:
         raise HTTPException(status_code=404, detail="Purchase order not found")
@@ -1447,6 +1478,7 @@ def cancel_purchase_order(
         raise HTTPException(status_code=409, detail="Purchase order changed; reload before cancelling")
     if order.status in {"RECEIVED", "SHORT_CLOSED", "CANCELLED"} or any(float(line.qty_received or 0) > 0 for line in order.lines or []):
         raise HTTPException(status_code=409, detail="A PO with received quantity cannot be cancelled; use short-close or a controlled return")
+    choice = _reason_choice(payload, "PO_CLOSE", order.plant_id or plant_id, current_user, "cancelling this PO")
     order.status = "CANCELLED"
     line_ids = [line.id for line in order.lines or []]
     schedules = db.query(PurchaseDeliverySchedule).filter(
@@ -1460,7 +1492,8 @@ def cancel_purchase_order(
             schedule.confirmation_status = "CANCELLED"
             schedule.cancelled_at = datetime.utcnow()
             schedule.version += 1
-    order.metadata_json = {**(order.metadata_json or {}), "cancellation_reason": payload.reason.strip(),
+    order.metadata_json = {**(order.metadata_json or {}), "cancellation_reason": choice.text,
+        "cancellation_reason_code": choice.code, "cancellation_reason_label": choice.label, "cancellation_reason_note": choice.note,
         "cancelled_by": _actor(current_user), "cancelled_at": datetime.utcnow().isoformat()}
     order.version += 1
     db.commit()
@@ -1499,6 +1532,7 @@ def reject_purchase_remainder(
         raise HTTPException(status_code=400, detail="Rejected quantity exceeds open PO remainder")
     if payload.disposition == "REPLACE" and not payload.replacement_qty:
         raise HTTPException(status_code=400, detail="Replacement disposition requires replacement_qty")
+    remainder_reason = _reason_choice(payload, "RM_ISSUE", order.plant_id or plant_id, current_user, "the rejected remainder", required=False)
     usable_before = None
     try:
         from ..services.stock_calc import get_usable_item_qty
@@ -1513,6 +1547,8 @@ def reject_purchase_remainder(
         "qty": float(po_line.qty_rejected or 0.0),
         "disposition": payload.disposition,
         "actor": _actor(current_user),
+        **({"reason": remainder_reason.text, "reason_code": remainder_reason.code, "reason_label": remainder_reason.label,
+            "reason_note": remainder_reason.note} if remainder_reason else {}),
     }
     po_line.metadata_json = metadata
     flag_modified(po_line, "metadata_json")
@@ -1757,7 +1793,9 @@ class SupplierScheduleUpdate(BaseModel):
     expected_version: int = Field(ge=1)
     current_date: date
     confirmation_status: str = Field(pattern="^(TENTATIVE|CONFIRMED|CANCELLED)$")
-    reason: str = Field(min_length=3, max_length=500)
+    reason: Optional[str] = Field(default=None, max_length=500)
+    reason_code: Optional[str] = Field(default=None, max_length=80)
+    reason_note: Optional[str] = Field(default=None, max_length=500)
 
 
 @router.patch("/schedules/{schedule_id}")
@@ -1774,6 +1812,11 @@ def update_supplier_schedule(schedule_id: uuid.UUID, payload: SupplierScheduleUp
         raise HTTPException(409, "Cancelled commitments remain in history; create a new schedule for remaining quantity")
     if row.order_line.order.status in {"CANCELLED", "SHORT_CLOSED"}:
         raise HTTPException(409, "This purchase order is closed")
+    # Moving or cancelling a delivery picks a SUPPLIER_SCHEDULE code (owner decision 4, 1 Nov 2026); a vendor
+    # confirming the same date is not a change and needs none (a code that is sent is still checked).
+    is_change = payload.current_date != row.current_date or payload.confirmation_status == "CANCELLED"
+    choice = _reason_choice(payload, "SUPPLIER_SCHEDULE", plant_id, current_user, "the schedule change", required=is_change)
+    reason_text = choice.text if choice else (str(payload.reason_note or payload.reason or "").strip() or "Vendor confirmed")
     if payload.confirmation_status != "CANCELLED" and payload.current_date < ist_today() and (
             payload.current_date != row.current_date or payload.confirmation_status == "CONFIRMED"):
         # Same rule as vendor-confirm and the calendar: a vendor's date is today or later.
@@ -1781,12 +1824,13 @@ def update_supplier_schedule(schedule_id: uuid.UUID, payload: SupplierScheduleUp
     row.change_history = [*(row.change_history or []), {
         "version": row.version + 1, "previous_date": row.current_date.isoformat(),
         "current_date": payload.current_date.isoformat(), "previous_status": row.confirmation_status,
-        "status": payload.confirmation_status, "reason": payload.reason.strip(),
+        "status": payload.confirmation_status, "reason": reason_text,
+        **({"reason_code": choice.code, "reason_label": choice.label, "reason_note": choice.note} if choice else {}),
         "actor": _actor(current_user), "changed_at": datetime.utcnow().isoformat() + "Z",
     }]
     row.current_date = payload.current_date
     row.confirmation_status = payload.confirmation_status
-    row.notes = payload.reason.strip()
+    row.notes = reason_text[:500]
     row.version += 1
     if payload.confirmation_status == "CANCELLED":
         row.cancelled_qty = max(0, row.scheduled_qty - row.received_qty)

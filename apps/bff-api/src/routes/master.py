@@ -460,6 +460,18 @@ async def delete_vendor_contact(vendor_id: str, contact_id: str, request: Reques
     )
 
 
+@router.get("/packaging/unit-weights")
+async def get_packaging_unit_weights(request: Request, token: str = Depends(get_token)):
+    """Per-piece weight (kg) of packaging masters by code (?codes=R-150,PS-150)."""
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/packaging/unit-weights", request, token)
+
+
+@router.get("/packaging/defaults")
+async def get_packaging_defaults(request: Request, token: str = Depends(get_token)):
+    """Default plastic / fadda (the only active master of its kind, else none)."""
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/packaging/defaults", request, token)
+
+
 @router.get("/packaging/boxes")
 async def get_packaging_boxes(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(MASTER_SERVICE_URL, "/master/packaging/boxes", request, token)
@@ -657,6 +669,18 @@ async def delete_holiday(holiday_id: str, request: Request, token: str = Depends
 @router.get("/reason-codes")
 async def list_reasons(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(MASTER_SERVICE_URL, "/master/reason-codes/", request, token)
+
+
+@router.get("/reason-codes/categories")
+async def list_reason_categories(request: Request, token: str = Depends(get_token)):
+    """Every reason list (group, where it is used, code counts for this plant); owner decision 4, 1 Nov 2026."""
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/reason-codes/categories", request, token)
+
+
+@router.post("/reason-codes/validate")
+async def validate_reason(request: Request, token: str = Depends(get_token)):
+    """Check a reason choice (code active, right list, right plant, OTHER note) without saving anything."""
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/reason-codes/validate", request, token)
 
 
 @router.post("/reason-codes")

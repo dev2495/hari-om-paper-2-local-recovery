@@ -36,7 +36,7 @@ def _apply_reel_scope(query, plant_scope: dict):
 
 @router.get("/find")
 def find_label_by_number(
-    code: str = Query(..., min_length=1, max_length=120, description="Typed lot / Amigo inward, AT, vendor reel, old mark or GRN number"),
+    code: str = Query(..., min_length=1, max_length=120, description="Typed lot / Amigo inward, AIT / reel (older AT too), vendor reel, old mark or GRN number"),
     kind: str = Query(default="ALL", pattern="^(ALL|LOT|REEL)$"),
     limit: int = Query(default=12, ge=1, le=50),
     db: Session = Depends(get_db),

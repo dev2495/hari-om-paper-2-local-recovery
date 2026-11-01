@@ -70,7 +70,9 @@ def test_register_overrides_typed_calibration(db):
     assert len(rows) == 1 and rows[0]['calibration_status'] == 'valid' and rows[0]['certificate_ref'] == 'CAL-10'
 
 
-def test_hold_release_records_reason_and_analytics_counts_first_pass(db):
+def test_hold_release_records_reason_and_analytics_counts_first_pass(db, monkeypatch):
+    from src.reasons import ReasonChoice
+    monkeypatch.setattr(quality, 'resolve_reason', lambda **kw: ReasonChoice('QC_RELEASE', kw['code'], 'Reworked and checked', kw.get('note')))
     job = _job(db)
     first = QualityInspection(plant_id=TEST_PLANT_UUID, job_card_id=job.id, stage_type='WINDER', status='FAIL',
         failures=[{'label': 'Height'}], readings={'height': 130})
@@ -80,10 +82,14 @@ def test_hold_release_records_reason_and_analytics_counts_first_pass(db):
     hold = QualityHold(plant_id=TEST_PLANT_UUID, job_card_id=job.id, stage_type='WINDER', reason='Height high', status='HOLD')
     db.add(hold); db.flush()
 
-    quality.release_hold(hold.id, quality.HoldReleasePayload(reason='Re-cut and re-measured', disposition='REWORKED', affected_qty=12),
+    quality.release_hold(hold.id, quality.HoldReleasePayload(reason_code='QR-REWORKED', reason_note='Re-cut and re-measured', disposition='REWORKED', affected_qty=12),
         db=db, plant_id=PLANT, current_user={'roles': ['Admin'], 'sub': 'admin-1', 'token': 't'})
     audit = db.query(AuditEvent).filter_by(entity_id=hold.id, action='released').one()
-    assert audit.payload['reason'] == 'Re-cut and re-measured' and audit.payload['disposition'] == 'REWORKED'
+    assert audit.payload['reason'] == 'Reworked and checked — Re-cut and re-measured' and audit.payload['disposition'] == 'REWORKED'
+    assert audit.payload['reason_code'] == 'QR-REWORKED'
+    db.refresh(hold)
+    assert (hold.release_reason_code, hold.release_reason_label, hold.release_reason_note, hold.release_disposition) == (
+        'QR-REWORKED', 'Reworked and checked', 'Re-cut and re-measured', 'REWORKED')
 
     report = quality.production_quality_analytics(date_from=date.today() - timedelta(days=1), date_to=date.today(),
         db=db, plant_scope=SCOPE, current_user=QC)

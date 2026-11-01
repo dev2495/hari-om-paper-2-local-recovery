@@ -12,7 +12,6 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
-from pydantic import ValidationError
 
 if 'hardening_test' not in os.environ.get('DATABASE_URL', ''):
     pytest.skip('Requires isolated hardening_test PostgreSQL database', allow_module_level=True)
@@ -28,6 +27,7 @@ from src.models import (
     SalesOrder,
 )
 from src.month_end_schema import run_month_end_close_migrations
+from src.reasons import ReasonChoice
 from src.routers import entries, planning
 from src.routers import reconciliation as reco
 
@@ -171,8 +171,20 @@ def store(monkeypatch):
 
     def books(token, plant, action, body):
         state.calls.append((action, body['month']))
+        state.bodies = getattr(state, 'bodies', []) + [body]
         return {'status': 'LOCKED' if action == 'lock' else 'UNLOCKED'}
     monkeypatch.setattr(reco, '_inventory_books_call', books)
+    # Masters › Reason codes (owner decision 4): the shared helper's rules with a fixed list.
+    labels = {'MV-TRIAL': 'Trial or sample runs', 'MV-WASTAGE': 'Higher wastage on the floor', 'BU-LATE-GRN': 'Late GRN or bill to post'}
+
+    def fake_resolve(*, category, code, note=None, plant_id=None, token=None, required=True, what='this'):
+        wanted = str(code or '').strip().upper()
+        if not wanted:
+            raise HTTPException(status_code=422, detail=f'Choose a reason for {what} from the list (Masters › Reason codes).')
+        if wanted not in labels:
+            raise HTTPException(status_code=422, detail=f'{wanted} is not a valid reason here.')
+        return ReasonChoice(category, wanted, labels[wanted], (note or '').strip() or None)
+    monkeypatch.setattr(reco, 'resolve_reason', fake_resolve)
     return state
 
 
@@ -240,12 +252,17 @@ def test_close_in_order_with_notes_frozen_snapshot_and_reopen_cascade(db, store,
     with pytest.raises(HTTPException) as refused:
         reco.post_month_end_close(reco.MonthEndClosePayload(month='2026-09'), db, _scope(plant), OWNER)
     assert refused.value.detail['steps'][0]['key'] == 'notes'
-    note = reco.MonthEndNotePayload(month='2026-09', item_code='kraft-1', note='  Trial run on winder 2  ')
+    note = reco.MonthEndNotePayload(month='2026-09', item_code='kraft-1', reason_code='mv-trial', reason_note='  Trial run on winder 2  ')
     with pytest.raises(HTTPException) as refused:
         reco.put_month_end_note(note, db, _scope(plant), ADMIN)
     assert refused.value.status_code == 403
+    # Free text alone is no longer a note (owner decision 4).
+    with pytest.raises(HTTPException) as refused:
+        reco.put_month_end_note(reco.MonthEndNotePayload(month='2026-09', item_code='kraft-1', note='Trial run'), db, _scope(plant), PM)
+    assert refused.value.status_code == 422
     saved = reco.put_month_end_note(note, db, _scope(plant), PM)
-    assert saved['note']['note'] == 'Trial run on winder 2'
+    assert saved['note']['note'] == 'Trial or sample runs — Trial run on winder 2'
+    assert (saved['note']['reason_code'], saved['note']['reason_label'], saved['note']['reason_note']) == ('MV-TRIAL', 'Trial or sample runs', 'Trial run on winder 2')
     with pytest.raises(HTTPException) as refused:
         reco._require_actual_owner(ADMIN)
     assert refused.value.status_code == 403
@@ -271,7 +288,7 @@ def test_close_in_order_with_notes_frozen_snapshot_and_reopen_cascade(db, store,
     store.figures['2026-09'] = _figures('2026-09', kraft_issued=130.0)
     frozen = _view(db, plant, '2026-09')
     kraft = next(item for item in frozen['items'] if item['item_code'] == 'KRAFT-1')
-    assert (kraft['expected'], kraft['issued'], kraft['note']['note']) == (107.0, 120.0, 'Trial run on winder 2')
+    assert (kraft['expected'], kraft['issued'], kraft['note']['note']) == (107.0, 120.0, 'Trial or sample runs — Trial run on winder 2')
     assert frozen['changed_after_close'] == ['KRAFT-1']
     live_october = _view(db, plant, '2026-10')
     assert next(item for item in live_october['items'] if item['item_code'] == 'KRAFT-1')['expected'] == 110.0
@@ -283,12 +300,16 @@ def test_close_in_order_with_notes_frozen_snapshot_and_reopen_cascade(db, store,
     assert state.locked_months == ['2026-09', '2026-10'] and state.locked_through == date(2026, 10, 31)
 
     # Re-open September: October re-opens first, then September; both with the reason, both in history.
-    with pytest.raises(ValidationError):
-        reco.MonthEndReopenPayload(month='2026-09', reason='no')
-    result = reco.post_month_end_reopen(reco.MonthEndReopenPayload(month='2026-09', reason='Late GRN for kraft'), db, _scope(plant), OWNER)
+    with pytest.raises(HTTPException) as refused:
+        reco.post_month_end_reopen(reco.MonthEndReopenPayload(month='2026-09', reason='Late GRN for kraft'), db, _scope(plant), OWNER)
+    assert refused.value.status_code == 422  # free text only: a BOOKS_UNLOCK code is needed
+    result = reco.post_month_end_reopen(reco.MonthEndReopenPayload(month='2026-09', reason_code='BU-LATE-GRN', reason_note='Late GRN for kraft'), db, _scope(plant), OWNER)
     assert result['reopened_months'] == ['2026-10', '2026-09']
     assert store.calls[-2:] == [('unlock', '2026-10'), ('unlock', '2026-09')]
-    assert result['state'] == 'OPEN' and result['close']['reopen_reason'] == 'Late GRN for kraft'
+    # The store gets the same code and note (October's note says it re-opened with September).
+    assert store.bodies[-1]['reason_code'] == 'BU-LATE-GRN' and store.bodies[-1]['reason_note'] == 'Late GRN for kraft'
+    assert store.bodies[-2]['reason_code'] == 'BU-LATE-GRN' and 're-opened with September 2026' in store.bodies[-2]['reason_note']
+    assert result['state'] == 'OPEN' and result['close']['reopen_reason'] == 'Late GRN or bill to post — Late GRN for kraft'
     events = [(row.month_start, row.event) for row in db.query(MonthlyCloseEvent).filter_by(plant_id=plant).order_by(MonthlyCloseEvent.created_at).all()]
     assert events.count((date(2026, 9, 1), 'REOPENED')) == 1 and events.count((date(2026, 10, 1), 'REOPENED')) == 1
     assert reco.get_books_state(db, _scope(plant), OWNER).locked_months == []
@@ -394,11 +415,13 @@ def test_notes_only_for_materials_of_the_month(db, store):
     _seed_spec(db, plant, date(2026, 10, 1))
     store.figures['2026-10'] = _figures('2026-10', kraft_issued=120.0)
     with pytest.raises(HTTPException) as refused:
-        reco.put_month_end_note(reco.MonthEndNotePayload(month='2026-10', item_code='NOPE-XYZ', note='random'), db, _scope(plant), OWNER)
-    assert refused.value.status_code == 422
+        reco.put_month_end_note(reco.MonthEndNotePayload(month='2026-10', item_code='NOPE-XYZ', reason_code='MV-WASTAGE', reason_note='random'), db, _scope(plant), OWNER)
+    assert refused.value.status_code == 422 and 'not on the' in refused.value.detail
     assert db.query(MonthlyMaterialNote).filter_by(plant_id=plant).count() == 0
-    saved = reco.put_month_end_note(reco.MonthEndNotePayload(month='2026-10', item_code='box-1', note='Fewer boxes per bundle'), db, _scope(plant), OWNER)
-    assert saved['note']['note'] == 'Fewer boxes per bundle'
+    saved = reco.put_month_end_note(reco.MonthEndNotePayload(month='2026-10', item_code='box-1', reason_code='MV-WASTAGE', reason_note='Fewer boxes per bundle'), db, _scope(plant), OWNER)
+    assert saved['note']['note'] == 'Higher wastage on the floor — Fewer boxes per bundle'
+    # A blank request (no code, no note) removes the note.
+    assert reco.put_month_end_note(reco.MonthEndNotePayload(month='2026-10', item_code='box-1'), db, _scope(plant), OWNER)['note'] is None
 
 
 def test_a_store_that_does_not_answer_never_leaves_the_two_services_apart(db, store, monkeypatch):
@@ -431,7 +454,7 @@ def test_a_store_that_does_not_answer_never_leaves_the_two_services_apart(db, st
         return {}
     monkeypatch.setattr(reco, '_inventory_books_call', lost_unlock)
     with pytest.raises(HTTPException) as failed:
-        reco.post_month_end_reopen(reco.MonthEndReopenPayload(month='2026-10', reason='Late GRN'), db, _scope(plant), OWNER)
+        reco.post_month_end_reopen(reco.MonthEndReopenPayload(month='2026-10', reason_code='BU-LATE-GRN'), db, _scope(plant), OWNER)
     assert failed.value.status_code == 502 and 'still closed' in failed.value.detail
     assert calls == [('unlock', '2026-10'), ('lock', '2026-10')]
     assert db.query(MonthlyMaterialClose).filter_by(plant_id=plant, status='APPROVED').count() == 1

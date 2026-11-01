@@ -8,7 +8,11 @@ Accurate as of 31 October 2026.
 
 **Q: The plan says "not planned yet" but the operator already logged a run. Is that wrong?** A: No. Planning never blocks. The run is kept and flagged as before planning.
 
-**Q: A reading was outside the band at Oven. Is the card stopped?** A: No. In-process readings are flagged, not held. The card carries on; managers see the flag.
+**Q: A reading was outside the band at Oven. Is the card stopped?** A: No. Job card readings are flagged, not held. The card carries on and its boxes still ship; managers see the flag.
+
+**Q: What is a part box?** A: The last box of a job card, packed when Process closes, holding the pcs that did not fill a full box. Its label says PART BOX.
+
+**Q: Winding could not make the full quantity. What happens to the order?** A: The plant manager closes Winding short with a reason. The unmade pcs go back to the order line at once, and Sales releases them again or short closes the order.
 
 **Q: A reel failed incoming QC. Can the store issue it?** A: No. A held lot cannot be issued until QC re-checks it or the plant head concedes it.
 
@@ -18,6 +22,10 @@ Accurate as of 31 October 2026.
 
 
 ## From chapter 01: Getting started
+
+**Q: A form asks "Choose why". What do I pick?** A: The reason that fits best from the list. If none fits, pick the OTHER code and write a short note. Ask a Plant Manager, Admin or the Owner to add a new code if it comes up often.
+
+**Q: I scanned a box label. What opens?** A: The box page: its pcs, where it is (packed, dispatched or kept as surplus), its QC flags and its job card. Phone cameras and the in-app **Scan** both work.
 
 **Q: I cannot find a page my colleague uses.** A: It belongs to a role your login does not have. Ask the Owner or Admin to add the role in System › Users.
 
@@ -78,7 +86,11 @@ Accurate as of 31 October 2026.
 
 **Q: I want to cancel but only Short close is offered.** A: Something is already released or dispatched. Short close drops the rest; released cards finish.
 
-**Q: The reason I need is not in the list.** A: Ask the Owner or Admin to add it in **Order close reasons**.
+**Q: The reason I need is not in the list.** A: Pick the OTHER code and write a note, and ask the Owner or Admin to add it in **Order close reasons** (for the Resume list, in Masters › Reason codes › Order hold lifted).
+
+**Q: Why does my order show pcs "not released" again after release?** A: A job card gave them back: a stage closed short, or the card was force-closed, cancelled or kept boxes as surplus. Release them again or short close the order.
+
+**Q: Can I undo a Resume?** A: Put the order on customer hold again with a reason. Both steps stay in the hold history.
 
 **Q: Where did the Order tracker, Pending orders and Order audit pages go?** A: They are the Orders list (tiles and tabs) and the Order page's History tab. Old links still work.
 
@@ -100,6 +112,16 @@ Accurate as of 31 October 2026.
 **Q: Why does release say the spec is not ready?** A: The active season's recipe or QC setup has blockers. Fix them on the spec, or ask the Owner about the season.
 
 **Q: Can Planners or Sales edit a spec?** A: No. Only the Owner and Admin. Others use approved specs.
+
+**Q: Why can't I approve my new spec? It says Packing.** A: Pick a box from the Packaging master and type a whole qty per box in the Packing section.
+
+**Q: The box we use is not in the list.** A: Add it in Masters › Packaging (Boxes) with its size and weight per box, then pick it. On Packing setup, missing box codes are listed with **Add box**.
+
+**Q: Does Packing setup need the spec to be approved again?** A: No. Only the packing changes, as a packing amendment with your name. The approved version stays live.
+
+**Q: I changed the qty per box. Do running job cards change?** A: Open cards that have not packed any box yet take the new packing. A card that already packed boxes keeps its packing.
+
+**Q: What is fadda?** A: The sheet put inside the box (putha). It is a Packaging master of kind Fadda.
 
 **Q: What is the 12.5%?** A: The plant default allowance for adhesive and parchment together on top of the paper; parchment takes 1.5% and adhesive the rest. Change it with **Edit defaults** (plant level) or on the spec.
 
@@ -125,17 +147,29 @@ Accurate as of 31 October 2026.
 
 **Q: What does "Flagged · 3 runs" mean in the QC column?** A: Three runs have at least one reading outside its band. They were accepted and not held. Click the flag to open the card's QC tab.
 
-**Q: What is the difference between a flag and a hold?** A: A flag is information; nothing stops. A hold is raised by QC on the Quality pages; it stops the next stage and dispatch until the plant head, Owner or Admin releases it.
+**Q: What is the difference between a flag and a hold?** A: A flag is information; nothing stops. A hold is placed on purpose on the Quality pages by QC, the plant head, Owner or Admin; it stops the next stage and dispatch until the plant head, Owner or Admin releases it. QC readings never make a hold by themselves.
 
-**Q: Why can't I close the stage?** A: The close dialog says why. Usually QC readings are short ("I.D. 1/2") or runs are still with the supervisor. Only Plant Manager, Owner or Admin can confirm a close.
+**Q: Winding made less than planned. Do I have to close the whole card?** A: No. Close Winding short with a reason. The unmade pcs go back to the order, Oven and Process carry on with what Winding passed on, and the card finishes normally.
+
+**Q: Where do the returned pcs go?** A: To the sales order line as unreleased pcs. Sales can release them again on a new card or short close the order with a reason.
+
+**Q: I closed a stage short by mistake. Can I undo it?** A: The Owner or Admin can reopen the stage with a reason. The returned pcs come back to the card only if the order has not released them again or been short-closed.
+
+**Q: Why are 7 pcs in a box of 48?** A: That is the part box: the pcs left when Process closed. Its label says PART BOX. It ships like any other box.
+
+**Q: Why has no box been packed yet, although Process logged pcs?** A: The run's QC readings are not done (2 per required check), or the spec has no qty per box. Log the readings, or ask the Owner or Admin to set the packing on **Packing setup**.
+
+**Q: I printed a box label twice. Is there extra stock now?** A: No. A print is only counted on the box. Stock comes only from packing.
+
+**Q: Why can't I void this Process run?** A: Its pcs are already in a box. Correct it another way with the supervisor; the box and its stock stay as they are.
+
+**Q: Why can't I close the stage?** A: The close dialog says why. Usually QC readings are short ("I.D. 1/2"), runs are still with the supervisor, or no reason was chosen for a short close. Only Plant Manager, Owner or Admin can confirm a close.
 
 **Q: What does "Missed slot ×2" mean?** A: The card was planned twice and nothing was logged within 36 hours after each shift, so it went back to the planner queue. Plan it again, or log the run if it did happen.
 
 **Q: What is a "count gap"?** A: On Process, the pieces counted (made + cutting loss + held) do not match bamboo × pcs per bamboo. The run is saved and flagged for the owner; nothing has to be written for it.
 
 **Q: How do I split, edit or cancel a card?** A: Click **Manage card**. That opens the Job card manager (see the next chapter).
-
-**Q: Where are the old "Supervisor entry" and "EOD entry" pages?** A: They now open Log output. See "Log output and QC entry".
 
 
 ## From chapter 11: Job card manager
@@ -144,7 +178,11 @@ Accurate as of 31 October 2026.
 
 **Q: When do I use Split into a new card and when Split plan?** A: Split into a new card when part of the order needs its own card (own print, QC, dispatch). Split plan when the same card should run over more shifts, days or machines.
 
-**Q: Force close is locked on my card. Why?** A: It is a batch-entry card with runs logged. Open the card page and use **Close stage**; a short close needs a reason and sends the balance back to the order.
+**Q: Force close is locked on my card. Why?** A: It is a batch-entry card with runs logged. Open the card page and use **Close stage** on the stage that cannot finish; a short close needs a reason code and sends the balance back to the order.
+
+**Q: What does Back to order show?** A: The pcs this card gave back to the sales order (force close, cancel or a stage short close) that Sales has not released again yet. Sales releases them again or short closes the order on the order page.
+
+**Q: The reason I need is not in the list.** A: Pick the OTHER code of that list and write a note, and ask a Plant Manager, Admin or the Owner to add the code in Masters › Reason codes.
 
 **Q: Can I undo a cancel?** A: No. Release the quantity again from the sales order to make a new card.
 
@@ -180,7 +218,13 @@ Accurate as of 31 October 2026.
 
 **Q: Do I have to fill start and end time?** A: No. They are optional and never stop a save.
 
-**Q: My reading is outside the band. Will the card stop?** A: No. It is saved and flagged. Only a hold raised by QC on the Quality pages stops a card.
+**Q: My reading is outside the band. Will the card stop?** A: No. It is saved and flagged, also on the boxes of that run. Only a hold placed on purpose on the Quality pages stops a card.
+
+**Q: My name is not in the Operator list.** A: Your department in Masters › Employees is not this stage, or you are inactive. Ask the Owner or Admin to set your department (for example PROCESS).
+
+**Q: Save stays grey after I typed Rejected.** A: Pick a code under **Why rejected?**. With RJ-OTHER, also write a note of at least 5 characters.
+
+**Q: Why did Log QC on Process make new boxes?** A: Pcs go into boxes once their readings are done. Print the labels from the card's Dispatch tab.
 
 **Q: Why can't the next stage take my batch?** A: Its QC is not done yet. Add at least 2 readings for every required check on that run, or ask the supervisor to override with a reason.
 
@@ -195,7 +239,11 @@ Accurate as of 31 October 2026.
 
 **Q: Why can't Store issue this reel?** A: Its lot is held: a reading was out of band. QC must re-check, the plant head concede, or Store return it.
 
-**Q: A floor reading is out of band. Must I hold the card?** A: No. It is flagged, not held. Raise a hold only if you decide the material must stop.
+**Q: A floor reading is out of band. Must I hold the card?** A: No. It is flagged, not held, and the boxes still ship. Place a hold only if you decide the material must stop.
+
+**Q: Why did no hold appear when final QC failed?** A: Job card QC only flags. Holds on job cards are placed by people, on purpose. Incoming (GRN) lots are still held automatically when out of band.
+
+**Q: The hold reason I need is not in the list.** A: Pick QH-OTHER and write a note, and ask a Plant Manager, Admin or the Owner to add the code in Masters › Reason codes.
 
 **Q: Who can release a job-card hold?** A: Only the plant head (Plant Manager), Owner or Admin.
 
@@ -229,17 +277,23 @@ Accurate as of 31 October 2026.
 
 ## From chapter 16: Dispatch
 
-**Q: Why is there no Make challan button on my card?** A: Read the state: "Waiting for Process to close", "Waiting for the stock posting" or "On QC hold". The button appears only when pieces can ship and your role can prepare challans.
+**Q: Why is there no Make challan button on my card?** A: Read the state: "Packing boxes" with no box in stock yet, "Waiting for the stock posting" or "On QC hold". The button appears only when boxes can ship and your role can prepare challans.
+
+**Q: Can I ship before Process is closed?** A: Yes. Every box that is packed and in stock can ship. The last pcs follow in the part box after Process closes.
+
+**Q: Can I take some pcs out of a box?** A: No. A box always ships whole. If a box no longer fits in what can ship, keep it with **Retain surplus FG** once the rest is shipped.
+
+**Q: A box is QC flagged. Can I still ship it?** A: Yes. Flags do not block. Only a hold placed on purpose on the card blocks sealing.
+
+**Q: The scan says the box is not on this job card.** A: The label belongs to another card. Make that card's challan separately; one challan is one job card.
 
 **Q: The seal says the plant GSTIN is missing.** A: Ask an Owner or Admin to fill it in **Plants** (System). Then press **Reload** on the challan.
 
 **Q: Can Sales seal a challan?** A: No. Sales can view and print sealed challans. Dispatch, Owner or Admin seal.
 
-**Q: The card has QC flags. Can I still ship?** A: Yes. Flags do not block. Only an active QC hold blocks sealing.
+**Q: I sealed the wrong boxes.** A: A sealed challan cannot be changed. Speak to the Owner or Admin about a correction; do not make a second challan for the same boxes.
 
-**Q: I sealed the wrong quantity.** A: A sealed challan cannot be changed. Speak to the Owner or Admin about a correction; do not make a second challan for the same pieces.
-
-**Q: Why can only 893 ship when the order released 900?** A: Only accepted finished goods can ship. Process made 893 good pieces, so 893 is the most that can ship.
+**Q: Why can only 300 pcs ship when the order released 400?** A: Winding closed short and gave 100 pcs back to the order. The card may ship only what is still released on it; Sales handles the 100 pcs on the order.
 
 **Q: The net weight is empty.** A: The spec has no tube weight. Type the net weight in kg.
 
@@ -260,7 +314,7 @@ Accurate as of 31 October 2026.
 
 **Q: Can I receive goods on a PO that is still waiting approval?** A: No. Goods inward lists only approved POs with an open balance. Ask the Owner or an Admin to approve it.
 
-**Q: The vendor will not send the last 120 kg. How do I close the PO?** A: The Plant Manager or Owner types a close reason and clicks **Short-close remaining quantities**.
+**Q: The vendor will not send the last 120 kg. How do I close the PO?** A: The Plant Manager or Owner picks a close reason (for example PC-SUPPLIER-CANNOT) and clicks **Short-close remaining quantities**.
 
 **Q: I changed a sent PO. Does the vendor get it automatically?** A: No. The PO shows "Revision 2 approved; send it again". Use **Send again**.
 
@@ -286,7 +340,7 @@ Accurate as of 31 October 2026.
 
 ## From chapter 22: Invoice differences, debit notes and purchase reports
 
-**Q: The vendor's rate is ₹0.10 higher. Do I really need a case?** A: Yes. Any rate difference opens a case. Accept it with a reason if the extra is agreed.
+**Q: The vendor's rate is ₹0.10 higher. Do I really need a case?** A: Yes. Any rate difference opens a case. Accept it with a reason code (for example ID-TAX for GST rounding) if the extra is agreed.
 
 **Q: Why is the Claim box greyed out on my row?** A: Only positive **Rate** or **Quality** rows that are still open and have the invoice attached can be claimed. Rows with "Invoice pending" become claimable after the invoice is attached in the GRN register.
 
@@ -315,12 +369,22 @@ Accurate as of 31 October 2026.
 
 **Q: It is January 2027. Why is the number still P/26/…?** A: The number follows the financial year, April to March. 26 means 2026-27; it changes to P/27/001 on 1 April 2027.
 
-**Q: The label got wet. How do I print a new one?** A: Open the receipt in the GRN register, type a **Reprint reason** and click **Prepare 1 label**.
+**Q: The label got wet. How do I print a new one?** A: Open the receipt in the GRN register, type a **Reprint reason** and click **Prepare 1 label**. The reprint keeps the same AIT serial.
+
+**Q: Why does the new reel say AIT 06281 and not AT-…?** A: New reels follow the plant's own AIT series. Old reels keep their AT numbers; both can be scanned and searched.
+
+**Q: The label shows the vendor name, not the mill name.** A: The vendor has no **Mill / short name**. Ask the Owner or Admin to fill it in Masters › Vendors; the next print uses it.
+
+**Q: Why does the GSM on the label equal the variety?** A: No GSM was measured at incoming QC yet, so the label prints the variety number, as the plant always has. Once QC measures it, a reprint shows the measured GSM.
+
+**Q: Can I find a reel by typing its serial?** A: Yes. Type it any way (ait 6243, AIT-06243, AIT 6243-2); the search reads it as AIT 06243 or AIT 06243-2.
 
 **Q: Can the reels go to the floor before QC?** A: No. They show **Waiting for QC** until incoming QC passes them. Rate and invoice questions never hold them, but QC does.
 
 
 ## From chapter 24: Issue to the floor: reels, coils and materials
+
+**Q: The label says AIT 06281 but the desk asks for an AT number. Which do I type?** A: Type what is on the label. New labels carry the AIT serial; older ones the AT number. Both are found.
 
 **Q: Why isn't there a shift or date box?** A: The shift and date come from the clock when you press Issue. An issue at 01:30 on 7 Nov is Shift B of 6 Nov.
 
@@ -359,6 +423,10 @@ Accurate as of 31 October 2026.
 
 **Q: Why is the Value on a count shown in amber, with "with no rate"?** A: Some lines have no rate yet, usually because the GRN invoice is pending. Those lines are left out of the ₹ total, but their stock change still posts in full.
 
+**Q: Can I scan an old AT label in a count?** A: Yes. Old AT numbers and new AIT serials are both found by scan or by typing ("ait 6243" finds AIT 06243).
+
+**Q: Why doesn't the reel label say "QC hold"?** A: The reel label matches the plant's own label and does not print the QC state. Scan its QR to see whether it is cleared.
+
 **Q: We forgot one rack at go-live. Can we still add it?** A: Yes, as a new batch on the same go-live date, until the go-live month is closed. After that, add the stock through a stock count.
 
 **Q: Where does goods inward put stock if I do not choose a rack?** A: In the location marked **RM store · goods inward lands here**. The Owner or Admin can make another active store rack the RM store from its **More actions** menu.
@@ -373,6 +441,8 @@ Accurate as of 31 October 2026.
 **Q: I am the Plant Manager and drafted the policy myself. Why can't I activate it?** A: Policies use maker-checker. Ask another Plant Manager, the Owner or the Admin to activate it.
 
 **Q: Stock went up but the alert is still open.** A: It recovers only above reorder + recovery margin, and only when Evaluate runs again. Held lots do not count as free stock until QC clears them.
+
+**Q: Why do finished goods show many small lots like B2610315-001?** A: Each box from a job card is its own FG lot, named by its box code. That is how a challan takes exact boxes out of stock. Reprinting a box label never adds stock.
 
 **Q: A customer sent back 500 tubes. Do I enter them in Manual FG?** A: No. The system refuses customer returns here. Record them in Quality > Customer complaints, so they are held for QC and linked to the customer and dispatch.
 
@@ -401,6 +471,12 @@ Accurate as of 31 October 2026.
 
 **Q: Can I change the window on Operations command or Sales pulse?** A: No. Operations command is always the last 7 days and Sales pulse and Customer 360 the last 30 days. Use Throughput or Planning performance for other periods.
 
+**Q: An operator is missing from Employee performance.** A: Only operators picked on floor logs in the period appear. Check the period and filters; runs logged before operators were asked for may have no operator.
+
+**Q: Why are Winding and Process figures in different units?** A: Each stage counts in its own unit: bamboos at Winding and Oven, pieces at Process. The tiles keep them apart.
+
+**Q: A closed order shows a reason I don't see in the list any more.** A: The reason was deactivated or renamed later. Records keep the label they were saved with.
+
 **Q: Can I get the owner pack by email?** A: The system can send the owner pack every day (06:30 by default) through Background jobs. Ask the Admin whether it is switched on for your plant.
 
 
@@ -422,6 +498,12 @@ Accurate as of 31 October 2026.
 
 **Q: Why can't the Plant Manager edit papers?** A: Masters are Owner and Admin only, except Reason codes, which the Plant Manager may also change.
 
+**Q: A reason picker says "No reasons are set up for this list".** A: That list has no active code in this plant. Add one in Reason codes (the picker links there).
+
+**Q: An operator is missing from the Log output list.** A: Check their **Dept** and that they are active in Employees. Winding shows WINDER people only, Oven OVEN, Process PROCESS.
+
+**Q: What is the mill name on a reel label?** A: The vendor's **Mill / short name** (for example AKSHAT). Fill it on the vendor; until then the label prints the vendor name.
+
 
 ## From chapter 29: System, audit, production season and the guide
 
@@ -442,3 +524,7 @@ Accurate as of 31 October 2026.
 **Q: The daily summary did not arrive.** A: Check **Background jobs**. If it says "Run by the server's timer", the server sends it at 6:30 am. If an error shows under **What went wrong**, tell the Admin.
 
 **Q: Where is the latest guide?** A: The Guide page in the app (Full handbook tab) and the same handbook on the sign-in screen link. The book icon on any page opens the guide for that page.
+
+**Q: Our hand-printed labels reached AIT 06279. How do we carry on?** A: The Owner or Admin opens System > Plants, clicks **Set next number** on the plant card, types 6280 with a reason and saves. The next reel received gets AIT 06280.
+
+**Q: Can we start the AIT series again mid-year?** A: No. After reels of the year have numbers, the next number can only go up. The series restarts at AIT 00001 by itself on 1 April.

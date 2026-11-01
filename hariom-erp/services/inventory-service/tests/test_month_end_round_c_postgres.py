@@ -93,7 +93,7 @@ def test_the_drawer_names_a_supplier_return_by_its_reference_and_the_rack_by_its
         db.add(InventoryQualityInspection(plant_id=plant, entity_type="BATCH", entity_id=lot.id, material_type="ADHESIVE",
                                           status="FAIL", disposition="REJECT"))
         db.commit()
-        return_rejected_lot_to_supplier(SupplierReturnCreate(entity_type="BATCH", entity_id=lot.id, reason="Wrong viscosity",
+        return_rejected_lot_to_supplier(SupplierReturnCreate(entity_type="BATCH", entity_id=lot.id, reason_code="RM-GSM", reason_note="Wrong viscosity",
                                                              return_reference="RTV-ME-1"), db, plant, OWNER)
         sources = month_figure_sources(glue.id, month_key(today), db, plant, OWNER)
         sent_back = [row for row in sources["rows"] if row["kind"] == "SENT_BACK"]

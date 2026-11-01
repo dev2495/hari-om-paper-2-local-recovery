@@ -178,6 +178,7 @@ def test_partial_concession_keeps_residual_hold_and_blocks_issue():
         result = create_quality_concession(
             QualityConcessionCreate(
                 inspection_id=primary.id,
+                reason_code="CN-URGENT",
                 reason="authorized 600 kg",
                 quantity=600,
                 release_stock=True,
@@ -289,6 +290,7 @@ def test_overlapping_concessions_cannot_double_release():
             outcome = create_quality_concession(
                 QualityConcessionCreate(
                     inspection_id=inspection_id,
+                    reason_code="CN-URGENT",
                     reason="race",
                     quantity=600,
                     release_stock=True,
@@ -412,6 +414,7 @@ def test_zero_unspecified_and_excess_concession_rejected():
                 create_quality_concession(
                     QualityConcessionCreate(
                         inspection_id=inspection.id,
+                        reason_code="CN-URGENT",
                         reason="invalid scope",
                         quantity=quantity,
                         release_stock=True,

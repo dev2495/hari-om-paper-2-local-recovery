@@ -4,19 +4,22 @@
 // Only what is new since the last entry is posted, and all ticked stages save together or not at all.
 // A stage whose runs were already logged can be closed here with the card's readings (nothing new is
 // posted); the Process count (bamboo × pcs) is shown and flagged but never stops the save (client
-// 2026-10-28). What is typed is kept on the device until the card is saved.
+// 2026-10-28). What is typed is kept on the device until the card is saved. Reasons are codes from Masters ›
+// Reason codes (owner decision 4, 1 Nov 2026): rejects / cutting loss, over +10%, closing short and input left
+// over each have their own list, shown only when a ticked stage needs it.
 
 import { Flag } from "lucide-react"
 import { InstrumentFields } from "./InstrumentFields"
 import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { EMPTY_REASON, ReasonPicker, useReasonChoice } from "@/components/reasons"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { command, entryApiForPlant, errorText } from "@/lib/season-api"
 import { SeasonQcMatrix } from "./SeasonQcMatrix"
 import { DraftRestoredBar, draftKey, useFormDraft } from "./card/draft"
-import { toneClass } from "./card/model"
+import { reasonDetailKeys, stageOperators, toneClass } from "./card/model"
 import { istToday, shiftBusinessDate, shiftSlotNow } from "@/lib/shift"
 
 const selectClass = "h-11 w-full rounded-lg border border-border bg-background px-3 text-[15px]"
@@ -35,8 +38,12 @@ export function WholeCardEntryForm({ card, flow, onDone }: { card: any; flow: an
   const items = useQuery({ queryKey: ["continuous-items", card.plant_id], queryFn: async () => (await entryApi.items()).data })
   const [businessDate, setDate] = useState(clockDate())
   const [shift, setShift] = useState(clockShift())
-  const [operator, setOperator] = useState("")
-  const [reason, setReason] = useState("")
+  const rejectReason = useReasonChoice("SCRAP", card.plant_id)
+  const overReason = useReasonChoice("OVERRIDE", card.plant_id)
+  const shortReason = useReasonChoice("STAGE_SHORT_CLOSE", card.plant_id)
+  const leftoverReason = useReasonChoice("LEFTOVER_INPUT", card.plant_id)
+  const reasonValues = { reject: rejectReason.value, over: overReason.value, short: shortReason.value, leftover: leftoverReason.value }
+  const anyReasonTyped = Object.values(reasonValues).some((v) => Boolean(v.code || v.note.trim()))
   const [fgItem, setFgItem] = useState("")
   const [error, setError] = useState("")
   const stages = flow.stages.map((s: any) => s.stage)
@@ -51,6 +58,7 @@ export function WholeCardEntryForm({ card, flow, onDone }: { card: any; flow: an
         include: false,
         close: false,
         instrument: {},
+        operator: "",
         produced: "",
         rejected: "",
         input: "",
@@ -61,16 +69,21 @@ export function WholeCardEntryForm({ card, flow, onDone }: { card: any; flow: an
   const [rows, setRows] = useState<any[]>(freshRows)
   const pending = useRef<{ fingerprint: string; body: any } | null>(null)
   // Device draft of the whole form (card): what was ticked and typed per stage.
-  const DRAFT_FIELDS = ["include", "close", "produced", "rejected", "input", "loss", "segment", "samples", "instrument"] as const
-  const typed = { businessDate, shift, operator, reason, fgItem, rows: rows.map((r) => ({ stage: r.stage, ...Object.fromEntries(DRAFT_FIELDS.map((k) => [k, r[k]])) })) }
-  const draft = useFormDraft(draftKey("whole", card.id), typed, rows.some((r) => r.include) || Boolean(reason.trim()))
+  const DRAFT_FIELDS = ["include", "close", "operator", "produced", "rejected", "input", "loss", "segment", "samples", "instrument"] as const
+  const typed = { businessDate, shift, reasons: reasonValues, fgItem, rows: rows.map((r) => ({ stage: r.stage, ...Object.fromEntries(DRAFT_FIELDS.map((k) => [k, r[k]])) })) }
+  const draft = useFormDraft(draftKey("whole", card.id), typed, rows.some((r) => r.include) || anyReasonTyped)
   useEffect(() => {
     const saved: any = draft.restore()
     if (!saved) return
     if (saved.businessDate) setDate(saved.businessDate)
     if (saved.shift) setShift(saved.shift)
-    if (saved.operator) setOperator(saved.operator)
-    setReason(saved.reason || "")
+    const restore = (choice: { setValue: (v: any) => void }, value: any) => {
+      if (value && typeof value === "object" && (value.code || value.note)) choice.setValue({ ...EMPTY_REASON, ...value })
+    }
+    restore(rejectReason, saved.reasons?.reject)
+    restore(overReason, saved.reasons?.over)
+    restore(shortReason, saved.reasons?.short)
+    restore(leftoverReason, saved.reasons?.leftover)
     setFgItem(saved.fgItem || "")
     setRows((current) =>
       current.map((r) => {
@@ -115,6 +128,10 @@ export function WholeCardEntryForm({ card, flow, onDone }: { card: any; flow: an
       onDone()
     },
   })
+  // Which reasons a ticked stage needs (the server asks the same: the difference since the last entry for rejects/loss).
+  const needsReject = (r: any) => Number(r.rejected || 0) - Number(r.rejected_total || 0) > 0 || Number(r.loss || 0) - Number(r.cutting_loss_total || 0) > 0
+  const needsOver = (r: any) => Number(r.produced || 0) > Number(r.target || 0) * 1.1
+  const closesShort = (r: any) => Boolean(r.close) && goodOf(r) < r.target
   const submit = () => {
     const body = {
       steps: rows
@@ -128,7 +145,8 @@ export function WholeCardEntryForm({ card, flow, onDone }: { card: any; flow: an
             submit: true,
             business_date: businessDate,
             shift_code: shift,
-            operator_id: operator,
+            // Each stage names its own operator, from that stage's department (owner decision 7, 1 Nov 2026).
+            operator_id: r.operator || null,
             segment_id: r.segment || null,
             produced: Number(r.produced),
             accepted: goodOf(r),
@@ -137,8 +155,12 @@ export function WholeCardEntryForm({ card, flow, onDone }: { card: any; flow: an
             samples: r.samples
               .filter((s: any) => Object.values(s.readings).some((v) => v !== "" && v != null))
               .map((s: any) => ({ ...s, readings: Object.fromEntries(Object.entries(s.readings).filter(([, v]) => v !== "" && v != null)) })),
-            reason,
-            details: { reject_reason: reason, overproduction_reason: reason, instrument: r.instrument },
+            reason: [needsReject(r) ? rejectReason.text : "", needsOver(r) ? overReason.text : ""].filter(Boolean).join(" · "),
+            details: {
+              ...(needsReject(r) ? reasonDetailKeys("reject_reason", "reject_code", "reject_note", rejectReason) : {}),
+              ...(needsOver(r) ? reasonDetailKeys("overproduction_reason", "overproduction_reason_code", "overproduction_reason_note", overReason) : {}),
+              instrument: r.instrument,
+            },
           },
           close: r.close
             ? {
@@ -146,7 +168,10 @@ export function WholeCardEntryForm({ card, flow, onDone }: { card: any; flow: an
                 expected_version: r.row_version + 1,
                 short_close: goodOf(r) < r.target,
                 residual_disposition: "HOLD",
-                reason,
+                ...(closesShort(r) ? shortReason.payload("reason") : {}),
+                ...(leftoverOf(r) > 0 && leftoverReason.value.code
+                  ? { residual_reason_code: leftoverReason.value.code, residual_reason_note: leftoverReason.value.note.trim() || undefined }
+                  : {}),
                 fg_item_id: r.stage === "PACKING" ? fgItem || null : null,
               }
             : null,
@@ -161,22 +186,21 @@ export function WholeCardEntryForm({ card, flow, onDone }: { card: any; flow: an
   const missing = [
     !selected.length ? "tick at least one stage" : "",
     !shift ? "the shift" : "",
-    !operator ? "the operator" : "",
+    ...selected.map((r) => (!r.operator ? `${label(r.stage)} operator` : "")),
     ...selected.map((r) => (r.produced === "" ? `${label(r.stage)} output total` : "")),
     ...selected.map((r) => (Number(r.rejected || 0) > Number(r.produced || 0) ? `${label(r.stage)} rejected not more than output` : "")),
     ...selected.map((r) => (r.stage === "PROCESS" && r.input === "" ? "Process bamboo taken total" : "")),
-    "",
-    selected.some(
-      (r) =>
-        Number(r.rejected || 0) - Number(r.rejected_total || 0) > 0 ||
-        Number(r.loss || 0) - Number(r.cutting_loss_total || 0) > 0 ||
-        Number(r.produced || 0) > Number(r.target || 0) * 1.1 ||
-        (r.close && goodOf(r) < r.target) ||
-        leftoverOf(r) > 0,
-    ) && !reason.trim()
-      ? "the reason (rejects, loss, over +10%, closing short or input left over)"
-      : "",
+    selected.some(needsReject) && !rejectReason.complete ? "the rejection / cutting loss reason" : "",
+    selected.some(needsOver) && !overReason.complete ? "why output is above the target +10%" : "",
+    selected.some(closesShort) && !shortReason.complete ? "why a stage closes short" : "",
+    selected.some((r) => leftoverOf(r) > 0) && !leftoverReason.complete ? "the reason for the input left over" : "",
   ].filter(Boolean)
+  const reasonPickers = [
+    selected.some(needsReject) ? { key: "reject", category: "SCRAP", choice: rejectReason, label: "Why rejected or lost in cutting?" } : null,
+    selected.some(needsOver) ? { key: "override", category: "OVERRIDE", choice: overReason, label: "Why is output above the target +10%?" } : null,
+    selected.some(closesShort) ? { key: "short", category: "STAGE_SHORT_CLOSE", choice: shortReason, label: "Why does it close short?" } : null,
+    selected.some((r) => leftoverOf(r) > 0) ? { key: "leftover", category: "LEFTOVER_INPUT", choice: leftoverReason, label: "Why is input left over (held)?" } : null,
+  ].filter(Boolean) as { key: string; category: string; choice: ReturnType<typeof useReasonChoice>; label: string }[]
 
   return (
     <section className="space-y-5 rounded-xl border-2 border-primary/30 bg-card p-4 sm:p-5" data-testid="whole-card-form">
@@ -187,8 +211,10 @@ export function WholeCardEntryForm({ card, flow, onDone }: { card: any; flow: an
           draft.discard()
           setDate(clockDate())
           setShift(clockShift())
-          setOperator("")
-          setReason("")
+          rejectReason.reset()
+          overReason.reset()
+          shortReason.reset()
+          leftoverReason.reset()
           setFgItem("")
           setError("")
           pending.current = null
@@ -217,20 +243,7 @@ export function WholeCardEntryForm({ card, flow, onDone }: { card: any; flow: an
             ))}
           </div>
         </div>
-        <label className="col-span-2 text-sm sm:col-span-1">
-          Operator
-          <select className={selectClass} value={operator} onChange={(e) => setOperator(e.target.value)} aria-label="Operator name / ID">
-            <option value="">Choose operator</option>
-            {[...active]
-              .sort((a: any, b: any) => (String(a.role || "").toLowerCase() === "operator" ? 0 : 1) - (String(b.role || "").toLowerCase() === "operator" ? 0 : 1) || String(a.name).localeCompare(String(b.name)))
-              .map((e: any) => (
-                <option key={e.id} value={e.id}>
-                  {e.name}
-                  {e.employee_code ? ` · ${e.employee_code}` : ""}
-                </option>
-              ))}
-          </select>
-        </label>
+
       </div>
 
       {rows.map((r, index) => {
@@ -251,6 +264,18 @@ export function WholeCardEntryForm({ card, flow, onDone }: { card: any; flow: an
             {r.include ? (
               <>
                 <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                  <label className="col-span-2 text-sm sm:col-span-1">
+                    Operator
+                    <select className={selectClass} value={r.operator || ""} onChange={(e) => update(index, "operator", e.target.value)} aria-label={`${label(r.stage)} operator`} data-testid={`whole-card-operator-${r.stage}`}>
+                      <option value="">{stageOperators(active, r.stage).length ? "Choose operator" : `No ${label(r.stage)} employee in Masters`}</option>
+                      {stageOperators(active, r.stage).map((e: any) => (
+                        <option key={e.id} value={e.id}>
+                          {e.name}
+                          {e.employee_code ? ` · ${e.employee_code}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                   {r.stage === "PROCESS" ? (
                     <label className="text-sm">
                       Bamboo taken total
@@ -308,7 +333,7 @@ export function WholeCardEntryForm({ card, flow, onDone }: { card: any; flow: an
                 })()}
                 {leftoverOf(r) > 0 ? (
                   <p className={cn("rounded-lg border px-3 py-2 text-sm", toneClass("amber"))} data-testid={`whole-card-leftover-${r.stage}`}>
-                    {fmt(leftoverOf(r))} {flow.stages.find((s: any) => s.stage === previous(r.stage))?.unit || ""} from {label(previous(r.stage))} would be left over when {label(r.stage)} closes: they are held for follow-up and the reason below is kept with them.
+                    {fmt(leftoverOf(r))} {flow.stages.find((s: any) => s.stage === previous(r.stage))?.unit || ""} from {label(previous(r.stage))} would be left over when {label(r.stage)} closes: they are held for follow-up with the reason chosen below.
                   </p>
                 ) : null}
                 {rules.length > 0 ? (
@@ -342,10 +367,24 @@ export function WholeCardEntryForm({ card, flow, onDone }: { card: any; flow: an
         )
       })}
 
-      <label className="block text-sm">
-        Reason <span className="text-muted-foreground">(needed for rejects, loss, over +10% or closing short)</span>
-        <Input className="h-11 min-h-11" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. WL winding loose on 3 bamboo; order short-closed by customer" aria-label="Whole-card entry reason" />
-      </label>
+      {reasonPickers.length ? (
+        <div className="grid gap-3 sm:grid-cols-2" data-testid="whole-card-reasons">
+          {reasonPickers.map((p) => (
+            <ReasonPicker
+              key={p.key}
+              category={p.category}
+              plantId={card.plant_id}
+              rows={p.choice.rows}
+              value={p.choice.value}
+              onChange={p.choice.setValue}
+              showErrors={Boolean(p.choice.value.code)}
+              compact
+              label={p.label}
+              testIdPrefix={`whole-card:${p.key}`}
+            />
+          ))}
+        </div>
+      ) : null}
       {error ? (
         <p role="alert" className="text-sm text-destructive">
           {error}

@@ -63,6 +63,8 @@ def _post(db, job, **payload):
     with patch('src.routers.planning._fetch_machine', return_value={'capacity_value': 0}), \
          patch('src.routers.planning._validate_machine_compatibility', return_value=None), \
          patch('src.routers.planning._record_physical_tool_usage', return_value=[]):
+        # Old-form stages completed below plan need a reason since 2026-11-01 (short close); these tests are about card times.
+        payload.setdefault('short_reason_code', 'SS-OTHER'); payload.setdefault('short_reason_note', 'Short run in this test')
         return capture_stage_output(job.id, StageOutputPayload(**payload), db, str(PLANT_A_UUID), USER)
 
 
@@ -78,7 +80,7 @@ def test_late_winder_entry_keeps_card_times_and_is_reported(db):
         db, job, stage='WINDER', save_mode='complete', output_qty=190, scrap_qty=10, input_qty=200,
         reel_issue_ids=[uuid.uuid4()], shift_code='SHIFT_B',
         start_time=start.isoformat(), end_time=end.isoformat(),
-        entry_snapshot={'operator_name': 'Ramesh', 'start_time': start.strftime('%Y-%m-%dT%H:%M'), 'end_time': end.strftime('%Y-%m-%dT%H:%M')},
+        entry_snapshot={'operator_name': 'Ramesh', 'reject_reason_code': 'WL', 'start_time': start.strftime('%Y-%m-%dT%H:%M'), 'end_time': end.strftime('%Y-%m-%dT%H:%M')},
     )
     assert any('reconciliation' in warning for warning in response.warnings)
 

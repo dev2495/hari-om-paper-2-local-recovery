@@ -28,14 +28,18 @@ def scan_url(qr_value: str | None) -> str | None:
     return f"{origin}/scan?c={urllib.parse.quote(str(qr_value), safe='')}"
 
 
-# Reel / coil label (client 2026-10-30): what a person reads on the label. GSM, BF and polybond come from the
-# reel's incoming QC readings (the average of its samples) when QC has measured them, otherwise from the PO line
-# or the material master, marked "(spec)". A value nobody gave stays blank, never 0. The QR is not touched.
-LABEL_QC_KEYS = (("gsm", ("gsm",)), ("bf", ("bf",)), ("ply_bond", ("ply_bond", "plybond")))
-FACT_ORDER = ("item", "gsm", "bf", "ply_bond", "width_mm", "weight_kg", "vendor", "received_date", "reel_no")
+# Reel / coil label (owner decision 6, 1 Nov 2026): exactly the plant's own label (their Excel "REEL PRINT."),
+# plus a QR. Rows: heading (plant master "label heading", drawn by the caller) · MILL NAME | Inv No. | Date ·
+# PLYBOND | VARIETY | GSM headers and values · ROLL NO. | mill's roll no · the AIT serial very large ·
+# WEIGHT | kg. Nothing more: no vendor / received / GRN / PO / QC words, no "(spec)" marks.
+# Polybond and GSM come from the reel's incoming QC readings (the average of its samples) when QC measured
+# them; otherwise polybond from the PO line / material master and GSM is the variety (paper code), as the
+# plant prints it. A value nobody gave stays blank, never 0.
+LABEL_QC_KEYS = (("gsm", ("gsm",)), ("ply_bond", ("ply_bond", "plybond")))
+FACT_ORDER = ("mill", "invoice_no", "received_date", "plybond", "variety", "gsm", "roll_no", "serial", "weight_kg")
 FACT_LABELS = {
-    "item": "Item", "gsm": "GSM", "bf": "BF", "ply_bond": "Polybond", "width_mm": "Width mm", "weight_kg": "Weight kg",
-    "vendor": "Vendor", "received_date": "Received", "reel_no": "Reel no",
+    "mill": "MILL NAME", "invoice_no": "Inv No.", "received_date": "Date", "plybond": "PLYBOND", "variety": "VARIETY",
+    "gsm": "GSM", "roll_no": "ROLL NO.", "serial": "Serial", "weight_kg": "WEIGHT",
 }
 
 
@@ -53,8 +57,9 @@ def _positive(value: Any) -> float | None:
 
 
 def _number_text(value: float) -> str:
-    rounded = round(float(value), 2)
-    return f"{rounded:,.2f}".rstrip("0").rstrip(".") if rounded != int(rounded) else f"{int(rounded):,}"
+    """Plain digits as the plant prints them (1161, 400, 351.5): no thousands comma."""
+    rounded = round(float(value), 1)
+    return f"{rounded:.1f}".rstrip("0").rstrip(".") if rounded != int(rounded) else str(int(rounded))
 
 
 def _readings_average(inspections: list[Any], keys: tuple[str, ...]) -> tuple[float | None, int]:
@@ -75,23 +80,48 @@ def _readings_average(inspections: list[Any], keys: tuple[str, ...]) -> tuple[fl
     return (sum(samples) / len(samples), len(samples)) if samples else (None, 0)
 
 
-def _label_day(value: Any) -> str:
+def label_day(value: Any) -> str:
+    """``28-Oct-26``: the plant label's date (Excel d-mmm-yy)."""
+    parsed: date | None
     if isinstance(value, date):
-        return f"{value.day:02d} {value.strftime('%b %Y')}"
-    raw = str(value or "").strip()
-    try:
-        parsed = date.fromisoformat(raw[:10])
-    except ValueError:
-        return raw
-    return f"{parsed.day:02d} {parsed.strftime('%b %Y')}"
+        parsed = value
+    else:
+        raw = str(value or "").strip()
+        try:
+            parsed = date.fromisoformat(raw[:10]) if raw else None
+        except ValueError:
+            return raw
+    return f"{parsed.day:02d}-{parsed.strftime('%b')}-{parsed.strftime('%y')}" if parsed else ""
+
+
+def _invoice_no(db, metadata: dict[str, Any]) -> str:
+    """The supplier's invoice number: typed at inward, else the invoice attached to the GRN later; a GRN whose
+    invoice is still to come prints its delivery challan number."""
+    typed = str(metadata.get("invoice_no") or metadata.get("bill_no") or "").strip()
+    if typed:
+        return typed
+    receipt_id = metadata.get("receipt_id")
+    if receipt_id and db is not None:
+        from ..models import PurchaseReceipt, SupplierInvoice
+        try:
+            receipt = db.get(PurchaseReceipt, uuid.UUID(str(receipt_id)))
+        except (TypeError, ValueError):
+            receipt = None
+        if receipt is not None and receipt.supplier_invoice_id:
+            invoice = db.get(SupplierInvoice, receipt.supplier_invoice_id)
+            if invoice is not None and str(invoice.status or "").upper() != "PENDING" and invoice.invoice_no:
+                return str(invoice.invoice_no).strip()
+    return str(metadata.get("challan_no") or metadata.get("vendor_ref") or "").strip()
 
 
 def reel_label_facts(db, reel: PaperReel, item: ItemMaster | None = None, *, vendor: str | None = None,
-                     received: date | None = None) -> dict[str, Any]:
-    """The human-readable lines of a reel / coil label, worked out when it is printed (new labels and reprints).
+                     received: date | None = None, invoice_no: str | None = None) -> dict[str, Any]:
+    """The lines of a reel / coil label in the plant's layout, worked out when it is printed (new and reprints).
 
-    Returns ``{"facts": {key: text}, "fact_sources": {key: "QC" | "SPEC" | None}, "fact_labels": {...},
-    "fact_order": [...]}``. Texts are "" when unknown; spec values carry " (spec)".
+    Returns ``{"facts": {key: text}, "fact_sources": {...}, "fact_labels": {...}, "fact_order": [...]}``. Texts
+    are "" when unknown. ``facts["mill"]`` is the mill / short name kept at inward (blank on older reels: the
+    label then uses the vendor master's short name, else ``facts["vendor"]``); ``facts["supplier_id"]`` lets
+    the page look the short name up. The plant heading is the plant master's, added by whoever draws it.
     """
     from ..models import InventoryQualityInspection, PurchaseOrderLine
 
@@ -117,43 +147,53 @@ def reel_label_facts(db, reel: PaperReel, item: ItemMaster | None = None, *, ven
                 InventoryQualityInspection.source == "INWARD",
             ).order_by(InventoryQualityInspection.created_at.asc()).all()
             if inspections:
-                break  # a concession child reel was measured as its parent
+                break  # a slit coil or concession child reel was measured as its parent
 
+    item_code = str(getattr(resolved_item, "item_code", None) or "").strip()
+    variety = item_code or str(snapshot.get("variety") or metadata.get("variety") or "").strip()
     facts: dict[str, str] = {}
     sources: dict[str, str | None] = {}
-    for key, aliases in LABEL_QC_KEYS:
-        measured, count = _readings_average(inspections, aliases)
-        if measured is not None:
-            facts[key], sources[key] = _number_text(measured), "QC"
-            continue
+
+    measured_bond, _ = _readings_average(inspections, ("ply_bond", "plybond"))
+    if measured_bond is not None:
+        facts["plybond"], sources["plybond"] = _number_text(measured_bond), "QC"
+    else:
         spec = None
-        for source in (line_spec, snapshot, nominals):
-            for alias in aliases:
+        for source in (line_spec, snapshot, nominals, metadata):
+            for alias in ("ply_bond", "plybond"):
                 spec = _positive(source.get(alias))
                 if spec is not None:
                     break
             if spec is not None:
                 break
-        if spec is None and key == "gsm":
-            spec = _positive(getattr(reel, "gsm", None))
-        if spec is None and key == "bf" and not line_id:
-            # A PO-linked reel's bf column may hold the PO polybond (older receipts); only trust it off-PO.
-            spec = _positive(getattr(reel, "bf", None))
-        facts[key], sources[key] = (f"{_number_text(spec)} (spec)", "SPEC") if spec is not None else ("", None)
+        facts["plybond"], sources["plybond"] = (_number_text(spec), "SPEC") if spec is not None else ("", None)
 
-    width = _positive(getattr(reel, "width_mm", None))
+    measured_gsm, _ = _readings_average(inspections, ("gsm",))
+    if measured_gsm is not None:
+        facts["gsm"], sources["gsm"] = _number_text(measured_gsm), "QC"
+    else:
+        facts["gsm"], sources["gsm"] = (variety, "VARIETY") if variety else ("", None)
+
     weight = _positive(getattr(reel, "inward_weight_kg", None)) or _positive(getattr(reel, "net_weight_kg", None))
-    item_code = getattr(resolved_item, "item_code", None) or ""
-    item_name = getattr(resolved_item, "name", None) or ""
+    when = received or getattr(reel, "inward_date", None)
+    if received is None and getattr(reel, "parent_reel_id", None) and db is not None:
+        # A slit coil prints its parent reel's received date (the mill's invoice and date stay together).
+        parent = db.get(PaperReel, reel.parent_reel_id)
+        when = getattr(parent, "inward_date", None) or when
+    serial = str(metadata.get("amigo_no") or reel.reel_code or "").strip().upper()
     facts.update({
-        "item": " · ".join(part for part in (item_code, item_name) if part),
-        "width_mm": _number_text(width) if width is not None else "",
-        "weight_kg": _number_text(weight) if weight is not None else "",
+        "serial": serial,
+        "mill": str(metadata.get("mill_name") or metadata.get("mill") or "").strip().upper(),
         "vendor": str(vendor or reel.supplier_name_snapshot or reel.supplier_name or metadata.get("vendor_name") or "").strip(),
-        "received_date": _label_day(received or reel.inward_date) if (received or reel.inward_date) else "",
-        "reel_no": str(getattr(reel, "source_reel_no", None) or metadata.get("source_reel_no") or "").strip(),
+        "supplier_id": str(reel.supplier_id) if getattr(reel, "supplier_id", None) else "",
+        "invoice_no": str(invoice_no or "").strip() or _invoice_no(db, metadata),
+        "received_date": label_day(when) if when else "",
+        "variety": variety,
+        "roll_no": str(getattr(reel, "source_reel_no", None) or metadata.get("source_reel_no") or "").strip(),
+        "weight_kg": _number_text(weight) if weight is not None else "",
+        "form": "COIL" if str(getattr(reel, "physical_form", None) or metadata.get("physical_form") or "").upper() == "COIL" else "REEL",
     })
-    for key in ("item", "width_mm", "weight_kg", "vendor", "received_date", "reel_no"):
+    for key in ("serial", "mill", "vendor", "invoice_no", "received_date", "variety", "roll_no", "weight_kg"):
         sources[key] = "RECEIPT" if facts[key] else None
     return {"facts": facts, "fact_sources": sources, "fact_labels": dict(FACT_LABELS), "fact_order": list(FACT_ORDER)}
 

@@ -45,7 +45,7 @@ def test_old_post_path_posts_a_waiting_correction_once_dated_today_and_re_based(
         rack = _rack(db, plant, "R4-A-01")
         reel = _reel(db, plant, paper, 500, at=rack)
         db.commit()
-        draft = raise_correction(CorrectionPayload(code=reel.reel_code, new_qty=480, reason="COUNT_SHORT"), db, plant, STORE)
+        draft = raise_correction(CorrectionPayload(code=reel.reel_code, new_qty=480, reason_code="COUNT_SHORT"), db, plant, STORE)
         header = db.get(StockAdjustmentVoucher, uuid.UUID(draft["id"]))
         header.effective_date = date(2026, 1, 5)  # raised long ago
         # Since it was raised another posting took 5 kg off the same reel: only the rest (-15) is posted.
@@ -78,7 +78,7 @@ def test_old_post_path_waits_for_the_row_lock_on_a_concurrent_double_submit():
         lot = _lot(db, plant, glue, 50, at=_rack(db, plant, "R4-L-01"))
         lot_id, lot_no = lot.id, lot.batch_no
         db.commit()
-        draft = raise_correction(CorrectionPayload(code=lot_no, new_qty=40, reason="COUNT_SHORT"), db, plant, STORE)
+        draft = raise_correction(CorrectionPayload(code=lot_no, new_qty=40, reason_code="COUNT_SHORT"), db, plant, STORE)
     results: list = []
 
     def submit():
@@ -123,7 +123,7 @@ def test_same_moment_raises_get_different_numbers():
         with SessionLocal() as session:
             start.wait(10)
             try:
-                numbers.append(raise_correction(CorrectionPayload(code=code, new_qty=15, reason="COUNT_SHORT"), session, plant, STORE)["voucher_no"])
+                numbers.append(raise_correction(CorrectionPayload(code=code, new_qty=15, reason_code="COUNT_SHORT"), session, plant, STORE)["voucher_no"])
             except Exception as exc:  # pragma: no cover
                 numbers.append(repr(exc))
 
@@ -276,7 +276,7 @@ def test_a_waiting_gain_approved_after_the_reel_went_to_the_floor_is_refused():
         reel = _reel(db, plant, paper, 500, at=rack)
         reel.current_weight_kg = 480  # an earlier correction took 20 kg off
         db.commit()
-        plus = raise_correction(CorrectionPayload(code=reel.reel_code, new_qty=500, reason="LABEL_LOST_FOUND"), db, plant, STORE)
+        plus = raise_correction(CorrectionPayload(code=reel.reel_code, new_qty=500, reason_code="LABEL_LOST_FOUND"), db, plant, STORE)
         create_reel_issue(ReelIssueCreate(reel_id=reel.id, shift="A", issue_date=ist_today()), db, plant, STORE)
         db.expire_all()
         assert float(db.get(PaperReel, reel.id).current_weight_kg or 0) == 0
@@ -308,7 +308,7 @@ def test_a_written_off_reel_found_again_is_still_added_back():
         reel = _reel(db, plant, paper, 300, at=_rack(db, plant, "R5-W-01"))
         reel.current_weight_kg = 0
         db.commit()
-        found = raise_correction(CorrectionPayload(code=reel.reel_code, new_qty=300, reason="LABEL_LOST_FOUND"), db, plant, STORE)
+        found = raise_correction(CorrectionPayload(code=reel.reel_code, new_qty=300, reason_code="LABEL_LOST_FOUND"), db, plant, STORE)
         approve_correction(uuid.UUID(found["id"]), CorrectionDecisionPayload(), db, plant, OWNER)
         db.expire_all()
         assert float(db.get(PaperReel, reel.id).current_weight_kg) == 300

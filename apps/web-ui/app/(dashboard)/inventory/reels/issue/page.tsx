@@ -16,7 +16,7 @@ import { useCloseReelIssue, useCreateReelIssue, useInventoryItems, useInventoryL
 import { usePlants } from "@/hooks/use-system"
 import { inventoryApi } from "@/lib/api"
 import { canonicalPlantScopeValue, displayPlantScope } from "@/lib/plant-scope"
-import { chooseFound, compactNumber, isReady, matchWords, sameNumber, type FoundResult, type FoundRow } from "@/lib/lot-find"
+import { chooseFound, compactNumber, isReady, matchWords, reelSerial, sameNumber, type FoundResult, type FoundRow } from "@/lib/lot-find"
 import { parseScanCode } from "@/lib/scan-code"
 import { pickFromText, who } from "@/lib/stock-format"
 import { shiftAt, shiftWords } from "@/lib/shift"
@@ -149,7 +149,9 @@ export default function ReelAndCoilIssuePage() {
   // The list search, like the scan box, ignores case, spaces and dashes in numbers: "chkr2 r1" finds CHKR2-R1.
   const describe = (row: any) => [row.reel_code, itemOf(row)?.item_code, itemOf(row)?.name, row.source_reel_no, row.inward_metadata?.old_mark, row.supplier_name_snapshot || row.supplier_name].filter(Boolean).map(String)
   const needleChars = compactNumber(needle)
-  const listMatch = (row: any) => describe(row).some((value) => value.toLowerCase().includes(needle) || (needleChars.length > 0 && compactNumber(value).includes(needleChars)))
+  // A full AIT serial typed loosely (ait6284, AIT-06284) finds that reel and its coils (AIT 06284-1 …).
+  const needleSerial = reelSerial(needle)
+  const listMatch = (row: any) => (needleSerial !== null && String(reelSerial(row.reel_code) || "").startsWith(needleSerial)) || describe(row).some((value) => value.toLowerCase().includes(needle) || (needleChars.length > 0 && compactNumber(value).includes(needleChars)))
   const shown = ready.filter((row) => (form === "ALL" || (form === "COIL") === isCoil(row)) && (!needle || listMatch(row)))
   const selected = ready.filter((row) => picked.includes(String(row.id)))
   const selectedKg = selected.reduce((sum, row) => sum + Number(row.current_weight_kg || 0), 0)
@@ -227,7 +229,7 @@ export default function ReelAndCoilIssuePage() {
   async function resolveScan(value: string = scanCode) {
     const parsed = parseScanCode(value)
     setChoices(null)
-    if (!parsed.raw) return setNotice({ tone: "error", text: "Scan the reel or coil label, or type its AT number." })
+    if (!parsed.raw) return setNotice({ tone: "error", text: "Scan the reel or coil label, or type its AIT / reel number." })
     if (parsed.kind === "BATCH") return setNotice({ tone: "error", text: "That is a material lot label. Adhesive, packing and parchment are issued on the Adhesive / parchment / packing tab.", action: { label: "Open material issue", href: `/inventory/production-issue?scan=${encodeURIComponent(parsed.raw)}` } })
     if (parsed.kind === "JOB_CARD" || parsed.kind === "TOOL") return setNotice({ tone: "error", text: `That is a ${parsed.kind === "TOOL" ? "tool" : "job card"} label. Scan the reel or coil label.` })
     if (parsed.kind === "LOCATION") return setNotice({ tone: "error", text: `That is a rack label (${parsed.code || "location"}). Scan the reel or coil label.`, action: { label: `See what is on ${parsed.code || "the rack"}`, href: `/inventory/locations/${parsed.id}` } })
@@ -235,8 +237,8 @@ export default function ReelAndCoilIssuePage() {
       setQueuedScan(value)
       return setNotice({ tone: "info", text: "Stock is still loading. The label is checked as soon as it is ready." })
     }
-    // An AT number is short; anything long (another system's QR) is not a reel or coil label.
-    if (!parsed.id && parsed.code.length > 60) return setNotice({ tone: "error", text: "That is not a reel or coil label. Scan the QR on the reel or coil, or type its AT number." })
+    // A reel number (AIT 06243, or an older AT number) is short; anything long (another system's QR) is not a reel or coil label.
+    if (!parsed.id && parsed.code.length > 60) return setNotice({ tone: "error", text: "That is not a reel or coil label. Scan the QR on the reel or coil, or type its AIT / reel number." })
     const label = parsed.code || "That label"
     if (parsed.plantId && !canSeePlant(parsed.plantId)) return setNotice({ tone: "error", text: `${label} is from ${plantName(parsed.plantId)}, which your login cannot open.` })
     if (parsed.plantId && activePlant && activePlant !== "ALL" && !samePlant(parsed.plantId, activePlant)) {
@@ -263,9 +265,9 @@ export default function ReelAndCoilIssuePage() {
         if (local) return explainReel(local)
         return setNotice({ tone: "error", text: `${label} could not be checked: ${errorText(error)}` })
       }
-      return setNotice({ tone: "error", text: `${label} was not found in ${displayPlantScope(activePlant)}. Check the label, or type the AT number.` })
+      return setNotice({ tone: "error", text: `${label} was not found in ${displayPlantScope(activePlant)}. Check the label, or type the AIT / reel number.` })
     }
-    // A typed number: the AT number, the vendor reel number or an opening-stock old mark, in any case or spacing.
+    // A typed number: the AIT / reel number (older AT numbers too), the vendor reel number or an opening-stock old mark, in any case or spacing.
     // One reel ready on the desk with that number goes straight in; anything else is asked of the server, which
     // also finds a unique part of a number and reels outside the loaded list.
     const code = parsed.code
@@ -285,8 +287,8 @@ export default function ReelAndCoilIssuePage() {
     }
     if (!reels.length) {
       return setNotice({ tone: "error", text: compactNumber(code).length < 3
-        ? `No reel or coil is numbered ${code}. Type at least 3 letters or digits of the AT or vendor reel number.`
-        : `${label} was not found in ${displayPlantScope(activePlant)}. Check the label, or type the AT number.` })
+        ? `No reel or coil is numbered ${code}. Type at least 3 letters or digits of the AIT / reel or vendor reel number.`
+        : `${label} was not found in ${displayPlantScope(activePlant)}. Check the label, or type the AIT / reel number.` })
     }
     const choice = chooseFound({ match: found.match, rows: reels }, (row) => isReady(row) && String(row.item_type || "").toUpperCase() !== "PARCHMENT")
     if (choice.row) return openFound(choice.row, choice.note)
@@ -310,7 +312,7 @@ export default function ReelAndCoilIssuePage() {
     setChoices(null)
     try {
       const full = rowsOf((await inventoryApi.getReels({ reel_ids: row.id, limit: 1 })).data)[0]
-      if (!full) return setNotice({ tone: "error", text: `${row.code} was not found in ${displayPlantScope(activePlant)}. Check the label, or type the AT number.` })
+      if (!full) return setNotice({ tone: "error", text: `${row.code} was not found in ${displayPlantScope(activePlant)}. Check the label, or type the AIT / reel number.` })
       const loaded = stockRows.find((item) => String(item.id) === String(row.id))
       return explainFound(full, Boolean(loaded && !ISSUABLE.includes(String(loaded.stock_status || "").toUpperCase())), note)
     } catch (error) {
@@ -423,11 +425,11 @@ export default function ReelAndCoilIssuePage() {
         </div>
 
         <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
-          <WorkPanel title="Ready for the floor" description="Passed incoming QC and in stock. Tap to pick one or more, or scan the label or type its AT, vendor reel or old mark number; the whole reel or coil goes out.">
+          <WorkPanel title="Ready for the floor" description="Passed incoming QC and in stock. Tap to pick one or more, or scan the label or type its AIT / reel, vendor reel or old mark number; the whole reel or coil goes out.">
             <div className="flex flex-wrap gap-2">
               <label className="flex min-w-[200px] flex-1 items-center gap-2">
                 <Barcode className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                <input aria-label="Scan reel or coil label" className={cn(phoneField, "max-sm:h-11")} value={scanCode} placeholder="Scan QR or type AT / vendor reel no." onChange={(e) => setScanCode(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void resolveScan() } }} />
+                <input aria-label="Scan reel or coil label" className={cn(phoneField, "max-sm:h-11")} value={scanCode} placeholder="Scan QR or type AIT / reel or vendor reel no." onChange={(e) => setScanCode(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void resolveScan() } }} />
               </label>
               <button type="button" className={secondaryButton} onClick={() => void resolveScan()}><PackageCheck className="h-4 w-4" />Add</button>
               <QrScanner className={secondaryButton} onScan={(value) => { setScanCode(parseScanCode(value).code || value); void resolveScan(value) }} label="Camera" title="Scan reel label" hint="Point the camera at the reel or coil QR label." />
@@ -436,7 +438,7 @@ export default function ReelAndCoilIssuePage() {
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <label className="relative min-w-[180px] flex-1">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <input aria-label="Find reel" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Find paper, AT no., vendor reel…" className={cn(phoneField, "pl-9 max-sm:h-11")} />
+                <input aria-label="Find reel" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Find paper, AIT / reel no., vendor reel…" className={cn(phoneField, "pl-9 max-sm:h-11")} />
               </label>
               <div role="radiogroup" aria-label="Form" className="flex gap-1 rounded-lg bg-muted p-1">
                 {([["ALL", "All"], ["REEL", "Reels → slitter"], ["COIL", "Coils → winders"]] as const).map(([value, label]) => (

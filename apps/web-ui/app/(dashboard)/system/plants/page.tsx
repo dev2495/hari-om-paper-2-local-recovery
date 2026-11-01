@@ -8,6 +8,8 @@ import { useCreatePlant, useDeletePlant, usePlants, useUpdatePlant } from "@/hoo
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { ReelSerialSetting } from "@/components/inventory/reel-serial-setting"
+import { labelHeading } from "@/lib/reel-label"
 import { fromGstin, gstinError } from "@/lib/party-formats"
 import { errorText } from "@/lib/season-api"
 
@@ -37,9 +39,9 @@ function SystemSetupNav() {
     )
 }
 
-type Plant = { id: string; code?: string; name?: string; legal_name?: string | null; address?: string | null; gstin?: string | null; is_active?: boolean; user_count?: number }
-type PlantForm = { code: string; name: string; legal_name: string; address: string; gstin: string }
-const EMPTY: PlantForm = { code: "", name: "", legal_name: "", address: "", gstin: "" }
+type Plant = { id: string; code?: string; name?: string; legal_name?: string | null; label_heading?: string | null; label_heading_effective?: string | null; address?: string | null; gstin?: string | null; is_active?: boolean; user_count?: number }
+type PlantForm = { code: string; name: string; legal_name: string; label_heading: string; address: string; gstin: string }
+const EMPTY: PlantForm = { code: "", name: "", legal_name: "", label_heading: "", address: "", gstin: "" }
 
 /** What the delivery challan still needs from this plant (client 2026-10-28). */
 function challanMissing(plant: Plant) {
@@ -85,6 +87,7 @@ function PlantsBody() {
             code: plant.code || "",
             name: plant.name || "",
             legal_name: plant.legal_name || "",
+            label_heading: plant.label_heading || "",
             address: plant.address || "",
             gstin: plant.gstin || "",
         })
@@ -127,6 +130,7 @@ function PlantsBody() {
             code: form.code.trim().toUpperCase(),
             name: form.name.trim(),
             legal_name: form.legal_name.trim() || null,
+            label_heading: form.label_heading.trim().replace(/\s+/g, " ").toUpperCase() || null,
             address: form.address.trim() || null,
             gstin: form.gstin.replace(/\s+/g, "").toUpperCase() || null,
         }
@@ -157,7 +161,7 @@ function PlantsBody() {
             <section className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4 sm:flex-row sm:items-end sm:justify-between sm:p-5">
                 <div className="min-w-0">
                     <h1 className="text-xl font-semibold text-foreground">Plants</h1>
-                    <p className="mt-1 max-w-2xl text-sm text-muted-foreground">The legal name, address and GSTIN of each plant print on the delivery challan. Fill all three before sealing a challan.</p>
+                    <p className="mt-1 max-w-2xl text-sm text-muted-foreground">The legal name, address and GSTIN of each plant print on the delivery challan. Fill all three before sealing a challan. The label heading and the AIT reel numbers are for reel and coil labels.</p>
                 </div>
                 <Button className="min-h-11 sm:min-h-0" onClick={() => open("new")}><Plus className="h-4 w-4" aria-hidden="true" />Add plant</Button>
             </section>
@@ -186,6 +190,8 @@ function PlantsBody() {
                             <dl className="mt-3 grid grid-cols-[92px_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-sm">
                                 <dt className="text-muted-foreground">Legal name</dt>
                                 <dd className="break-words text-foreground">{plant.legal_name || <span className="text-muted-foreground">Same as plant name</span>}</dd>
+                                <dt className="text-muted-foreground">Label heading</dt>
+                                <dd className="break-words font-semibold text-foreground" data-testid={`plant-label-heading-${plant.code}`}>{labelHeading(plant)}{plant.label_heading ? null : <span className="block text-xs font-normal text-muted-foreground">From the {plant.legal_name ? "legal" : "plant"} name</span>}</dd>
                                 <dt className="text-muted-foreground">Address</dt>
                                 <dd className={`whitespace-pre-line break-words ${plant.address ? "text-foreground" : "font-semibold text-signal-amber-ink"}`}>{plant.address || "Missing"}</dd>
                                 <dt className="text-muted-foreground">GSTIN</dt>
@@ -194,6 +200,7 @@ function PlantsBody() {
                                 <dd className="text-foreground">{plant.user_count ?? 0}</dd>
                             </dl>
                             {missing.length ? <p className="mt-2 text-xs text-signal-amber-ink">Add the {missing.join(" and ")} so challans from this plant can be sealed.</p> : null}
+                            <ReelSerialSetting plantId={plant.id} />
                             <div className="mt-auto flex justify-end pt-3">
                                 <Button variant="outline" className="min-h-11 sm:min-h-0" onClick={() => open(plant)} data-testid={`plant-edit-${plant.code}`}><Pencil className="h-4 w-4" aria-hidden="true" />Edit plant</Button>
                             </div>
@@ -220,6 +227,9 @@ function PlantsBody() {
                         </div>
                         <Field label="Legal name (prints on the challan)" htmlFor="plant-legal" hint="As on the GST certificate, e.g. AMIGO UNIT - II. Blank prints the plant name.">
                             <Input id="plant-legal" className="min-h-11 sm:min-h-0" value={form.legal_name} onChange={(e) => setForm({ ...form, legal_name: e.target.value })} autoComplete="off" data-testid="plant-legal-name" />
+                        </Field>
+                        <Field label="Label heading (prints on reel and coil labels)" htmlFor="plant-label-heading" hint={`The first line of every reel and coil label, e.g. AMIGO INDUSTRIES UNIT II. Blank prints ${(form.legal_name.trim() || form.name.trim() || "the legal name").toUpperCase()}.`}>
+                            <Input id="plant-label-heading" className="min-h-11 uppercase sm:min-h-0" maxLength={200} value={form.label_heading} onChange={(e) => setForm({ ...form, label_heading: e.target.value })} autoComplete="off" data-testid="plant-label-heading" />
                         </Field>
                         <Field label="Address" htmlFor="plant-address" hint="Street, area, city, state and PIN code, as it should print.">
                             <textarea id="plant-address" rows={3} className="w-full rounded-md border border-input bg-card px-3 py-2 text-base shadow-[var(--shadow-xs)] focus-visible:border-ring/70 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/15 sm:text-[13px]" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} data-testid="plant-address" />

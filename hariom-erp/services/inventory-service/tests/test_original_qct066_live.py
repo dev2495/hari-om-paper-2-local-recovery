@@ -182,6 +182,7 @@ def test_qct066_scoped_concession_only_matching_unexpired_use():
         result = create_quality_concession(
             QualityConcessionCreate(
                 inspection_id=inspection.id,
+                reason_code="CN-URGENT",
                 reason="authorized 600 kg for one customer/order",
                 quantity=600,
                 release_stock=True,
@@ -383,6 +384,7 @@ def test_qct066_already_expired_authorization_cannot_be_approved():
             create_quality_concession(
                 QualityConcessionCreate(
                     inspection_id=inspection.id,
+                    reason_code="CN-URGENT",
                     reason="expired authorization",
                     quantity=600,
                     release_stock=True,
@@ -452,6 +454,7 @@ def test_qct066_does_not_open_partial_customer_rejection():
             create_quality_concession(
                 QualityConcessionCreate(
                     inspection_id=inspection.id,
+                    reason_code="CN-URGENT",
                     reason="do not open QCT-107 via scope fields",
                     quantity=200,
                     release_stock=True,
@@ -483,6 +486,7 @@ def test_qct066_ui_seed():
         result = create_quality_concession(
             QualityConcessionCreate(
                 inspection_id=inspection.id,
+                reason_code="CN-URGENT",
                 reason="authorized 600 kg for one customer/order",
                 quantity=600,
                 release_stock=True,

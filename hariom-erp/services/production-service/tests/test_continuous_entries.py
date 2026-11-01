@@ -26,6 +26,9 @@ def card(monkeypatch):
     for stage in api.route(job):db.add(JobCardStage(job_card_id=job.id,stage_type=stage,machine_id=uuid.uuid4() if stage in ('WINDER','OVEN','PROCESS') else None,plan_date=date.today(),shift_code='SHIFT_A'))
     db.commit()
     monkeypatch.setattr(api,'employee',lambda *args:{'name':'Operator / Supervisor','employee_code':'E1','active':True})
+    # The operator's department is checked in test_boxes_short_close_postgres; here every stage accepts the test operator.
+    monkeypatch.setattr(api,'check_department',lambda *args:None)
+    monkeypatch.setattr(api,'deliver_now',lambda *args:None)
     monkeypatch.setattr(api.planning,'_fetch_machine',lambda machine_id,*args:{'id':str(machine_id),'plant_id':PLANT,'department':next(s.stage_type for s in job.stages if s.machine_id==machine_id),'is_active':True,'capacity_value':0,'id_min_mm':70,'id_max_mm':90,'od_min_mm':70,'od_max_mm':100,'length_min_mm':100,'length_max_mm':2000})
     yield api,db,job
     db.rollback();db.close()
@@ -40,7 +43,7 @@ def oven_samples():return [{'sample_id':str(uuid.uuid4()),'readings':{'pre_weigh
 def test_operator_posts_qc_without_a_run_but_runs_stay_drafts(card):
     a,db,job=card
     operator={'sub':'entry-test-operator','roles':['Operator'],'allowed_plants':[PLANT]}
-    qc=a.create_entry(job.id,a.EntryInput(request_id=str(uuid.uuid4()),stage='WINDER',kind='QC_ONLY',business_date=date.today(),samples=winding_samples(),submit=True),db,PLANT,operator)
+    qc=a.create_entry(job.id,a.EntryInput(request_id=str(uuid.uuid4()),stage='WINDER',kind='QC_ONLY',business_date=date.today(),operator_id=uuid.uuid4(),samples=winding_samples(),submit=True),db,PLANT,operator)
     assert qc['entry']['kind']=='QC_ONLY' and qc['entry']['status']=='SUBMITTED'
     with pytest.raises(HTTPException) as refused:
         a.create_entry(job.id,a.EntryInput(request_id=str(uuid.uuid4()),stage='WINDER',business_date=date.today(),shift_code='SHIFT_A',operator_id=uuid.uuid4(),produced=5,accepted=5,submit=True),db,PLANT,operator)
@@ -52,7 +55,7 @@ def test_cancelled_card_takes_no_runs_drafts_or_qc(card,status):
     a,db,job=card
     run=create(a,db,job,samples=winding_samples())['entry']
     job.status=status;job.close_mode='CANCELLED';db.flush()
-    attempts=[lambda:a.create_entry(job.id,a.EntryInput(request_id=str(uuid.uuid4()),stage='WINDER',kind='QC_ONLY',business_date=date.today(),samples=winding_samples(),submit=True),db,PLANT,USER),
+    attempts=[lambda:a.create_entry(job.id,a.EntryInput(request_id=str(uuid.uuid4()),stage='WINDER',kind='QC_ONLY',business_date=date.today(),operator_id=uuid.uuid4(),samples=winding_samples(),submit=True),db,PLANT,USER),
         lambda:a.create_entry(job.id,a.EntryInput(request_id=str(uuid.uuid4()),stage='WINDER',business_date=date.today(),shift_code='SHIFT_A',operator_id=uuid.uuid4(),produced=5,accepted=5,submit=False),db,PLANT,USER),
         lambda:a.save_observations(job.id,uuid.UUID(run['id']),a.Observations(request_id=str(uuid.uuid4()),expected_version=run['row_version'],samples=winding_samples(),reason=''),db,PLANT,USER)]
     for attempt in attempts:
@@ -80,23 +83,27 @@ def test_cancelled_card_takes_no_void_close_or_reopen(card,status):
 def test_stage_closes_without_naming_a_supervisor(card):
     a,db,job=card
     create(a,db,job,samples=winding_samples())
-    result=a.close_stage(job.id,'WINDER',a.CloseInput(request_id=str(uuid.uuid4()),expected_version=2,short_close=True,reason='Five bamboos accepted; close this short run'),db,PLANT,USER)
+    result=a.close_stage(job.id,'WINDER',a.CloseInput(request_id=str(uuid.uuid4()),expected_version=2,short_close=True,reason_code='SS-MATERIAL-SHORT',reason='Five bamboos accepted; close this short run'),db,PLANT,USER)
     winder={s['stage']:s for s in result['flow']['stages']}['WINDER']
     assert winder['status']=='COMPLETED' and winder['supervisor_name']=='entry-test-owner'
 
 def test_rejected_excess_production_still_requires_variance_reason(card):
     a,db,job=card
     with pytest.raises(HTTPException) as error:
-        create(a,db,job,produced=12,accepted=5,details={'reject_reason':'Setup trial rejects'})
-    assert error.value.status_code==409
+        create(a,db,job,produced=12,accepted=5,details={'reject_code':'WL','reject_reason':'Setup trial rejects'})
+    # Above 110% of the target needs an OVERRIDE code (owner decision 4): text alone is refused.
+    assert error.value.status_code==422 and 'output above 110%' in error.value.detail
     db.rollback()
-    result=create(a,db,job,produced=12,accepted=5,details={'reject_reason':'Setup trial rejects','overproduction_reason':'Setup trial produced extra rejected pieces'})
+    result=create(a,db,job,produced=12,accepted=5,details={'reject_code':'WL','reject_note':'Setup trial','overproduction_reason_code':'OV-SETUP-LOSS'})
     assert result['entry']['produced']==12 and result['entry']['rejected']==7
+    details=result['entry']['details']
+    assert details['overproduction_reason']=='Ov setup loss' and details['overproduction_reason_code']=='OV-SETUP-LOSS' and details['overproduction_reason_label']=='Ov setup loss'
+    assert (details['reject_code'],details['reject_label'],details['reject_note'],details['reject_reason'])==('WL','Wl','Setup trial','Wl — Setup trial')
 
 def test_short_close_updates_every_downstream_target_and_rejects_stale_totals(card):
     a,db,job=card
     create(a,db,job,samples=winding_samples())
-    result=a.close_stage(job.id,'WINDER',a.CloseInput(request_id=str(uuid.uuid4()),expected_version=2,supervisor_id=uuid.uuid4(),short_close=True,reason='Five bamboos accepted; close this short run'),db,PLANT,USER)
+    result=a.close_stage(job.id,'WINDER',a.CloseInput(request_id=str(uuid.uuid4()),expected_version=2,supervisor_id=uuid.uuid4(),short_close=True,reason_code='SS-MATERIAL-SHORT',reason='Five bamboos accepted; close this short run'),db,PLANT,USER)
     states={s['stage']:s for s in result['flow']['stages']}
     assert states['OVEN']['target']==5 and states['OVEN']['row_version']==2
     assert all(states[s]['target']==50 for s in ('PROCESS','PACKING','QC','DISPATCH'))
@@ -110,7 +117,7 @@ def test_atomic_short_run_preserves_original_version_checks(card):
     oven=[{'sample_id':str(uuid.uuid4()),'readings':{'pre_weight':1000,'post_weight':910,'pre_moisture':10,'post_moisture':8,'cs':420}} for _ in range(2)]
     steps=[]
     for stage,inputs,samples in [('WINDER',0,winding_samples()),('OVEN',5,oven)]:
-        steps.append({'entry':{'request_id':'short-run-entry-'+stage,'stage':stage,'quantity_mode':'TOTAL','expected_version':1,'business_date':date.today(),'shift_code':'SHIFT_A','operator_id':uuid.uuid4(),'produced':5,'accepted':5,'input_quantity':inputs,'samples':samples,'submit':True},'close':{'request_id':'short-run-close-'+stage,'expected_version':2,'supervisor_id':uuid.uuid4(),'short_close':True,'reason':'Approved short production run'}})
+        steps.append({'entry':{'request_id':'short-run-entry-'+stage,'stage':stage,'quantity_mode':'TOTAL','expected_version':1,'business_date':date.today(),'shift_code':'SHIFT_A','operator_id':uuid.uuid4(),'produced':5,'accepted':5,'input_quantity':inputs,'samples':samples,'submit':True},'close':{'request_id':'short-run-close-'+stage,'expected_version':2,'supervisor_id':uuid.uuid4(),'short_close':True,'reason_code':'SS-CUST-QTY','reason':'Approved short production run'}})
     body=a.BatchInput(request_id=str(uuid.uuid4()),steps=steps)
     bad=body.model_copy(update={'steps':[body.steps[0],body.steps[1].model_copy(update={'entry':body.steps[1].entry.model_copy(update={'expected_version':2})})]})
     with pytest.raises(HTTPException) as caught:a.batch_entries(job.id,bad,db,PLANT,USER)
@@ -161,19 +168,21 @@ def test_release_ack_and_noop_tools_allow_reopen_but_posted_stock_does_not(card)
     tools.status='DELIVERED';tools.attempts=1;tools.payload={**tools.payload,'posted_tool_asset_ids':[]}
     db.add(CompletionEffect(job_card_id=job.id,effect_key=str(uuid.uuid4()),kind='release_ack',status='DELIVERED',payload={'stage':'WINDER'}));db.commit()
     version=closed['flow']['stages'][0]['row_version']
-    body=a.Mutation(request_id=str(uuid.uuid4()),expected_version=version,reason='Continue the same unposted run')
+    body=a.Mutation(request_id=str(uuid.uuid4()),expected_version=version,reason_code='EC-REOPEN-MORE',reason='Continue the same unposted run')
     reopened=a.reopen_stage(job.id,'WINDER',body,db,PLANT,USER)
-    assert reopened['flow']['stages'][0]['status']=='RUNNING' and tools.status=='CANCELLED'
+    # Issue #4: the delivered (no-op) tools posting stays DELIVERED on reopen; closing again re-arms it.
+    assert reopened['flow']['stages'][0]['status']=='RUNNING' and tools.status=='DELIVERED'
     assert a.reopen_stage(job.id,'WINDER',body,db,PLANT,USER)==reopened
     closed=a.close_stage(job.id,'WINDER',a.CloseInput(request_id=str(uuid.uuid4()),expected_version=version+1,supervisor_id=uuid.uuid4(),reason='Run complete'),db,PLANT,USER)
+    assert tools.status=='PENDING'
     db.add(CompletionEffect(job_card_id=job.id,effect_key=str(uuid.uuid4()),kind='fg_inward',status='DELIVERED',payload={'stage':'PACKING'}));db.commit()
-    with pytest.raises(HTTPException) as caught:a.reopen_stage(job.id,'WINDER',a.Mutation(request_id=str(uuid.uuid4()),expected_version=closed['flow']['stages'][0]['row_version'],reason='Posted stock cannot be edited'),db,PLANT,USER)
+    with pytest.raises(HTTPException) as caught:a.reopen_stage(job.id,'WINDER',a.Mutation(request_id=str(uuid.uuid4()),expected_version=closed['flow']['stages'][0]['row_version'],reason_code='EC-REOPEN-MORE',reason='Posted stock cannot be edited'),db,PLANT,USER)
     assert caught.value.status_code==409;db.rollback()
 
 def test_residual_hold_reserves_sources_and_physical_disposition_is_final(card):
     a,db,job=card
     create(a,db,job,produced=10,accepted=10,samples=winding_samples())
-    close=lambda stage,**extra:a.close_stage(job.id,stage,a.CloseInput(request_id=str(uuid.uuid4()),supervisor_id=uuid.uuid4(),expected_version=next(s for s in a.flow(db,job)['stages'] if s['stage']==stage)['row_version'],reason='Verified short-run residual',**extra),db,PLANT,USER)
+    close=lambda stage,**extra:a.close_stage(job.id,stage,a.CloseInput(request_id=str(uuid.uuid4()),supervisor_id=uuid.uuid4(),expected_version=next(s for s in a.flow(db,job)['stages'] if s['stage']==stage)['row_version'],reason_code='SS-MATERIAL-SHORT',residual_reason_code='LI-NEXT-RUN',**extra),db,PLANT,USER)
     close('WINDER')
     oven=[{'sample_id':str(uuid.uuid4()),'readings':{'pre_weight':1000,'post_weight':910,'pre_moisture':10,'post_moisture':8,'cs':420}} for _ in range(2)]
     create(a,db,job,'OVEN',produced=5,accepted=5,input_quantity=5,samples=oven)
@@ -181,12 +190,12 @@ def test_residual_hold_reserves_sources_and_physical_disposition_is_final(card):
     residual=result['flow']['residual_wip'][0]
     assert residual['quantity']==5 and residual['status']=='HOLD'
     assert a.available(db,job,'OVEN')==0
-    body=a.ResidualResolve(request_id=str(uuid.uuid4()),expected_version=residual['row_version'],reason='Returned five bamboos to identified source stock',disposition='RETURN')
+    body=a.ResidualResolve(request_id=str(uuid.uuid4()),expected_version=residual['row_version'],reason_code='LI-OTHER',reason_note='Returned five bamboos to identified source stock',disposition='RETURN')
     resolved=a.resolve_residual(job.id,uuid.UUID(residual['id']),body,db,PLANT,USER)
     assert resolved['residual']['status']=='DISPOSED'
     assert a.resolve_residual(job.id,uuid.UUID(residual['id']),body,db,PLANT,USER)==resolved
     state=next(s for s in a.flow(db,job)['stages'] if s['stage']=='OVEN')
-    with pytest.raises(HTTPException) as err:a.reopen_stage(job.id,'OVEN',a.Mutation(request_id=str(uuid.uuid4()),expected_version=state['row_version'],reason='Try to reuse returned material'),db,PLANT,USER)
+    with pytest.raises(HTTPException) as err:a.reopen_stage(job.id,'OVEN',a.Mutation(request_id=str(uuid.uuid4()),expected_version=state['row_version'],reason_code='EC-OTHER',reason_note='Try to reuse returned material'),db,PLANT,USER)
     assert err.value.status_code==409;db.rollback()
     assert a.available(db,job,'OVEN')==0
 
@@ -207,8 +216,8 @@ def test_material_issue_cannot_be_attributed_to_two_cards(card,monkeypatch):
 def test_continuous_oven_before_winding_close_and_double_input(card):
     a,db,job=card
     # Each winding batch must pass its own QC before Oven may take it (client rule 2026-10-13).
-    create(a,db,job,produced=5,accepted=4,details={'reject_reason':'One rejected'},samples=winding_samples())
-    create(a,db,job,'OVEN',produced=3,accepted=2,input_quantity=3,details={'reject_reason':'One oven reject'})
+    create(a,db,job,produced=5,accepted=4,details={'reject_code':'WL'},samples=winding_samples())
+    create(a,db,job,'OVEN',produced=3,accepted=2,input_quantity=3,details={'reject_code':'DM'})
     assert a.stage_row(db,job,'WINDER').status=='RUNNING'
     assert a.available(db,job,'OVEN')==1
     with pytest.raises(HTTPException) as err:create(a,db,job,'OVEN',produced=2,accepted=2,input_quantity=2)
@@ -218,10 +227,10 @@ def test_continuous_oven_before_winding_close_and_double_input(card):
 def test_close_min_samples_and_previous_close(card):
     a,db,job=card
     create(a,db,job)
-    payload=a.CloseInput(request_id=str(uuid.uuid4()),supervisor_id=uuid.uuid4(),expected_version=2,short_close=True,reason='Short test run')
+    payload=a.CloseInput(request_id=str(uuid.uuid4()),supervisor_id=uuid.uuid4(),expected_version=2,short_close=True,reason_code='SS-TIME')
     with pytest.raises(HTTPException) as err:a.close_stage(job.id,'WINDER',payload,db,PLANT,USER)
     assert err.value.detail['code']=='STAGE_QC_READINGS_SHORT';db.rollback()
-    create(a,db,job,kind='QC_ONLY',produced=0,accepted=0,operator_id=None,shift_code=None,samples=winding_samples())
+    create(a,db,job,kind='QC_ONLY',produced=0,accepted=0,shift_code=None,samples=winding_samples())
     state=a.flow(db,job)['stages'][0];assert state['qc']['ready']
     result=a.close_stage(job.id,'WINDER',payload.model_copy(update={'expected_version':state['row_version']}),db,PLANT,USER)
     assert result['flow']['stages'][0]['status']=='COMPLETED'
@@ -242,18 +251,18 @@ def test_process_conservation_and_carryover(card):
     a,db,job=card
     create(a,db,job,produced=3,accepted=3,samples=winding_samples())
     create(a,db,job,'OVEN',produced=3,accepted=3,input_quantity=3,samples=oven_samples())
-    create(a,db,job,'PROCESS',produced=12,accepted=12,input_quantity=2,carry_out_pcs=7,cutting_loss_pcs=1,details={'carryover_reason':'Uncut pieces held','reject_reason':'Trim'})
+    create(a,db,job,'PROCESS',produced=12,accepted=12,input_quantity=2,carry_out_pcs=7,cutting_loss_pcs=1,details={'carryover_reason_code':'OV-SETUP-LOSS','reject_code':'RJ-OTHER','reject_note':'Trim waste'})
     assert a.flow(db,job)['stages'][2]['carryover_pcs']==7
-    create(a,db,job,'PROCESS',produced=7,accepted=7,input_quantity=0,carry_in_pcs=7,details={'carryover_reason':'Finish held pieces'})
+    create(a,db,job,'PROCESS',produced=7,accepted=7,input_quantity=0,carry_in_pcs=7,details={'override_reason_code':'OV-PLAN-CHANGE'})
     assert a.flow(db,job)['stages'][2]['carryover_pcs']==0
-    with pytest.raises(HTTPException):create(a,db,job,'PROCESS',produced=1,accepted=1,input_quantity=0,carry_in_pcs=1,details={'carryover_reason':'Already used'})
+    with pytest.raises(HTTPException):create(a,db,job,'PROCESS',produced=1,accepted=1,input_quantity=0,carry_in_pcs=1,details={'carryover_reason_code':'OV-PLAN-CHANGE'})
     db.rollback()
 
 def test_sample_correction_keeps_revision_and_duplicate_block(card):
     a,db,job=card
     samples=winding_samples();e=create(a,db,job,samples=samples)['entry']
     changed=[{**s,'readings':{**s['readings'],'id':76.31}} for s in samples]
-    a.save_observations(job.id,uuid.UUID(e['id']),a.Observations(request_id=str(uuid.uuid4()),expected_version=e['row_version'],reason='Correct transcribed reading',samples=changed),db,PLANT,USER)
+    a.save_observations(job.id,uuid.UUID(e['id']),a.Observations(request_id=str(uuid.uuid4()),expected_version=e['row_version'],reason_code='EC-WRONG-QTY',remark='transcribed',samples=changed),db,PLANT,USER)
     history=a.entry_history(job.id,uuid.UUID(e['id']),db,PLANT,USER)
     assert len(history)==2 and history[1]['payload']['samples'][0]['readings']['id']==76.3
     with pytest.raises(HTTPException):create(a,db,job,samples=changed)
@@ -335,7 +344,7 @@ def test_whole_card_batch_rolls_back_entries_allocations_and_receipts(card):
 
 def test_missing_accepted_is_rejected_before_submission(card):
     a,db,job=card
-    payload=a.EntryInput(request_id=str(uuid.uuid4()),stage='WINDER',business_date=date.today(),shift_code='SHIFT_A',operator_id=uuid.uuid4(),produced=5,details={'reject_reason':'Reject all'},submit=True)
+    payload=a.EntryInput(request_id=str(uuid.uuid4()),stage='WINDER',business_date=date.today(),shift_code='SHIFT_A',operator_id=uuid.uuid4(),produced=5,details={'reject_code':'WL'},submit=True)
     with pytest.raises(HTTPException) as err:a.create_entry(job.id,payload,db,PLANT,USER)
     assert err.value.status_code==422
 
@@ -353,7 +362,7 @@ def test_next_stage_takes_only_qc_cleared_batches_unless_supervisor_overrides(ca
     create(a,db,job,'OVEN',produced=4,accepted=4,input_quantity=4)
     assert a.available(db,job,'OVEN')==0
     # Supervisor override with a reason may draw on the batch still awaiting QC; the reason is kept.
-    create(a,db,job,'OVEN',produced=2,accepted=2,input_quantity=2,details={'qc_gate_override_reason':'Supervisor checked the winding batch physically'})
+    create(a,db,job,'OVEN',produced=2,accepted=2,input_quantity=2,details={'qc_gate_override_reason_code':'OV-URGENT','qc_gate_override_reason_note':'Supervisor checked the winding batch physically'})
     assert a.available(db,job,'OVEN',override=True)==3 and a.awaiting_qc(db,job,'OVEN')==3
     flow=a.flow(db,job);oven=next(s for s in flow['stages'] if s['stage']=='OVEN')
     assert oven['available_from_upstream']==0 and oven['awaiting_qc_from_upstream']==3 and oven['upstream_has_qc']
@@ -441,7 +450,7 @@ def test_whole_card_totals_entry_readings_cover_earlier_batches_without_readings
     bad=[{'sample_id':str(uuid.uuid4()),'readings':{'id':70.0,'od':82,'height':1560,'weight':130,'cs':165}} for _ in range(2)]
     failed=create(a,db,job,produced=1,accepted=1,samples=bad)['entry'];assert failed['evaluation']['verdict']=='FAIL'
     row=a.stage_row(db,job,'WINDER');version=int((row.actuals_snapshot or {}).get('row_version',1))
-    create(a,db,job,produced=12,accepted=12,quantity_mode='TOTAL',expected_version=version,samples=winding_samples(),details={'overproduction_reason':'test'})
+    create(a,db,job,produced=12,accepted=12,quantity_mode='TOTAL',expected_version=version,samples=winding_samples(),details={'overproduction_reason_code':'OV-CUST-EXTRA'})
     flagged=next(e for e in a.get_entries(job.id,'WINDER',0,50,db,PLANT,USER)['entries'] if e['entry_no']==failed['entry_no'])
     assert flagged['qc_cleared'] and flagged['qc_flagged']
     db.rollback()
@@ -527,7 +536,12 @@ def test_process_close_completes_the_card_with_packing_from_the_spec(card,monkey
     assert packing.total_packed_qty==100 and str(packing.fg_item_id)=='11111111-1111-1111-1111-111111111111'
     assert packing.snapshot['packaging_consumption']['box_count']==3 and packing.snapshot['packaging_consumption']['fadda']['consumed_pcs']==9
     kinds={(e.kind,e.payload['stage']) for e in db.query(CompletionEffect).filter_by(job_card_id=job.id)}
-    assert ('theory','PROCESS') in kinds and ('fg_inward','PACKING') in kinds
+    # Boxes (owner decision 2026-11-01): 2 full boxes of 40 were packed with the run, the 20 left became a part
+    # box at close; FG posts per box, never as one card-level inward.
+    from src.entry_models import FgBox
+    boxes=db.query(FgBox).filter_by(job_card_id=job.id).order_by(FgBox.seq_no).all()
+    assert [(b.qty,b.is_part) for b in boxes]==[(40,False),(40,False),(20,True)]
+    assert ('theory','PROCESS') in kinds and ('fg_box','PROCESS') in kinds and ('fg_inward','PACKING') not in kinds
     assert job.current_stage=='DISPATCH'
 
 
@@ -605,3 +619,41 @@ def test_run_before_its_planned_day_keeps_the_plan_and_is_not_unplanned(card):
     db.refresh(slot)
     assert slot.plan_date==later and slot.shift_code=='SHIFT_A'
     assert not (entry['details'] or {}).get('unscheduled_entry') and entry['segment_id']==str(slot.id)
+
+
+def test_reason_codes_are_stored_on_close_leftover_void_and_reopen(card):
+    """Owner decision 4 (2026-11-01): the short close, the leftover input, a void and a reopen keep the master code,
+    its label at the time and the note, and the old text fields keep "Label — note"; free text alone is refused."""
+    from src.entry_models import EntryRevision, ResidualWip
+    a,db,job=card
+    create(a,db,job,produced=10,accepted=10,samples=winding_samples())
+    a.close_stage(job.id,'WINDER',close_input(),db,PLANT,USER)
+    wrong=create(a,db,job,'OVEN',produced=1,accepted=1,input_quantity=1,samples=oven_samples())['entry']
+    with pytest.raises(HTTPException) as refused:
+        a.void_entry(job.id,uuid.UUID(wrong['id']),a.Mutation(request_id=str(uuid.uuid4()),expected_version=wrong['row_version'],reason='typed twice'),db,PLANT,USER)
+    assert refused.value.status_code==422;db.rollback()
+    a.void_entry(job.id,uuid.UUID(wrong['id']),a.Mutation(request_id=str(uuid.uuid4()),expected_version=wrong['row_version'],reason_code='EC-DUPLICATE',reason_note='entered twice'),db,PLANT,USER)
+    revision=db.query(EntryRevision).filter_by(entry_id=uuid.UUID(wrong['id'])).order_by(EntryRevision.row_version.desc()).first()
+    assert (revision.reason,revision.reason_code,revision.reason_label)==('Ec duplicate — entered twice','EC-DUPLICATE','Ec duplicate')
+    assert a.entry_history(job.id,uuid.UUID(wrong['id']),db,PLANT,USER)[0]['reason_label']=='Ec duplicate'
+    create(a,db,job,'OVEN',produced=6,accepted=6,input_quantity=6,samples=oven_samples())
+    oven=next(s for s in a.flow(db,job)['stages'] if s['stage']=='OVEN')
+    with pytest.raises(HTTPException) as refused:
+        a.close_stage(job.id,'OVEN',close_input(expected_version=oven['row_version'],short_close=True,residual_disposition='HOLD',reason='Short by 4'),db,PLANT,USER)
+    assert refused.value.status_code==422 and 'closing Oven short' in refused.value.detail;db.rollback()
+    with pytest.raises(HTTPException) as refused:
+        a.close_stage(job.id,'OVEN',close_input(expected_version=oven['row_version'],short_close=True,reason_code='SS-MATERIAL-SHORT',residual_disposition='HOLD'),db,PLANT,USER)
+    assert refused.value.status_code==422 and 'leftover input' in refused.value.detail;db.rollback()
+    closed=a.close_stage(job.id,'OVEN',close_input(expected_version=oven['row_version'],short_close=True,reason_code='SS-MATERIAL-SHORT',reason_note='paper ran out',residual_disposition='HOLD',residual_reason_code='LI-NEXT-RUN'),db,PLANT,USER)
+    snap=a.stage_row(db,job,'OVEN').actuals_snapshot
+    assert (snap['close_reason'],snap['close_reason_code'],snap['close_reason_label'],snap['close_reason_note'])==('Ss material short — paper ran out','SS-MATERIAL-SHORT','Ss material short','paper ran out')
+    assert (snap['residual_reason'],snap['residual_reason_code'])==('Li next run','LI-NEXT-RUN')
+    assert snap['short_close']['reason_code']=='SS-MATERIAL-SHORT' and snap['short_close']['reason_label']=='Ss material short'
+    held=db.query(ResidualWip).filter_by(job_card_id=job.id,stage='OVEN').one()
+    assert (held.reason,held.reason_code,held.reason_label)==('Li next run','LI-NEXT-RUN','Li next run')
+    assert closed['flow']['residual_wip'][0]['reason_label']=='Li next run'
+    version=next(s for s in closed['flow']['stages'] if s['stage']=='OVEN')['row_version']
+    a.reopen_stage(job.id,'OVEN',a.Mutation(request_id=str(uuid.uuid4()),expected_version=version,reason_code='EC-REOPEN-MORE'),db,PLANT,USER)
+    snap=a.stage_row(db,job,'OVEN').actuals_snapshot
+    assert (snap['reopen_reason'],snap['reopen_reason_code'],snap['reopen_reason_label'])==('Ec reopen more','EC-REOPEN-MORE','Ec reopen more')
+    db.rollback()

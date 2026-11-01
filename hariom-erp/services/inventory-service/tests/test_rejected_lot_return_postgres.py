@@ -36,7 +36,7 @@ def _receipt(db):
         'parameters': [{'code': 'gsm', 'unit': 'g/m2', 'min': 200, 'max': 260}]})
     db.add(item); db.commit()
     payload = ManualReceiptCreate(supplier_challan_no=f"CH-{uuid.uuid4().hex[:8]}", request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name='Return mill',
-        reason='Isolated return receipt', received_date=date.today(), invoice_no=uuid.uuid4().hex,
+        reason_code='MR-URGENT', reason_note='Isolated return receipt', received_date=date.today(), invoice_no=uuid.uuid4().hex,
         invoice_date=date.today(), lines=[{'item_id': item.id, 'invoice_rate': 30, 'incoming_qc_required': False,
         'lots': [{'source_reel_no': f'RET-{uuid.uuid4().hex[:6]}-{n}', 'net_weight_kg': 100, 'width_mm': 800,
                   'physical_form': 'REEL'} for n in range(2)]}])
@@ -60,11 +60,11 @@ def test_rejected_reel_leaves_overdue_queue_and_returns_with_quality_claim():
         # Returning before QC has rejected it is refused.
         with pytest.raises(HTTPException) as early:
             return_rejected_lot_to_supplier(SupplierReturnCreate(entity_type='REEL', entity_id=bad,
-                reason='Looks wet'), db, PLANT, STORE)
+                reason_code="RM-GSM", reason_note='Looks wet'), db, PLANT, STORE)
         assert early.value.status_code == 409
 
         verdict = create_quality_inspection(QualityInspectionCreate(entity_type='REEL', entity_id=bad,
-            readings={'gsm': 150}, reasons={'gsm': 'Mill supplied lighter grade'}, disposition='REJECT'), db, PLANT, QC)
+            readings={'gsm': 150}, reasons={'gsm': 'Mill supplied lighter grade'}, reason_code='IQ-GSM', reason_note='Mill supplied lighter grade', disposition='REJECT'), db, PLANT, QC)
         assert verdict.status == 'FAIL'
         rejected = _queue_row(db, bad)
         assert rejected.queue_state == 'REJECTED' and rejected.overdue is False
@@ -73,7 +73,7 @@ def test_rejected_reel_leaves_overdue_queue_and_returns_with_quality_claim():
         assert db.get(PurchaseReceiptLine, line_id).qc_status == 'REJECTED'
 
         done = return_rejected_lot_to_supplier(SupplierReturnCreate(entity_type='REEL', entity_id=bad,
-            reason='GSM 150 against 200-260', return_reference='DC-778'), db, PLANT, STORE)
+            reason_code="RM-GSM", reason_note='GSM 150 against 200-260', return_reference='DC-778'), db, PLANT, STORE)
         assert done['stock_status'] == 'RETURNED' and done['returned_qty'] == 100
         assert done['claim_id'] and done['claim_amount'] == 3000.0
         db.expire_all()
@@ -93,5 +93,5 @@ def test_rejected_reel_leaves_overdue_queue_and_returns_with_quality_claim():
 
         with pytest.raises(HTTPException) as again:
             return_rejected_lot_to_supplier(SupplierReturnCreate(entity_type='REEL', entity_id=bad,
-                reason='Second attempt'), db, PLANT, STORE)
+                reason_code="RM-GSM", reason_note='Second attempt'), db, PLANT, STORE)
         assert again.value.status_code == 409

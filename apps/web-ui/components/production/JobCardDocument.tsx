@@ -32,6 +32,7 @@ import { entryApiForPlant } from "@/lib/season-api"
 import { useQuery } from "@tanstack/react-query"
 import { StageQcFields } from "@/components/qc/StageQcFields"
 import { describeApiError } from "@/lib/api-error"
+import { EMPTY_REASON, ReasonPicker, reasonComplete, reasonProblem, type ReasonValue } from "@/components/reasons"
 import { canonicalShift } from "@/lib/shift"
 import {
   collectStageQualityChecks,
@@ -525,6 +526,7 @@ function parseStageForms(card: any, machineLabelMap: Map<string, string>, defaul
       segment_id: segment?.id || null,
       remarks: row?.remarks || "",
       override_reason: row?.actuals_snapshot?.override_reason || "",
+      override: { code: row?.actuals_snapshot?.override_reason_code || "", note: row?.actuals_snapshot?.override_reason_note || "" },
       reel_issue_ids: Array.isArray(row?.reel_issue_ids) ? row.reel_issue_ids : [],
       entry_snapshot: baseEntry,
     }
@@ -717,6 +719,9 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
   const shiftsQuery = useShifts()
   const employeesQuery = useEmployees()
   const [stageForms, setStageForms] = useState<Record<string, any>>({})
+  // Completing an old-form stage below plan (owner decisions 1 and 4): the server's message per stage, shown on
+  // the form with a STAGE_SHORT_CLOSE reason picker until the stage saves.
+  const [shortAsk, setShortAsk] = useState<Record<string, string>>({})
   // Optional third page with per-parameter QC evidence; the standard print is front + spec back.
   const [includeQcSheet, setIncludeQcSheet] = useState(false)
   useEffect(() => {
@@ -1168,6 +1173,50 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
     }))
   }
 
+  /** Rejected quantity on an old-form Winder / Oven / Process entry (produced − accepted). */
+  function stageRejected(stage: StageName, entry: any): number {
+    const value =
+      stage === "WINDER"
+        ? (() => {
+            const produced = winderQty(entry.bamboo_count_produced, entry.winding_meters_produced)
+            const accepted = winderQty(entry.accepted_bamboo_count, entry.accepted_winding_meters)
+            return produced != null && accepted != null ? Math.max(0, produced - accepted) : 0
+          })()
+        : stage === "OVEN"
+          ? derivedReject(entry.bamboo_count_in, entry.bamboo_count_out)
+          : derivedReject(processProduced(entry), entry.process_qty)
+    return typeof value === "number" ? value : 0
+  }
+  /** The rejection reason on the entry: code + note (an entry saved before 1 Nov kept text only, shown as the note). */
+  function rejectValue(entry: any): ReasonValue {
+    const code = String(entry?.reject_reason_code || "").toUpperCase()
+    const note = entry && ("reject_reason_note" in entry || entry.reject_reason_label) ? entry.reject_reason_note || "" : code ? "" : entry?.reject_reason || ""
+    return { code: code === "OT" ? "RJ-OTHER" : code, note }
+  }
+  function updateRejectReason(stage: StageName, next: ReasonValue) {
+    updateStageForm(stage, (current) => ({
+      ...current,
+      entry_snapshot: { ...(current.entry_snapshot || {}), reject_reason_code: next.code, reject_reason_note: next.note },
+    }))
+  }
+  function renderRejectPicker(stage: StageName, entry: any) {
+    const rejected = stageRejected(stage, entry)
+    if (rejected <= 0) return null
+    const value = rejectValue(entry)
+    return (
+      <ReasonPicker
+        category="SCRAP"
+        plantId={card?.plant_id ? String(card.plant_id) : undefined}
+        value={value}
+        onChange={(next) => updateRejectReason(stage, next)}
+        showErrors={Boolean(value.code)}
+        compact
+        label={`Why were ${formatNumber(rejected, 0)} rejected?`}
+        testIdPrefix={`v1-reject-${stage}`}
+      />
+    )
+  }
+
   function updateSnapshotField(stage: StageName, field: string, value: string) {
     updateStageForm(stage, (current) => {
       const next = {
@@ -1237,12 +1286,11 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
         return `${word}: at least 2 readings per check before it closes — ${short.map((row) => `${row.label} ${row.have} of 2`).join(", ")}. ${next}, then save.`
       }
     }
-    if (stage === "PROCESS" && saveMode === "complete") {
-      // Rejected pieces need a reason, as on the batch-entry Process run (the server refuses the save without one).
-      const rejected = derivedReject(processProduced(entry), entry.process_qty)
-      if (typeof rejected === "number" && rejected > 0 && !String(entry.reject_reason || "").trim()) {
-        return `Process: ${formatNumber(rejected, 0)} pcs were rejected. Write the reject reason, then save.`
-      }
+    if ((stage === "WINDER" || stage === "OVEN" || stage === "PROCESS") && saveMode === "complete") {
+      // Rejected pieces need a "Floor rejection" code (owner decision 4), as on the batch-entry run; the server refuses the save without one.
+      const rejected = stageRejected(stage, entry)
+      const problem = rejected > 0 ? reasonProblem(rejectValue(entry)) : null
+      if (problem) return `${stageWord(stage)}: ${formatNumber(rejected, 0)} rejected. ${problem.replace("Choose a reason from the list.", "Choose why they were rejected").replace(/\.$/, "")}, then save.`
     }
     if (stage === "QC") {
       const limits = finalQcLimits(card?.spec_snapshot || documentSnapshot || {})
@@ -1530,8 +1578,17 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
       segment_id: form.segment_id || undefined,
       entry_snapshot: entry,
       remarks: form.remarks || null,
-      override_reason: form.override_reason || null,
+      // Owner decision 4: an override is an OVERRIDE code (+ note); the server writes override_reason ("Label — note").
+      override_reason: null,
       reel_issue_ids: form.reel_issue_ids || [],
+    }
+    if (form.override?.code) {
+      payload.override_reason_code = form.override.code
+      payload.override_reason_note = String(form.override.note || "").trim() || null
+    }
+    if (form.short_reason?.code) {
+      payload.short_reason_code = form.short_reason.code
+      payload.short_reason_note = String(form.short_reason.note || "").trim() || null
     }
     const assignment = stageAssignment(stage)
     if (assignment.machineId) {
@@ -1702,12 +1759,26 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
           data: completePayload(stage),
         })
         forgetOldDraft(stage)
+        setShortAsk((current) => {
+          const next = { ...current }
+          delete next[stage]
+          return next
+        })
         showStageSaved(`${stageWord(stage)} saved as completed`, stageWarnings(response))
       }
       jobCardQuery.refetch()
     } catch (error: any) {
-      showToast(describeApiError(error, "Unable to save stage"), "error")
+      const message = describeApiError(error, "Unable to save stage")
+      if (saveMode === "complete" && isShortReasonError(error, message)) setShortAsk((current) => ({ ...current, [stage]: message }))
+      showToast(message, "error")
     }
+  }
+
+  /** The server asks why an old-form stage completes below plan (409 SHORT_REASON_REQUIRED, or 422 on the reason). */
+  function isShortReasonError(error: any, message: string) {
+    const detail = error?.response?.data?.detail
+    if (detail && typeof detail === "object" && detail.code === "SHORT_REASON_REQUIRED") return true
+    return [409, 422].includes(Number(error?.response?.status)) && /short/i.test(message) && /reason|why/i.test(message)
   }
 
   // This document is the old card form only: there Packing and QC are still stages of their own
@@ -1778,6 +1849,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
       })
       setBatchRequestId(null)
       for (const stage of queue) forgetOldDraft(stage)
+      setShortAsk({})
       const result = response?.data || {}
       showStageSaved(`${(result.saved_stages || queue).map((stage: string) => stageWord(stage)).join(" → ")} saved as completed${result.replayed ? " (already saved earlier)" : ""}`, (result.results || []).flatMap((row: any) => stageWarnings({ warnings: row.warnings })))
       if (Array.isArray(result.external_pending) && result.external_pending.length) showToast(result.external_pending.join(" "), "error")
@@ -1785,6 +1857,9 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
     } catch (error: any) {
       if (error?.response) setBatchRequestId(null) // the server answered: a new attempt gets a new id
       const message = describeApiError(error, "Unable to save the card")
+      // "Oven: … closes short …": show the reason picker on that stage of the form.
+      const shortStage = isShortReasonError(error, message) ? queue.find((stage) => message.startsWith(`${stageWord(stage)}:`)) : undefined
+      if (shortStage) setShortAsk((current) => ({ ...current, [shortStage]: message }))
       showToast(error?.response ? message : `${message}. The card may have been saved — press save again to check (it will not save twice).`, "error")
     } finally {
       jobCardQuery.refetch()
@@ -2699,18 +2774,38 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
           rows={2}
           className="mt-1 w-full border border-border px-2 py-2 text-sm"
         />
-        <div className="mt-3 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Override Reason
+        <div className="mt-3">
+          <ReasonPicker
+            category="OVERRIDE"
+            plantId={card?.plant_id ? String(card.plant_id) : undefined}
+            value={stageForms[stage]?.override || EMPTY_REASON}
+            onChange={(next) => updateStageForm(stage, (current) => ({ ...current, override: next }))}
+            showErrors={Boolean(stageForms[stage]?.override?.code)}
+            required={false}
+            compact
+            label="Override reason (only to complete out of sequence, past a QC hold or over capacity)"
+            testIdPrefix={`v1-override-${stage}`}
+          />
         </div>
-        <textarea
-          value={stageForms[stage]?.override_reason ?? ""}
-          onChange={(event) =>
-            updateStageForm(stage, (current) => ({ ...current, override_reason: event.target.value }))
-          }
-          rows={2}
-          className="mt-1 w-full border border-border px-2 py-2 text-sm"
-          placeholder="Required only when completing out of sequence or closing WINDER without linked reel issues."
-        />
+        {shortAsk[stage] || stageForms[stage]?.short_reason?.code ? (
+          <div className="mt-3 space-y-2 border-t border-border pt-3" data-testid={`v1-short-${stage}`}>
+            {shortAsk[stage] ? (
+              <p role="alert" className="rounded-lg border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-sm text-signal-amber-ink" data-testid={`v1-short-${stage}-message`}>
+                {shortAsk[stage]}
+              </p>
+            ) : null}
+            <ReasonPicker
+              category="STAGE_SHORT_CLOSE"
+              plantId={card?.plant_id ? String(card.plant_id) : undefined}
+              value={stageForms[stage]?.short_reason || EMPTY_REASON}
+              onChange={(next) => updateStageForm(stage, (current) => ({ ...current, short_reason: next }))}
+              showErrors={Boolean(shortAsk[stage])}
+              compact
+              label="Why does it close short?"
+              testIdPrefix={`v1-short-${stage}`}
+            />
+          </div>
+        ) : null}
       </div>
     )
   }
@@ -2769,14 +2864,14 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
                         {overAccepted ? <p className="mt-1 text-xs font-semibold text-signal-rose-ink">Accepted cannot be more than produced.</p> : null}
                       </td>
                       <td className="border border-border bg-muted px-2 py-2 font-semibold tabular-nums text-foreground" data-testid="winder-rejected-qty">{rejected != null ? formatNumber(rejected, 2) : "—"}</td>
-                      <td className="border border-border px-2 py-2"><TextInput value={entry.reject_reason_code} onChange={(next) => updateSnapshotField(stage, "reject_reason_code", next)} /></td>
+                      <td className="min-w-[12rem] border border-border px-2 py-2">{renderRejectPicker(stage, entry) || <span className="text-xs text-muted-foreground">No rejects</span>}</td>
                     </>
                   ) : (
                     <>
                       <td className="border border-border px-2 py-2">{produced != null ? formatNumber(produced, 2) : ""}</td>
                       <td className="border border-border px-2 py-2">{accepted != null ? formatNumber(accepted, 2) : ""}</td>
                       <td className="border border-border px-2 py-2">{rejected != null ? formatNumber(rejected, 2) : ""}</td>
-                      <td className="border border-border px-2 py-2">{entry.reject_reason_code || ""}</td>
+                      <td className="border border-border px-2 py-2">{entry.reject_reason_label ? entry.reject_reason : entry.reject_reason_code || ""}</td>
                     </>
                   )}
                 </tr>
@@ -2940,6 +3035,8 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
             </tr>
           </tbody>
         </table>
+        {stageEditable(stage) && stageRejected(stage, entry) > 0 ? <div className="mt-2 max-w-md">{renderRejectPicker(stage, entry)}</div> : null}
+        {!stageEditable(stage) && entry.reject_reason ? <p className="mt-2 text-sm text-muted-foreground">Rejected: {entry.reject_reason}</p> : null}
         {renderStageQc("OVEN")}
 
         {renderNotes(stage)}
@@ -2996,10 +3093,10 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
                   </td>
                   <td className="border border-border bg-muted px-2 py-2 font-semibold tabular-nums text-foreground" data-testid="process-rejected-qty">{rejectText(processProduced(entry), entry.process_qty)}</td>
                   <td className="border border-border px-2 py-2">
-                    <TextInput value={entry.reject_reason} testId="process-reject-reason" onChange={(next) => updateSnapshotField(stage, "reject_reason", next)} />
+                    {renderRejectPicker(stage, entry) || <span className="text-xs text-muted-foreground">No rejects</span>}
                     {(() => {
-                      const rejected = derivedReject(processProduced(entry), entry.process_qty)
-                      return typeof rejected === "number" && rejected > 0 && !String(entry.reject_reason || "").trim() ? (
+                      const rejected = stageRejected(stage, entry)
+                      return rejected > 0 && !reasonComplete(rejectValue(entry)) ? (
                         <p className="mt-1 text-xs font-semibold text-signal-amber-ink" data-testid="process-reject-reason-needed">Needed for the {formatNumber(rejected, 0)} rejected pcs.</p>
                       ) : null
                     })()}
@@ -3374,7 +3471,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
                   <td className="border border-border px-2 py-2">{displayWinderQty(winderPrintEntry.bamboo_count_produced, winderPrintEntry.winding_meters_produced, winderPrintStage?.input_qty)}</td>
                   <td className="border border-border px-2 py-2">{displayWinderQty(winderPrintEntry.accepted_bamboo_count, winderPrintEntry.accepted_winding_meters, winderPrintStage?.output_qty)}</td>
                   <td className="border border-border px-2 py-2">{displayWinderQty(winderPrintEntry.reject_bamboo_count, winderPrintEntry.reject_winding_meters, winderPrintStage?.scrap_qty)}</td>
-                  <td className="border border-border px-2 py-2">{winderPrintEntry.reject_reason_code || "-"}</td>
+                  <td className="border border-border px-2 py-2">{winderPrintEntry.reject_reason_label || winderPrintEntry.reject_reason_code || "-"}</td>
                   <td className="border border-border px-2 py-2">{winderPrintEntry.start_time || "-"}</td>
                   <td className="border border-border px-2 py-2">{winderPrintEntry.end_time || "-"}</td>
                   <td className="border border-border px-2 py-2">{winderPrintEntry.cycle_time || "-"}</td>
@@ -3435,7 +3532,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
                   <td className="border border-border px-2 py-2">{ovenPrintEntry.bamboo_count_in || printValue(ovenPrintStage?.input_qty, 0)}</td>
                   <td className="border border-border px-2 py-2">{ovenPrintEntry.bamboo_count_out || printValue(ovenPrintStage?.output_qty, 0)}</td>
                   <td className="border border-border px-2 py-2">{printValue(ovenPrintStage?.scrap_qty, 0)}</td>
-                  <td className="border border-border px-2 py-2">{winderPrintEntry.reject_reason_code || "-"}</td>
+                  <td className="border border-border px-2 py-2">{winderPrintEntry.reject_reason_label || winderPrintEntry.reject_reason_code || "-"}</td>
                   <td className="border border-border px-2 py-2">{ovenPrintEntry.start_time || "-"}</td>
                   <td className="border border-border px-2 py-2">{ovenPrintEntry.end_time || "-"}</td>
                   <td className="border border-border px-2 py-2">{ovenPrintEntry.cycle_time || "-"}</td>

@@ -215,3 +215,32 @@ class SpecSaveOperation(Base):
     __table_args__ = (
         UniqueConstraint("plant_id", "operation_key", name="uq_spec_save_operations_plant_key"),
     )
+
+
+class SpecPackingAmendment(Base):
+    """A packing-only change to a live spec (Packing setup, owner decision 5, 1 Nov 2026).
+
+    The spec keeps its version number and approval: only the packing keys change, and each change is
+    recorded here (before / after, who, when, how many open job cards took it) so the spec's history
+    reads "v3 + packing amended" instead of pretending the approved version always had this packing.
+    """
+
+    __tablename__ = "spec_packing_amendments"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True)
+    spec_id = Column(UUID(as_uuid=True), ForeignKey("specification_sheet.id"), nullable=False, index=True)
+    lineage_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    spec_version = Column(Integer, nullable=False)
+    spec_status = Column(String(20), nullable=True)
+    write_revision_before = Column(Integer, nullable=False)
+    write_revision_after = Column(Integer, nullable=False)
+    before = Column(JSON, nullable=False, default=dict)
+    after = Column(JSON, nullable=False, default=dict)
+    changed_keys = Column(JSON, nullable=False, default=list)
+    note = Column(Text, nullable=True)
+    actor = Column(String(200), nullable=False)
+    request_id = Column(String(120), nullable=False)
+    job_cards_updated = Column(Integer, nullable=True)
+    job_cards_result = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)

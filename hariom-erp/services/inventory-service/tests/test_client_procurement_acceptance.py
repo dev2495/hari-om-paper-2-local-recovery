@@ -35,7 +35,7 @@ def test_requisition_roles_retry_cross_plant_conversion_and_no_bypass():
         assert missing.value.status_code==422
         # A misleading RM/PM category cannot evade requisition governance.
         with pytest.raises(HTTPException): create_purchase_order(po.model_copy(update={'category':'RM_PM'}),db,PLANT,STORE)
-        req=RequisitionCreate(request_id=uuid.uuid4(),pr_date=date.today(),item_id=tool.id,quantity=3,reason='Replacement worn tooling')
+        req=RequisitionCreate(request_id=uuid.uuid4(),pr_date=date.today(),item_id=tool.id,quantity=3,reason_code='PN-MAINT',reason_note='Replacement worn tooling')
         saved=create_requisition(req,db,PLANT,USER)
         assert create_requisition(req,db,PLANT,USER)['id']==saved['id']
         decision=RequisitionDecision(expected_version=1,decision='APPROVED',reason='Required for production')
@@ -80,10 +80,10 @@ def test_qc_failure_can_be_recorded_hold_pass_and_department_enforced(inspector)
         assert unauthorized.value.status_code==403
         failed=create_quality_inspection(payload,db,PLANT,inspector)
         assert failed.status=='FAIL' and db.get(StockBatch,batch.id).stock_status=='QC_HOLD'
-        held=create_quality_inspection(payload.model_copy(update={'readings':{'check':1.5},'disposition':'HOLD'}),db,PLANT,inspector)
+        held=create_quality_inspection(payload.model_copy(update={'readings':{'check':1.5},'disposition':'HOLD','reason_code':'IQ-SIZE'}),db,PLANT,inspector)
         assert held.status=='PASS' and db.get(StockBatch,batch.id).stock_status=='QC_HOLD'
         holds=db.query(InventoryQualityHold).filter_by(entity_id=batch.id,status='HOLD').all()
-        resolution=payload.model_copy(update={'readings':{'check':1.5},'resolve_hold_ids':[h.id for h in holds],'notes':'Second measurement verified after correcting sample preparation'})
+        resolution=payload.model_copy(update={'readings':{'check':1.5},'resolve_hold_ids':[h.id for h in holds],'reason_code':'IQ-RECHECK-OK','reason_note':'Second measurement verified after correcting sample preparation'})
         with pytest.raises(HTTPException): create_quality_inspection(resolution.model_copy(update={'readings':{'check':9}}),db,PLANT,inspector)
         db.rollback()
         # An independent manual hold is never cleared by an inspection resolution.

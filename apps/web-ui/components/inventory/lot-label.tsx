@@ -2,9 +2,11 @@
 
 import { QRCodeSVG } from "qrcode.react"
 
+import { PlantReelLabel, usePlantLabelContext } from "@/components/inventory/plant-reel-label"
 import { ReelLabelFacts, hasReelFacts, type ReelFacts } from "@/components/inventory/reel-label-facts"
 import { dayText, qtyText, type LotRow } from "@/lib/api-stock"
 import { buildScanUrl } from "@/lib/app-url"
+import { isPlantReelFacts, type PlantReelFacts } from "@/lib/reel-label"
 import { cn } from "@/lib/utils"
 
 /**
@@ -13,12 +15,18 @@ import { cn } from "@/lib/utils"
  * /scan?c=HARIOM|REEL|<plant>|<id>|<code> (or BATCH) — the same payload as a GRN label.
  */
 export function LotLabel({ lot, plantId, plantName, className, note }: {
-  /** ``facts``: the readable reel / coil lines (GSM, BF, Polybond, width, weight, vendor, received, reel no). */
-  lot: LotRow & { facts?: ReelFacts | null }; plantId: string; plantName?: string; className?: string
-  /** Optional extra line (opening stock prints its old mark and source); other callers leave it out. */
+  /** ``facts``: the reel / coil label lines in the plant's layout (owner decision 6), worked out by the server. */
+  lot: LotRow & { facts?: PlantReelFacts | ReelFacts | null }; plantId: string; plantName?: string; className?: string
+  /** Optional extra line on a bulk lot label (opening stock prints its old mark and source); reels print none. */
   note?: string
 }) {
-  const url = buildScanUrl(`HARIOM|${lot.entity_type}|${plantId}|${lot.id}|${lot.code}`)
+  const context = usePlantLabelContext()
+  const payload = `HARIOM|${lot.entity_type}|${plantId}|${lot.id}|${lot.code}`
+  if (lot.entity_type === "REEL" && isPlantReelFacts(lot.facts)) {
+    // A reel or coil prints exactly the plant's own label plus the QR: nothing more, nothing less.
+    return <PlantReelLabel facts={lot.facts} qrValue={payload} heading={context.heading || String(plantName || "").toUpperCase()} mill={context.millOf(lot.facts)} />
+  }
+  const url = buildScanUrl(payload)
   return (
     <article className={cn("tube-paper flex break-inside-avoid flex-col gap-2 rounded-xl border-2 border-foreground/80 bg-card p-4 text-foreground", className)} data-testid="lot-label">
       <p className="text-[11px] font-bold uppercase tracking-[.16em] text-muted-foreground">{plantName ? `${plantName} · ` : ""}{lot.entity_type === "REEL" ? (lot.physical_form === "COIL" ? "Coil" : "Reel") : "Lot"}</p>
@@ -27,7 +35,7 @@ export function LotLabel({ lot, plantId, plantName, className, note }: {
       <div className="flex items-end justify-between gap-3">
         <div className="min-w-0 flex-1 space-y-1">
           {lot.entity_type === "REEL" && hasReelFacts(lot.facts) ? (
-            <ReelLabelFacts facts={lot.facts} />
+            <ReelLabelFacts facts={lot.facts as ReelFacts} />
           ) : (
             <>
               <p className="text-[16px] font-semibold leading-tight">{lot.item_name}</p>

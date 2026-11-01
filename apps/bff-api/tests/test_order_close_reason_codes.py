@@ -50,3 +50,45 @@ def test_a_new_code_is_created_as_an_order_close_reason(monkeypatch):
     response, posted = _create(monkeypatch, [{'id': 'x', 'code': 'SO-OTHER', 'category': 'SO_CLOSE'}])
     assert response.status_code == 200
     assert posted[0]['code'] == 'SO-BALANCE-NOT-REQ' and posted[0]['category'] == sales.ORDER_CLOSE_CATEGORY
+
+
+def _post(monkeypatch, path, body):
+    sent = {}
+
+    async def fake_proxy(base, url, request, token, json_body=None, **kwargs):
+        sent['url'] = url
+        sent['json'] = json_body
+        from fastapi.responses import JSONResponse
+        return JSONResponse({'id': 'o1', 'lines': [], 'hold_history': [{'reason_label': 'Payment or credit cleared', 'reason_note': 'paid'}]})
+
+    async def fake_emit(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(sales, 'proxy_to_service', fake_proxy)
+    monkeypatch.setattr(sales, 'emit_from_response', fake_emit)
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=_app()), base_url='http://test') as client:
+            return await client.post(path, json=body)
+
+    return asyncio.run(run()), sent
+
+
+def test_close_reason_is_passed_to_the_sales_service_which_checks_it(monkeypatch):
+    """1 Nov 2026: the sales service validates the code; the BFF only refuses a missing code."""
+    response, sent = _post(monkeypatch, '/api/sales/orders/o1/cancel', {'reason_code': 'so-other', 'note': 'Customer closed plant'})
+    assert response.status_code == 200
+    assert sent['json'] == {'reason_code': 'SO-OTHER', 'reason_note': 'Customer closed plant', 'note': 'Customer closed plant'}
+
+
+def test_free_text_only_close_or_resume_is_refused(monkeypatch):
+    for path in ('/api/sales/orders/o1/short-close', '/api/sales/orders/o1/hold', '/api/sales/orders/o1/resume'):
+        response, sent = _post(monkeypatch, path, {'reason': 'customer said so'})
+        assert response.status_code == 422, path
+        assert sent == {}
+
+
+def test_resume_sends_its_reason(monkeypatch):
+    response, sent = _post(monkeypatch, '/api/sales/orders/o1/resume', {'reason_code': 'RS-PAYMENT', 'reason_note': 'paid'})
+    assert response.status_code == 200
+    assert sent['url'].endswith('/resume') and sent['json']['reason_code'] == 'RS-PAYMENT'

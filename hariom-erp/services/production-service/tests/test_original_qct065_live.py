@@ -18,7 +18,7 @@ os.environ["DATABASE_URL"] = URL
 from src.database import Base, engine
 from src.models import QualityHold, QualityInspection
 from src.routers.planning import _build_spec_snapshot
-from src.routers.quality import InspectionCreate, create_inspection, release_hold
+from src.routers.quality import InspectionCreate, create_inspection, release_hold, HoldReleasePayload
 from tests.test_original_qct043_live import (
     PLANT,
     QC,
@@ -28,6 +28,10 @@ from tests.test_original_qct043_live import (
     _create_approved_spec,
     _issue_job,
 )
+
+# Owner decision 4 (1 Nov 2026): a hold release always carries a QC_RELEASE reason code.
+RELEASE_REASON = HoldReleasePayload(reason_code="QR-RETEST-OK", reason_note="Retest passed")
+
 
 
 def setup_module() -> None:
@@ -73,6 +77,7 @@ def test_qct065_inspector_and_store_concession_denied():
         with pytest.raises(HTTPException) as inspector_denied:
             release_hold(
                 recorded.hold_id,
+                RELEASE_REASON,
                 db=db,
                 plant_id=PLANT,
                 current_user=QC,
@@ -82,6 +87,7 @@ def test_qct065_inspector_and_store_concession_denied():
         with pytest.raises(HTTPException) as store_denied:
             release_hold(
                 recorded.hold_id,
+                RELEASE_REASON,
                 db=db,
                 plant_id=PLANT,
                 current_user=STORE,

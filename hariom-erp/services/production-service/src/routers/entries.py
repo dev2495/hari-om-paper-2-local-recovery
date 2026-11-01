@@ -15,7 +15,10 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..dispatch_quantities import dispatchable_quantity, shipping_allowance, qc_excluded_quantities
 from ..models import JobCard, JobCardStage, JobCardStageSegment, QualityHold, QualityInspection, PackingRecord, Dispatch, MonthlyMaterialClose
-from ..entry_models import StageEntry, EntryRevision, InputAllocation, EntryReceipt, CompletionEffect, ResidualWip
+from ..entry_models import StageEntry, EntryRevision, InputAllocation, EntryReceipt, CompletionEffect, ResidualWip, FgBox
+from .. import boxes as box_rules
+from .. import short_close as short_rules
+from ..reasons import resolve_reason
 from ..utils.auth import get_current_plant, get_current_plant_scope, get_current_user, require_role
 from ..lifecycle_rules import planned_in_stage_units, stage_unit
 from ..quality_eval import evaluate_final_spec, instrument_readiness_for_snapshot, instrument_not_ready_detail
@@ -39,6 +42,10 @@ class Mutation(BaseModel):
     request_id:str=Field(min_length=8,max_length=100)
     expected_version:int|None=None
     reason:str=""
+    # Owner decision 4 (2026-11-01): a "why" is a code from Masters › Reason codes (+ note). ``reason`` keeps
+    # the "Label — note" text older screens read; a void, retry, reopen or reading correction needs the code.
+    reason_code:str|None=None
+    reason_note:str|None=None
 
 
 class EntryInput(Mutation):
@@ -73,12 +80,19 @@ class CloseInput(Mutation):
     location_id:uuid.UUID|None=None
     short_close:bool=False
     residual_disposition:str|None=None
+    # Leftover input held or scrapped at close (LEFTOVER_INPUT); reason_code/reason_note is the short close (STAGE_SHORT_CLOSE).
+    residual_reason_code:str|None=None
+    residual_reason_note:str|None=None
     reel_issue_ids:list[uuid.UUID]=Field(default_factory=list,max_length=100)
 
 
 class Observations(Mutation):
     samples:list[dict]=Field(max_length=100)
     instrument:dict|None=None
+    # Free remark beside a reading correction (kept on the revision after the reason).
+    remark:str|None=Field(default=None,max_length=500)
+    # Who took the readings (owner decision 7, 2026-11-01): an active employee of the stage's department.
+    operator_id:uuid.UUID|None=None
 
 
 class BatchStep(BaseModel):
@@ -141,6 +155,64 @@ def previous(job,stage):
 
 
 QC_GATE_OVERRIDE_KEY="qc_gate_override_reason"
+# Reasons on a run (owner decision 4, 2026-11-01): codes from Masters › Reason codes, checked by master data.
+#   Rejected pieces or cutting loss → SCRAP ("Floor rejection"): details.reject_code (+ reject_note). The old
+#   two-letter codes are the seeded SCRAP codes; the old "OT" (other) is RJ-OTHER.
+#   Overrides → OVERRIDE: for each override that applies (key K = overproduction_reason, carryover_reason,
+#   qc_gate_override_reason) details.K_code (+ K_note); one shared details.override_reason_code (+
+#   override_reason_note) covers every override without its own code. The server stores K = "Label — note",
+#   K_code, K_label and K_note, so the run list, plan vs actual and reports keep reading K.
+LEGACY_REJECT_CODES={"OT":"RJ-OTHER"}
+OVERRIDE_WHAT={"overproduction_reason":"output above 110% of the target","carryover_reason":"the held carryover","qc_gate_override_reason":"taking batches before their QC"}
+
+
+def _text(value):
+    value=str(value or "").strip()
+    return value or None
+
+
+def reject_code_of(details):
+    code=str((details or {}).get("reject_code") or "").strip().upper()
+    return LEGACY_REJECT_CODES.get(code,code)
+
+
+def resolve_reject(e,job,token=None):
+    """Rejected pieces or cutting loss on a run need a SCRAP code; stores code, label, note and the old text."""
+    details=dict(e.details or {})
+    code=reject_code_of(details)
+    # Once checked, reject_reason holds "Label — note": the note is then only reject_note.
+    note=_text(details.get("reject_note")) if ("reject_note" in details or details.get("reject_label")) else _text(details.get("reject_reason"))
+    choice=resolve_reason(category="SCRAP",code=code,note=note,plant_id=getattr(job,"plant_id",None),token=token,what="the rejected or lost pieces")
+    details.update(reject_code=choice.code,reject_label=choice.label,reject_note=choice.note,reject_reason=choice.text)
+    if e.cutting_loss_pcs and not _text(details.get("cutting_loss_reason")):details["cutting_loss_reason"]=choice.text
+    e.details=details
+    return choice
+
+
+def override_requested(details,key):
+    details=details or {}
+    return bool(_text(details.get(key)) or _text(details.get(f"{key}_code")))
+
+
+def resolve_override(e,job,key,token=None):
+    """An override that applies needs an OVERRIDE code (its own K_code, else the shared override_reason_code)."""
+    details=dict(e.details or {})
+    code=_text(details.get(f"{key}_code")) or _text(details.get("override_reason_code"))
+    if f"{key}_note" in details or details.get(f"{key}_label"):note=_text(details.get(f"{key}_note"))
+    else:note=_text(details.get("override_reason_note"))
+    choice=resolve_reason(category="OVERRIDE",code=code,note=note,plant_id=getattr(job,"plant_id",None),token=token,what=OVERRIDE_WHAT.get(key,"this override"))
+    details.update({key:choice.text,f"{key}_code":choice.code,f"{key}_label":choice.label,f"{key}_note":choice.note})
+    e.details=details
+    return choice
+
+
+def correction_reason(payload,job,user,what):
+    """Void / retry / reopen / reading correction: an ENTRY_CORRECTION code is required."""
+    return resolve_reason(category="ENTRY_CORRECTION",code=payload.reason_code,note=payload.reason_note,plant_id=job.plant_id,token=user.get("token"),what=what)
+
+
+def revision(e,user,reason,choice=None):
+    return EntryRevision(entry_id=e.id,row_version=e.row_version,payload=jsonable_encoder(entry_dict(e)),actor=user["sub"],reason=choice.text if choice else reason,reason_code=choice.code if choice else None,reason_label=choice.label if choice else None)
 
 
 def stage_has_qc(job,stage):
@@ -264,7 +336,7 @@ def entry_dict(e):
 
 
 def residual_dict(r):
-    return {"id":str(r.id),"stage":r.stage,"source_entry_id":str(r.source_entry_id),"quantity":r.quantity,"unit":r.unit,"disposition":r.disposition,"status":r.status,"reason":r.reason,"created_by":r.created_by,"created_at":r.created_at,"resolved_by":r.resolved_by,"resolved_at":r.resolved_at,"row_version":r.row_version}
+    return {"id":str(r.id),"stage":r.stage,"source_entry_id":str(r.source_entry_id),"quantity":r.quantity,"unit":r.unit,"disposition":r.disposition,"status":r.status,"reason":r.reason,"reason_code":getattr(r,"reason_code",None),"reason_label":getattr(r,"reason_label",None),"created_by":r.created_by,"created_at":r.created_at,"resolved_by":r.resolved_by,"resolved_at":r.resolved_at,"row_version":r.row_version}
 
 
 def flow(db,job):
@@ -284,6 +356,7 @@ def flow(db,job):
     for r in residuals:
         if r.status!="REVERSED":used[r.source_entry_id]=int(used.get(r.source_entry_id,0))+r.quantity
     profile=(job.spec_snapshot or {}).get("qc_profile") or {};states=[]
+    boxed=box_rules.box_summary(db,job) if box_rules.box_mode(db,job) else None
     for stage in route(job):
         row=stage_map[stage];actual=[e for e in all_entries if e.stage==stage and e.status=="SUBMITTED"];snapshot=row.actuals_snapshot or {};evaluations=[]
         for e in actual:
@@ -324,7 +397,12 @@ def flow(db,job):
             waiting_final=sum(e.accepted for e in actual if e.id not in qc_cleared_ids(db,job,stage))
             if waiting_final>0:blockers.append(f"{waiting_final} pcs on Process still need QC accepted (Process QC is the final QC)")
         status=row.status;retained=0
-        if stage=="DISPATCH":
+        if stage=="DISPATCH" and boxed is not None:
+            # Box cards (owner decision 2026-11-01): the boxes are the finished goods and the dispatch unit.
+            packed=boxed["boxed_pcs"];retained=boxed["retained_pcs"]
+            status="COMPLETED" if row.status=="COMPLETED" else "RUNNING" if accepted>0 else row.status
+            cap=boxed["packed_pcs"];blockers=[] if status=="COMPLETED" else ["Ship the boxes through Logistics Dispatch"]
+        elif stage=="DISPATCH":
             packed=int(dispatchable_quantity(job,packing_record,stage_map.get("QC")))
             retained=int(snapshot.get("retained_fg_qty") or 0)
             status="COMPLETED" if packed>0 and accepted+retained>=packed or snapshot.get("all_qc_rejected") else "RUNNING" if accepted>0 else row.status
@@ -334,13 +412,22 @@ def flow(db,job):
         # Process runs whose pieces do not match bamboo × pcs (flagged, never refused) and how the stage was closed,
         # for the card banner and the printed card (client 2026-10-28).
         gaps=[(e.details or {}).get("count_gap") for e in actual if (e.details or {}).get("count_gap")]
-        states[-1].update(count_gap_runs=len(gaps),count_gap_pcs=sum(int(g.get("gap") or 0) for g in gaps),close_kind=snapshot.get("close_kind"),closed_by=snapshot.get("closed_by"),close_reason=snapshot.get("close_reason") or snapshot.get("auto_reason"))
+        states[-1].update(count_gap_runs=len(gaps),count_gap_pcs=sum(int(g.get("gap") or 0) for g in gaps),close_kind=snapshot.get("close_kind"),closed_by=snapshot.get("closed_by"),close_reason=snapshot.get("close_reason") or snapshot.get("auto_reason"),
+                          short_close=snapshot.get("short_close"),returned_pcs=int(snapshot.get("returned_pcs") or 0),target_pcs=snapshot.get("effective_target_pcs"))
+        if status!="COMPLETED" and stage in ("WINDER","OVEN","PROCESS") and accepted<target:
+            # What a short close now would give back to the order (owner decision 1): target pcs − good pcs.
+            ppb=planning._pcs_per_bamboo_from_snapshot(job.spec_snapshot or {})
+            states[-1]["short_return_preview"]=int(max(0,math.floor(short_rules.stage_target_pcs(job,row)-short_rules.to_pcs(stage,accepted,ppb)+1e-6)))
         if stage=="PROCESS" and states[-1]["completes_card"]:
             snap=job.spec_snapshot or {}
             states[-1]["completion_preview"]={"fg_qty":accepted,"fg_code":snap.get("product_code") or snap.get("sales_order_line_product_code"),"packing":planning._packing_consumption_snapshot(packed_qty=float(accepted),spec_snapshot=dict(snap))}
+            if boxed is not None:
+                size=boxed["qty_per_box"];left=max(0,accepted-boxed["boxed_pcs"])
+                states[-1]["completion_preview"]["boxes"]={"qty_per_box":size,"boxed":boxed["box_count"],"boxed_pcs":boxed["boxed_pcs"],"unboxed_pcs":left,
+                    "full_boxes_at_close":(left//size) if size else 0,"part_box_pcs":(left%size) if size else left}
         if stage=="DISPATCH":states[-1].update({"retained_fg_qty":retained,"surplus_settlement":snapshot.get("surplus_settlement"),"dispatchable_qty":packed,"max_ship_qty":max(0,shipping_allowance(job,packed,row)-accepted),**qc_excluded_quantities(job,packing_record,stage_map.get("QC")),"all_qc_rejected":bool(snapshot.get("all_qc_rejected"))})
     pending=db.query(func.count(CompletionEffect.id)).filter(CompletionEffect.job_card_id==job.id,CompletionEffect.status.in_(["PENDING","RUNNING","FAILED"])).scalar()
-    return {"job_card_id":str(job.id),"season":(job.spec_snapshot or {}).get("season"),"recipe_revision":((job.material_plan_snapshot or {}).get("recipe_snapshot") or {}).get("season_revision"),"stages":states,"pending_effects":pending,"residual_wip":[residual_dict(r) for r in residuals],"final_samples":[{"sample_id":i.sample_id,"status":i.status,"readings":i.readings,"qc_name":i.created_by,"recorded_at":i.created_at,"workflow_status":(i.evaluation or {}).get("workflow_status")} for i in inspections if i.stage_type=="QC"],"active_stages":[s["stage"] for s in states if s["status"]=="RUNNING"]}
+    return {"job_card_id":str(job.id),"boxes":boxed,"released_qty":short_rules.current_released(job),"returned_qty":float(job.returned_qty or 0.0),"released_pcs":short_rules.released_pcs(job),"season":(job.spec_snapshot or {}).get("season"),"recipe_revision":((job.material_plan_snapshot or {}).get("recipe_snapshot") or {}).get("season_revision"),"stages":states,"pending_effects":pending,"residual_wip":[residual_dict(r) for r in residuals],"final_samples":[{"sample_id":i.sample_id,"status":i.status,"readings":i.readings,"qc_name":i.created_by,"recorded_at":i.created_at,"workflow_status":(i.evaluation or {}).get("workflow_status")} for i in inspections if i.stage_type=="QC"],"active_stages":[s["stage"] for s in states if s["status"]=="RUNNING"]}
 
 
 def replay(db,job,payload,action):
@@ -351,13 +438,42 @@ def replay(db,job,payload,action):
     return None
 
 
-def finish(db,job,payload,action,user,response):
+def finish(db,job,payload,action,user,response,reason_choice=None):
     result=jsonable_encoder(response)
     db.add(EntryReceipt(job_card_id=job.id,request_id=payload.request_id,fingerprint=fingerprint({"action":action,**payload.model_dump(mode="json")}),response=result))
-    planning._record_audit_event(db=db,plant_id=job.plant_id,entity_type="job_card",entity_id=job.id,action=action,actor_id=user["sub"],actor_role=",".join(user.get("roles",[])),job_card_id=job.id,request_id=payload.request_id,payload={"reason":payload.reason,"result":result})
+    # A master-checked reason goes on the audit as text + code + label (owner decision 4).
+    reason={"reason":reason_choice.text,"reason_code":reason_choice.code,"reason_label":reason_choice.label} if reason_choice else {"reason":payload.reason}
+    planning._record_audit_event(db=db,plant_id=job.plant_id,entity_type="job_card",entity_id=job.id,action=action,actor_id=user["sub"],actor_role=",".join(user.get("roles",[])),job_card_id=job.id,request_id=payload.request_id,payload={**reason,"result":result})
     if db.info.get("entry_batch"):db.flush()
-    else:db.commit()
+    else:
+        db.commit()
+        deliver_now(db)
     return result
+
+
+def deliver_now(db):
+    """Post this card's new box FG and order returns straight away (the worker retries anything that fails)."""
+    keys=db.info.pop("deliver_now",[])
+    if not keys:return
+    from ..completion_worker import deliver_keys
+    try:deliver_keys(keys)
+    except Exception:pass
+
+
+def queue_delivery(db,keys):
+    db.info.setdefault("deliver_now",[]).extend(keys)
+
+
+def pack(db,job,user,final=False,force=False):
+    """Pack this card's QC-cleared Process pcs into boxes (owner decision 2026-11-01)."""
+    if not force and not box_rules.box_mode(db,job):return []
+    db.flush()
+    made=box_rules.pack_boxes(db,job,user,cleared_ids=qc_cleared_ids(db,job,"PROCESS"),flags_for=lambda e:qc_flags(job,e),final=final,force=force)
+    box_rules.refresh_box_flags(db,job,lambda e:qc_flags(job,e))
+    if made:
+        queue_delivery(db,[f"{job.id}:BOX:{b.id}:fg_box" for b in made])
+        planning._record_audit_event(db=db,plant_id=job.plant_id,entity_type="job_card",entity_id=job.id,action="boxes_packed",actor_id=user["sub"],actor_role=",".join(user.get("roles",[])),job_card_id=job.id,payload={"boxes":[{"box_code":b.box_code,"qty":b.qty,"is_part":bool(b.is_part)} for b in made],"final":final})
+    return made
 
 
 # Who may be named on an entry. Any active employee can be the operator who ran the
@@ -381,6 +497,18 @@ def employee(employee_id,user,plant,role=None):
 def verified_employee(db,employee_id,user,plant,role):
     cache=db.info.get("entry_batch_employees",{})
     return cache[(str(employee_id),role)] if (str(employee_id),role) in cache else employee(employee_id,user,plant,role)
+
+
+# The department in Masters › Employees that runs each floor stage (owner decision 7, 2026-11-01).
+STAGE_DEPARTMENT={"WINDER":"WINDER","OVEN":"OVEN","PROCESS":"PROCESS","PACKING":"PACKING"}
+
+
+def check_department(row,stage):
+    """Every floor log names an active operator of the stage's own department."""
+    need=STAGE_DEPARTMENT.get(stage)
+    if not need or not row:return
+    have=str(row.get("department") or "").strip().upper()
+    if have!=need:raise HTTPException(422,f"{row.get('name') or 'This employee'} is not in the {label_stage(stage)} department ({have.title() if have else 'no department'} in Masters › Employees). Choose an operator of the {label_stage(stage)} department.")
 
 
 def verified_fg(item_id,user,plant):
@@ -486,7 +614,7 @@ def nothing_new(db,job,e):
     return any(x.kind!="QC_ONLY" for x in posted) and all(getattr(e,f)==sum(getattr(x,f) for x in posted) for f in ("produced","accepted","input_quantity","cutting_loss_pcs"))
 
 
-def validate_entry(e,job):
+def validate_entry(e,job,token=None):
     if e.kind not in ("PRODUCTION","QC_ONLY","DISPOSITION"):raise HTTPException(422,"Unknown entry kind")
     if e.accepted>e.produced:raise HTTPException(422,"Accepted cannot exceed produced")
     if e.kind=="QC_ONLY":
@@ -500,7 +628,7 @@ def validate_entry(e,job):
     if e.kind=="DISPOSITION":
         if e.stage!="PROCESS" or e.produced or e.accepted or e.input_quantity or e.carry_out_pcs or e.carry_in_pcs<=0 or e.carry_in_pcs!=e.cutting_loss_pcs:raise HTTPException(422,"Disposition must account for held Process carryover as loss, without production")
     elif e.produced<=0:raise HTTPException(422,"Produced quantity must be positive")
-    if (e.rejected or e.cutting_loss_pcs) and not str(e.details.get("reject_reason") or "").strip():raise HTTPException(422,"Reject reason is required")
+    if e.rejected or e.cutting_loss_pcs:resolve_reject(e,job,token)
     start,end=e.details.get("start_time"),e.details.get("end_time")
     try:
         values=[datetime.fromisoformat(str(t).replace("Z","+00:00")) for t in (start,end) if t]
@@ -574,7 +702,7 @@ def refuse_cancelled(job):
     # and no voids, stage closes or reopens (their totals sync would put the card back in progress).
     if job.status=="CANCELLED" or str(job.close_mode or "").upper()=="CANCELLED":raise HTTPException(409,"This job card was cancelled")
 
-def validate_setup(db,job,e):
+def validate_setup(db,job,e,token=None):
     refuse_cancelled(job)
     if e.kind=="QC_ONLY":return
     if e.stage=="DISPATCH":raise HTTPException(409,"Dispatch quantity is recorded through Logistics Dispatch")
@@ -621,6 +749,12 @@ def validate_setup(db,job,e):
         segment.machine_id=e.machine_id;db.flush();planning._sync_stage_row_from_segments(stage,planning._all_stage_segments(db,job.id,e.stage))
         db.info.setdefault("entry_machines",{})[str(e.machine_id)]=machine
     if e.machine_id and e.machine_id not in ([stage.machine_id]+[s.machine_id for s in db.query(JobCardStageSegment).filter_by(job_card_id=job.id,stage_type=e.stage).all()]):raise HTTPException(422,"Machine must be assigned to this stage")
+    current=sum(v.produced for v in entries(db,job,e.stage) if v.id!=e.id)
+    # An upstream short close cuts this stage's target; the 110% guard follows the cut target.
+    effective=(stage.actuals_snapshot or {}).get("effective_target")
+    target=float(effective) if effective is not None else planned_in_stage_units(e.stage,job.planned_qty,planning._pcs_per_bamboo_from_snapshot(job.spec_snapshot or {}))
+    # Above 110% of the target needs an OVERRIDE code; one sent anyway is checked and also covers the machine capacity check.
+    if current+e.produced>target*1.10 or override_requested(e.details,"overproduction_reason"):resolve_override(e,job,"overproduction_reason",token)
     if e.machine_id:
         machine=db.info.get("entry_machines",{}).get(str(e.machine_id))
         if not machine and ((e.details or {}).get("unscheduled_entry") or restored):machine=planning._fetch_machine(e.machine_id,db.info.get("entry_user_token",""),str(job.plant_id));db.info.setdefault("entry_machines",{})[str(e.machine_id)]=machine
@@ -634,11 +768,8 @@ def validate_setup(db,job,e):
         if e.stage=="OVEN" and e.details.get("start_time") and e.details.get("end_time"):
             cycle=(datetime.fromisoformat(str(e.details["end_time"]).replace("Z","+00:00"))-datetime.fromisoformat(str(e.details["start_time"]).replace("Z","+00:00"))).total_seconds()/3600
             if cycle<=0:cycle=None  # reversed card times are flagged (time_reversed), not used as a cycle
-        planning._validate_execution_capacity(db,actual,e.stage,machine,e.accepted+sum(v.accepted for v in matching),e.details,reference_time=datetime.combine(e.business_date,datetime.min.time()),card_cycle_hours=cycle,override_reason=e.details.get("overproduction_reason") or e.details.get("capacity_override_reason"),warnings=warnings)
+        planning._validate_execution_capacity(db,actual,e.stage,machine,e.accepted+sum(v.accepted for v in matching),e.details,reference_time=datetime.combine(e.business_date,datetime.min.time()),card_cycle_hours=cycle,override_reason=e.details.get("overproduction_reason") if e.details.get("overproduction_reason_label") else None,warnings=warnings)
         e.details={**e.details,"machine_warnings":warnings}
-    current=sum(v.produced for v in entries(db,job,e.stage) if v.id!=e.id)
-    target=planned_in_stage_units(e.stage,job.planned_qty,planning._pcs_per_bamboo_from_snapshot(job.spec_snapshot or {}))
-    if current+e.produced>target*1.10 and not str(e.details.get("overproduction_reason") or "").strip():raise HTTPException(409,"Production above 110% of target requires an overproduction reason")
 
 
 @router.patch("/job-cards/{card_id}/entries/{entry_id}")
@@ -651,7 +782,7 @@ def edit_entry(card_id:uuid.UUID,entry_id:uuid.UUID,payload:EntryInput,db:Sessio
     if payload.expected_version!=e.row_version:raise HTTPException(409,"Entry changed; refresh")
     if "Operator" in user.get("roles",[]) and not set(user.get("roles",[]))&{"Owner","Admin","PlantManager"} and e.created_by!=user["sub"]:raise HTTPException(403,"Operators can edit their own drafts only")
     if payload.stage!=e.stage or payload.submit or payload.quantity_mode!="DELTA":raise HTTPException(422,"Stage cannot change in draft edit; use Submit after saving")
-    for key,value in payload.model_dump(exclude={"request_id","expected_version","reason","submit","quantity_mode"}).items():setattr(e,key,value)
+    for key,value in payload.model_dump(exclude={"request_id","expected_version","reason","reason_code","reason_note","submit","quantity_mode"}).items():setattr(e,key,value)
     e.rejected=e.produced-e.accepted
     if e.rejected<0:raise HTTPException(422,"Accepted cannot exceed produced")
     e.row_version+=1;db.add(EntryRevision(entry_id=e.id,row_version=e.row_version,payload=jsonable_encoder(entry_dict(e)),actor=user["sub"],reason=payload.reason or "Draft edited"));db.flush()
@@ -662,10 +793,10 @@ def edit_entry(card_id:uuid.UUID,entry_id:uuid.UUID,payload:EntryInput,db:Sessio
 def entry_history(card_id:uuid.UUID,entry_id:uuid.UUID,db:Session=Depends(get_db),plant:str=Depends(get_current_plant),user:dict=Depends(get_current_user)):
     job=card(db,card_id,plant);e=db.query(StageEntry).filter_by(id=entry_id,job_card_id=job.id).first()
     if not e:raise HTTPException(404,"Entry not found")
-    return [{"version":r.row_version,"payload":r.payload,"reason":r.reason,"actor":r.actor,"created_at":r.created_at} for r in db.query(EntryRevision).filter_by(entry_id=e.id).order_by(EntryRevision.row_version.desc()).all()]
+    return [{"version":r.row_version,"payload":r.payload,"reason":r.reason,"reason_code":r.reason_code,"reason_label":r.reason_label,"actor":r.actor,"created_at":r.created_at} for r in db.query(EntryRevision).filter_by(entry_id=e.id).order_by(EntryRevision.row_version.desc()).all()]
 
 
-def allocate(db,job,e):
+def allocate(db,job,e,token=None):
     upstream=previous(job,e.stage)
     if e.kind=="QC_ONLY":return
     if not upstream:return
@@ -674,7 +805,8 @@ def allocate(db,job,e):
         # record and flagged; material is settled by the monthly stock count and reconciliation.
         if stage_row(db,job,"SLITTING").status!="COMPLETED":e.details={**(e.details or {}),"material_prep_pending":True}
         return
-    override=bool(str((e.details or {}).get(QC_GATE_OVERRIDE_KEY) or "").strip())
+    override=override_requested(e.details,QC_GATE_OVERRIDE_KEY)
+    if override:resolve_override(e,job,QC_GATE_OVERRIDE_KEY,token)
     available_input=available(db,job,e.stage,override=override)
     if e.stage=="PROCESS":
         pcs=planning._pcs_per_bamboo_from_snapshot(job.spec_snapshot or {})
@@ -700,7 +832,7 @@ def allocate(db,job,e):
             if gap:details["count_gap"]=gap
         elif possible!=counted:details["count_gap"]=count_gap(e,pcs,possible,counted)
         e.details=details
-        if (e.carry_out_pcs or e.carry_in_pcs) and not str(e.details.get("carryover_reason") or "").strip():raise HTTPException(422,"Carryover reason required")
+        if e.carry_out_pcs or e.carry_in_pcs:resolve_override(e,job,"carryover_reason",token)
     elif e.carry_in_pcs or e.carry_out_pcs or e.cutting_loss_pcs:raise HTTPException(422,"Cutting loss/carryover are Process-only")
     elif e.input_quantity!=e.produced:raise HTTPException(422,"Input quantity must equal produced quantity for this stage")
     if e.input_quantity>available_input:
@@ -765,7 +897,7 @@ def label_stage(stage):
     return {"WINDER":"Winding","OVEN":"Oven","PROCESS":"Process","PACKING":"Packing","QC":"Final QC"}.get(stage,stage.title())
 
 
-def dispose_residual(db,job,stage,disposition,reason,user):
+def dispose_residual(db,job,stage,disposition,reason,user,reason_code=None,reason_label=None):
     upstream=previous(job,stage)
     if not upstream:return
     for source in entries(db,job,upstream):
@@ -775,8 +907,8 @@ def dispose_residual(db,job,stage,disposition,reason,user):
         old=db.query(ResidualWip).filter_by(job_card_id=job.id,stage=stage,source_entry_id=source.id).first()
         if old:
             if old.status!="REVERSED":continue
-            old.status="HOLD" if disposition=="HOLD" else "DISPOSED";old.disposition=disposition;old.quantity=quantity;old.reason=reason;old.row_version+=1
-        else:db.add(ResidualWip(job_card_id=job.id,stage=stage,source_entry_id=source.id,unit=stage_unit(upstream),quantity=quantity,disposition=disposition,status="HOLD" if disposition=="HOLD" else "DISPOSED",reason=reason,created_by=user["sub"]))
+            old.status="HOLD" if disposition=="HOLD" else "DISPOSED";old.disposition=disposition;old.quantity=quantity;old.reason=reason;old.reason_code=reason_code;old.reason_label=reason_label;old.row_version+=1
+        else:db.add(ResidualWip(job_card_id=job.id,stage=stage,source_entry_id=source.id,unit=stage_unit(upstream),quantity=quantity,disposition=disposition,status="HOLD" if disposition=="HOLD" else "DISPOSED",reason=reason,reason_code=reason_code,reason_label=reason_label,created_by=user["sub"]))
 
 
 @router.post("/job-cards/{card_id}/residual-wip/{residual_id}/resolve")
@@ -786,10 +918,11 @@ def resolve_residual(card_id:uuid.UUID,residual_id:uuid.UUID,payload:ResidualRes
     row=db.query(ResidualWip).filter_by(id=residual_id,job_card_id=job.id).first()
     if not row:raise HTTPException(404,"Residual WIP not found")
     if row.status!="HOLD" or payload.expected_version!=row.row_version:raise HTTPException(409,"Residual WIP changed; refresh")
-    if payload.disposition not in ("SCRAP","RETURN") or not payload.reason.strip():raise HTTPException(422,"Record actual scrap or return with a reason")
+    if payload.disposition not in ("SCRAP","RETURN"):raise HTTPException(422,"Record actual scrap or return with a reason")
+    choice=resolve_reason(category="LEFTOVER_INPUT",code=payload.reason_code,note=payload.reason_note,plant_id=job.plant_id,token=user.get("token"),what="the held leftover input")
     before=residual_dict(row)
-    row.disposition=payload.disposition;row.status="DISPOSED";row.reason=payload.reason;row.resolved_by=user["sub"];row.resolved_at=datetime.utcnow();row.row_version+=1
-    return finish(db,job,payload,f"residual_resolve:{residual_id}",user,{"before":before,"residual":residual_dict(row),"flow":flow(db,job)})
+    row.disposition=payload.disposition;row.status="DISPOSED";row.reason=choice.text;row.reason_code=choice.code;row.reason_label=choice.label;row.resolved_by=user["sub"];row.resolved_at=datetime.utcnow();row.row_version+=1
+    return finish(db,job,payload,f"residual_resolve:{residual_id}",user,{"before":before,"residual":residual_dict(row),"flow":flow(db,job)},reason_choice=choice)
 
 
 def inspect(db,job,e,user):
@@ -915,9 +1048,11 @@ def retry_effect(card_id:uuid.UUID,effect_id:uuid.UUID,payload:Mutation,db:Sessi
     e=db.query(CompletionEffect).filter_by(id=effect_id,job_card_id=job.id).first()
     if not e:raise HTTPException(404,"Posting not found")
     if e.status not in ("FAILED","PENDING") or payload.expected_version!=e.attempts:raise HTTPException(409,"Posting state changed; refresh")
-    if not payload.reason.strip():raise HTTPException(422,"Retry reason is required")
+    # The Retry button sends a fixed system note; a code, when one is sent, is checked (ENTRY_CORRECTION).
+    choice=resolve_reason(category="ENTRY_CORRECTION",code=payload.reason_code,note=payload.reason_note,plant_id=job.plant_id,token=user.get("token"),required=False,what="retrying the posting")
+    if not choice and not payload.reason.strip():raise HTTPException(422,"Retry reason is required")
     e.status="PENDING";e.next_attempt_at=datetime.utcnow()
-    return finish(db,job,payload,f"effect_retry:{effect_id}",user,{"status":e.status,"effect_id":str(e.id)})
+    return finish(db,job,payload,f"effect_retry:{effect_id}",user,{"status":e.status,"effect_id":str(e.id)},reason_choice=choice)
 
 
 @router.post("/job-cards/{card_id}/entries")
@@ -926,11 +1061,13 @@ def create_entry(card_id:uuid.UUID,payload:EntryInput,db:Session=Depends(get_db)
     if roles & {"QC","InProcessQC"} and not roles & {"Owner","Admin","PlantManager"} and payload.kind!="QC_ONLY":raise HTTPException(403,"QC may add observations only")
     # Operators log QC themselves (client 2026-10-27): QC without a run is posted directly; runs stay drafts for the supervisor.
     if "Operator" in roles and payload.submit and payload.kind!="QC_ONLY" and not roles & {"Owner","Admin","PlantManager"}:raise HTTPException(403,"Operator submission is not enabled; save a draft for supervisor review")
-    if str((payload.details or {}).get(QC_GATE_OVERRIDE_KEY) or "").strip() and not roles & {"Owner","Admin","PlantManager"}:raise HTTPException(403,"Only a plant supervisor, Admin or Owner may take batches that are still awaiting QC")
+    if override_requested(payload.details,QC_GATE_OVERRIDE_KEY) and not roles & {"Owner","Admin","PlantManager"}:raise HTTPException(403,"Only a plant supervisor, Admin or Owner may take batches that are still awaiting QC")
     preliminary=card(db,card_id,plant);cached=replay(db,preliminary,payload,"entry_create")
     if cached:return cached
     if payload.submit and payload.kind=="PRODUCTION" and not {"produced","accepted"}<=payload.model_fields_set:raise HTTPException(422,"Quantity produced and accepted quantity are mandatory")
-    operator=verified_employee(db,payload.operator_id,user,plant,"operator") if payload.submit and payload.kind in ("PRODUCTION","DISPOSITION") else None
+    operator=verified_employee(db,payload.operator_id,user,plant,"operator") if payload.submit and (payload.kind in ("PRODUCTION","DISPOSITION") or payload.operator_id) else None
+    if payload.submit and payload.kind=="QC_ONLY" and not payload.operator_id and not db.info.get("entry_batch"):raise HTTPException(422,"Choose the operator who took these readings")
+    if operator:check_department(operator,payload.stage)
     if payload.submit and not db.info.get("entry_batch"):
         machine_id,machine=entry_machine(db,preliminary,payload,user,plant)
         db.info["entry_machines"]={machine_id:machine} if machine_id else {};db.info["entry_user_token"]=user.get("token","")
@@ -940,7 +1077,7 @@ def create_entry(card_id:uuid.UUID,payload:EntryInput,db:Session=Depends(get_db)
     if row.status=="COMPLETED":raise HTTPException(409,"Reopen this stage before adding production")
     number=(db.query(func.max(StageEntry.entry_no)).filter_by(job_card_id=job.id,stage=payload.stage).scalar() or 0)+1
     if payload.quantity_mode not in ("DELTA","TOTAL"):raise HTTPException(422,"Unknown quantity entry mode")
-    data=payload.model_dump(exclude={"request_id","expected_version","reason","submit","quantity_mode"})
+    data=payload.model_dump(exclude={"request_id","expected_version","reason","reason_code","reason_note","submit","quantity_mode"})
     if payload.quantity_mode=="TOTAL":
         version_check=int((row.actuals_snapshot or {}).get("row_version",1))
         if payload.expected_version!=version_check:raise HTTPException(409,"Stage totals changed; review the new delta")
@@ -958,8 +1095,9 @@ def create_entry(card_id:uuid.UUID,payload:EntryInput,db:Session=Depends(get_db)
     if e.accepted>e.produced:raise HTTPException(422,"Accepted cannot exceed produced")
     db.add(e);db.flush()
     if payload.submit:
-        validate_entry(e,job);validate_books(db,job,e);validate_setup(db,job,e);allocate(db,job,e);e.status="SUBMITTED";e.submitted_at=datetime.utcnow();inspect(db,job,e,user);db.flush();sync_totals(db,job,e.stage)
+        token=user.get("token");validate_entry(e,job,token);validate_books(db,job,e);validate_setup(db,job,e,token);allocate(db,job,e,token);e.status="SUBMITTED";e.submitted_at=datetime.utcnow();inspect(db,job,e,user);db.flush();sync_totals(db,job,e.stage)
         if payload.quantity_mode=="TOTAL":cover_stage_batches(db,job,e)
+        if e.stage=="PROCESS":pack(db,job,user)
     db.add(EntryRevision(entry_id=e.id,row_version=e.row_version,payload=jsonable_encoder(entry_dict(e)),actor=user["sub"],reason=payload.reason or "Initial entry"));db.flush()
     return finish(db,job,payload,"entry_create",user,{"entry":entry_view(db,job,e),"flow":flow(db,job)})
 
@@ -978,6 +1116,7 @@ def batch_entries(card_id:uuid.UUID,payload:BatchInput,db:Session=Depends(get_db
         if step.entry.kind in ("PRODUCTION","DISPOSITION"):
             key=(str(step.entry.operator_id),"operator")
             if key not in employees:employees[key]=employee(step.entry.operator_id,user,plant,"operator")
+            check_department(employees[key],step.entry.stage)
         machine_id,machine=entry_machine(db,job,step.entry,user,plant)
         if machine_id:machines[machine_id]=machine
         if step.close:
@@ -1037,7 +1176,8 @@ def submit_entry(card_id:uuid.UUID,entry_id:uuid.UUID,payload:Mutation,db:Sessio
     if not candidate:raise HTTPException(404,"Entry not found")
     cached=replay(db,preliminary,payload,f"submit:{entry_id}")
     if cached:return cached
-    operator=verified_employee(db,candidate.operator_id,user,plant,"operator") if candidate.kind in ("PRODUCTION","DISPOSITION") else None
+    operator=verified_employee(db,candidate.operator_id,user,plant,"operator") if candidate.kind in ("PRODUCTION","DISPOSITION") or candidate.operator_id else None
+    if operator:check_department(operator,candidate.stage)
     machine_id,machine=entry_machine(db,preliminary,candidate,user,plant)
     db.info["entry_machines"]={machine_id:machine} if machine_id else {}
     job=card(db,card_id,plant,True);prior=replay(db,job,payload,f"submit:{entry_id}")
@@ -1046,7 +1186,8 @@ def submit_entry(card_id:uuid.UUID,entry_id:uuid.UUID,payload:Mutation,db:Sessio
     if e.status!="DRAFT" or stage_row(db,job,e.stage).status=="COMPLETED":raise HTTPException(409,"Only an open-stage draft can be submitted")
     if payload.expected_version!=e.row_version:raise HTTPException(409,"Entry changed; refresh")
     if operator:e.operator_name=operator["name"];e.operator_code=operator["employee_code"]
-    validate_entry(e,job);validate_books(db,job,e);validate_setup(db,job,e);allocate(db,job,e);e.status="SUBMITTED";e.row_version+=1;e.submitted_at=datetime.utcnow();inspect(db,job,e,user);db.flush();sync_totals(db,job,e.stage)
+    token=user.get("token");validate_entry(e,job,token);validate_books(db,job,e);validate_setup(db,job,e,token);allocate(db,job,e,token);e.status="SUBMITTED";e.row_version+=1;e.submitted_at=datetime.utcnow();inspect(db,job,e,user);db.flush();sync_totals(db,job,e.stage)
+    if e.stage=="PROCESS":pack(db,job,user)
     db.add(EntryRevision(entry_id=e.id,row_version=e.row_version,payload=jsonable_encoder(entry_dict(e)),actor=user["sub"],reason="Submitted"));db.flush()
     return finish(db,job,payload,f"submit:{entry_id}",user,{"entry":entry_view(db,job,e),"flow":flow(db,job)})
 
@@ -1054,6 +1195,11 @@ def submit_entry(card_id:uuid.UUID,entry_id:uuid.UUID,payload:Mutation,db:Sessio
 @router.post("/job-cards/{card_id}/entries/{entry_id}/observations")
 def save_observations(card_id:uuid.UUID,entry_id:uuid.UUID,payload:Observations,db:Session=Depends(get_db),plant:str=Depends(get_current_plant),user:dict=Depends(require_role(["QC","InProcessQC","Owner","Admin","PlantManager","Operator"]))):
     # Operators log QC as well as output (client 2026-10-27); a separate QC inspector is not required.
+    preliminary=card(db,card_id,plant);cached=replay(db,preliminary,payload,f"observations:{entry_id}")
+    if cached:return cached
+    target=db.query(StageEntry).filter_by(id=entry_id,job_card_id=preliminary.id).first()
+    qc_operator=verified_employee(db,payload.operator_id,user,plant,"operator") if payload.operator_id else None
+    if qc_operator and target is not None:check_department(qc_operator,target.stage)
     job=card(db,card_id,plant,True);prior=replay(db,job,payload,f"observations:{entry_id}")
     if prior:return prior
     refuse_cancelled(job)
@@ -1069,13 +1215,20 @@ def save_observations(card_id:uuid.UUID,entry_id:uuid.UUID,payload:Observations,
         old_r,new_r=(old or {}).get("readings") or {},(new or {}).get("readings") or {}
         return new is not None and all(new_r.get(code)==value for code,value in old_r.items() if value not in (None,""))
     only_added=bool(before) and all(kept(sample,after.get(key)) for key,sample in before.items()) and after!=before
-    reason=payload.reason.strip() or ("QC readings recorded" if not e.samples else "More QC readings added" if only_added else "")
-    if not reason:raise HTTPException(422,"Give the reason for correcting QC readings already recorded on this batch")
+    # Changing or removing recorded readings is a correction: an ENTRY_CORRECTION code (owner decision 4); the
+    # remark follows the reason on the revision. First or added readings carry the system text (or the remark).
+    correcting=bool(e.samples) and not only_added
+    choice=correction_reason(payload,job,user,"correcting QC readings already recorded on this batch") if correcting else None
+    remark=_text(payload.remark)
+    reason=(f"{choice.text} · {remark}" if remark else choice.text) if choice else (remark or payload.reason.strip() or ("QC readings recorded" if not e.samples else "More QC readings added"))
     e.samples=payload.samples
     if payload.instrument is not None:e.details={**(e.details or {}),"instrument":payload.instrument}
+    if qc_operator:e.details={**(e.details or {}),"qc_operator_id":str(payload.operator_id),"qc_operator_name":qc_operator.get("name"),"qc_operator_code":qc_operator.get("employee_code")}
     e.row_version+=1;inspect(db,job,e,user)
-    db.add(EntryRevision(entry_id=e.id,row_version=e.row_version,payload=jsonable_encoder(entry_dict(e)),actor=user["sub"],reason=reason));db.flush()
-    return finish(db,job,payload,f"observations:{entry_id}",user,{"entry":entry_view(db,job,e),"flow":flow(db,job)})
+    if e.stage=="PROCESS" and e.status=="SUBMITTED" and stage_row(db,job,"PROCESS").status!="COMPLETED":pack(db,job,user)
+    elif e.stage=="PROCESS":box_rules.refresh_box_flags(db,job,lambda x:qc_flags(job,x))
+    db.add(EntryRevision(entry_id=e.id,row_version=e.row_version,payload=jsonable_encoder(entry_dict(e)),actor=user["sub"],reason=reason,reason_code=choice.code if choice else None,reason_label=choice.label if choice else None));db.flush()
+    return finish(db,job,payload,f"observations:{entry_id}",user,{"entry":entry_view(db,job,e),"flow":flow(db,job)},reason_choice=choice)
 
 
 @router.post("/job-cards/{card_id}/entries/{entry_id}/void")
@@ -1085,20 +1238,26 @@ def void_entry(card_id:uuid.UUID,entry_id:uuid.UUID,payload:Mutation,db:Session=
     refuse_cancelled(job)
     e=db.query(StageEntry).filter_by(id=entry_id,job_card_id=job.id).first()
     if not e:raise HTTPException(404,"Entry not found")
-    if not payload.reason.strip() or payload.expected_version!=e.row_version:raise HTTPException(409,"Current version and void reason required")
+    if payload.expected_version!=e.row_version:raise HTTPException(409,"Current version and void reason required")
+    choice=correction_reason(payload,job,user,"voiding this run")
     if stage_row(db,job,e.stage).status=="COMPLETED" or db.query(InputAllocation).filter_by(source_entry_id=e.id).first() or db.query(ResidualWip).filter(ResidualWip.source_entry_id==e.id,ResidualWip.status!="REVERSED").first():raise HTTPException(409,"Cannot void closed-stage, consumed or disposed output")
     if e.carry_out_pcs and any(x.entry_no>e.entry_no and x.carry_in_pcs for x in entries(db,job,"PROCESS")):raise HTTPException(409,"Carryover has downstream use; reverse downstream entries first")
+    if e.stage=="PROCESS":
+        in_boxes=[b for b in box_rules.card_boxes(db,job.id) if b.status!="VOID" and any(str(a.get("entry_id"))==str(e.id) for a in (b.allocations or []))]
+        if in_boxes:raise HTTPException(409,f"{sum(int(a.get('pcs') or 0) for b in in_boxes for a in b.allocations if str(a.get('entry_id'))==str(e.id))} pcs of this run are already packed in box {', '.join(b.box_code for b in in_boxes)}. A packed run cannot be voided; log a correction run instead.")
     db.query(InputAllocation).filter_by(consumer_entry_id=e.id).delete();e.status="VOID";e.row_version+=1;db.flush();sync_totals(db,job,e.stage)
     if e.stage=="PROCESS":refresh_process_gaps(db,job);db.flush()
-    db.add(EntryRevision(entry_id=e.id,row_version=e.row_version,payload=jsonable_encoder(entry_dict(e)),actor=user["sub"],reason=payload.reason));db.flush()
-    return finish(db,job,payload,f"void:{entry_id}",user,{"entry":entry_view(db,job,e),"flow":flow(db,job)})
+    db.add(revision(e,user,payload.reason,choice));db.flush()
+    return finish(db,job,payload,f"void:{entry_id}",user,{"entry":entry_view(db,job,e),"flow":flow(db,job)},reason_choice=choice)
 
 
 def effect(db,job,kind,stage):
     key=f"{job.id}:{stage}:{kind}"
     existing=db.query(CompletionEffect).filter_by(effect_key=key).first()
     if not existing:db.add(CompletionEffect(job_card_id=job.id,effect_key=key,kind=kind,payload={"stage":stage,"plant_id":str(job.plant_id)}))
-    elif existing.status=="CANCELLED":existing.status="PENDING"
+    # A reopen leaves a delivered tools / theory posting as it was (issue #4); closing again re-posts it with the
+    # new totals (both are re-computed in full, never added). Posted FG is never re-armed.
+    elif existing.status=="CANCELLED" or (existing.status=="DELIVERED" and kind in ("tools","theory")):existing.status="PENDING";existing.next_attempt_at=datetime.utcnow()
 
 
 @router.post("/job-cards/{card_id}/stages/{stage}/close")
@@ -1124,6 +1283,7 @@ def close_stage(card_id:uuid.UUID,stage:str,payload:CloseInput,db:Session=Depend
     refuse_cancelled(job)
     row=stage_row(db,job,stage);state=next(s for s in flow(db,job)["stages"] if s["stage"]==stage)
     if row.status=="COMPLETED":raise HTTPException(409,"Stage already closed")
+    boxed_mode=stage=="PROCESS" and box_rules.box_mode(db,job)
     if payload.expected_version!=state["row_version"]:raise HTTPException(409,"Stage changed; refresh before closing")
     upstream=previous(job,stage)
     slitting_open=stage=="WINDER" and upstream=="SLITTING" and stage_row(db,job,upstream).status!="COMPLETED"
@@ -1131,7 +1291,10 @@ def close_stage(card_id:uuid.UUID,stage:str,payload:CloseInput,db:Session=Depend
     if state["draft_count"]:raise HTTPException(409,"Submit or discard outstanding drafts")
     if not state["qc"]["ready"]:raise HTTPException(409,{"code":"STAGE_QC_READINGS_SHORT","missing":state["qc"]["missing"],"blockers":state["qc"]["blockers"]})
     if planning._movement_blocking_holds(db,db.query(QualityHold).filter_by(job_card_id=job.id).all()):raise HTTPException(409,"Resolve blocking QC holds before close")
-    if state["accepted_total"]<state["target"] and not (payload.short_close and payload.reason.strip()):raise HTTPException(409,f"{label_stage(stage)} has {state['accepted_total']} of {state['target']} {state['unit']} good: closing now is a short close. Write why it closes short.")
+    closing_short=state["accepted_total"]<state["target"]
+    if closing_short and not payload.short_close:raise HTTPException(409,f"{label_stage(stage)} has {state['accepted_total']} of {state['target']} {state['unit']} good: closing now is a short close. Choose why it closes short.")
+    # Owner decision 4: the short close reason is a STAGE_SHORT_CLOSE code (target met: no reason asked).
+    short_choice=resolve_reason(category="STAGE_SHORT_CLOSE",code=payload.reason_code,note=payload.reason_note,plant_id=job.plant_id,token=user.get("token"),what=f"closing {label_stage(stage)} short") if closing_short else None
     # Reel issues may be linked here but are never required: issue to the floor happens any time and
     # consumption is settled by the monthly stock count and reconciliation (client rule 2026-10-17).
     # Process QC is the final QC (client rule 2026-10-18): every good Process batch must be QC-accepted.
@@ -1145,8 +1308,10 @@ def close_stage(card_id:uuid.UUID,stage:str,payload:CloseInput,db:Session=Depend
         if db.query(JobCardStage).filter(JobCardStage.job_card_id!=job.id,JobCardStage.reel_issue_ids.contains([issue_id])).first():raise HTTPException(409,'Material issue already belongs to another job card; select its own consumed issue')
     residual=available(db,job,stage)
     # Nothing returns from the floor (client 27 Oct): leftover input is held for follow-up or scrapped.
-    if residual and not (payload.residual_disposition in ("SCRAP","HOLD") and payload.reason.strip()):raise HTTPException(409,{"code":"RESIDUAL_WIP","available":residual,"message":f"{residual} {stage_unit(previous(job,stage))} of {label_stage(previous(job,stage))} output were not taken by {label_stage(stage)}. Say what happens to them (hold or scrap) and write a reason to close {label_stage(stage)}."+(" Nothing returns from the floor." if payload.residual_disposition=="RETURN" else "")})
-    if residual:dispose_residual(db,job,stage,payload.residual_disposition,payload.reason,user)
+    if residual and payload.residual_disposition not in ("SCRAP","HOLD"):raise HTTPException(409,{"code":"RESIDUAL_WIP","available":residual,"message":f"{residual} {stage_unit(previous(job,stage))} of {label_stage(previous(job,stage))} output were not taken by {label_stage(stage)}. Say what happens to them (hold or scrap) and choose a reason to close {label_stage(stage)}."+(" Nothing returns from the floor." if payload.residual_disposition=="RETURN" else "")})
+    # Leftover input held or scrapped: a LEFTOVER_INPUT code (owner decision 4).
+    residual_choice=resolve_reason(category="LEFTOVER_INPUT",code=payload.residual_reason_code,note=payload.residual_reason_note,plant_id=job.plant_id,token=user.get("token"),what="the leftover input") if residual else None
+    if residual:dispose_residual(db,job,stage,payload.residual_disposition,residual_choice.text,user,reason_code=residual_choice.code,reason_label=residual_choice.label)
     if payload.reel_issue_ids:row.reel_issue_ids=sorted({str(i) for i in (row.reel_issue_ids or [])+payload.reel_issue_ids})
     if slitting_open:
         # The slitting record was never entered: close it with Winding (no coil postings) so the card
@@ -1155,20 +1320,23 @@ def close_stage(card_id:uuid.UUID,stage:str,payload:CloseInput,db:Session=Depend
         slit_snapshot=dict(slit.actuals_snapshot or {});slit_snapshot.update(closed_at=datetime.utcnow().isoformat(),closed_by=user["sub"],close_kind="CLOSED_WITH_WINDING",material_prep_pending=True,close_reason="Slitting not recorded; material settled by stock count and reconciliation",row_version=int(slit_snapshot.get("row_version",1))+1);slit.actuals_snapshot=slit_snapshot
         for segment in db.query(JobCardStageSegment).filter_by(job_card_id=job.id,stage_type="SLITTING").all():segment.status="COMPLETED";segment.completed_at=datetime.utcnow()
     row.status="COMPLETED";row.entered_by=user["sub"];row.entered_at=datetime.utcnow()
-    snapshot=dict(row.actuals_snapshot or {});snapshot.update(closed_at=datetime.utcnow().isoformat(),closed_by=user["sub"],supervisor_id=str(payload.supervisor_id) if payload.supervisor_id else None,supervisor_name=closed_by_name,close_reason=payload.reason,residual_quantity=residual or 0,residual_disposition=payload.residual_disposition,close_kind="SHORT_CLOSE" if state["accepted_total"]<state["target"] else "TARGET_MET",row_version=state["row_version"]+1);row.actuals_snapshot=snapshot
+    snapshot=dict(row.actuals_snapshot or {});snapshot.update(closed_at=datetime.utcnow().isoformat(),closed_by=user["sub"],supervisor_id=str(payload.supervisor_id) if payload.supervisor_id else None,supervisor_name=closed_by_name,close_reason=short_choice.text if short_choice else (residual_choice.text if residual_choice else None),
+        close_reason_code=short_choice.code if short_choice else None,close_reason_label=short_choice.label if short_choice else None,close_reason_note=short_choice.note if short_choice else None,
+        residual_reason=residual_choice.text if residual_choice else None,residual_reason_code=residual_choice.code if residual_choice else None,residual_reason_label=residual_choice.label if residual_choice else None,residual_reason_note=residual_choice.note if residual_choice else None,
+        residual_quantity=residual or 0,residual_disposition=payload.residual_disposition,close_kind="SHORT_CLOSE" if closing_short else "TARGET_MET",row_version=state["row_version"]+1);row.actuals_snapshot=snapshot
     row.entry_snapshot={**(row.entry_snapshot or {}),"supervisor_name":closed_by_name}
     for segment in db.query(JobCardStageSegment).filter_by(job_card_id=job.id,stage_type=stage).all():segment.status="COMPLETED";segment.completed_at=datetime.utcnow()
-    routing=route(job);index=routing.index(stage)
-    if state['accepted_total']<state['target']:
-        qty=state['accepted_total'];unit=stage_unit(stage)
-        for following in routing[index+1:]:
-            next_unit=stage_unit(following)
-            if unit=='bamboo' and next_unit=='pcs':qty*=planning._pcs_per_bamboo_from_snapshot(job.spec_snapshot or {})
-            unit=next_unit
-            nxt=stage_row(db,job,following);next_snapshot=dict(nxt.actuals_snapshot or {})
-            old_target=int(next_snapshot.get('effective_target',planned_in_stage_units(following,job.planned_qty,planning._pcs_per_bamboo_from_snapshot(job.spec_snapshot or {}))))
-            if qty<old_target:
-                next_snapshot.update(effective_target=qty,row_version=int(next_snapshot.get('row_version',1))+1);nxt.actuals_snapshot=next_snapshot
+    routing=route(job)
+    short=None
+    if closing_short:
+        # Owner decision 1 (2026-11-01): the balance goes back to the order line at once, downstream targets and
+        # planner slots shrink to what this stage passed on; reopening reverses it.
+        short=short_rules.apply_short_close(db,job,stage,row,good=state['accepted_total'],target=state['target'],routing=routing,ppb=planning._pcs_per_bamboo_from_snapshot(job.spec_snapshot or {}),reason=short_choice.text,user=user,
+            reason_code=short_choice.code,reason_label=short_choice.label,reason_note=short_choice.note)
+        if short.get("return_key"):queue_delivery(db,[short["return_key"]+":sales_return"])
+    if boxed_mode:
+        # Process close packs the remainder as a part box (every Process batch is QC-accepted by now).
+        pack(db,job,user,final=True,force=True)
     if stage=="PACKING":
         row.location_id=payload.location_id
         row.entry_snapshot={**(row.entry_snapshot or {}),"fg_item_id":fg_item_id,"stock_status":"UNRESTRICTED"}
@@ -1181,9 +1349,28 @@ def close_stage(card_id:uuid.UUID,stage:str,payload:CloseInput,db:Session=Depend
     job.current_stage,job.status=planning._derive_job_current_stage_and_status(db.query(JobCardStage).filter_by(job_card_id=job.id).all())
     if stage!="DISPATCH":effect(db,job,"tools",stage)
     if stage in ("PROCESS","PACKING","QC") and (stage!="PROCESS" or auto_closed):effect(db,job,"theory",stage)
-    if stage=="QC" or "QC" in auto_closed:effect(db,job,"fg_inward","PACKING")
+    # Box cards post FG per box as it is packed; only older cards post one card-level FG inward here.
+    if (stage=="QC" or "QC" in auto_closed) and not boxed_mode and not box_rules.card_boxes(db,job.id):effect(db,job,"fg_inward","PACKING")
+    if boxed_mode:complete_if_shipped(db,job,force=True)
     db.flush()
-    return finish(db,job,payload,f"close:{stage}",user,{"flow":flow(db,job)})
+    return finish(db,job,payload,f"close:{stage}",user,{"flow":flow(db,job),**({"short_close":short} if short else {})},reason_choice=short_choice or residual_choice)
+
+
+def complete_if_shipped(db,job,force=False):
+    """A box card is done when Process is closed and every box is shipped (or kept by the surplus decision)."""
+    if not force and not box_rules.box_mode(db,job):return False
+    process=db.query(JobCardStage).filter_by(job_card_id=job.id,stage_type="PROCESS").first()
+    if process is not None and process.status!="COMPLETED":return False
+    live=[b for b in box_rules.card_boxes(db,job.id) if b.status!="VOID"]
+    if any(b.status=="PACKED" for b in live):return False
+    shipped=sum(b.qty for b in live if b.status=="DISPATCHED")
+    dispatch=db.query(JobCardStage).filter_by(job_card_id=job.id,stage_type="DISPATCH").first()
+    now=datetime.utcnow()
+    if dispatch is not None and dispatch.status!="COMPLETED":
+        dispatch.status="COMPLETED";dispatch.output_qty=shipped;dispatch.input_qty=shipped;dispatch.actual_end=now
+        dispatch.actuals_snapshot={**(dispatch.actuals_snapshot or {}),"closed_at":now.isoformat(),"produced_total":shipped,"accepted_total":shipped,"row_version":int((dispatch.actuals_snapshot or {}).get("row_version",1))+1,**({"all_qc_rejected":True} if not live else {})}
+    job.status="COMPLETED";job.current_stage="DONE"
+    return True
 
 
 @router.post("/job-cards/{card_id}/stages/{stage}/reopen")
@@ -1193,20 +1380,51 @@ def reopen_stage(card_id:uuid.UUID,stage:str,payload:Mutation,db:Session=Depends
     refuse_cancelled(job)
     row=stage_row(db,job,stage)
     if payload.expected_version!=int((row.actuals_snapshot or {}).get("row_version",1)):raise HTTPException(409,"Stage changed; refresh")
-    if row.status!="COMPLETED" or not payload.reason.strip():raise HTTPException(409,"Closed stage and reopen reason required")
+    if row.status!="COMPLETED":raise HTTPException(409,"Closed stage and reopen reason required")
+    choice=correction_reason(payload,job,user,f"reopening {label_stage(stage)}")
     effects=db.query(CompletionEffect).filter_by(job_card_id=job.id).all()
-    if any(e.kind=='fg_inward' and e.status=='DELIVERED' for e in effects):raise HTTPException(409,"Posted finished goods require governed reversal/additional production")
+    boxed=box_rules.box_mode(db,job)
+    if not boxed and any(e.kind=='fg_inward' and e.status=='DELIVERED' for e in effects):raise HTTPException(409,"Posted finished goods require governed reversal/additional production")
     for e in effects:
         if e.kind=='tools' and e.payload.get('stage')==stage and e.attempts:
             if e.status!='DELIVERED' or e.payload.get('posted_tool_asset_ids')!=[]:raise HTTPException(409,"Posted or uncertain tool usage requires governed reversal/additional production")
     for entry in entries(db,job,stage):
         if entry.business_date:validate_books(db,job,entry)
-    if any(stage_row(db,job,s).status=="COMPLETED" for s in route(job)[route(job).index(stage)+1:]):raise HTTPException(409,"Reopen affected downstream stages first")
-    row.status="RUNNING";snapshot=dict(row.actuals_snapshot or {});snapshot["reopened_count"]=int(snapshot.get("reopened_count",0))+1;snapshot["row_version"]=int(snapshot.get("row_version",1))+1;row.actuals_snapshot=snapshot;job.current_stage=stage;job.status="IN_PROGRESS"
+    # A box card's Process closed Packing and Final QC by itself: reopening Process reopens them; its boxes stay
+    # packed (the part box stays a part box) and new runs fill new boxes.
+    system_reopen=[s for s in SYSTEM_STAGES if boxed and stage=="PROCESS" and s in route(job) and stage_row(db,job,s).status=="COMPLETED" and str((stage_row(db,job,s).actuals_snapshot or {}).get("close_kind") or "").startswith("AUTO_AFTER_")]
+    if any(stage_row(db,job,s).status=="COMPLETED" for s in route(job)[route(job).index(stage)+1:] if s not in system_reopen):raise HTTPException(409,"Reopen affected downstream stages first")
+    # The checks that can refuse the reopen run before Sales is asked to take the balance back, so a refusal
+    # never leaves the order line and the card disagreeing (Sales commits its reverse at once).
+    if any(r.status!="HOLD" for r in db.query(ResidualWip).filter_by(job_card_id=job.id,stage=stage).filter(ResidualWip.status!="REVERSED").all()):raise HTTPException(409,f"The leftover input of {label_stage(stage)} was scrapped when it closed, so the stage cannot be reopened here. Nothing was changed.")
+    def sales_reverse(lot_id,key,missing_ok=False):
+        try:response=httpx.post(f"{planning.settings.SALES_SERVICE_URL}/sales-orders/release-lots/{lot_id}/stage-returns/reverse",headers={"Authorization":f"Bearer {user.get('token','')}","X-Plant-ID":plant},json={"job_card_id":str(job.id),"return_key":key,"reason":choice.text,"reason_code":choice.code,"reason_label":choice.label},timeout=10)
+        except httpx.HTTPError as exc:raise HTTPException(503,"Could not reach Sales to take back the balance this close gave the order; nothing was reopened. Try again.") from exc
+        if response.status_code==404 and missing_ok:return
+        if response.status_code>=400:
+            try:detail=response.json().get("detail")
+            except ValueError:detail=response.text[:300]
+            raise HTTPException(409,f"{label_stage(stage)} cannot be reopened: {detail}")
+    reversed_close=short_rules.reverse_short_close(db,job,stage,row,sales_reverse=sales_reverse)
+    for name in system_reopen:
+        sys_row=stage_row(db,job,name);sys_row.status="RUNNING";sys_snap=dict(sys_row.actuals_snapshot or {})
+        for k in ("closed_at","closed_by","close_kind","auto_reason"):sys_snap.pop(k,None)
+        sys_snap["row_version"]=int(sys_snap.get("row_version",1))+1;sys_row.actuals_snapshot=sys_snap
+    if system_reopen:
+        dispatch=db.query(JobCardStage).filter_by(job_card_id=job.id,stage_type="DISPATCH").first()
+        if dispatch is not None and dispatch.status=="COMPLETED":dispatch.status="RUNNING"
+    row.status="RUNNING"
+    # The close marked this stage's planner slots done; the latest one runs again, else the next run's slot sync
+    # (all slots done -> stage done) closes the stage behind the floor's back with no close, part box or return.
+    done_slots=db.query(JobCardStageSegment).filter_by(job_card_id=job.id,stage_type=stage,status="COMPLETED").all()
+    if done_slots:
+        last_slot=max(done_slots,key=lambda s:(s.completed_at or datetime.min,s.segment_no or 0));last_slot.status="RUNNING";last_slot.completed_at=None
+    snapshot=dict(row.actuals_snapshot or {});snapshot["reopened_count"]=int(snapshot.get("reopened_count",0))+1;snapshot.update(reopen_reason=choice.text,reopen_reason_code=choice.code,reopen_reason_label=choice.label,reopen_reason_note=choice.note);snapshot["row_version"]=int(snapshot.get("row_version",1))+1;row.actuals_snapshot=snapshot;job.current_stage=stage;job.status="IN_PROGRESS"
     for residual in db.query(ResidualWip).filter_by(job_card_id=job.id,stage=stage).filter(ResidualWip.status!="REVERSED").all():
-        if residual.status!="HOLD":raise HTTPException(409,"Physically disposed WIP requires a governed reversal")
+        if residual.status!="HOLD":raise HTTPException(409,f"The leftover input of {label_stage(stage)} was scrapped when it closed, so the stage cannot be reopened here. Nothing was changed.")
         residual.status="REVERSED";residual.row_version+=1
     for pending in effects:
-        if pending.kind in ('tools','theory','fg_inward') and (pending.payload.get('stage')==stage or (stage=='QC' and pending.kind=='fg_inward')):
+        # Only postings not yet made are called off; a DELIVERED one stays as the record of what was posted (issue #4).
+        if pending.status!="DELIVERED" and pending.kind in ('tools','theory','fg_inward') and (pending.payload.get('stage')==stage or (stage=='QC' and pending.kind=='fg_inward') or pending.payload.get('stage') in system_reopen):
             pending.status="CANCELLED"
-    return finish(db,job,payload,f"reopen:{stage}",user,{"flow":flow(db,job)})
+    return finish(db,job,payload,f"reopen:{stage}",user,{"flow":flow(db,job),**({"reopened_short_close":reversed_close} if reversed_close else {})},reason_choice=choice)

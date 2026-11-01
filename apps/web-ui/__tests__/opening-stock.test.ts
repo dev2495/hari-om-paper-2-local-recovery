@@ -47,8 +47,8 @@ assert.deepEqual(rowProblems(pasted[2]).map((problem) => problem.field), ["item"
 assert.equal(pasted[3].qty, "1200", "quoted commas in a CSV cell")
 assert.equal(pasted[3].location_id, "l1")
 
-const row = { ...blankRow("BULK"), item_id: "g1", qty: "30", on_hold: true, hold_reason: " Lid open ", rate: "" }
-assert.deepEqual(toLine(row), { item_id: "g1", kind: "BULK", qty: 30, location_id: undefined, old_mark: undefined, vendor_name: undefined, vendor_ref: undefined, on_hold: true, hold_reason: "Lid open", unit_cost: undefined })
+const row = { ...blankRow("BULK"), item_id: "g1", qty: "30", on_hold: true, hold_reason_code: "qh-suspect", hold_reason_note: " Lid open ", rate: "" }
+assert.deepEqual(toLine(row), { item_id: "g1", kind: "BULK", qty: 30, location_id: undefined, old_mark: undefined, vendor_name: undefined, vendor_ref: undefined, on_hold: true, hold_reason_code: "QH-SUSPECT", hold_reason_note: "Lid open", unit_cost: undefined })
 const copy = duplicateRow({ ...row, old_mark: "X1" })
 assert.notEqual(copy.key, row.key)
 assert.equal(copy.item_id, "g1")

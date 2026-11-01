@@ -6,8 +6,8 @@ import { FormEvent, useEffect, useRef, useState } from "react"
 import type { Tone } from "@/lib/api-stock"
 import { cn } from "@/lib/utils"
 
-const NO_DETECTOR = "This phone's browser cannot read QR codes in the page (iPhone). Type the AT or lot number below, or use a handheld scanner."
-const TYPE_ONLY_HINT = "Type the AT or lot number, or scan with a handheld scanner (it types and presses Enter). This browser cannot read QR codes with the camera."
+const NO_DETECTOR = "This phone's browser cannot read QR codes in the page (iPhone). Type the AIT / reel or lot number below, or use a handheld scanner."
+const TYPE_ONLY_HINT = "Type the AIT / reel or lot number, or scan with a handheld scanner (it types and presses Enter). This browser cannot read QR codes with the camera."
 
 /** Whether this browser can read codes from the camera in the page (Android Chrome, desktop Chrome / Edge; not iPhone). */
 export function cameraScanSupported(): boolean {
@@ -31,7 +31,7 @@ const FLASH: Record<Tone, string> = {
  * to ``onCode``; the parent answers with a colour through ``flash`` (found, wrong place, issued …), shown
  * as a silent flash over the picture and a short vibration where the phone has one.
  */
-export function ContinuousScanner({ onCode, paused = false, flash, placeholder = "AT or lot number", testId = "continuous-scanner", autoStart = false, typeIn = true }: {
+export function ContinuousScanner({ onCode, paused = false, flash, placeholder = "AIT / reel or lot number", testId = "continuous-scanner", autoStart = false, typeIn = true }: {
   onCode: (value: string) => void
   paused?: boolean
   flash?: { tone: Tone; key: number } | null

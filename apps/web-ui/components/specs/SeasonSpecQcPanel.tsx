@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { ReasonPicker, useReasonChoice } from "@/components/reasons"
 import { command, errorText, seasonApiForPlant, seasonLabel, type Season } from "@/lib/season-api"
 
 const STAGES = [
@@ -66,7 +67,8 @@ export function SeasonSpecQcPanel({
   })
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState<Draft>({})
-  const [note, setNote] = useState("")
+  // Why (optional): a QC_RULE_CHANGE code from Masters › Reason codes (owner decision 4, 1 Nov 2026).
+  const why = useReasonChoice("QC_RULE_CHANGE", plantId, { required: false })
   const [error, setError] = useState("")
   const [saved, setSaved] = useState("")
 
@@ -106,12 +108,12 @@ export function SeasonSpecQcPanel({
         }
         values.push({ stage, parameter, min, max })
       }
-      return client.saveSpecQc(specId, command({ values, note: note.trim() || "Stage QC values set on the spec sheet" }))
+      return client.saveSpecQc(specId, command({ values, ...(why.value.code ? { reason_code: why.value.code, reason_note: why.value.note.trim() || undefined } : {}) }))
     },
     onSuccess: async () => {
       setError("")
       setEditing(false)
-      setNote("")
+      why.reset()
       setSaved("Saved. New job cards from this specification will use these values.")
       await Promise.all([
         cache.invalidateQueries({ queryKey: ["spec-qc-overview", specId] }),
@@ -245,15 +247,9 @@ export function SeasonSpecQcPanel({
             Leave a row empty to follow the global rule (or the customer override). Process limits are always kept inside this
             spec&apos;s final limits. Values apply to every version of this specification for job cards released from now on.
           </p>
-          <input
-            aria-label="Reason for spec-sheet QC values"
-            className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm"
-            placeholder="Reason (e.g. customer drawing rev. 3)"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-          />
+          <ReasonPicker category="QC_RULE_CHANGE" plantId={plantId} label="Reason for these values" required={false} value={why.value} onChange={why.setValue} showErrors={why.touched} compact testIdPrefix="spec-qc-reason" />
           <div className="flex flex-wrap gap-2">
-            <button type="button" data-testid="season-spec-qc-save" disabled={save.isPending} onClick={() => save.mutate()} className="rounded-lg bg-[#102832] px-3 py-2 text-sm font-bold text-white disabled:opacity-50">
+            <button type="button" data-testid="season-spec-qc-save" disabled={save.isPending} onClick={() => { if (why.validate()) save.mutate() }} className="rounded-lg bg-[#102832] px-3 py-2 text-sm font-bold text-white disabled:opacity-50">
               {save.isPending ? "Saving…" : "Save stage QC values"}
             </button>
             <button type="button" onClick={() => { setEditing(false); setError("") }} className="rounded-lg border border-border bg-card px-3 py-2 text-sm font-bold text-muted-foreground">

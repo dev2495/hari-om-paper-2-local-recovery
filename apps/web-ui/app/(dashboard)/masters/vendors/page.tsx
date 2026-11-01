@@ -43,6 +43,8 @@ type Vendor = {
   is_active?: boolean
   legal_name?: string | null
   trade_name?: string | null
+  /** Mill / short name printed on reel labels (owner decision 6, 1 Nov 2026), e.g. AKSHAT. */
+  short_name?: string | null
   contact_name?: string | null
   contact_phone?: string | null
   contact_email?: string | null
@@ -68,7 +70,7 @@ const VENDOR_CATEGORIES = ["Raw paper", "Parchment", "Adhesive", "Packaging", "S
 
 // Every vendor detail is optional (client 2026-10-27); only code and name are needed to save.
 const FORM_FIELDS = [
-  "supplier_code", "name", "category", "legal_name", "trade_name", "gst_no", "pan_no", "msme_no",
+  "supplier_code", "name", "category", "legal_name", "trade_name", "short_name", "gst_no", "pan_no", "msme_no",
   "address", "address_line2", "city", "state", "state_code", "pin_code", "country",
   "contact_name", "contact_phone", "alt_phone", "contact_email",
   "payment_terms_days", "credit_days", "credit_limit", "bank_name", "bank_account_no", "bank_ifsc", "notes",
@@ -761,6 +763,7 @@ function VendorOverview({ vendor }: { vendor: Vendor }) {
         <FieldRow label="MSME / Udyam" value={<span className="font-mono text-xs">{vendor.msme_no || "—"}</span>} />
         {vendor.legal_name ? <FieldRow label="Legal name" value={vendor.legal_name} /> : null}
         {vendor.trade_name ? <FieldRow label="Trade name" value={vendor.trade_name} /> : null}
+        <FieldRow label="Mill name on labels" value={vendor.short_name || <span className="text-muted-foreground">Not set · reel labels print the vendor name</span>} />
       </OverviewGroup>
       <OverviewGroup title="Address">
         <FieldRow label="Address" value={address || "—"} />
@@ -942,6 +945,7 @@ function VendorFormFields({
         <FormField label="Vendor name" required value={form.name} onChange={set("name")} className="sm:col-span-2" testId="vendor-name" />
         <FormField label="Legal name" value={form.legal_name} onChange={set("legal_name")} placeholder="As on the GST certificate" />
         <FormField label="Trade name" value={form.trade_name} onChange={set("trade_name")} />
+        <FormField label="Mill / short name" value={form.short_name} onChange={set("short_name")} maxLength={30} placeholder="e.g. AKSHAT" hint="Prints as MILL NAME on reel and coil labels" testId="vendor-short-name" />
       </FormSection>
 
       <FormSection title="Tax" hint="optional">

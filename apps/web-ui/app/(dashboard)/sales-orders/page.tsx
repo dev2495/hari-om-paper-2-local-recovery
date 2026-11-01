@@ -37,6 +37,8 @@ import { ColorChip, JobCardNo, LifecycleBadge } from "@/components/production/li
 import { CardMixChips, Chip, DueCell, FulfilmentBar, FulfilmentLegend, OrderStatusChip, PlanChip, QcFlagChip, StageDots } from "@/components/sales/order-chips"
 import { OrderClosureDialog, orderClosureAction, orderPlantId } from "@/components/sales/order-closure-dialog"
 import { OrderHoldDialog } from "@/components/sales/order-hold-dialog"
+import { OrderResumeDialog } from "@/components/sales/order-resume-dialog"
+import { useReasonList } from "@/components/reasons"
 import { ReleaseToQueueDialog } from "@/components/sales/release-to-queue-dialog"
 import { PageHeader } from "@/components/workspace/page-header"
 import { QuerySwitch } from "@/components/workspace/query-state"
@@ -44,7 +46,7 @@ import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
 import { useCustomers } from "@/hooks/use-master-data"
 import { usePendingJobCardsByOrder, usePlanningJobCards } from "@/hooks/use-production"
-import { fetchAllSalesOrders, useApproveSalesOrder, usePendingSalesOrders, useResumeSalesOrder, useSalesOrderAggregates, useSalesOrders, useSubmitSalesOrder } from "@/hooks/use-sales"
+import { fetchAllSalesOrders, useApproveSalesOrder, usePendingSalesOrders, useSalesOrderAggregates, useSalesOrders, useSubmitSalesOrder } from "@/hooks/use-sales"
 import { describeErrorDetail } from "@/lib/api-error"
 import { salesOrderReferenceLabel } from "@/lib/sales-order-entry"
 import { lineHasReleaseWork } from "@/lib/sales-release"
@@ -75,8 +77,8 @@ import { cn } from "@/lib/utils"
 const fmt = (value: unknown) => Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })
 const orders_ = (value: unknown) => `${fmt(value)} order${Number(value || 0) === 1 ? "" : "s"}`
 
-type Filters = { origin: string; due: string; expired: boolean; date_from: string; date_to: string; sort: string }
-const EMPTY_FILTERS: Filters = { origin: "", due: "", expired: false, date_from: "", date_to: "", sort: "newest" }
+type Filters = { origin: string; due: string; expired: boolean; date_from: string; date_to: string; sort: string; reason_code: string }
+const EMPTY_FILTERS: Filters = { origin: "", due: "", expired: false, date_from: "", date_to: "", sort: "newest", reason_code: "" }
 
 /** Old links (`?status=open`, `?unreleased=1`, `?due=overdue`…) land on the matching tab and tile. */
 function initialFromParams(params: URLSearchParams | null): { tab: OrderTabKey; tile: KpiTile | null; filters: Filters; search: string } {
@@ -103,6 +105,7 @@ function initialFromParams(params: URLSearchParams | null): { tab: OrderTabKey; 
       date_from: String(params?.get("date_from") || ""),
       date_to: String(params?.get("date_to") || ""),
       sort: String(params?.get("sort") || "newest"),
+      reason_code: String(params?.get("reason_code") || "").toUpperCase(),
     },
   }
 }
@@ -128,7 +131,7 @@ export default function SalesOrdersPage() {
   const [tile, setTile] = useState<KpiTile | null>(initial.tile)
   const [search, setSearch] = useState(initial.search)
   const [filters, setFilters] = useState<Filters>(initial.filters)
-  const [filtersOpen, setFiltersOpen] = useState(() => Boolean(initial.filters.origin || initial.filters.due || initial.filters.expired || initial.filters.date_from))
+  const [filtersOpen, setFiltersOpen] = useState(() => Boolean(initial.filters.origin || initial.filters.due || initial.filters.expired || initial.filters.date_from || initial.filters.reason_code))
   const [pageSize, setPageSize] = useState(25)
   const [pageIndex, setPageIndex] = useState(0)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -142,7 +145,9 @@ export default function SalesOrdersPage() {
 
   const approveOrder = useApproveSalesOrder()
   const submitOrder = useSubmitSalesOrder()
-  const resumeOrder = useResumeSalesOrder()
+  const [resumeOrderRow, setResumeOrderRow] = useState<any | null>(null)
+  // Register filter by cancel / short close / hold reason (SO_CLOSE list, 1 Nov 2026).
+  const closeReasons = useReasonList("SO_CLOSE", orderPlantId({ plant_id: activePlant }))
 
   const deferredSearch = useDeferredValue(search.trim())
   const customersQuery = useCustomers()
@@ -156,7 +161,7 @@ export default function SalesOrdersPage() {
   }, [customers, deferredSearch])
 
   const clientFiltered = tile === "ready"
-  const activeFilterCount = [filters.origin, filters.due, filters.expired, filters.date_from, filters.date_to, filters.sort !== "newest"].filter(Boolean).length
+  const activeFilterCount = [filters.origin, filters.due, filters.expired, filters.date_from, filters.date_to, filters.sort !== "newest", filters.reason_code].filter(Boolean).length
   const offset = pageIndex * pageSize
   const queryParams = useMemo(() => {
     const tabParams = orderTabParams(tab)
@@ -174,6 +179,7 @@ export default function SalesOrdersPage() {
       date_from: filters.date_from || undefined,
       date_to: filters.date_to || undefined,
       sort: filters.sort !== "newest" ? filters.sort : undefined,
+      reason_code: filters.reason_code || undefined,
       ...(clientFiltered ? { status_group: tab === "all" ? "open" : undefined, limit: 500, offset: 0 } : { limit: pageSize + 1, offset }),
     }
   }, [tab, tile, deferredSearch, searchCustomerIds, filters, clientFiltered, pageSize, offset])
@@ -261,7 +267,8 @@ export default function SalesOrdersPage() {
   }
   const handleApprove = (order: any) => run(order, () => approveOrder.mutateAsync({ orderId: String(order.id), plantId: orderPlantId(order) }), `${order.order_no || "Order"} approved. Next: release its lines.`)
   const handleSubmit = (order: any) => run(order, () => submitOrder.mutateAsync({ orderId: String(order.id) }), `${order.order_no || "Order"} sent for approval.`)
-  const handleResume = (order: any) => run(order, () => resumeOrder.mutateAsync({ orderId: String(order.id), plantId: orderPlantId(order) }), `Customer hold lifted on ${order.order_no || "the order"}.`)
+  // Lifting a hold asks why (ORDER_RESUME reason, 1 Nov 2026).
+  const handleResume = (order: any) => setResumeOrderRow(order)
   const openRelease = (order: any) => {
     const ticked = (selectedLines[String(order.id)] || []).filter((id) => releasableLineIds(order).includes(id))
     if (!ticked.length) setSelectedLines((current) => ({ ...current, [String(order.id)]: releasableLineIds(order) }))
@@ -421,6 +428,14 @@ export default function SalesOrdersPage() {
                   <option value="">Customer PO + internal</option>
                   <option value="CUSTOMER_PO">Customer PO</option>
                   <option value="INTERNAL">Internal order</option>
+                </select>
+              </label>
+              <label className="space-y-1">
+                <span className="text-[12px] font-medium text-muted-foreground">Close / hold reason</span>
+                <select data-testid="sales-orders:reason-filter" value={filters.reason_code} onChange={(event) => setFilters((current) => ({ ...current, reason_code: event.target.value }))} className="h-9 w-full rounded-lg border border-input bg-card px-2.5 text-[13px]">
+                  <option value="">Any reason</option>
+                  {(closeReasons.data || []).map((row) => <option key={row.code} value={row.code}>{row.label} ({row.code})</option>)}
+                  {filters.reason_code && !(closeReasons.data || []).some((row) => row.code === filters.reason_code) ? <option value={filters.reason_code}>{filters.reason_code}</option> : null}
                 </select>
               </label>
               <div className="space-y-1">
@@ -648,6 +663,7 @@ export default function SalesOrdersPage() {
         </section>
       </div>
 
+      <OrderResumeDialog order={resumeOrderRow} open={Boolean(resumeOrderRow)} onOpenChange={(open) => { if (!open) setResumeOrderRow(null) }} testIdPrefix="sales-orders:resume" />
       <OrderHoldDialog orders={holdOrders} open={holdOrders.length > 0} onOpenChange={(open) => { if (!open) setHoldOrders([]) }} />
       <OrderClosureDialog order={closureOrder} open={Boolean(closureOrder)} onOpenChange={(open) => { if (!open) setClosureOrder(null) }} />
       <ReleaseToQueueDialog

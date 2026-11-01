@@ -4,7 +4,7 @@
 // https://<site>/scan?c=<payload>, so the phone's own Camera app (iPhone too) lands on this page and,
 // after sign-in, on the page the person's role works on. Job card → floor entry; lot waiting for or
 // failed incoming QC → incoming QC; cleared reel or coil → Reel & coil issue; cleared batch → Material
-// issue; tool → tools register; rack label → its location page for every role (2026-10-28). Anyone else, and lots used up or finished goods, get a lot card with the
+// issue; tool → tools register; rack label → its location page for every role (2026-10-28); box label → its box page (2026-11-01). Anyone else, and lots used up or finished goods, get a lot card with the
 // next step in plain words. Older plain labels (HARIOM|…, hariom://tool/…) and typed codes read the same.
 
 import Link from "next/link"
@@ -21,6 +21,8 @@ import { api } from "@/lib/api"
 import { PLANT_SCOPE_LABELS, canonicalPlantScopeValue } from "@/lib/plant-scope"
 import { serverTime } from "@/lib/job-card-tracking"
 import { parseScanCode } from "@/lib/scan-code"
+import { compactBoxCode } from "@/lib/boxes"
+import { sameNumber } from "@/lib/lot-find"
 import { cn } from "@/lib/utils"
 
 type Tone = "emerald" | "amber" | "rose" | "blue" | "slate"
@@ -246,17 +248,40 @@ async function resolveScan(value: string, outer: URLSearchParams | null, who: Wh
     if (!can(who)) return { type: "tool", code: parsed.code }
     return resolveTool(parsed.code, who)
   }
+  if (parsed.kind === "BOX") {
+    // A finished-goods box label (2026-11-01): the QR link opens the box page. A bare code that looks like a box
+    // but is not one in this plant (a rack or lot numbered the same way) goes on to the typed-code lookups below.
+    const href = `/production/boxes/${encodeURIComponent(parsed.code)}`
+    if (/^(https?:\/\/|\/)/i.test(parsed.raw)) return { type: "redirect", href, page: "the box", code: parsed.code }
+    try {
+      await read(`/api/production/boxes/by-code/${encodeURIComponent(parsed.code)}`)
+      return { type: "redirect", href, page: "the box", code: parsed.code }
+    } catch (error) {
+      if (httpStatus(error) !== 404) return { type: "redirect", href, page: "the box", code: parsed.code }
+    }
+  }
+
+  // A box code typed without its dash or with spaces (b261102007): the server finds it when only one box matches.
+  const looseBox = parsed.kind === "CODE" ? compactBoxCode(parsed.code) : ""
+  if (looseBox) {
+    try {
+      const { data } = await read(`/api/production/boxes/by-code/${encodeURIComponent(looseBox)}`)
+      const code = String(data?.box_code || looseBox)
+      return { type: "redirect", href: `/production/boxes/${encodeURIComponent(code)}`, page: "the box", code }
+    } catch { /* not a box of this plant: try reels, lots, cards and racks */ }
+  }
 
   let kind: "REEL" | "BATCH" | null = parsed.kind === "REEL" || parsed.kind === "BATCH" ? parsed.kind : null
   let id = kind ? parsed.id : ""
   let labelPlant = canonicalPlantScopeValue(parsed.plantId)
 
   if (!kind) {
-    // A typed or hand-scanned code: an AT number, then a lot number (<inward no>-<n>), then a job card number.
+    // A typed or hand-scanned code: an AIT / reel number (older AT too), then a lot number (<inward no>-<n>), then a job card number.
     const code = parsed.code
     try {
       const { data } = await read("/api/inventory/reels", undefined, { search: code, limit: 20 })
-      const reel = (Array.isArray(data) ? data : []).find((row: any) => upper(row.reel_code) === upper(code) || upper(row.inward_metadata?.amigo_no) === upper(code))
+      // Loosely typed serials (ait6284, AIT-06284) match the stored "AIT 06284"; the server normalises the search too.
+      const reel = (Array.isArray(data) ? data : []).find((row: any) => sameNumber(row.reel_code, code) || sameNumber(row.inward_metadata?.amigo_no, code))
       if (reel) { kind = "REEL"; id = String(reel.id); labelPlant = canonicalPlantScopeValue(String(reel.plant_id || "")) }
     } catch { /* fall through to the lot and card lookups */ }
     if (!kind) {
@@ -285,7 +310,7 @@ async function resolveScan(value: string, outer: URLSearchParams | null, who: Wh
           if (rack) return resolveLocation(String(rack.id), String(rack.code), String(rack.plant_id || plant || ""), who)
         } catch { /* not readable in this plant; try the next */ }
       }
-      return { type: "missing", code, detail: "No reel, coil, lot, rack or job card has this number in your plant." }
+      return { type: "missing", code, detail: "No reel, coil, lot, rack, box or job card has this number in your plant." }
     }
   }
 
@@ -330,8 +355,8 @@ function ScanAgain({ title = "Scan another label", autoFocus = false, current = 
       <form onSubmit={submit} className="mt-3 flex items-center gap-2">
         <label className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-xl border border-input bg-card px-3 focus-within:border-ring/70 focus-within:ring-[3px] focus-within:ring-ring/15">
           <ScanLine className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-          <span className="sr-only">AT, lot, rack or job card number</span>
-          <input value={typed} onChange={(event) => setTyped(event.target.value)} placeholder="AT, lot, rack or card number" autoFocus={autoFocus} className="h-full min-w-0 flex-1 border-0 bg-transparent text-[15px] outline-none focus:shadow-none" data-testid="scan-manual-input" />
+          <span className="sr-only">AIT / reel, lot, rack or job card number</span>
+          <input value={typed} onChange={(event) => setTyped(event.target.value)} placeholder="AIT / reel, lot, rack or card number" autoFocus={autoFocus} className="h-full min-w-0 flex-1 border-0 bg-transparent text-[15px] outline-none focus:shadow-none" data-testid="scan-manual-input" />
         </label>
         <button type="submit" className="erp-btn-secondary !h-11 shrink-0"><Search className="h-4 w-4" aria-hidden="true" />Find</button>
       </form>
@@ -487,7 +512,7 @@ function ScanLanding() {
       {view.type === "missing" ? (
         <MessageCard tone="amber" icon={AlertTriangle} eyebrow="Not found" title="We could not read this label">
           {view.code ? <p className="break-all">Scanned: <strong className="font-mono text-foreground">{view.code}</strong></p> : null}
-          <p>{view.detail} Type the AT, lot or card number printed on it, or scan it again.</p>
+          <p>{view.detail} Type the AIT / reel, lot or card number printed on it, or scan it again.</p>
         </MessageCard>
       ) : null}
       {view.type === "empty" ? (

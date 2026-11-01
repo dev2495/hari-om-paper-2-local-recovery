@@ -454,47 +454,86 @@ def render_debit_note_pdf(note: Any, discrepancy_rows: Iterable[dict[str, Any]])
     return buffer.getvalue()
 
 
-def _draw_reel_facts(pdf, text, label: dict[str, Any], meta: dict[str, Any], w: float, h: float, thermal: bool) -> None:
-    """Reel / coil label (client 2026-10-30): AT number big, then item; GSM, BF, Polybond; width, weight,
-    reel no; vendor; received date. Values from incoming QC (averaged) or "(spec)"; blanks stay blank.
-    The QR sits bottom right (drawn by the caller); rows beside it stop short of it."""
+# The plant's own reel label (owner decision 6, 1 Nov 2026; their Excel "REEL PRINT."), as row fractions of
+# the label height (top to bottom) and column fractions of its width. The QR sits right of the last three
+# rows (roll no, serial, weight).
+PLANT_LABEL_ROWS = (0.11, 0.13, 0.09, 0.15, 0.12, 0.22, 0.18)
+PLANT_LABEL_COLUMNS = (0.23, 0.32, 0.45)
+
+
+def _draw_plant_reel_label(pdf, label: dict[str, Any], w: float, h: float, heading: str, qr_value: str) -> None:
+    """One reel / coil label in the plant's layout: heading · MILL NAME | Inv No. | Date · PLYBOND | VARIETY |
+    GSM · values · ROLL NO. | roll no · the AIT serial very large · WEIGHT | kg, crisp black borders and the QR.
+    Nothing else (no vendor / received / GRN / PO / QC words)."""
+    from reportlab.graphics import renderPDF
+    from reportlab.graphics.barcode.qr import QrCodeWidget
+    from reportlab.graphics.shapes import Drawing
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+
     facts = label.get("facts") or {}
-    left, top = 3 * mm, h - 5 * mm
-    beside_qr = w - 29 * mm  # text width left of the 22 mm QR
-    form = str(label.get("physical_form") or "REEL").upper()
-    text(meta.get("legal_entity") or "AMIGO INDUSTRIES", left, top, w * .55, 8, True)
-    text("COIL" if form == "COIL" else "REEL", w * .62, top, w * .34, 8, True)
-    text(label.get("amigo_no") or label.get("code"), left, top - 8.5 * mm, w - 6 * mm, 20, True)
-    text(facts.get("item"), left, top - 13 * mm, w - 6 * mm, 8.5, True, blank="")
+    x0, y0, width, height = 1.5 * mm, 1.5 * mm, w - 3 * mm, h - 3 * mm
+    tops = [y0 + height]
+    for share in PLANT_LABEL_ROWS:
+        tops.append(tops[-1] - share * height)
+    cols = [x0]
+    for share in PLANT_LABEL_COLUMNS:
+        cols.append(cols[-1] + share * width)
+    qr_band = tops[4] - tops[7]
+    qr_size = min(qr_band - 2 * mm, width * 0.30)
+    qr_left = x0 + width - qr_size - 2 * mm
 
-    def grid(keys_labels: list[tuple[str, str]], label_y: float, value_y: float) -> None:
-        column = beside_qr / len(keys_labels)
-        for position, (key, heading) in enumerate(keys_labels):
-            x = left + position * column
-            pdf.setFillColor(MUTED); text(heading, x, label_y, column - 1.5 * mm, 6); pdf.setFillColor(colors.black)
-            text(facts.get(key), x, value_y, column - 1.5 * mm, 9, True, blank="")
+    def centred(value: Any, left: float, right: float, bottom: float, top: float, size: float) -> None:
+        value = str(value if value not in (None, "") else "")
+        if not value:
+            return
+        room_w, room_h = (right - left) - 2.6 * mm, (top - bottom) * 0.80
+        font = "Helvetica-Bold"
+        length = stringWidth(value, font, size)
+        actual = min(size, size * room_w / length if length else size, room_h / 0.72)
+        pdf.setFont(font, actual)
+        pdf.drawCentredString((left + right) / 2, bottom + (top - bottom - actual * 0.70) / 2, value)
 
-    grid([("gsm", "GSM"), ("bf", "BF"), ("ply_bond", "POLYBOND")], top - 17.5 * mm, top - 21.5 * mm)
-    grid([("width_mm", "WIDTH MM"), ("weight_kg", "WEIGHT KG"), ("reel_no", "REEL NO")], top - 26 * mm, top - 30 * mm)
-    vendor = facts.get("vendor")
-    text(f"Vendor: {vendor}" if vendor else "", left, top - 34.5 * mm, beside_qr, 7.5, blank="")
-    received = facts.get("received_date")
-    text(f"Received: {received}" if received else "", left, top - 38.5 * mm, beside_qr, 7.5, blank="")
-    grn = label.get("grn_no") or meta.get("grn_no")
-    bill = label.get("bill_no") or meta.get("invoice_no")
-    if thermal:
-        text("   ".join(part for part in (f"Bill {bill}" if bill else "", f"GRN {grn}" if grn else "") if part), left, 3 * mm, beside_qr, 6.5, blank="")
-    else:
-        text("   ".join(part for part in (f"Bill {bill}" if bill else "", f"GRN {grn}" if grn else "") if part), left, top - 42.5 * mm, beside_qr, 7.5, blank="")
-        text(f"PO {label.get('po_no') or 'Manual inward'}", left, 13.5 * mm, beside_qr, 7.5)
-        # No stock status on paper: the QR opens the lot's live state (client 2026-10-27).
-        text("QC status: scan the QR", left, 9.5 * mm, beside_qr, 7.5)
-        if any(source == "SPEC" for source in (label.get("fact_sources") or {}).values()):
-            text("(spec) = from the PO / material master, not measured yet", left, 4 * mm, beside_qr, 6)
+    pdf.setStrokeColor(colors.black)
+    pdf.setFillColor(colors.black)
+    # Borders: medium outside, thin inside (as in the Excel template).
+    pdf.setLineWidth(1.4)
+    pdf.rect(x0, y0, width, height)
+    pdf.setLineWidth(0.6)
+    for row in range(1, 7):
+        pdf.line(x0, tops[row], (qr_left - 1 * mm) if row > 4 else x0 + width, tops[row])
+    pdf.line(qr_left - 1 * mm, tops[4], qr_left - 1 * mm, y0)          # the QR column
+    for row in (1, 2, 3):                                                  # three cells: rows 2–4
+        for col in (1, 2):
+            pdf.line(cols[col], tops[row], cols[col], tops[row + 1])
+    pdf.line(cols[1], tops[4], cols[1], tops[5])                            # ROLL NO. | roll
+    pdf.line(cols[1], tops[6], cols[1], tops[7])                            # WEIGHT | kg
+
+    text_right = qr_left - 1 * mm
+    centred(heading, x0, x0 + width, tops[1], tops[0], 15)
+    centred(facts.get("mill") or facts.get("vendor"), cols[0], cols[1], tops[2], tops[1], 13)
+    centred(facts.get("invoice_no"), cols[1], cols[2], tops[2], tops[1], 11)
+    centred(facts.get("received_date"), cols[2], cols[3], tops[2], tops[1], 13)
+    for index, heading_text in enumerate(("PLYBOND", "VARIETY", "GSM")):
+        centred(heading_text, cols[index], cols[index + 1], tops[3], tops[2], 11)
+    centred(facts.get("plybond"), cols[0], cols[1], tops[4], tops[3], 20)
+    centred(facts.get("variety"), cols[1], cols[2], tops[4], tops[3], 19)
+    centred(facts.get("gsm"), cols[2], cols[3], tops[4], tops[3], 17)
+    centred("ROLL NO.", cols[0], cols[1], tops[5], tops[4], 11)
+    centred(facts.get("roll_no"), cols[1], text_right, tops[5], tops[4], 19)
+    centred(facts.get("serial") or label.get("amigo_no") or label.get("code"), x0, text_right, tops[6], tops[5], 40)
+    centred("WEIGHT", cols[0], cols[1], tops[7], tops[6], 10)
+    centred(facts.get("weight_kg"), cols[1], text_right, tops[7], tops[6], 32)
+
+    qr = QrCodeWidget(qr_value)
+    bounds = qr.getBounds()
+    drawing = Drawing(qr_size, qr_size, transform=[qr_size / (bounds[2] - bounds[0]), 0, 0, qr_size / (bounds[3] - bounds[1]), 0, 0])
+    drawing.add(qr)
+    renderPDF.draw(drawing, pdf, qr_left, y0 + (qr_band - qr_size) / 2)
 
 
-def build_lot_label_pdf(labels: list[dict[str, Any]], copies: int = 1, profile: str = "PAPER_LOT_4X2") -> bytes:
-    """Saved physical identities on thermal stock or the client's 2 x 4 A4 sheet."""
+def build_lot_label_pdf(labels: list[dict[str, Any]], copies: int = 1, profile: str = "PAPER_LOT_4X2", *, heading: str = "") -> bytes:
+    """Saved physical identities on thermal stock or the client's 2 x 4 A4 sheet. Reels and coils print in the
+    plant's own layout under ``heading`` (the plant master's label heading)."""
     from reportlab.pdfgen import canvas
     from reportlab.pdfbase.pdfmetrics import stringWidth
     from reportlab.graphics import renderPDF
@@ -526,12 +565,8 @@ def build_lot_label_pdf(labels: list[dict[str, Any]], copies: int = 1, profile: 
         is_batch = label.get("entity_type") == "BATCH"
         left, top = 3 * mm, h - 5 * mm
         if not is_batch and isinstance(label.get("facts"), dict):
-            _draw_reel_facts(pdf, text, label, meta, w, h, thermal)
-            # Worked out at print time (never from a saved snapshot), so reprints of old lots get the link too.
-            qr = QrCodeWidget(scan_url(label["qr_value"]) or label["qr_value"])
-            bounds = qr.getBounds(); size = 22 * mm
-            drawing = Drawing(size, size, transform=[size/(bounds[2]-bounds[0]),0,0,size/(bounds[3]-bounds[1]),0,0]); drawing.add(qr)
-            renderPDF.draw(drawing, pdf, w - size - 2 * mm, 4 * mm if thermal else 7 * mm)
+            # The QR link is worked out at print time (never from a saved snapshot), so reprints get it too.
+            _draw_plant_reel_label(pdf, label, w, h, heading or meta.get("legal_entity") or "", scan_url(label["qr_value"]) or label["qr_value"])
             pdf.restoreState()
             if slot == per_page - 1 or index == len(all_labels) - 1:
                 pdf.showPage()

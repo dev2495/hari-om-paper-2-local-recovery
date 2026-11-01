@@ -1,0 +1,241 @@
+<title>TubeOS Go-Live Readiness</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+/* Layout: one reading column of numbered production sections, with wide figure bands and a qty ledger that must add up. */
+:root{
+  --bg:#f5f7f6; --surface:#ffffff; --ink:#14201d; --muted:#56635f; --line:#d9e1de;
+  --accent:#0f766e; --accent-soft:#e3f2ef; --kraft:#9a6b2f; --kraft-soft:#f6ecdd;
+  --ok:#15803d; --ok-soft:#e7f6ec; --warn:#a16207; --warn-soft:#fdf3d8; --flag:#b45309;
+  --display:"Archivo","Helvetica Neue",Arial,sans-serif; --body:"IBM Plex Sans","Segoe UI",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1513;--surface:#16201d;--ink:#e6efec;--muted:#9fb0aa;--line:#28362f;--accent:#2dd4bf;--accent-soft:#11302b;--kraft:#d9a660;--kraft-soft:#2b2214;--ok:#4ade80;--ok-soft:#10291a;--warn:#facc15;--warn-soft:#2a2410;--flag:#fb923c;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0e1513;--surface:#16201d;--ink:#e6efec;--muted:#9fb0aa;--line:#28362f;--accent:#2dd4bf;--accent-soft:#11302b;--kraft:#d9a660;--kraft-soft:#2b2214;--ok:#4ade80;--ok-soft:#10291a;--warn:#facc15;--warn-soft:#2a2410;--flag:#fb923c;color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:16px/1.6 var(--body);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:32px 64px}
+.wrap{max-width:1040px;margin:0 auto;display:flex;flex-direction:column;gap:56px}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0;letter-spacing:-.01em}
+h1{font-size:clamp(32px,5vw,52px);line-height:1.05;font-weight:800}
+h2{font-size:clamp(24px,3vw,32px);line-height:1.15;font-weight:700}
+h3{font-size:18px;font-weight:700}
+p{margin:0;max-width:68ch}
+.eyebrow{font:600 12px/1 var(--body);letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+.muted{color:var(--muted)}
+code,.mono{font-family:var(--mono);font-size:.92em}
+header{display:flex;flex-direction:column;gap:18px;padding-bottom:28px;border-bottom:2px solid var(--ink)}
+.meta{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:13px;font-weight:600;background:var(--accent-soft);color:var(--accent)}
+.chip.ok{background:var(--ok-soft);color:var(--ok)} .chip.kraft{background:var(--kraft-soft);color:var(--kraft)}
+section{display:flex;flex-direction:column;gap:18px}
+.sec-head{display:grid;grid-template-columns:auto 1fr;gap:4px 16px;align-items:baseline}
+.sec-num{font:800 40px/1 var(--display);color:var(--kraft);grid-row:span 2}
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.tile h3{font-size:16px}
+.tile p{font-size:14.5px;color:var(--muted)}
+ul.plain{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;max-width:72ch}
+figure{margin:0;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+figure img{display:block;width:100%;height:auto}
+figcaption{padding:10px 14px;font-size:13.5px;color:var(--muted);border-top:1px solid var(--line)}
+.figs{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.figs.narrow figure{max-width:480px}
+.flow{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch}
+.step{flex:1 1 150px;background:var(--surface);border:1px solid var(--line);border-top:3px solid var(--accent);border-radius:8px;padding:12px 14px;min-width:0}
+.step b{display:block;font-family:var(--display);font-size:15px}
+.step span{font-size:13.5px;color:var(--muted)}
+.step.back{border-top-color:var(--kraft)}
+.tablewrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:14.5px;font-variant-numeric:tabular-nums}
+th,td{padding:10px 14px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+td.n,th.n{text-align:right}
+tr.total td{font-weight:700;border-top:2px solid var(--ink);border-bottom:0}
+.tag{display:inline-block;padding:1px 8px;border-radius:6px;font-size:12px;font-weight:600}
+.tag.back{background:var(--kraft-soft);color:var(--kraft)} .tag.fg{background:var(--ok-soft);color:var(--ok)}
+.callout{background:var(--warn-soft);border-left:4px solid var(--warn);border-radius:6px;padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+.callout.ok{background:var(--ok-soft);border-left-color:var(--ok)}
+.checklist{counter-reset:c;list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.checklist li{counter-increment:c;display:grid;grid-template-columns:32px 1fr;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+.checklist li::before{content:counter(c);font:800 18px/32px var(--display);text-align:center;width:32px;height:32px;border-radius:50%;background:var(--accent-soft);color:var(--accent)}
+.checklist b{display:block}
+.stats{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.stat strong{display:block;font:800 30px/1.1 var(--display);color:var(--accent);font-variant-numeric:tabular-nums}
+.stat span{font-size:13.5px;color:var(--muted)}
+footer{border-top:1px solid var(--line);padding-top:18px;font-size:13px;color:var(--muted)}
+a{color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+
+<div class="wrap">
+<header>
+  <span class="eyebrow">Hari Om TubeOS · Amigo Industries Unit II</span>
+  <h1>Go-live readiness: job cards, boxes, reasons, packing and labels</h1>
+  <p class="muted">What changed in TubeOS for live production, how each flow now works, what was checked, and the few things to do before switching on. Prepared 1 November 2026.</p>
+  <div class="meta"><span class="chip ok">Every decision walked end to end on the test system</span><span class="chip">26 scenarios checked</span><span class="chip">17 defects found and fixed</span><span class="chip kraft">Ready to release after the checklist in section 9</span></div>
+</header>
+
+<section>
+  <div class="sec-head"><span class="sec-num">1</span><h2>In one minute</h2><p class="muted">Seven changes, each built from your decisions on 1 November.</p></div>
+  <div class="grid">
+    <div class="tile"><h3>Short close at any stage</h3><p>What was made moves on to the next stage. The pieces not made go back to the sales order straight away, ready to release again or short close.</p></div>
+    <div class="tile"><h3>Boxes are the dispatch unit</h3><p>Good Process pieces are packed into boxes as they are logged. Each box gets a code and a QR label and becomes finished stock that can ship at once.</p></div>
+    <div class="tile"><h3>QC only flags</h3><p>A reading outside the band is flagged on the run, box and card. Job card QC never holds or rejects. Incoming paper QC still holds as before.</p></div>
+    <div class="tile"><h3>Reasons are codes</h3><p>Every "why" in the system is picked from Masters › Reason codes, with a note when the code is Other. Typed-only reasons are refused.</p></div>
+    <div class="tile"><h3>Packing from masters</h3><p>The spec picks box, plastic and fadda from the Packaging masters. A one-time Packing setup page fills all existing specs.</p></div>
+    <div class="tile"><h3>Your reel label</h3><p>Reel and coil labels now copy your Excel label exactly, with a QR added and the AIT number in large letters.</p></div>
+    <div class="tile"><h3>Operators by department</h3><p>Every floor entry asks for the operator and lists only that stage's department. A new Employee performance report shows each person's output.</p></div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head"><span class="sec-num">2</span><h2>Short close: the quantities always add up</h2><p class="muted">A real card from the test run: 500 pcs, 10 pcs per bamboo, closed short at three stages.</p></div>
+  <div class="flow" aria-label="Card 26/11/02 from release to boxes">
+    <div class="step"><b>Released</b><span>500 pcs · 50 bamboo</span></div>
+    <div class="step back"><b>Winding closed short</b><span>30 of 50 bamboo good · 200 pcs back to the order</span></div>
+    <div class="step back"><b>Oven closed short</b><span>25 of 30 bamboo · 50 pcs back</span></div>
+    <div class="step back"><b>Process closed short</b><span>240 of 250 pcs · 10 pcs back</span></div>
+    <div class="step"><b>Packed in boxes</b><span>240 pcs, last one a part box</span></div>
+  </div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Where the 500 pcs went</th><th>Reason picked</th><th class="n">Pcs</th></tr></thead>
+    <tbody>
+      <tr><td><span class="tag back">Back to order</span> at Winding close</td><td>Paper or input short</td><td class="n">200</td></tr>
+      <tr><td><span class="tag back">Back to order</span> at Oven close</td><td>Stage closed short code</td><td class="n">50</td></tr>
+      <tr><td><span class="tag back">Back to order</span> at Process close</td><td>Stage closed short code</td><td class="n">10</td></tr>
+      <tr><td><span class="tag fg">Finished goods</span> in boxes</td><td>—</td><td class="n">240</td></tr>
+      <tr class="total"><td>Total</td><td></td><td class="n">500</td></tr>
+    </tbody>
+  </table></div>
+  <ul class="plain">
+    <li>The card stays open until every later stage has logged and closed. Later stage targets and planner slots shrink to what was passed on.</li>
+    <li>The order shows the returned pieces as unreleased, with <b>Release</b> and <b>Short close</b> buttons. Short close needs an order close reason.</li>
+    <li>Reopening a stage takes the pieces back from the order, but only if they were not released again or dropped. Otherwise it says why in plain words.</li>
+    <li>Old-form cards follow the same rule: completing below plan needs a Plant Manager and a reason, and the balance goes back.</li>
+  </ul>
+  <div class="figs">
+    {{fig:close-stage-short|The Close Winding dialog: it shows how many pieces go back to the order and needs a reason code before it closes.}}
+    {{fig:order-balance-returned|The order page after a short close: returned pieces show as not released, with Release and Short close.}}
+  </div>
+</section>
+
+<section>
+  <div class="sec-head"><span class="sec-num">3</span><h2>Boxes, labels and the challan</h2><p class="muted">Packing happens at the end of Process. The box is what ships.</p></div>
+  <div class="flow">
+    <div class="step"><b>Process run logged</b><span>Good pcs with their 2 QC readings</span></div>
+    <div class="step"><b>Full boxes packed</b><span>Spec qty per box, e.g. 48 · leftover carries to the next run</span></div>
+    <div class="step"><b>Box code + QR label</b><span>Each box is its own finished-goods lot</span></div>
+    <div class="step"><b>Part box at Process close</b><span>Marked PART BOX with its pcs</span></div>
+    <div class="step"><b>Challan from boxes</b><span>Scan or tick boxes; partial dispatch any time</span></div>
+  </div>
+  <ul class="plain">
+    <li>Boxes can ship while Process is still running, so partial output reaches the customer early. The card completes when every box has shipped.</li>
+    <li>The challan lists every box code, then "N boxes × pcs per box + part box", the box type, plastic and fadda per box from the spec.</li>
+    <li>Box labels print 8 or 21 to an A4 sheet, or one 100 × 75 mm sticker. Reprinting never adds stock. Scanning a box QR opens the box page.</li>
+    <li>Packing material use (boxes, plastic, fadda) is worked out per box from the master weights for the month-end comparison.</li>
+  </ul>
+  <div class="figs">
+    {{fig:box-labels|Box labels for a card: customer, product, size and colour, card, order and PO, box code, pcs, packed date, shift and operator, and the QR.}}
+    {{fig:challan-boxes|A sealed challan: the box list and the packing block come from the spec.}}
+  </div>
+</section>
+
+<section>
+  <div class="sec-head"><span class="sec-num">4</span><h2>Job card QC flags, never holds</h2></div>
+  <ul class="plain">
+    <li>A reading outside its band is saved and flagged in amber on the run, the box, the card, the dispatch register and the challan.</li>
+    <li>No automatic hold is created and the challan is never blocked by a flag. Each check still needs 2 readings before a stage can close.</li>
+    <li>A plant head, Admin or Owner can still put a card on hold on purpose. Only such a hold stops dispatch.</li>
+    <li>Incoming paper QC is unchanged: an out-of-band reel is held until QC decides.</li>
+  </ul>
+</section>
+
+<section>
+  <div class="sec-head"><span class="sec-num">5</span><h2>Every reason is a code</h2><p class="muted">42 reason lists cover every action that asks "why", across sales, floor, QC, stores, purchase, month-end and setup.</p></div>
+  <ul class="plain">
+    <li>Each screen shows a searchable list of the plant's active codes, plus a note. A code with OTHER in it needs a note of at least 5 characters.</li>
+    <li>The service that owns the record checks the code, so typed text alone is refused even through the API.</li>
+    <li>Records keep the code, the label at that moment and the note. Order and card histories, and the new <b>Cancelled / short-closed by reason</b> panel in Sales pulse, show the label.</li>
+    <li>Masters › Reason codes shows the lists in groups, with where each is used. Admins can rename, add or switch off codes.</li>
+  </ul>
+  <div class="figs">
+    {{fig:reason-picker|Cancelling an order: the reason must be picked from the list.}}
+    {{fig:reason-codes-master|Masters › Reason codes, grouped by area, with where each list is used.}}
+  </div>
+</section>
+
+<section>
+  <div class="sec-head"><span class="sec-num">6</span><h2>Packing from the masters</h2></div>
+  <ul class="plain">
+    <li>The spec sheet picks the box, plastic and fadda from Masters › Packaging. With only one plastic and one fadda in the masters, they are filled in by themselves.</li>
+    <li>Sizes and per-piece weights come from the master, and month-end packing theory uses them.</li>
+    <li>A new spec cannot be approved without a box and pcs per box.</li>
+    <li>The <b>Packing setup</b> page (Design › Packing setup) lists every live spec. Set box and pcs per box row by row and save straight to the spec. Open job cards that have not packed a box yet pick up the change.</li>
+  </ul>
+  <div class="figs">
+    {{fig:packing-setup|Packing setup: progress, missing-only filter, master dropdowns, and box codes that need a box master first.}}
+  </div>
+</section>
+
+<section>
+  <div class="sec-head"><span class="sec-num">7</span><h2>Reel and coil labels in your format</h2></div>
+  <div class="figs narrow">
+    {{fig:reel-label|The new reel label: heading, mill, invoice no and date, plybond, variety and GSM, roll no, the AIT number in large letters, weight, and a QR.}}
+  </div>
+  <ul class="plain">
+    <li>New reels are numbered <span class="mono">AIT 06283</span>, <span class="mono">AIT 06284</span> and so on, restarting at <span class="mono">AIT 00001</span> every 1 April.</li>
+    <li>Because your own series is mid-year, the Owner sets the next number once in System › Plants (it can only go up, and needs a reason).</li>
+    <li>Coils slit from a reel carry the reel's number plus <span class="mono">-1</span>, <span class="mono">-2</span>. Old AT- numbers still scan and search.</li>
+    <li>The label heading comes from the plant (AMIGO INDUSTRIES UNIT II). The mill name comes from the vendor's short name.</li>
+  </ul>
+</section>
+
+<section>
+  <div class="sec-head"><span class="sec-num">8</span><h2>Operators and the employee report</h2></div>
+  <ul class="plain">
+    <li>Log output and Log QC, on phone and PC, list only active employees of the department that runs the stage: winder, oven or process. The server refuses an operator from another department.</li>
+    <li>Reports › Employee performance shows runs, made, good, rejected, reject %, flagged QC readings, shifts and last activity per operator, with drill-down and CSV.</li>
+  </ul>
+  <div class="figs">
+    {{fig:employee-report|Employee performance for the last 7 days, by operator and stage.}}
+  </div>
+</section>
+
+<section>
+  <div class="sec-head"><span class="sec-num">9</span><h2>Before switching on</h2><p class="muted">These need your people on the live system. Each takes minutes, except packing setup.</p></div>
+  <ol class="checklist">
+    <li><div><b>Set every operator's department</b>Masters › Employees. Without it the floor forms offer no operator for that stage.</div></li>
+    <li><div><b>Add the missing box masters</b>Box codes used on specs but missing from Masters › Packaging (for example R.125, R.150, N-225, S-300, EXPORT). Packing setup lists them with an Add box link.</div></li>
+    <li><div><b>Fill packing on every live spec</b>Harish uses Design › Packing setup once. New specs need it before approval.</div></li>
+    <li><div><b>Set the next AIT number</b>System › Plants: enter the number after the last reel label printed from Excel.</div></li>
+    <li><div><b>Set mill short names on vendors</b>Masters › Vendors, so labels print "AKSHAT" rather than the full company name.</div></li>
+    <li><div><b>Review the reason lists</b>Masters › Reason codes. Rename or add codes in your own words, and switch off any you will not use.</div></li>
+    <li><div><b>Clear test data on the live system</b>Test reasons, test orders and test cards from earlier trials, with a reviewed script.</div></li>
+  </ol>
+</section>
+
+<section>
+  <div class="sec-head"><span class="sec-num">10</span><h2>Please confirm three choices</h2></div>
+  <div class="grid">
+    <div class="tile"><h3>Part box bigger than the room left</h3><p>Example: 1,000 released and 900 shipped, but the last part box holds 150. The customer gets 900, the 100 pcs of room go back to the order, and the 150-pc box stays as surplus stock.</p></div>
+    <div class="tile"><h3>Two part boxes after a reopen</h3><p>If Process is reopened after its part box was made, the old part box stays and the new runs make another. Boxes are physical, so they are not merged.</p></div>
+    <div class="tile"><h3>Paper theory at Process close</h3><p>Boxes post their packing use as they are packed. Paper use for the card posts when Process closes, as before. A month closed mid-Process shows packing but not paper for that card.</p></div>
+  </div>
+  <p class="muted">Fadda is treated as the putha used inside the box.</p>
+</section>
+
+<section>
+  <div class="sec-head"><span class="sec-num">11</span><h2>How it was checked</h2></div>
+  <div class="stats">
+    <div class="stat"><strong>26</strong><span>scenarios walked on the test system, from order release to challan</span></div>
+    <div class="stat"><strong>17</strong><span>defects found by the independent check and fixed, each with a test</span></div>
+    <div class="stat"><strong>1,500+</strong><span>automated tests passing across production, sales, inventory, spec, masters and the web app</span></div>
+    <div class="stat"><strong>0</strong><span>build errors in the production web build</span></div>
+  </div>
+  <div class="callout ok"><b>What was walked live</b><p>Order release and approval by a second user, full card run with boxes, partial dispatch while Process ran, short close at all three stages with the totals reconciled, reopen and its refusals, split, edit, emergency insert, cancel, retain surplus, operator lists by department, 13 reason inputs, packing setup, reel labels and AIT numbers, and the employee report.</p></div>
+  <div class="callout"><b>Covered by tests rather than walked live</b><p>Coil numbering (no reel was slit on the test system) and old-form cards below plan (no suitable test card).</p></div>
+</section>
+
+<footer>Hari Om TubeOS · prepared for Amigo Industries Unit II · 1 November 2026. Release is done by your team with the usual CloudShell command once the checklist is complete.</footer>
+</div>

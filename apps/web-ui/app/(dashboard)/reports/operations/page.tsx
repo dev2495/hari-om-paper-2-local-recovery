@@ -298,7 +298,7 @@ function OperationsCommandPage() {
                       <tr key={s.id} className="border-b border-border">
                         <td className="font-mono">{String(s.job_card_id || "").slice(0, 8)}</td>
                         <td className="text-right font-bold text-signal-rose-ink">{Math.round(Number(s.gap_qty || 0))}</td>
-                        <td className="pl-2 font-mono">{s.reason_code}</td>
+                        <td className={s.reason_label ? "pl-2" : "pl-2 font-mono"} title={s.reason_code}>{s.reason_label || s.reason_code}</td>
                         <td className="pl-2"><Pill tone={s.decision === "CARRY_FORWARD" ? "ok" : s.decision === "SHORT_CLOSE_SO" ? "warn" : "neutral"}>{s.decision?.replace("_", " ")}</Pill></td>
                       </tr>
                     ))}
@@ -320,7 +320,7 @@ function OperationsCommandPage() {
                     {downtimeRows.slice(0, 8).map((d: any) => (
                       <tr key={d.id} className="border-b border-border">
                         <td className="font-mono">{d.machine_code || String(d.machine_id || "").slice(0, 8)}</td>
-                        <td className="pl-2 font-mono">{d.reason_code}</td>
+                        <td className={d.reason_label ? "pl-2" : "pl-2 font-mono"} title={d.reason_code}>{d.reason_label || d.reason_code}</td>
                         <td className="text-right font-bold">{Math.round(Number(d.duration_minutes || 0))} m</td>
                         <td className="pl-2"><Pill tone={d.is_planned ? "ok" : "warn"}>{d.is_planned ? "PLANNED" : "UNPLANNED"}</Pill></td>
                       </tr>

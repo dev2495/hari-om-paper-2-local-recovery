@@ -76,7 +76,7 @@ def test_bands_resolve_line_over_group_over_type_and_every_save_is_a_version():
         save_tolerances(ToleranceSave(material_type="RAW_PAPER", scope="TYPE", lines=[{"parameter_key": "moisture_pct", "mode": "RANGE", "min_value": 5, "max_value": 9}]), db, OWNER)
         save_tolerances(ToleranceSave(material_type="RAW_PAPER", scope="GROUP", scope_key=group, lines=[{"parameter_key": "gsm", "mode": "PERCENT", "tolerance_value": 4}]), db, OWNER)
         first = save_tolerances(ToleranceSave(material_type="RAW_PAPER", scope="ITEM", scope_key=code, material_group=group, nominals={"gsm": 300},
-                                              lines=[{"parameter_key": "bf", "mode": "RANGE", "min_value": 18, "max_value": 22}], note="supplier spec"), db, OWNER)
+                                              lines=[{"parameter_key": "bf", "mode": "RANGE", "min_value": 18, "max_value": 22}], reason_code="QV-SUPPLIER", reason_note="supplier spec"), db, OWNER)
         assert first["version"] == 1
         db.expire_all()
         profile = db.get(ItemMaster, item.id).quality_profile

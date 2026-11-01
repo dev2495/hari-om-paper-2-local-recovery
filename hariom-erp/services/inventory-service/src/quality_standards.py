@@ -221,10 +221,13 @@ def materialize_type(db: Session, material_type: str, *, actor: str, reason: str
 
 def record_event(db: Session, *, material_type: str, kind: str, actor: Optional[str], before: Any = None, after: Any = None,
                  scope: Optional[str] = None, scope_key: Optional[str] = None, parameter_key: Optional[str] = None,
-                 note: Optional[str] = None, version: Optional[int] = None) -> None:
+                 note: Optional[str] = None, version: Optional[int] = None, reason: Any = None) -> None:
+    """``reason`` is the QC_RULE_CHANGE choice (reasons.ReasonChoice) when one was picked: code, label and note
+    are kept beside the "Label — note" text in ``note``."""
     db.add(InventoryQualityStandardEvent(
         material_type=material_type, kind=kind, scope=scope, scope_key=scope_key, parameter_key=parameter_key,
         before=before, after=after, note=note, actor=actor, version=version,
+        reason_code=getattr(reason, "code", None), reason_label=getattr(reason, "label", None), reason_note=getattr(reason, "note", None),
     ))
 
 

@@ -27,6 +27,9 @@ export type DraftRow = {
   rate: string
   on_hold: boolean
   hold_reason: string
+  /** QC_HOLD code from Masters › Reason codes and its optional note (owner decision 4, 1 Nov 2026). */
+  hold_reason_code: string
+  hold_reason_note: string
   /** A note from the paste, e.g. the typed type did not match how the material is kept. */
   note: string
   /** When a pasted cell fits several materials / places: their codes, so the row asks which one. */
@@ -41,7 +44,7 @@ export function rowKey(): string {
 }
 
 export function blankRow(kind: RowKind = "REEL", location_id = ""): DraftRow {
-  return { key: rowKey(), kind, item_id: "", item_text: "", qty: "", location_id, location_text: "", old_mark: "", vendor_name: "", vendor_ref: "", rate: "", on_hold: false, hold_reason: "", note: "" }
+  return { key: rowKey(), kind, item_id: "", item_text: "", qty: "", location_id, location_text: "", old_mark: "", vendor_name: "", vendor_ref: "", rate: "", on_hold: false, hold_reason: "", hold_reason_code: "", hold_reason_note: "", note: "" }
 }
 
 /** A copy of the row under it: same material, place, vendor and rate; the old mark and weight are left to type. */
@@ -210,7 +213,8 @@ export function toLine(row: DraftRow) {
     vendor_name: row.vendor_name.trim() || undefined,
     vendor_ref: row.vendor_ref.trim() || undefined,
     on_hold: row.on_hold || undefined,
-    hold_reason: row.on_hold ? row.hold_reason.trim() || undefined : undefined,
+    hold_reason_code: row.on_hold ? row.hold_reason_code.trim().toUpperCase() || undefined : undefined,
+    hold_reason_note: row.on_hold ? row.hold_reason_note.trim() || undefined : undefined,
     unit_cost: row.rate.trim() && Number(row.rate) >= 0 ? Number(row.rate) : undefined,
   }
 }

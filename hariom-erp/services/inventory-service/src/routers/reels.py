@@ -26,6 +26,7 @@ from ..models import (
 )
 from ..services.books import assert_books_open, ist_today
 from ..services.labels import reel_label_payload
+from ..services.reel_serial import child_serial, next_reel_serial, normal_serial
 from ..utils.auth import get_current_plant, get_current_plant_scope, get_current_user, require_role
 from ..quality_pin import pin_quality_profile_metadata
 
@@ -277,13 +278,6 @@ def create_reel_inward(
         if not location:
             raise HTTPException(status_code=404, detail="Inventory location not found")
 
-    def _generate_reel_code() -> str:
-        # Plant-scoped human-readable identifier with date + short random suffix.
-        plant_suffix = str(plant_id).replace("-", "")[-4:].upper()
-        date_part = payload.inward_date.strftime("%y%m%d")
-        rand_part = uuid.uuid4().hex[:4].upper()
-        return f"REEL-{plant_suffix}-{date_part}-{rand_part}"
-
     paper = db.query(ItemMaster).filter(
         ItemMaster.id == payload.paper_id,
         ItemMaster.plant_id == plant_id,
@@ -317,10 +311,13 @@ def create_reel_inward(
     generated = payload.reel_code is None and payload.amigo_no is None
     attempts = 5 if generated else 1
     for _ in range(attempts):
-        code = payload.amigo_no or payload.reel_code or _generate_reel_code()
+        # A reel typed without a number takes the plant's AIT serial (owner decision 6, 1 Nov 2026).
+        serial = next_reel_serial(db, plant_uuid, payload.inward_date) if generated else None
+        code = payload.amigo_no or payload.reel_code or serial["reel_code"]
         metadata = {
             **dict(payload.inward_metadata or {}),
-            "amigo_no": code,
+            **(serial["metadata"] if serial else {}),
+            "amigo_no": serial["serial"] if serial else code,
             "mill": payload.mill,
             "plybond": locked_plybond,
             "bulk_factor": locked_bulk,
@@ -423,7 +420,7 @@ def list_reels(
     if selected_reel_ids:
         query = query.filter(PaperReel.id.in_(selected_reel_ids))
     if search:
-        needle = f"%{search.strip()}%"
+        needle = f"%{normal_serial(search) or search.strip()}%"
         query = query.filter(PaperReel.reel_code.ilike(needle))
     if stock_status:
         statuses = {value.strip().upper() for value in stock_status.split(",") if value.strip()}
@@ -518,11 +515,14 @@ def slit_reel(
     }
     children: list[SlitChildResponse] = []
     for offset, child in enumerate(payload.children, start=1):
-        at_no = f"{parent.reel_code}-S{existing_children + offset}"
+        # Owner decision 6 (1 Nov 2026): a coil is its parent's serial plus -1, -2… (AIT 06243-1), with its own
+        # weight; an older AT-… reel's coils follow the same pattern (AT-261030-004-1).
+        numbered = child_serial(db, parent, existing_children + offset)
+        at_no = numbered["reel_code"]
         metadata = {
             **dict(parent.inward_metadata or {}),
             **lineage,
-            "amigo_no": at_no,
+            "amigo_no": numbered["serial"],
             "physical_form": "COIL",
             "parent_reel_id": str(parent.id),
             "parent_reel_code": parent.reel_code,
@@ -531,7 +531,7 @@ def slit_reel(
             "slit_weight_kg": float(child.weight_kg),
             "slit_date": slit_date.isoformat(),
             # Printed on the label so the floor can trace an output coil to its parent reel.
-            "source_reel_no": f"{parent.source_reel_no or parent.reel_code} / S{existing_children + offset}",
+            "source_reel_no": parent.source_reel_no or (parent.inward_metadata or {}).get("source_reel_no"),
         }
         db_child = PaperReel(
             plant_id=plant_uuid,
@@ -581,7 +581,7 @@ def slit_reel(
         children.append(
             SlitChildResponse(
                 id=db_child.id,
-                at_no=at_no,
+                at_no=numbered["serial"],
                 weight_kg=float(child.weight_kg),
                 width_mm=child.width_mm,
                 stock_status=str(db_child.stock_status),

@@ -161,7 +161,7 @@ export default function InventoryOverviewPage() {
   ).sort((left: any, right: any) => right.load_kg - left.load_kg)
 
   const actionCards = [
-    { href: "/purchase/inward", title: "Goods inward", copy: "Receive PO or manual paper with one AT label per reel/coil.", icon: Warehouse },
+    { href: "/purchase/inward", title: "Goods inward", copy: "Receive PO or manual paper with one AIT reel label per reel/coil.", icon: Warehouse },
     { href: "/inventory/reels/issue", title: "Issue reel by scan", copy: "Scan a reel/coil label and issue it to winder or slitting.", icon: Boxes },
     { href: "/purchase/receipts", title: "Reprint labels", copy: "Open a GRN and reprint reel or lot QR labels.", icon: ReceiptText },
     { href: "/inventory/stock-control?tab=corrections", title: "Correct stock", copy: "Damaged, short or a wrong GRN weight: raise it with a reason; the Owner approves.", icon: FileCheck2 },

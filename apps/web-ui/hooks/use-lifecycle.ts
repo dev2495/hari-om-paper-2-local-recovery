@@ -7,6 +7,8 @@ export type LifecycleState = "QUEUED" | "SCHEDULED" | "RUNNING" | "COMPLETED" | 
 
 export type JobCardLifecycle = {
   id: string
+  /** The card's plant (reason lists are per plant). */
+  plant_id?: string | null
   job_card_no: string | null
   state: LifecycleState
   status: string
@@ -22,6 +24,12 @@ export type JobCardLifecycle = {
   pcs_per_bamboo: number | null
   open_first_stage_qty: number
   returned_qty: number
+  /** Plan before any stage short close (planned_qty is what the card holds now). */
+  original_planned_qty?: number
+  /** Box cards (1 Nov 2026): packed / shipped boxes. */
+  boxes?: { box_count: number; boxed_pcs: number; packed_boxes: number; dispatched_boxes: number; dispatched_pcs: number; part_boxes: number; flagged_boxes: number } | null
+  /** Stage short closes still in force: qty, pcs given back to the order and why. */
+  short_closes?: { stage: string; good: number; target: number; unit: string; returned_pcs: number; reason: string; at: string }[]
   output_tolerance_pct: number
   max_output_qty: number
   close_mode: string | null
@@ -29,6 +37,10 @@ export type JobCardLifecycle = {
   missed_slot_open: boolean
   last_missed_slot: { stage?: string; machine_id?: string | null; plan_date?: string; shift_code?: string | null; requeued_at?: string } | null
   close_reason: string | null
+  /** Force close / cancel reason (JOB_CARD_CLOSE master code), label at the time and note. */
+  close_reason_code?: string | null
+  close_reason_label?: string | null
+  close_reason_note?: string | null
   closed_at: string | null
   closed_by: string | null
   actions: { edit: boolean; split: boolean; force_close: boolean; emergency: boolean; running_entry: boolean }
@@ -109,11 +121,12 @@ function lifecycleMutation<TVars>(fn: (vars: TVars) => Promise<any>) {
 export const useAmendJobCard = lifecycleMutation(({ jobCardId, data }: { jobCardId: string; data: Parameters<typeof productionApi.amendJobCard>[1] }) =>
   productionApi.amendJobCard(jobCardId, data),
 )
-export const useSplitJobCard = lifecycleMutation(({ jobCardId, qty, reason, requestId }: { jobCardId: string; qty: number; reason?: string; requestId?: string }) =>
-  productionApi.splitJobCard(jobCardId, { qty, reason, request_id: requestId }),
+type ReasonBody = { reason?: string; reason_code?: string; reason_note?: string }
+export const useSplitJobCard = lifecycleMutation(({ jobCardId, qty, requestId, ...why }: { jobCardId: string; qty: number; requestId?: string } & ReasonBody) =>
+  productionApi.splitJobCard(jobCardId, { qty, ...why, request_id: requestId }),
 )
-export const useForceCloseJobCard = lifecycleMutation(({ jobCardId, reason }: { jobCardId: string; reason: string }) =>
-  productionApi.forceCloseJobCard(jobCardId, { reason }),
+export const useForceCloseJobCard = lifecycleMutation(({ jobCardId, ...why }: { jobCardId: string; reason_code: string } & ReasonBody) =>
+  productionApi.forceCloseJobCard(jobCardId, why),
 )
 export const useRunningEntry = lifecycleMutation(({ jobCardId, data }: { jobCardId: string; data: any }) => productionApi.postRunningEntry(jobCardId, data))
 export const useEmergencyInsert = lifecycleMutation((data: Parameters<typeof productionApi.emergencyInsert>[0]) => productionApi.emergencyInsert(data))

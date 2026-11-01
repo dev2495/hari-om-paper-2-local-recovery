@@ -5,6 +5,8 @@ export type IncomingDecision = "AUTO" | "HOLD" | "REJECT"
 export type IncomingEntry = {
   readings: Record<string, string>
   decision: IncomingDecision
+  /** INCOMING_QC code from Masters › Reason codes (owner decision 4); `reason` is its note, or a plain note when no reason is needed. */
+  reasonCode: string
   reason: string
   closeHolds: boolean
 }
@@ -25,7 +27,7 @@ export type IncomingPreview = {
   needsReason: boolean
 }
 
-export const EMPTY_ENTRY: IncomingEntry = { readings: {}, decision: "AUTO", reason: "", closeHolds: true }
+export const EMPTY_ENTRY: IncomingEntry = { readings: {}, decision: "AUTO", reasonCode: "", reason: "", closeHolds: true }
 
 /** Mirrors hariom_quality_eval DENIED_CATEGORICAL_TOKENS: a choice that means the check failed. */
 const DENIED_CHOICES = new Set(["FAIL", "FAILED", "REJECT", "REJECTED", "HOLD", "NO", "NG", "NOT_OK", "NOTOK"])
@@ -124,10 +126,13 @@ export function incomingReadingsPayload(rules: QcParameterRule[], readings: Reco
   )
 }
 
-/** The row's one reason explains every failing check of that lot (the API wants a reason per failed code). */
+/**
+ * The row's one reason explains every failing check of that lot (the API wants a reason per failed code). Only
+ * sent with a reason code: the server writes "Label — note" against each failing check.
+ */
 export function incomingReasonsPayload(rules: QcParameterRule[], entry: IncomingEntry) {
-  const reason = entry.reason.trim()
-  if (!reason) return {}
+  if (!entry.reasonCode) return {}
+  const reason = entry.reason.trim() || entry.reasonCode
   return Object.fromEntries(
     applicableRules(rules)
       .filter((rule) => {
@@ -136,6 +141,13 @@ export function incomingReasonsPayload(rules: QcParameterRule[], entry: Incoming
       })
       .map((rule) => [rule.code, reason]),
   )
+}
+
+/** Reason fields of one row's request: the INCOMING_QC code + note when a reason is needed, else the plain note. */
+export function incomingReasonFields(entry: IncomingEntry, needsReason: boolean) {
+  const note = entry.reason.trim()
+  if (needsReason || entry.reasonCode) return { reason_code: entry.reasonCode || undefined, reason_note: note || undefined }
+  return { notes: note || undefined }
 }
 
 export type IncomingQueueGroup = {

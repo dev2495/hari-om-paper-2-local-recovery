@@ -41,10 +41,10 @@ def test_bootstrap_publishes_client_defaults_and_independent_history(api):
     assert cs["lower"]==[{"ref":"CUSTOMER_CS","factor":0.4,"offset":-10}] and cs["upper"]==[{"ref":"CUSTOMER_CS","factor":0.4,"offset":10}]
     # Editing stays versioned and per season.
     rows=roy["published"]["rules"];rows[0]={**rows[0],"min_readings":3}
-    a.save_rules(a.RuleDraft(request_id=str(uuid.uuid4()),rules=rows,note="Three winding I.D. samples"),"ROY",db,USER)
+    a.save_rules(a.RuleDraft(request_id=str(uuid.uuid4()),rules=rows,reason_code="QV-FLOOR",reason_note="Three winding I.D. samples"),"ROY",db,USER)
     draft=a.read_rules("ROY",db,USER)["draft"]
     assert draft["version"]==2
-    a.publish_rules(command(a,expected_version=draft["row_version"],note="Client approved change"),"ROY",db,USER)
+    a.publish_rules(command(a,expected_version=draft["row_version"],reason_code="QV-CUSTOMER",reason_note="Client approved change"),"ROY",db,USER)
     assert a.read_rules("ROY",db,USER)["published"]["version"]==2
     assert a.read_rules("MONSOON",db,USER)["published"]["version"]==1
     assert [v["status"] for v in a.read_rules("ROY",db,USER)["versions"]]==["PUBLISHED","SUPERSEDED"]
@@ -74,25 +74,44 @@ def test_legacy_winder_cs_template_is_corrected_as_a_new_version(api):
 def test_stale_draft_and_idempotency_payload(api):
     a,db=api;a.bootstrap(command(a),db,USER)
     rows=a.read_rules("ROY",db,USER)["published"]["rules"]
-    payload=a.RuleDraft(request_id=str(uuid.uuid4()),rules=rows,note="draft")
+    payload=a.RuleDraft(request_id=str(uuid.uuid4()),rules=rows,reason_code="QV-CORRECTION",reason_note="draft")
     first=a.save_rules(payload,"ROY",db,USER)
     assert a.save_rules(payload,"ROY",db,USER)==first
-    with pytest.raises(HTTPException) as exc:a.save_rules(payload.model_copy(update={"note":"different"}),"ROY",db,USER)
+    with pytest.raises(HTTPException) as exc:a.save_rules(payload.model_copy(update={"reason_note":"different"}),"ROY",db,USER)
     assert exc.value.status_code==409
     db.rollback()
-    a.save_rules(a.RuleDraft(request_id=str(uuid.uuid4()),expected_version=1,rules=rows,note="second"),"ROY",db,USER)
-    with pytest.raises(HTTPException):a.save_rules(a.RuleDraft(request_id=str(uuid.uuid4()),expected_version=1,rules=rows,note="stale"),"ROY",db,USER)
+    a.save_rules(a.RuleDraft(request_id=str(uuid.uuid4()),expected_version=1,rules=rows,reason_code="QV-CORRECTION",reason_note="second"),"ROY",db,USER)
+    with pytest.raises(HTTPException):a.save_rules(a.RuleDraft(request_id=str(uuid.uuid4()),expected_version=1,rules=rows,reason_code="QV-CORRECTION",reason_note="stale"),"ROY",db,USER)
 
 
 def test_switch_preview_and_epoch(api):
     a,db=api;a.bootstrap(command(a),db,USER)
     preview=a.preview_switch({"to":"MONSOON"},db,USER)
     # Specs left by other contracts in this disposable DB may be blocked; acknowledging them is the documented path.
-    payload=a.Switch(request_id=str(uuid.uuid4()),expected_version=1,note="Monsoon starts",to="MONSOON",preview_fingerprint=preview["fingerprint"],acknowledge_blocked=preview["blocked_count"]>0)
+    payload=a.Switch(request_id=str(uuid.uuid4()),expected_version=1,reason_code="SW-MONSOON-START",reason_note="Monsoon starts",to="MONSOON",preview_fingerprint=preview["fingerprint"],acknowledge_blocked=preview["blocked_count"]>0)
     result=a.switch_season(payload,db,USER)
     assert result["epoch"]==2
     assert a.switch_season(payload,db,USER)==result
     assert a.read_season(db,USER)["active_season"]=="MONSOON"
+    # The reason is a master code (owner decision 4): code, label at the time and note are kept.
+    event=a.season_history(db,USER)[0]
+    assert event["reason_code"]=="SW-MONSOON-START" and event["note"]=="Sw monsoon start — Monsoon starts"
+
+
+def test_reason_free_text_alone_is_refused(api):
+    a,db=api;a.bootstrap(command(a),db,USER)
+    rows=a.read_rules("ROY",db,USER)["published"]["rules"]
+    with pytest.raises(HTTPException) as typed:a.save_rules(a.RuleDraft(request_id=str(uuid.uuid4()),rules=rows,note="tighter C.S."),"ROY",db,USER)
+    assert typed.value.status_code==422 and "Masters › Reason codes" in typed.value.detail
+    db.rollback()
+    draft=a.save_rules(a.RuleDraft(request_id=str(uuid.uuid4()),rules=rows),"ROY",db,USER)
+    with pytest.raises(HTTPException) as missing:a.publish_rules(command(a,expected_version=draft["row_version"],note="Client approved"),"ROY",db,USER)
+    assert missing.value.status_code==422
+    with pytest.raises(HTTPException) as other:a.publish_rules(command(a,expected_version=draft["row_version"],reason_code="QV-OTHER",reason_note="ok"),"ROY",db,USER)
+    assert other.value.status_code==422 and "at least 5" in other.value.detail
+    preview=a.preview_switch({"to":"MONSOON"},db,USER)
+    with pytest.raises(HTTPException) as switch:a.switch_season(a.Switch(request_id=str(uuid.uuid4()),expected_version=1,note="Monsoon",to="MONSOON",preview_fingerprint=preview["fingerprint"],acknowledge_blocked=True),db,USER)
+    assert switch.value.status_code==422
 
 @pytest.fixture
 def document(api,monkeypatch):
@@ -108,7 +127,7 @@ def document(api,monkeypatch):
     layers=[{'paper_id':paper,'ply_no':i,'gsm_snapshot':300,'bf_snapshot':20,'bulk_snapshot':1} for i in (1,2,3)]
     preview=spec_math.compute_preview(mandrel_od_mm=76.3,tube_length_mm=150,papers=[spec_math.RecipePaper(paper_id=paper,gsm=300,bulk=1,ply_count=3)],target_dry_g=35,adhesive_percent=12.5,parchment_percent=0,parchment_allowed=False)
     target=round(preview.nominal_tube.dry_g,4)
-    spec={'customer_id':customer,'customer_name':'Season contract '+customer[:8],'customer_name_snapshot':'Contract customer','tube_size_id':str(uuid.uuid4()),'mandrel_id':str(uuid.uuid4()),'id_min_mm':76.2,'id_max_mm':76.6,'od_min_mm':81,'od_max_mm':81,'length_min_mm':149.8,'length_max_mm':150.2,'target_tube_weight':target,'required_cs':400,'cs_min_n':400,'adhesive_percent':12.5,'moisture_loss_percent':9,'parchment_percent':0,'parchment_allowed':False,'dynamic_fields':[{'field_key':k,'value':v} for k,v in {'valid_upto':'2027-10-03','prepared_by':'Test owner','prepared_date':'2026-10-03','sign_off_note':'Reviewed','adhesive_components_json':'[{"name":"Glue","ratio_percent":100}]'}.items()]}
+    spec={'customer_id':customer,'customer_name':'Season contract '+customer[:8],'customer_name_snapshot':'Contract customer','tube_size_id':str(uuid.uuid4()),'mandrel_id':str(uuid.uuid4()),'id_min_mm':76.2,'id_max_mm':76.6,'od_min_mm':81,'od_max_mm':81,'length_min_mm':149.8,'length_max_mm':150.2,'target_tube_weight':target,'required_cs':400,'cs_min_n':400,'adhesive_percent':12.5,'moisture_loss_percent':9,'parchment_percent':0,'parchment_allowed':False,'dynamic_fields':[{'field_key':k,'value':v} for k,v in {'valid_upto':'2027-10-03','prepared_by':'Test owner','prepared_date':'2026-10-03','sign_off_note':'Reviewed','adhesive_components_json':'[{"name":"Glue","ratio_percent":100}]','box_code':'R-150','qty_per_box':'48'}.items()]}
     body=a.Document(request_id=str(uuid.uuid4()),spec=spec,recipes={'ROY':{'layers':layers,'notes':'Original'},'MONSOON':{'layers':layers,'notes':'Original','confirm':True}})
     result=a.create_document(body,db,'00000000-0000-0000-0000-0000000000a1',USER)
     yield a,db,result,body,paper
@@ -206,7 +225,7 @@ def test_spec_sheet_qc_values_win_and_are_versioned(document):
     before=a.read_qc_overview(sid,db,plant,USER)
     row=next(p for p in before['seasons']['ROY']['parameters'] if p['stage']=='WINDER' and p['parameter']=='cs')
     assert (row['min'],row['max'],row['source'])==(150.0,170.0,'GLOBAL')
-    saved=a.save_spec_qc_values(sid,a.SpecQcValues(request_id=str(uuid.uuid4()),note='Customer drawing',values=[{'stage':'WINDER','parameter':'cs','min':155,'max':165}]),db,plant,USER)
+    saved=a.save_spec_qc_values(sid,a.SpecQcValues(request_id=str(uuid.uuid4()),reason_code='QV-DRAWING',reason_note='Customer drawing',values=[{'stage':'WINDER','parameter':'cs','min':155,'max':165}]),db,plant,USER)
     for season in ('ROY','MONSOON'):
         row=next(p for p in saved['seasons'][season]['parameters'] if p['stage']=='WINDER' and p['parameter']=='cs')
         assert (row['min'],row['max'],row['source'])==(155.0,165.0,'SPEC_SHEET')

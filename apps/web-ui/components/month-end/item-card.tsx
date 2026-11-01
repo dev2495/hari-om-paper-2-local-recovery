@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { AlertTriangle, ChevronRight, Flag, Link2Off, LoaderCircle } from "lucide-react"
 
+import { ReasonPicker, storedReasonText, useReasonChoice } from "@/components/reasons"
 import { useApp } from "@/context/AppContext"
 import { useSaveMonthNote } from "@/hooks/use-month-end"
 import { describeApiError } from "@/lib/api-error"
@@ -68,39 +69,48 @@ export function ItemNote({ item, view, plantId, idPrefix, className }: { item: M
   const { showToast } = useApp()
   const outside = item.status === "OVER" || item.status === "UNDER"
   const canNote = view.can.note && (outside || Boolean(item.note))
-  const [draft, setDraft] = useState(item.note?.note || "")
+  // The reason is a MONTH_END_VARIANCE code from Masters › Reason codes plus an optional note (owner
+  // decision 4, 1 Nov 2026). Notes written before that have only text: it comes back as the note.
+  const reason = useReasonChoice("MONTH_END_VARIANCE", plantId, { enabled: canNote })
+  const setReason = reason.setValue
   const [editing, setEditing] = useState(!item.note && item.needs_note)
   const save = useSaveMonthNote(plantId)
   const savedNote = item.note?.note || ""
+  const savedCode = item.note?.reason_code || ""
+  const savedReasonNote = item.note?.reason_note || ""
   const savedAt = item.note?.noted_at || ""
   useEffect(() => {
     // A saved (or removed) note from the server resets the box; a refetch with the same note does not.
-    setDraft(savedNote)
+    setReason({ code: savedCode, note: savedCode ? savedReasonNote : savedNote })
     setEditing(!savedNote && item.needs_note)
-  }, [savedNote, savedAt, item.needs_note])
+  }, [savedNote, savedCode, savedReasonNote, savedAt, item.needs_note, setReason])
 
   const noteId = `${idPrefix}-note-${item.item_code}`
-  const submit = () => {
-    const text = draft.trim()
-    if (!text && !item.note) return
+  const send = (body: { reason_code?: string; reason_note?: string; note: string }, removed: boolean) => {
     save.mutate(
-      { month: view.month, item_code: item.item_code, item_id: item.item_id, item_name: item.item_name, note: text },
+      { month: view.month, item_code: item.item_code, item_id: item.item_id, item_name: item.item_name, ...body },
       {
         onSuccess: () => {
-          showToast(text ? `Note saved on ${item.item_name}.` : `Note removed from ${item.item_name}.`, "success")
+          showToast(removed ? `Note removed from ${item.item_name}.` : `Note saved on ${item.item_name}.`, "success")
           setEditing(false)
         },
         onError: (error) => showToast(describeApiError(error, "The note could not be saved"), "error"),
       },
     )
   }
+  const submit = () => {
+    if (!reason.validate()) return
+    send({ ...reason.payload(null), note: "" }, false)
+  }
+  const remove = () => send({ reason_code: "", note: "" }, true)
+  const shownNote = item.note ? (item.note.reason_code ? storedReasonText(item.note) : item.note.note) : ""
   if (!(item.note && !editing) && !(canNote && editing)) return null
 
   return (
     <div className={className}>
       {item.note && !editing ? (
         <div className="rounded-lg border border-signal-blue-line bg-signal-blue-soft/60 px-3 py-2">
-          <p className="break-words text-[13px] leading-5 text-foreground">“{item.note.note}”</p>
+          <p className="break-words text-[13px] leading-5 text-foreground">“{shownNote}”</p>
           <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
             <p className="text-[12px] text-muted-foreground">
               {personText(item.note.noted_by)} · {dayTimeText(item.note.noted_at)}
@@ -122,25 +132,31 @@ export function ItemNote({ item, view, plantId, idPrefix, className }: { item: M
             submit()
           }}
         >
-          <label htmlFor={noteId} className="sr-only">
-            Why was more or less {item.item_name} used?
-          </label>
-          <textarea
-            id={noteId}
-            rows={2}
-            value={draft}
-            maxLength={1000}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder={notePlaceholder(item)}
-            className="min-h-[68px] w-full min-w-0 flex-1 resize-y rounded-lg border border-signal-amber-line bg-card px-3 py-2.5 text-[13.5px] leading-5 outline-none transition focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring/40 sm:min-h-[44px]"
+          <ReasonPicker
+            className="min-w-0 flex-1"
+            category="MONTH_END_VARIANCE"
+            plantId={plantId}
+            rows={reason.list.data}
+            label={`Why was more or less ${item.item_name} used?`}
+            value={reason.value}
+            onChange={reason.setValue}
+            showErrors={reason.touched}
+            compact
+            notePlaceholder={notePlaceholder(item)}
+            testIdPrefix={noteId}
           />
-          <div className="flex gap-2">
+          <div className="flex gap-2 sm:pt-6">
             {item.note ? (
-              <button type="button" className="erp-btn-secondary !h-11 flex-1 sm:flex-none" onClick={() => { setDraft(item.note?.note || ""); setEditing(false) }}>
-                Cancel
-              </button>
+              <>
+                <button type="button" className="erp-btn-secondary !h-11 flex-1 sm:flex-none" onClick={() => { setReason({ code: savedCode, note: savedCode ? savedReasonNote : savedNote }); setEditing(false) }}>
+                  Cancel
+                </button>
+                <button type="button" className="erp-btn-secondary !h-11 flex-1 sm:flex-none" disabled={save.isPending} onClick={remove}>
+                  Remove note
+                </button>
+              </>
             ) : null}
-            <button type="submit" className="erp-btn-primary !h-11 flex-1 sm:flex-none" disabled={save.isPending || (!draft.trim() && !item.note)}>
+            <button type="submit" className="erp-btn-primary !h-11 flex-1 sm:flex-none" disabled={save.isPending}>
               {save.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
               Save note
             </button>

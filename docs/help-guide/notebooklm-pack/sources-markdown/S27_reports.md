@@ -6,13 +6,14 @@ Screenshots named in this file are in the visual handbook (Hari-Om-TubeOS-Help-G
 
 > **What it is:** the read-only report pages that show how the plant, the orders, the stock and quality are doing, with links back to the records behind every figure.
 > **Who uses it:** Owner and Admin (all reports); Plant Manager, Planner, Sales, Store, Dispatch, QC and Inward QC (the reports of their area).
-> **Where:** Sidebar > Reports (Intelligence at /analytics; the others under /reports/..., for example /reports/owner, /reports/plan-vs-actual).
+> **Where:** Sidebar > Reports (Intelligence at /analytics; the others under /reports/..., for example /reports/owner, /reports/plan-vs-actual, /reports/employees).
 
 ## At a glance
 - **Reports never change data.** They read orders, job cards, floor logs, stock and QC records. To fix a number, fix the record it comes from.
 - **Every report works on the plant chosen at the top bar.** Owner and Admin can pick a plant or all plants.
 - **Each report has its own period control.** Some have buttons (7 days, 30 days, Month, Quarter, or 4 weeks, 13 weeks, 6 months), some have From / To dates, and some are fixed (for example Operations command is always the last 7 days).
-- **Exports:** Owner daily pack (PDF and printable page), Planning performance and Plan vs actual (Excel), Slitting report (CSV), Throughput and Dispatch & SLA (Print).
+- **Exports:** Owner daily pack (PDF and printable page), Planning performance and Plan vs actual (Excel), Slitting report and Employee performance (CSV), Throughput and Dispatch & SLA (Print).
+- **New on 1 Nov 2026:** **Employee performance** (per operator, from the operator chosen on every floor log) and, on Sales pulse, **Cancelled / short-closed by reason**. Reasons in every report show the label of the reason code that was picked.
 - **When a source cannot be read, a tile shows "Not reported" or "—", never a false zero.**
 
 ## The flow
@@ -26,6 +27,11 @@ Flow diagram: Plan against the floor log
 Steps: 1. Planner places slot (done by Planner) -> 2. Floor logs run (done by Operator) -> 3. Run matched to slot - same day, shift, machine -> 4. As planned or Different -> 5. Planning performance and Plan vs actual
 If it goes wrong after 'Planner places slot': 1. No entry for 36 h -> 2. Planned, not run - card back to queue
 If it goes wrong after 'Floor logs run': 1. No slot yet -> 2. Run before planning
+
+
+
+Flow diagram: From the operator to Employee performance
+Steps: 1. Operator picked on the run (done by Operator) - stage department only -> 2. Run saved - made, rejected, QC readings -> 3. Employee performance adds it up -> 4. Click an operator -> 5. Runs behind the figure -> 6. Open job card
 
 
 Reports only read what the desks record. Planning reports compare the planner's slots with the job card log; the log is the truth, and the plan never blocks the floor.
@@ -94,13 +100,34 @@ What you see:
 
 Each run is compared with the slot in force when it was entered. It is **As planned** when the day, shift and machine match and, if card times were written, the times sit inside the planned shift. It is **Different from plan** when it ran later, earlier, in another shift, on another machine or outside the shift time. It is **Run before planning** when the stage had no slot when the run was entered; the reason is shown, for example "Its planner slot was more than 36 h old when the run was entered." **Planned, not run** lists slots that passed with no entry. Further tables: **By machine** and **Job cards furthest from plan**.
 
+### Employee performance (/reports/employees)
+[Screenshot "employee-report": Employee performance report with period and filter controls, four tiles and the By operator table]
+*Figure: Employee performance for the last 30 days. Period buttons 7 days, 30 days, 90 days, From and To dates, Stage, Shift and Department filters and a CSV button. Tiles: Operators (with runs logged), Process pieces (good of made, % rejected), Winding / Oven bamboos and Flagged QC readings. The By operator table lists each operator per stage with Runs, Made, Good, Rejected, Reject %, Flagged QC, Shifts and Last activity; one row is opened to show its runs.*
+
+**Question:** what did each operator make, and how good was it? **Who:** Owner, Admin, Plant Manager, Planner. **Filters:** **7 days**, **30 days**, **90 days** or **From** / **To**; **Stage** (All stages, Winding, Oven, Process); **Shift** (All shifts, Shift A, Shift B); **Department** (All departments, or one from Masters › Employees). **CSV** downloads every row with the filters written at the top (file employee-performance-<from>-to-<to>.csv).
+
+What you see:
+
+1. **Description**: "What each operator made in the period: runs, made, good, rejected and reject %, QC readings flagged out of band, and the shifts worked. Taken from the operator chosen on every floor log; departments come from Masters › Employees. Quantities are in each stage's unit (bamboos at Winding and Oven, pieces at Process)."
+2. **Tiles**: **Operators** ("N runs logged"), **Process pieces** (good, "good of N made · N% rejected"), **Winding / Oven bamboos** (the same in bamboo) and **Flagged QC readings** ("Readings outside the band (flagged, never held)").
+3. **By operator** table: one row per operator and stage: **Operator** (with department), **Stage**, **Runs**, **Made**, **Good**, **Rejected**, **Reject %**, **Flagged QC**, **Shifts** (shifts worked, with "· N h on cards" when card times were written) and **Last activity**.
+4. **Runs** (click a row): every run behind it: **Date · shift**, **Job card** (opens the card), **Stage · run** (for example P#3, or "(old card form)"), **Made**, **Good**, **Rejected**, **Flagged QC**.
+5. If Masters › Employees cannot be read, a note says "departments are missing. The figures are complete."
+
+Reject % = rejected ÷ made in the stage's unit. Flagged QC counts readings outside the band on that operator's runs and QC entries; they never held anything. Shifts worked counts distinct date + shift pairs.
+
 ### Sales pulse (/reports/sales)
 [Screenshot "report-sales": Sales pulse with order funnel and order flow]
 *Figure: Sales pulse for the last 30 days. Tiles: Orders created 100, Released % 69.0%, Closed 2, Released backlog 98, OTIF 0.0% (2 closed orders measured), Lead time 0.0 d. Below are an order funnel (100 created, 69 released or better, 2 closed) and a "Booked, closed and dispatched" chart.*
 
 **Question:** how is order flow and delivery? **Who:** Sales, Plant Manager, Owner, Admin. **Filter:** fixed to the last 30 days.
 
-What you see: **Orders created**, **Released %** (released or better ÷ created), **Closed** (fully dispatched), **Released backlog** (released but not fully dispatched), **OTIF** and **Lead time** (with p50/p90). Panels: **From created to dispatched** funnel (the drop between steps in % shown in red), **Booked, closed and dispatched** per day, **Where the lead-time days are going**, **Top customers — risk-sorted** and **Top SKUs by quantity**.
+What you see: **Orders created**, **Released %** (released or better ÷ created), **Closed** (fully dispatched), **Released backlog** (released but not fully dispatched), **OTIF** and **Lead time** (with p50/p90). Panels: **From created to dispatched** funnel (the drop between steps in % shown in red), **Booked, closed and dispatched** per day, **Cancelled / short-closed by reason**, **Where the lead-time days are going**, **Top customers — risk-sorted** and **Top SKUs by quantity**.
+
+[Screenshot "sales-closures-by-reason": Cancelled / short-closed by reason panel on Sales pulse with filters, view buttons and the reason table]
+*Figure: The Cancelled / short-closed by reason panel. Filters From, To, kind (Cancelled and short-closed / Cancelled / Short-closed) and customer; view buttons By reason, By customer, By month and Reason × customer × month; a table with Reason, Orders, Cancelled, Short-closed and Pcs lost with a bar for the lost pcs, and the hint "Click a reason to open those orders in the sales order register."*
+
+**Cancelled / short-closed by reason** has its own period (**From** / **To**, default the last 180 days), unlike the rest of Sales pulse. "Orders cancelled or short-closed in the period, by reason, customer and month. Pieces lost: the whole order for a cancel, the dropped balance for a short close." Filters: kind (**Cancelled and short-closed**, **Cancelled**, **Short-closed**) and **All customers** or one customer. Views: **By reason**, **By customer**, **By month** and **Reason × customer × month**. Columns: **Reason** (label and code), **Customer**, **Orders**, **Cancelled**, **Short-closed**, **Pcs lost**. Clicking a reason opens the Orders list filtered by that reason. A customer not in the masters shows as "Customer not in masters".
 
 ### Customer 360 (/reports/customer-360)
 [Screenshot "report-customer360": Customer 360 with active customers, at risk, open and dispatched value and the Pareto chart]
@@ -165,6 +192,18 @@ No useful screenshot (the page was still loading on 31 Oct). The page is titled 
 2. Read **Done in slot** and **Missed slots**. Open **Missed slots** to see which cards went back to the queue.
 3. Open **Plan vs actual**, filter **Runs** to **Different** or **Before planning**, and read the reason on each run.
 
+### How to see how each operator is doing (Plant Manager, Planner)
+1. Open **Employee performance**. Choose **30 days**, or set **From** and **To**.
+2. Pick **Stage** (for example Process) and, if needed, **Shift** or **Department**.
+3. Read **Reject %** and **Flagged QC** per operator. Click a row to see the runs, and click a job card to open it.
+4. Click **CSV** to keep the figures.
+
+### How to see why orders are cancelled or short-closed (Sales, Owner)
+1. Open **Sales pulse** and scroll to **Cancelled / short-closed by reason**.
+2. Set **From** and **To**, the kind and the customer.
+3. Switch views to see it by customer or by month. **Pcs lost** shows what each reason cost.
+4. Click a reason to open those orders in the Orders list.
+
 ### How to find customers at risk (Sales)
 1. Open **Customer 360** and set **Risk** to **Watch + Critical**.
 2. Click a customer row to see their orders, dispatches and OTIF history.
@@ -190,6 +229,8 @@ No useful screenshot (the page was still loading on 31 Oct). The page is titled 
 - **Days on hand** uses the last 30 days of issues to the floor and dispatches (automatic).
 - **Slitting wastage %** counts only reels with a written card (automatic).
 - **Right first time** counts only the first check of a batch or lot; record-only readings never fail (automatic).
+- **Employee performance** reads the operator picked on each floor log (only employees of the stage's department can be picked); quantities stay in the stage's unit; Reject % = rejected ÷ made (automatic). Only Owner, Admin, Plant Manager and Planner can open it (BLOCKS others).
+- **Closures by reason**: pcs lost = the whole order qty for a cancel, the dropped balance for a short close; orders closed before reason codes keep their old text (automatic).
 - **A failed data source shows "Not reported" or "—"**, never zero (automatic).
 
 ## Sample
@@ -203,6 +244,8 @@ No useful screenshot (the page was still loading on 31 Oct). The page is titled 
 | Slitting report | 6 carded reels, 3,575 kg issued, 67.5 kg wastage | Wastage % = 67.5 ÷ 3,575 = 1.9% |
 | Customer 360 | Sharma Tubes Pvt Ltd: 1 delayed order, OTIF 80% | Watch (not Critical, because OTIF is not below 75%) |
 | Inventory intelligence | Kraft 180 GSM: 2,400 kg available, 9,000 kg issued in 30 days | 9,000 ÷ 30 = 300 kg/day; 2,400 ÷ 300 = 8 days → watch |
+| Employee performance | Suresh Patel, Process: 22 runs, 6,480 made, 6,350 good, 130 rejected, 4 flagged QC, 11 shifts | Reject % = 130 ÷ 6,480 = 2.0% |
+| Sales pulse, closures by reason | SO-QTY-REDUCED: 3 orders, 0 cancelled, 3 short-closed, 4,200 pcs lost | Customers cutting quantity is the biggest cause of lost pcs |
 
 ## Common questions
 **Q: Why does a tile say "Not reported"?** A: Either your role cannot read that source (pack figures need Owner, Admin, Planner or Plant Manager), or the source did not answer. Refresh after a minute; it never shows a false zero.
@@ -219,12 +262,20 @@ No useful screenshot (the page was still loading on 31 Oct). The page is titled 
 
 **Q: Can I change the window on Operations command or Sales pulse?** A: No. Operations command is always the last 7 days and Sales pulse and Customer 360 the last 30 days. Use Throughput or Planning performance for other periods.
 
+**Q: An operator is missing from Employee performance.** A: Only operators picked on floor logs in the period appear. Check the period and filters; runs logged before operators were asked for may have no operator.
+
+**Q: Why are Winding and Process figures in different units?** A: Each stage counts in its own unit: bamboos at Winding and Oven, pieces at Process. The tiles keep them apart.
+
+**Q: A closed order shows a reason I don't see in the list any more.** A: The reason was deactivated or renamed later. Records keep the label they were saved with.
+
 **Q: Can I get the owner pack by email?** A: The system can send the owner pack every day (06:30 by default) through Background jobs. Ask the Admin whether it is switched on for your plant.
 
 ## Related chapters
 - Dashboard and Inbox
 - Planner (winder, oven, process and slitting planning)
 - Log output and Log QC
+- Sales orders (close reasons)
+- Masters (Employees, Reason codes)
 - Holds & inspections and Customer complaints
 - Reel & coil issue (slitting cards)
 - Month-end close

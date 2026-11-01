@@ -423,6 +423,10 @@ class InventoryQualityStandardEvent(Base):
     before = Column(JSON, nullable=True)
     after = Column(JSON, nullable=True)
     note = Column(Text, nullable=True)
+    # QC_RULE_CHANGE code from Masters › Reason codes when one was picked (owner decision 4).
+    reason_code = Column(String(80), nullable=True)
+    reason_label = Column(String(200), nullable=True)
+    reason_note = Column(Text, nullable=True)
     actor = Column(String(200), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
@@ -443,6 +447,10 @@ class InventoryQualityInspection(Base):
     disposition = Column(String(40), nullable=True)
     notes = Column(Text, nullable=True)
     reasons = Column(JSON, nullable=False, default=dict)
+    # INCOMING_QC code from Masters › Reason codes (owner decision 4); `notes` keeps "Label — note".
+    reason_code = Column(String(80), nullable=True)
+    reason_label = Column(String(200), nullable=True)
+    reason_note = Column(Text, nullable=True)
     evaluation = Column(JSON, nullable=False, default=dict)
     created_by = Column(String(200), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -473,6 +481,10 @@ class InventoryQualityConcession(Base):
     stock_status_after = Column(String(40), nullable=True)
     hold_released = Column(Boolean, nullable=False, default=False)
     reason = Column(Text, nullable=False)
+    # CONCESSION reason code (owner decision 4, 1 Nov 2026): code + label at the time + note.
+    reason_code = Column(String(80), nullable=True)
+    reason_label = Column(String(200), nullable=True)
+    reason_note = Column(Text, nullable=True)
     quantity = Column(Float, nullable=True)
     inspector_id = Column(String(200), nullable=True)
     approved_by = Column(String(200), nullable=True)
@@ -520,6 +532,8 @@ class CustomerRejection(Base):
     invoice_ref = Column(String(120), nullable=True)
     dispatch_ref = Column(String(120), nullable=True)
     reason_code = Column(String(80), nullable=False)
+    # Label of the CUSTOMER_COMPLAINT code at the time (owner decision 4, 1 Nov 2026); old rows keep only the code.
+    reason_label = Column(String(200), nullable=True)
     reason_notes = Column(Text, nullable=True)
     effective_date = Column(Date, nullable=True, index=True)
     source_job_card_id = Column(UUID(as_uuid=True), nullable=True, index=True)
@@ -787,6 +801,9 @@ class InventoryCertification(Base):
     sent_back_by = Column(String(200), nullable=True)
     sent_back_at = Column(DateTime, nullable=True)
     sent_back_note = Column(String(500), nullable=True)
+    # APPROVAL_REJECT code + label of the last send-back (owner decision 4, 1 Nov 2026).
+    sent_back_reason_code = Column(String(80), nullable=True)
+    sent_back_reason_label = Column(String(200), nullable=True)
     cancelled_by = Column(String(200), nullable=True)
     cancelled_at = Column(DateTime, nullable=True)
     cancel_note = Column(String(500), nullable=True)
@@ -1006,6 +1023,8 @@ class StockAdjustmentVoucher(Base):
     effective_date = Column(Date, nullable=False)
     effective_at = Column(DateTime, nullable=True)
     reason_code = Column(String(80), nullable=False)
+    # Label of the STOCK_CORRECTION code at the time (owner decision 4, 1 Nov 2026); older vouchers keep only the code.
+    reason_label = Column(String(200), nullable=True)
     reason_notes = Column(String(500), nullable=True)
     source_type = Column(String(60), nullable=False, default="MANUAL")
     source_id = Column(UUID(as_uuid=True), nullable=True, index=True)
@@ -1021,6 +1040,9 @@ class StockAdjustmentVoucher(Base):
     cancelled_by = Column(String(200), nullable=True)
     cancelled_at = Column(DateTime, nullable=True)
     cancel_note = Column(String(500), nullable=True)
+    # APPROVAL_REJECT code + label when the Owner rejects a raised correction (owner decision 4, 1 Nov 2026).
+    cancel_reason_code = Column(String(80), nullable=True)
+    cancel_reason_label = Column(String(200), nullable=True)
 
     lines = relationship("StockAdjustmentLine", back_populates="header", cascade="all, delete-orphan")
 
@@ -1371,6 +1393,23 @@ class DocumentSeries(Base):
     )
 
 
+class ReelSerialSetting(Base):
+    """Each time the Owner / Admin set the next AIT reel number of a year (owner decision 6, 1 Nov 2026)."""
+    __tablename__ = "reel_serial_settings"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True)
+    financial_year = Column(Integer, nullable=False)
+    from_number = Column(Integer, nullable=False)
+    to_number = Column(Integer, nullable=False)
+    reason = Column(Text, nullable=False)
+    reason_code = Column(String(80), nullable=True)
+    reason_label = Column(String(200), nullable=True)
+    reason_note = Column(Text, nullable=True)
+    set_by = Column(String(200), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
 class PurchaseOrderRevision(Base):
     __tablename__ = "purchase_order_revisions"
 
@@ -1391,6 +1430,13 @@ class PurchaseOrderRevision(Base):
     rejected_by = Column(String(200), nullable=True)
     rejected_at = Column(DateTime, nullable=True)
     rejection_reason = Column(Text, nullable=True)
+    # Reason codes from the master (owner decision 4, 1 Nov 2026): code + label at the time + note.
+    change_reason_code = Column(String(80), nullable=True)
+    change_reason_label = Column(String(200), nullable=True)
+    change_reason_note = Column(Text, nullable=True)
+    rejection_reason_code = Column(String(80), nullable=True)
+    rejection_reason_label = Column(String(200), nullable=True)
+    rejection_reason_note = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     lines = relationship("PurchaseOrderRevisionLine", back_populates="revision", cascade="all, delete-orphan")
@@ -1573,6 +1619,14 @@ class PurchaseDebitNote(Base):
     supplier_name_snapshot = Column(String(200), nullable=False)
     note_date = Column(Date, nullable=False)
     reason = Column(Text, nullable=False)
+    # DEBIT_NOTE reason codes (owner decision 4, 1 Nov 2026): code + label at the time + note, for raise and void.
+    reason_code = Column(String(80), nullable=True)
+    reason_label = Column(String(200), nullable=True)
+    reason_note = Column(Text, nullable=True)
+    void_reason = Column(Text, nullable=True)
+    void_reason_code = Column(String(80), nullable=True)
+    void_reason_label = Column(String(200), nullable=True)
+    void_reason_note = Column(Text, nullable=True)
     status = Column(String(20), nullable=False, default="DRAFT")
     total_amount = Column(Numeric(18, 2), nullable=False, default=0)
     settled_amount = Column(Numeric(18, 2), nullable=False, default=0)
@@ -1648,6 +1702,9 @@ class LabelPrintJob(Base):
     copies = Column(Integer, nullable=False, default=1)
     status = Column(String(30), nullable=False, default="GENERATED")
     reprint_reason = Column(Text, nullable=True)
+    reprint_reason_code = Column(String(80), nullable=True)
+    reprint_reason_label = Column(String(200), nullable=True)
+    reprint_reason_note = Column(Text, nullable=True)
     created_by = Column(String(200), nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
@@ -1713,6 +1770,10 @@ class ProcurementPlanEntry(Base):
     approved_at = Column(DateTime, nullable=True)
     cancelled_by = Column(String(200), nullable=True)
     cancelled_at = Column(DateTime, nullable=True)
+    # SUPPLIER_SCHEDULE reason picked when the arrival is cancelled (owner decision 4, 1 Nov 2026).
+    cancel_reason_code = Column(String(80), nullable=True)
+    cancel_reason_label = Column(String(200), nullable=True)
+    cancel_reason_note = Column(Text, nullable=True)
     updated_by = Column(String(200), nullable=True)
     updated_at = Column(DateTime, nullable=True)
     po_id = Column(UUID(as_uuid=True), ForeignKey("purchase_orders.id"), nullable=True, index=True)
@@ -1785,6 +1846,9 @@ class StockAlertPolicy(Base):
     recipients = Column(JSON, nullable=False, default=list)
     cooldown_hours = Column(Integer, nullable=False, default=24)
     change_reason = Column(Text, nullable=False)
+    change_reason_code = Column(String(80), nullable=True)
+    change_reason_label = Column(String(200), nullable=True)
+    change_reason_note = Column(Text, nullable=True)
     activation_reason = Column(Text, nullable=True)
     version = Column(Integer, nullable=False, default=1)
     created_by = Column(String(200), nullable=False)
@@ -1854,6 +1918,9 @@ class RmCostVersion(Base):
     effective_from = Column(Date, nullable=False)
     effective_to = Column(Date, nullable=True)
     change_reason = Column(Text, nullable=False)
+    change_reason_code = Column(String(80), nullable=True)
+    change_reason_label = Column(String(200), nullable=True)
+    change_reason_note = Column(Text, nullable=True)
     activation_reason = Column(Text, nullable=True)
     source = Column(String(80), nullable=True)
     content_hash = Column(String(64), nullable=False)
@@ -1904,6 +1971,9 @@ class PurchaseRequisition(Base):
     quantity = Column(Numeric(18, 3), nullable=False)
     uom = Column(String(12), nullable=False)
     reason = Column(Text, nullable=False)
+    reason_code = Column(String(80), nullable=True)
+    reason_label = Column(String(200), nullable=True)
+    reason_note = Column(Text, nullable=True)
     requested_by = Column(String(200), nullable=False)
     status = Column(String(20), nullable=False, default="SUBMITTED")
     version = Column(Integer, nullable=False, default=1)

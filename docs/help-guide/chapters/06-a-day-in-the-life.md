@@ -7,7 +7,9 @@
 ## At a glance
 - Start every day on your start page and the **Inbox** (or the bell). Work the **Needs action** items first.
 - Check the **plant** and **season pill** in the header before entering anything.
-- The job card is the floor's truth; planning never blocks the floor; in-process QC flags, incoming QC holds.
+- The job card is the floor's truth; planning never blocks the floor; job card QC flags (never holds), incoming QC holds.
+- Finished pcs are packed in labelled boxes as Process runs get their readings; boxes ship as soon as they are in stock.
+- Every "why" is a reason code picked from a list, with an optional note.
 - Nothing returns from the floor; issued material counts as used.
 - When a button is grey, hover over it or read the small text under it: it always says why.
 
@@ -15,7 +17,8 @@
 
 ```flow
 title: One order through the desks in a day
-Sales enters SO [Sales] -> Planner approves and releases [Planner] -> Planner places card [Planner] -> Store issues reels [RM issue] -> Floor logs runs and QC [Operator] -> Plant head closes stages [Plant Manager] -> Dispatch makes challan [Dispatch]
+Sales enters SO [Sales] -> Planner approves and releases [Planner] -> Planner places card [Planner] -> Store issues reels [RM issue] -> Floor logs runs and QC [Operator] -> Boxes packed and labelled [Operator] -> Plant head closes stages [Plant Manager] -> Dispatch ships boxes [Dispatch]
+after Plant head closes stages: Stage closed short -> Balance back to the order -> Release again or short close [Sales]
 after Store issues reels: Lot not cleared -> Inward QC inspects [Inward QC] -> Released or held
 ```
 
@@ -40,8 +43,9 @@ Morning: open **Orders** (your start page). Check tiles **Overdue** and **Due in
 3. **Release** approved orders: pick colour and winder queue per card.
 4. Expand rows to answer customers: job card stage dots, made and dispatched.
 5. **Add customer PO** on internal orders when the PO arrives.
-6. **Customer hold & close**, **Short close** or **Cancel order** with a reason when the customer changes plans.
-7. Reports › **Sales pulse** and **Customer 360** once a week.
+6. **Customer hold & close**, **Short close** or **Cancel order** with a reason code when the customer changes plans; **Resume** with an **Order hold lifted** code.
+7. Look for pcs **not released** that came back from job cards (a stage closed short, or a card closed early). Release them again or short close the order with a reason.
+8. Reports › **Sales pulse** (including **Cancelled / short-closed by reason**) and **Customer 360** once a week.
 
 Avoid: typing a rate without checking the **Last rate** hint; releasing without a colour decision from the customer; cancelling when work has started (use Short close).
 
@@ -60,10 +64,11 @@ Avoid: treating a missed slot as an error on the floor (the run is the truth); p
 ### Plant Manager
 Morning: **Job cards** (start page). Check **Overdue**, **QC holds** and the red quality-hold note.
 1. **Inbox** › **Needs action**: holds and runs waiting for you.
-2. **Job cards** › open a card: submit runs operators logged, **Close** stages when both QC readings are in.
-3. **Quality** › **In-process QC**: read flagged readings; **Holds & inspections**: decide holds (only the plant head, Owner or Admin release a job-card hold).
-4. **Job card manager**: split, edit qty or colour, force close or cancel, with a reason.
-5. **GRN register & labels** and **Invoice differences**: approve manual GRNs and rate differences (not ones you made).
+2. **Job cards** › open a card: submit runs operators logged, **Close** stages when both QC readings are in. If a stage cannot reach its target, close it short with a **Stage closed short** code: the balance goes back to the order and the later stages carry on.
+3. **Quality** › **In-process QC**: read flagged readings (they never stop a card); **Holds & inspections**: place a hold only when goods must stop, and decide holds with a **QC hold release** code (only the plant head, Owner or Admin release a job-card hold).
+4. **Job card manager**: split, edit qty or colour, force close or cancel, with a reason code.
+5. Reports › **Employee performance**: runs, reject % and flagged readings per operator.
+6. **GRN register & labels** and **Invoice differences**: approve manual GRNs and rate differences (not ones you made).
 6. **Month-end close**: write notes on OVER or UNDER items after the count is approved.
 
 Avoid: force-closing a card to "fix" numbers (use edit with a reason); approving a GRN you created yourself (the system refuses).
@@ -71,10 +76,11 @@ Avoid: force-closing a card to "fix" numbers (use edit with a reason); approving
 ### Operator
 Morning: your start page shows **Your work**: **Log output**, **Job cards**, **Log QC**, **Scan a label**.
 1. Scan the job card QR with the phone camera (or **Log output** › type 26/10/315).
-2. Pick your stage tab, **Log output**: machine, quantities, reason for any rejection.
+2. Pick your stage tab, **Log output**: machine, your name in **Operator** (only your department is listed), quantities, and a **Floor rejection** code for any rejected pcs.
 3. **Log QC**: at least 2 readings for every required check, for every run.
 4. Check the amber **Still needs QC** list before the shift ends; it should be empty.
 5. **Scan another card** for the next card.
+6. On Process: when boxes are packed, print their labels from the card's **Dispatch** tab (**Box labels**) and stick one on each box. The part box label says PART BOX.
 
 Avoid: logging on a card from memory instead of scanning it; skipping the second reading (the stage cannot close and the next stage cannot take the run); typing rejected pieces by hand (the system works them out).
 
@@ -119,12 +125,13 @@ Avoid: issuing to a machine or job card (issue is to the floor by shift); taking
 
 ### Dispatch
 Morning: **Dispatch** desk (start page). Check **Ready to dispatch**.
-1. Pick the job card ready at dispatch (Process closed, both QC readings in, no hold).
-2. Make the challan: quantity for this shipment, vehicle, transporter, LR. Net weight comes from the spec and can be edited.
-3. Seal once; print the challan.
-4. **Orders** › **Partly dispatched** to see balances still to send.
+1. Pick a job card with **Boxes ready for a challan** (Process may still be running; no manual hold).
+2. **Make challan from boxes**: scan each box label (or tick boxes, or **Select all ready**), then vehicle, transporter, LR. Net weight comes from the spec and can be edited.
+3. Seal once; print the challan. It lists every box code, the box count, pcs per box and total pcs.
+4. After Process closes, ship the part box with the last boxes, or keep leftover boxes with **Retain surplus FG** and a reason code.
+5. **Orders** › **Partly dispatched** to see balances still to send.
 
-Avoid: shipping a card with an active quality hold; sealing twice for a retry (the system does not post stock twice, but check the list first).
+Avoid: opening a box to ship part of it (boxes ship whole); shipping a card with an active hold; sealing twice for a retry (the system does not post stock twice, but check the list first).
 
 ### Purchase accounts work (Plant Manager, Owner, Admin)
 Invoice checks and debit notes are handled by the Plant Manager, Owner or Admin logins.
@@ -149,7 +156,9 @@ Avoid: working in **All Visible Plants** and wondering why a page will not save 
 ## Rules the system enforces
 - Each role sees only its pages; buttons a role cannot use are hidden or greyed with the reason (BLOCKS).
 - Maker-checker on sales orders, manual GRNs and commercial differences (BLOCKS the maker; Owner and Admin may approve their own sales orders and POs).
-- Two QC readings per required check before a stage closes (BLOCKS close). Out-of-band in-process readings flag only.
+- Two QC readings per required check before a stage closes (BLOCKS close). Out-of-band job card readings flag only; only holds placed on purpose stop a card.
+- Every reason is a code from Masters › Reason codes (BLOCKS free text alone).
+- Floor forms list only the stage department's operators (BLOCKS others).
 - Only QC-cleared stock can be issued (BLOCKS). Issue shift and date come from the clock (automatic).
 - Closed months refuse entries dated in them (BLOCKS).
 
@@ -157,10 +166,10 @@ Avoid: working in **All Visible Plants** and wondering why a page will not save 
 Thursday 31 Oct, Plant A:
 - 08:10 Priya (Sales) enters SO/26/10/418 for Sharma Tubes Pvt Ltd, 2,000 pcs RED, and sends it for approval.
 - 08:30 Ramesh (Planner) approves and releases it: job card 26/10/320 in the SHARMA_WINDER-1 queue; he places it on Shift A.
-- 08:45 Anil (RM issue) scans reel AT-26-0415 (cleared) and issues it; it shows under Slitting cards to write.
-- 09:00 Suresh (Operator) scans 26/10/320, logs 100 bamboo on Winding, and two readings per check.
-- 13:30 Meena (Plant Manager) submits the runs and closes Winding.
-- Next day the card closes Process; Ravi (Dispatch) makes the challan for 2,000 pcs.
+- 08:45 Anil (RM issue) scans reel AIT 06281 (cleared) and issues it; it shows under Slitting cards to write.
+- 09:00 Suresh (Operator, Winder department) scans 26/10/320, logs 180 bamboo on Winding, and two readings per check.
+- 13:30 Meena (Plant Manager) submits the runs. Paper ran out, so she closes Winding short at 180 of 200 bamboo with SS-MATERIAL-SHORT. 200 pcs go back to SO/26/10/418 at once; Priya releases them again the next morning.
+- Next day Process logs its runs; boxes of 50 are packed as the readings are saved, and Kiran prints their labels. Ravi (Dispatch) ships 20 boxes (1,000 pcs) before lunch. Process closes at 1,790 good pcs: 35 full boxes and a part box of 40, and 10 pcs go back to the order. Ravi ships the other 16 boxes (790 pcs) in the evening.
 
 ## Common questions
 **Q: I am new. Which page do I open first?** A: Your start page (it opens after sign-in), then the Inbox.

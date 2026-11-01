@@ -52,13 +52,15 @@ def test_non_applicable_critical_rule_does_not_block():
     assert non_waivable_release_detail(ev) is None
 
 
-def test_admin_cannot_release_critical_hold_or_mutate_stock():
-    hold = SimpleNamespace(id=uuid.uuid4(), job_card_id=uuid.uuid4(), status='HOLD', source_inspection_id=uuid.uuid4())
+def test_admin_cannot_release_critical_hold_or_mutate_stock(monkeypatch):
+    from src.reasons import ReasonChoice
+    monkeypatch.setattr(quality, 'resolve_reason', lambda **kw: ReasonChoice('QC_RELEASE', 'QR-MGMT-OK', 'Plant head approved use', None))
+    hold = SimpleNamespace(id=uuid.uuid4(), job_card_id=uuid.uuid4(), plant_id=uuid.uuid4(), status='HOLD', source_inspection_id=uuid.uuid4())
     inspection = SimpleNamespace(status='FAIL', evaluation=critical_evaluation())
     db = Mock()
     db.query.return_value.filter.return_value.first.side_effect = [hold, inspection]
     with pytest.raises(HTTPException) as exc:
-        quality.release_hold(hold.id, db=db, plant_id=str(uuid.uuid4()), current_user={'sub': 'admin', 'roles': ['Admin']})
+        quality.release_hold(hold.id, quality.HoldReleasePayload(reason_code='QR-MGMT-OK'), db=db, plant_id=str(uuid.uuid4()), current_user={'sub': 'admin', 'roles': ['Admin']})
     assert exc.value.status_code == 409
     assert exc.value.detail['code'] == 'NON_WAIVABLE_QUALITY_CHECK'
     assert hold.status == 'HOLD'

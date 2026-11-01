@@ -1,7 +1,7 @@
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from math import isfinite, isclose
-from typing import List, Optional
+from typing import Any, List, Optional
 import logging
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -24,6 +24,7 @@ from ..models import (
     SalesOrderDispatchLog,
     SalesOrderLineColor,
     SalesOrderPoChange,
+    SalesOrderReleaseLotReturn,
 )
 from ..color_allocation import (
     ColorAllocationError,
@@ -57,8 +58,9 @@ from ..order_closure import (
     lines_after_drop,
     shrink_colour_splits,
     trim_schedules,
-    validate_reason,
 )
+from ..reasons import resolve_reason, token_of
+from ..closure_report import closure_report
 from ..pending_workspace import (
     build_pending_workspace,
     export_pending_csv,
@@ -205,6 +207,10 @@ class ReleaseLotReturnPayload(BaseModel):
     job_card_id: uuid.UUID
     returned_qty: float = Field(..., ge=0)
     reason: Optional[str] = Field(default=None, max_length=500)
+    # JOB_CARD_CLOSE master reason production already checked (owner decision 4); stored as sent.
+    reason_code: Optional[str] = Field(default=None, max_length=40)
+    reason_label: Optional[str] = Field(default=None, max_length=200)
+    reason_note: Optional[str] = Field(default=None, max_length=1000)
 
 
 class ReleaseLotReallocatePayload(BaseModel):
@@ -233,6 +239,9 @@ class SalesOrderLineShortClosePayload(BaseModel):
     gap_qty: float = Field(..., gt=0, allow_inf_nan=False)
     reason_code: str
     notes: Optional[str] = None
+    # SHORT_CLOSE master label / note production already checked (owner decision 4); stored as sent.
+    reason_label: Optional[str] = Field(default=None, max_length=200)
+    reason_note: Optional[str] = Field(default=None, max_length=1000)
     # V2 uses an absolute released-allocation target so a committed Sales call
     # can be retried after its response was lost without shortening the SO twice.
     expected_release_qty: Optional[float] = Field(None, gt=0, allow_inf_nan=False)
@@ -255,6 +264,9 @@ class SalesOrderReleaseLotResponse(BaseModel):
     created_by: str
     approved_by: Optional[str]
     created_at: datetime
+    # Return-balance only: True when the order is short-closed or cancelled, so the handed-back pcs were dropped
+    # instead of going back on the order for release (verification issue #8).
+    balance_dropped: Optional[bool] = None
 
 
 class SalesOrderDeliveryScheduleResponse(BaseModel):
@@ -328,6 +340,7 @@ class SalesOrderResponse(BaseModel):
     is_held: bool = False
     hold_reason: Optional[str] = None
     hold_reason_code: Optional[str] = None
+    hold_history: list[dict] = []
     held_at: Optional[datetime] = None
     held_by: Optional[str] = None
     closure_kind: Optional[str] = None
@@ -557,6 +570,7 @@ def _serialize_order(order: SalesOrder) -> dict:
         "is_held": getattr(order, "held_at", None) is not None,
         "hold_reason": getattr(order, "hold_reason", None),
         "hold_reason_code": getattr(order, "hold_reason_code", None),
+        "hold_history": list(getattr(order, "hold_history", None) or []),
         "held_at": getattr(order, "held_at", None),
         "held_by": getattr(order, "held_by", None),
         "closure_kind": getattr(order, "closure_kind", None),
@@ -1054,6 +1068,7 @@ def list_sales_orders(
     date_from: Optional[date] = Query(None, description="PO / internal order date from"),
     date_to: Optional[date] = Query(None),
     sort: Optional[str] = Query(None, description="newest | oldest | due | po_date"),
+    reason_code: Optional[str] = Query(None, max_length=40, description="Cancel / short close or customer hold reason code"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
@@ -1096,6 +1111,10 @@ def list_sales_orders(
         query = query.filter(SalesOrder.status != SalesOrderStatus.CLOSED)
     if customer_id:
         query = query.filter(SalesOrder.customer_id == customer_id)
+    if reason_code and reason_code.strip():
+        # Register filter by reason (1 Nov 2026): the order was cancelled / short-closed or is held for it.
+        wanted_code = reason_code.strip().upper()
+        query = query.filter(or_(SalesOrder.closure_reason_code == wanted_code, SalesOrder.hold_reason_code == wanted_code))
     if search:
         needle = f"%{search.strip()}%"
         clauses = [
@@ -1250,6 +1269,36 @@ class BulkReleaseLinePayload(BaseModel):
     release_lot_id: Optional[uuid.UUID] = None
     parchment_color: Optional[str] = Field(default=None, max_length=100)
     parchment_color_id: Optional[uuid.UUID] = None
+
+
+@router.get("/reports/closures-by-reason")
+def closures_by_reason_report(
+    date_from: Optional[date] = Query(None, description="Closed on or after"),
+    date_to: Optional[date] = Query(None, description="Closed on or before"),
+    customer_id: Optional[uuid.UUID] = Query(None),
+    kind: Optional[str] = Query(None, description="CANCELLED | SHORT_CLOSED"),
+    reason_code: Optional[str] = Query(None, max_length=40),
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(get_current_user),
+):
+    """Cancelled / short-closed orders by reason, customer and month: order count, pcs and value lost."""
+    query = apply_plant_scope(
+        db.query(SalesOrder).options(joinedload(SalesOrder.lines)).filter(SalesOrder.closure_kind.in_([CLOSURE_CANCELLED, CLOSURE_SHORT_CLOSED])),
+        SalesOrder.plant_id,
+        plant_scope,
+    )
+    if date_from:
+        query = query.filter(SalesOrder.closure_at >= datetime.combine(date_from, datetime.min.time()))
+    if date_to:
+        query = query.filter(SalesOrder.closure_at < datetime.combine(date_to + timedelta(days=1), datetime.min.time()))
+    if customer_id:
+        query = query.filter(SalesOrder.customer_id == customer_id)
+    if kind and kind.strip().upper() in (CLOSURE_CANCELLED, CLOSURE_SHORT_CLOSED):
+        query = query.filter(SalesOrder.closure_kind == kind.strip().upper())
+    if reason_code and reason_code.strip():
+        query = query.filter(SalesOrder.closure_reason_code == reason_code.strip().upper())
+    return closure_report(query.all())
 
 
 @router.get("/aggregates", response_model=SalesOrderAggregatesResponse)
@@ -2067,7 +2116,7 @@ def get_sales_order_timeline(
                 event_type="SALES_ORDER_CANCELLED" if cancelled else "SALES_ORDER_SHORT_CLOSED",
                 title="Order cancelled" if cancelled else "Order short-closed",
                 message=(
-                    f"{order.closure_reason_code} · {order.closure_reason or ''}".strip(" ·")
+                    f"{order.closure_reason or order.closure_reason_code} ({order.closure_reason_code})"
                     + ("" if cancelled else f" · {dropped:,.0f} pcs not released were dropped")
                     + (f" · {order.closure_note}" if order.closure_note else "")
                 ),
@@ -2076,6 +2125,9 @@ def get_sales_order_timeline(
                 metadata={"order_no": order.order_no, "reason_code": order.closure_reason_code},
             )
         )
+
+    for index, entry in enumerate(getattr(order, "hold_history", None) or []):
+        events.append(_hold_history_event(order, index, entry))
 
     for row in po_changes:
         old_label = row.old_po_number or "no PO number"
@@ -2123,6 +2175,23 @@ def get_sales_order_timeline(
     if not order.lines:
         warnings.append("Sales order has no lines.")
 
+    # Why each balance came back (owner decision 4): the master label of the force close and of every
+    # stage short close still in force on that lot, else the old free text.
+    return_why: dict[Any, list[str]] = {}
+    for lot in (lot for line in order.lines for lot in (getattr(line, "release_lots", None) or [])):
+        why = getattr(lot, "returned_reason_label", None) or getattr(lot, "returned_reason", None)
+        if why:
+            return_why.setdefault(lot.id, []).append(str(why))
+    for row in (
+        db.query(SalesOrderReleaseLotReturn)
+        .filter(SalesOrderReleaseLotReturn.sales_order_id == order.id, SalesOrderReleaseLotReturn.status == "ACTIVE")
+        .order_by(SalesOrderReleaseLotReturn.created_at)
+        .all()
+    ):
+        why = row.reason_label or row.reason
+        if why and str(why) not in return_why.get(row.release_lot_id, []):
+            return_why.setdefault(row.release_lot_id, []).append(str(why))
+
     for line in sorted(order.lines, key=lambda item: int(item.line_no or 0)):
         events.append(
             _timeline_event(
@@ -2161,6 +2230,7 @@ def get_sales_order_timeline(
                         message=(
                             f"Job card force-closed: {round(returned, 2)} pcs {lot.parchment_color or ''} back to unreleased; "
                             f"{round(float(lot.released_qty or 0.0), 2)} pcs stay on the card."
+                            + (f" — {'; '.join(return_why[lot.id])}" if return_why.get(lot.id) else "")
                         ).replace("  ", " "),
                         created_at=lot.released_at or lot.created_at,
                         actor=lot.released_by_identity or lot.released_by,
@@ -2477,10 +2547,71 @@ class SalesOrderHoldPayload(BaseModel):
     (client 2026-10-26): a code from Masters › Reason codes; a code meaning OTHER also needs a note."""
     reason_code: Optional[str] = Field(None, max_length=40)
     # The reason's name as shown in Masters › Reason codes (the BFF fills it from the master).
+    # Ignored: the label is read from the master by the server (1 Nov 2026); kept so old callers still validate.
     reason_label: Optional[str] = Field(None, max_length=200)
+    reason_note: Optional[str] = Field(None, max_length=1000)
     note: Optional[str] = Field(None, max_length=1000)
-    # Older free-text reason; kept as the note when no note is given.
+    # Older free-text reason: used as the note when a code is chosen; alone (no code) it is refused.
     reason: Optional[str] = Field(None, max_length=500)
+
+
+class SalesOrderResumePayload(BaseModel):
+    """Lifting a customer hold asks why too (category ORDER_RESUME, owner decision 4, 1 Nov 2026)."""
+    reason_code: Optional[str] = Field(None, max_length=40)
+    reason_note: Optional[str] = Field(None, max_length=1000)
+    note: Optional[str] = Field(None, max_length=1000)
+    reason: Optional[str] = Field(None, max_length=500)
+
+
+HOLD_EVENT_TITLES = {
+    "HOLD": "Customer hold — PO closed",
+    "RESUME": "Customer hold lifted",
+    "ENDED_BY_CANCEL": "Customer hold ended by cancel",
+    "ENDED_BY_SHORT_CLOSE": "Customer hold ended by short close",
+}
+
+
+def append_hold_history(order: Any, action: str, *, by: Optional[str], code: Optional[str] = None, label: Optional[str] = None,
+                        note: Optional[str] = None, qty: Optional[float] = None, at: Optional[datetime] = None) -> dict:
+    """Keep every hold / resume with its reason on the order (the old hold columns are cleared on resume)."""
+    entry = {
+        "action": action,
+        "reason_code": code,
+        "reason_label": label,
+        "reason_note": note or None,
+        "by": by,
+        "at": (at or datetime.utcnow()).isoformat(timespec="seconds"),
+    }
+    if qty is not None:
+        entry["qty"] = round(float(qty), 4)
+    order.hold_history = [*(list(getattr(order, "hold_history", None) or [])), entry]
+    return entry
+
+
+def _hold_history_event(order: Any, index: int, entry: dict) -> dict:
+    action = str(entry.get("action") or "HOLD").upper()
+    label = entry.get("reason_label") or entry.get("reason_code")
+    parts = []
+    if label:
+        parts.append(f"{label} ({entry.get('reason_code')})" if entry.get("reason_code") and entry.get("reason_code") != label else str(label))
+    if entry.get("reason_note"):
+        parts.append(str(entry["reason_note"]))
+    if action == "HOLD" and entry.get("qty") is not None:
+        parts.append(f"{float(entry['qty']):,.0f} pcs held")
+    try:
+        at = datetime.fromisoformat(str(entry.get("at")))
+    except (TypeError, ValueError):
+        at = None
+    return _timeline_event(
+        event_id=f"{order.id}:hold:{index}",
+        event_type=f"SALES_ORDER_HOLD_{action}",
+        title=HOLD_EVENT_TITLES.get(action, "Customer hold"),
+        message=" · ".join(parts) or "No reason recorded.",
+        created_at=at,
+        actor=entry.get("by"),
+        qty=entry.get("qty"),
+        metadata={"reason_code": entry.get("reason_code"), "reason_label": entry.get("reason_label")},
+    )
 
 
 def _load_scoped_order(db: Session, order_id: uuid.UUID, plant_id: str) -> SalesOrder:
@@ -2511,11 +2642,12 @@ def hold_sales_order(
     Used when a customer stops lifting material (typically 2–3 months). Delivered
     quantities and release lots are untouched; resume restores the prior status.
     """
-    try:
-        code, note = validate_reason(payload.reason_code, payload.note or payload.reason)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
     order = _load_scoped_order(db, order_id, plant_id)
+    choice = resolve_reason(
+        category="SO_CLOSE", code=payload.reason_code, note=payload.reason_note or payload.note or payload.reason,
+        plant_id=order.plant_id, token=token_of(current_user), what="the customer hold",
+    )
+    code, note = choice.code, choice.note
     if order.held_at is not None:
         raise HTTPException(status_code=409, detail="This order is already on customer hold")
     if order.status == SalesOrderStatus.CLOSED:
@@ -2528,10 +2660,11 @@ def hold_sales_order(
     if held_total <= 0:
         raise HTTPException(status_code=400, detail="Nothing is pending on this order, so there is nothing to hold")
     order.hold_prev_status = order.status.value
-    order.hold_reason = hold_reason_text(payload.reason_label, code, note)[:500]
+    order.hold_reason = hold_reason_text(choice.label, code, note)[:500]
     order.hold_reason_code = code
     order.held_at = datetime.utcnow()
     order.held_by = current_user.get("sub", "unknown")
+    append_hold_history(order, "HOLD", by=order.held_by, code=code, label=choice.label, note=note, qty=held_total, at=order.held_at)
     order.status = SalesOrderStatus.CLOSED
     db.commit()
     try:
@@ -2555,14 +2688,22 @@ def hold_sales_order(
 @router.post("/{order_id}/resume", response_model=SalesOrderResponse)
 def resume_sales_order(
     order_id: uuid.UUID,
+    payload: Optional[SalesOrderResumePayload] = None,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Sales"])),
 ):
-    """Lift a customer hold: clear hold qty and restore the status the order had."""
+    """Lift a customer hold with a reason (ORDER_RESUME): clear hold qty and restore the status the order had.
+    The hold and its reason stay in the order's hold history and timeline."""
     order = _load_scoped_order(db, order_id, plant_id)
     if order.held_at is None:
         raise HTTPException(status_code=409, detail="This order is not on customer hold")
+    body = payload or SalesOrderResumePayload()
+    choice = resolve_reason(
+        category="ORDER_RESUME", code=body.reason_code, note=body.reason_note or body.note or body.reason,
+        plant_id=order.plant_id, token=token_of(current_user), what="lifting the hold",
+    )
+    append_hold_history(order, "RESUME", by=current_user.get("sub", "unknown"), code=choice.code, label=choice.label, note=choice.note)
     for line in order.lines:
         line.hold_qty = 0.0
     try:
@@ -2585,8 +2726,8 @@ def resume_sales_order(
             plant_id=str(plant_id),
             actor_role="Sales",
             actor_email=current_user.get("sub"),
-            summary=f"Customer hold lifted on sales order {order.order_no}",
-            payload={"order_no": order.order_no},
+            summary=f"Customer hold lifted on sales order {order.order_no} — {choice.text}",
+            payload={"order_no": order.order_no, "reason_code": choice.code, "reason": choice.label, "note": choice.note},
         )
     except Exception:
         pass
@@ -2594,9 +2735,10 @@ def resume_sales_order(
 
 
 class SalesOrderClosurePayload(BaseModel):
-    reason_code: str = Field(..., min_length=1, max_length=40)
-    # The reason's name as shown in Masters › Reason codes (the BFF fills it from the master).
+    reason_code: Optional[str] = Field(None, max_length=40)
+    # Ignored: the server reads the label from the master (1 Nov 2026); kept so old callers still validate.
     reason_label: Optional[str] = Field(None, max_length=200)
+    reason_note: Optional[str] = Field(None, max_length=1000)
     note: Optional[str] = Field(None, max_length=1000)
 
 
@@ -2621,19 +2763,24 @@ def _lock_order_for_closure(db: Session, order_id: uuid.UUID, plant_id: str) -> 
     return order
 
 
-def _closure_reason(payload: SalesOrderClosurePayload) -> tuple[str, str, str]:
-    try:
-        code, note = validate_reason(payload.reason_code, payload.note)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    label = (payload.reason_label or "").strip() or code
-    return code, label, note
+def _closure_reason(payload: SalesOrderClosurePayload, db: Session, order_id: uuid.UUID, plant_id: str, current_user: dict) -> tuple[str, str, str]:
+    """The reason must be an active "Order cancel / short close" (SO_CLOSE) code of the order's plant; the
+    label is read from the master now, not trusted from the caller (owner decision 4, 1 Nov 2026)."""
+    order = _load_scoped_order(db, order_id, plant_id)
+    choice = resolve_reason(
+        category="SO_CLOSE", code=payload.reason_code, note=payload.reason_note or payload.note,
+        plant_id=order.plant_id, token=token_of(current_user), what="closing the order",
+    )
+    return choice.code, choice.label, choice.note or ""
 
 
-def _end_hold(order: SalesOrder) -> None:
-    """Cancel / short close also ends a customer hold: the hold qty is released back to the lines."""
+def _end_hold(order: SalesOrder, *, action: str = "ENDED_BY_CANCEL", by: Optional[str] = None,
+              code: Optional[str] = None, label: Optional[str] = None, note: Optional[str] = None) -> None:
+    """Cancel / short close also ends a customer hold: the hold qty is released back to the lines.
+    The hold history keeps that the hold ended and why."""
     if order.held_at is None:
         return
+    append_hold_history(order, action, by=by, code=code, label=label, note=note)
     for line in order.lines:
         line.hold_qty = 0.0
     try:
@@ -2674,12 +2821,12 @@ def cancel_sales_order(
     current_user: dict = Depends(require_role(CLOSURE_ROLES)),
 ):
     """Cancel the whole order with a reason code. Only while nothing is released or dispatched."""
-    code, label, note = _closure_reason(payload)
+    code, label, note = _closure_reason(payload, db, order_id, plant_id, current_user)
     order = _lock_order_for_closure(db, order_id, plant_id)
     option = closure_options(order)["cancel"]
     if not option["allowed"]:
         raise HTTPException(status_code=409, detail=option["reason"])
-    _end_hold(order)
+    _end_hold(order, action="ENDED_BY_CANCEL", by=current_user.get("sub", "unknown"), code=code, label=label, note=note)
     for line in order.lines:
         for row in line.delivery_schedules or []:
             if str(row.status or "").lower() != "delivered":
@@ -2711,12 +2858,12 @@ def short_close_sales_order(
     current_user: dict = Depends(require_role(CLOSURE_ROLES)),
 ):
     """Drop the balance not yet released, with a reason code. Released job cards finish; the order then closes."""
-    code, label, note = _closure_reason(payload)
+    code, label, note = _closure_reason(payload, db, order_id, plant_id, current_user)
     order = _lock_order_for_closure(db, order_id, plant_id)
     option = closure_options(order)["short_close"]
     if not option["allowed"]:
         raise HTTPException(status_code=409, detail=option["reason"])
-    _end_hold(order)
+    _end_hold(order, action="ENDED_BY_SHORT_CLOSE", by=current_user.get("sub", "unknown"), code=code, label=label, note=note)
     dropped = _drop_unreleased_balance(order)
     order.closure_kind = CLOSURE_SHORT_CLOSED
     order.closure_reason_code = code
@@ -3305,14 +3452,19 @@ def return_release_lot_balance(
     if lot.job_card_id and lot.job_card_id != payload.job_card_id:
         raise HTTPException(status_code=409, detail="Release lot belongs to another job card")
     returned = round(float(payload.returned_qty or 0.0), 4)
+    closed_order = str(getattr(line.sales_order, "closure_kind", "") or "").upper() in (CLOSURE_SHORT_CLOSED, CLOSURE_CANCELLED)
     if abs(float(lot.returned_qty or 0.0) - returned) <= 1e-6 and returned > 0:
-        return _lot_payload(lot, lot.sales_order_id)
+        return {**_lot_payload(lot, lot.sales_order_id), "balance_dropped": closed_order}
     if float(lot.returned_qty or 0.0) > 0:
         raise HTTPException(status_code=409, detail="A different balance was already returned for this job card")
     if returned > float(lot.released_qty or 0.0) + 1e-6:
         raise HTTPException(status_code=400, detail="Cannot return more than the lot released")
     lot.released_qty = round(float(lot.released_qty or 0.0) - returned, 4)
     lot.returned_qty = returned
+    lot.returned_reason = payload.reason
+    lot.returned_reason_code = (payload.reason_code or "").strip().upper() or None
+    lot.returned_reason_label = payload.reason_label
+    lot.returned_reason_note = payload.reason_note
     lot.status = "cancelled" if lot.released_qty <= 1e-6 else "short_closed"
     order = line.sales_order
     if order.status in (SalesOrderStatus.RELEASED, SalesOrderStatus.PARTIALLY_RELEASED):
@@ -3330,10 +3482,20 @@ def return_release_lot_balance(
         plant_id,
         "release_lot_balance_returned",
         lot,
-        f"Force-close returned {returned:,.0f} pcs {lot.parchment_color or ''} to the order; job card keeps {lot.released_qty:,.0f} pcs".strip(),
-        {"returned_qty": returned, "kept_qty": lot.released_qty, "job_card_id": str(payload.job_card_id), "reason": payload.reason},
+        f"Force-close returned {returned:,.0f} pcs {lot.parchment_color or ''} to the order; job card keeps {lot.released_qty:,.0f} pcs".strip()
+        + (f" — {payload.reason_label}" if payload.reason_label else ""),
+        {"returned_qty": returned, "kept_qty": lot.released_qty, "job_card_id": str(payload.job_card_id), "reason": payload.reason,
+         "reason_code": lot.returned_reason_code, "reason_label": payload.reason_label, "reason_note": payload.reason_note},
     )
-    return _lot_payload(lot, lot.sales_order_id)
+    return {**_lot_payload(lot, lot.sales_order_id), "balance_dropped": closed_order}
+
+
+def _short_close_reason_text(code: str, label: Optional[str], note: Optional[str]) -> str:
+    """"Label (CODE) — note" for the order notes line; just the code when production sent no label (older caller)."""
+    label = (label or "").strip()
+    note = (note or "").strip()
+    text = f"{label} ({code})" if label else code
+    return f"{text} — {note}" if note else text
 
 
 @router.post("/lines/{line_id}/short-close", response_model=SalesOrderLineResponse)
@@ -3394,9 +3556,10 @@ def short_close_sales_order_line(
     order = line.sales_order
     note = (
         f"Short-closed line {int(line.line_no or 0)} by {round(float(payload.gap_qty or 0.0), 2)} pcs "
-        f"from job card {payload.job_card_id} ({reason})."
+        f"from job card {payload.job_card_id} ({_short_close_reason_text(reason, payload.reason_label, payload.reason_note)})."
     )
-    order.notes = "\n".join([text for text in [order.notes, note, payload.notes] if text])
+    extra_notes = payload.notes if (payload.notes or "").strip() != (payload.reason_note or "").strip() else None
+    order.notes = "\n".join([text for text in [order.notes, note, extra_notes] if text])
     _sync_release_status(order)
     _sync_order_status(order)
     db.commit()

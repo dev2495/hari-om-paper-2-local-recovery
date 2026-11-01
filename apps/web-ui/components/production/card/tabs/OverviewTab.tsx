@@ -67,8 +67,24 @@ export function OverviewTab({
   const waitingQc = live.filter((e) => e.status === "SUBMITTED" && e.kind !== "QC_ONLY" && !runQcState(card, e).accepted)
   const holds = (card?.quality_holds || []).filter((h: any) => String(h.status || "").toUpperCase() === "HOLD")
 
+  const shortCloses: any[] = (lifecycle?.short_closes || []).filter((row: any) => row && row.stage)
   return (
     <div className="space-y-4" data-testid="tab-overview">
+      {shortCloses.length ? (
+        <section className={cn("rounded-xl border px-4 py-3 text-[13px]", toneClass("rose"))} data-testid="overview-short-closes">
+          <p className="font-semibold">Closed short</p>
+          <ul className="mt-1 space-y-0.5">
+            {shortCloses.map((row: any) => (
+              <li key={row.stage}>
+                {stageLabel(row.stage)}: {fmt(row.good)} of {fmt(row.target)} {row.unit}
+                {Number(row.returned_pcs) > 0 ? ` · ${fmt(row.returned_pcs)} pcs went back to the sales order` : " · nothing went back to the order"}
+                {row.reason ? ` · ${row.reason}` : ""}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 opacity-90">The stages after it work to the cut target; reopening the stage (Owner / Admin) takes the pcs back if the order still has them unreleased.</p>
+        </section>
+      ) : null}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Tile label="Runs today" value={todayRuns.length} sub={todayRuns.length ? Array.from(new Set(todayRuns.map((e) => runNo(e)))).slice(0, 4).join(" · ") : "nothing logged today"} testId="tile-runs-today" />
         <Tile label="Made today" value={unitTotals(todayRuns, "produced")} sub={todayRuns.length ? `${unitTotals(todayRuns, "accepted")} good · ${unitTotals(todayRuns, "rejected")} rejected` : "—"} />
@@ -178,7 +194,7 @@ export function OverviewTab({
                       <span className="min-w-0 flex-1 truncate text-muted-foreground">
                         {shiftLabel(e.shift_code)} · {e.machine_id ? `${machineName(e.machine_id)} · ` : ""}
                         {e.operator_name ? `${e.operator_name} · ` : ""}
-                        {fmt(e.produced)} made · {fmt(e.accepted)} good{e.rejected ? ` · ${fmt(e.rejected)} ${e.details?.reject_code || "rejected"}` : ""}
+                        {fmt(e.produced)} made · {fmt(e.accepted)} good{e.rejected ? ` · ${fmt(e.rejected)} ${e.details?.reject_label ? `rejected (${e.details.reject_label})` : e.details?.reject_code || "rejected"}` : ""}
                       </span>
                       <QcChip qc={qc} compact />
                       {!qc.accepted && e.status === "SUBMITTED" && canQc && onLogQc ? (

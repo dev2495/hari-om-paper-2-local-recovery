@@ -62,6 +62,14 @@ def _run_text(entry: dict[str, Any]) -> str:
     return " · ".join(bits)
 
 
+def _num(value: Any) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value or 0)
+    return f"{number:,.0f}" if number.is_integer() else f"{number:,.2f}"
+
+
 def _audit_event(event: AuditEvent, card_no: Optional[str]) -> Optional[dict[str, Any]]:
     """Plain words for one audit row; None for technical rows nobody needs to read."""
     payload = event.payload or {}
@@ -91,8 +99,19 @@ def _audit_event(event: AuditEvent, card_no: Optional[str]) -> Optional[dict[str
     elif head in {"close", "reopen"}:
         stage = _stage(tail)
         kind = "STAGE_CLOSE" if head == "close" else "STAGE_REOPEN"
-        short = bool((payload.get("result") or {}).get("short_close")) if isinstance(payload.get("result"), dict) else False
-        title = f"{STAGE_LABEL.get(stage or '', 'Stage')} {'closed' if head == 'close' else 'reopened'}" + (" short" if short else "")
+        result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+        record = result.get("short_close") or result.get("reopened_short_close") or {}
+        short = bool(record)
+        title = f"{STAGE_LABEL.get(stage or '', 'Stage')} {'closed' if head == 'close' else 'reopened'}" + (" short" if head == "close" and short else " (short close undone)" if short else "")
+        if short:
+            # Closed short (owner decision 2026-11-01): qty, the balance given back to the order, and why.
+            unit = record.get("unit") or ""
+            bits = [f"{_num(record.get('good'))} of {_num(record.get('target'))} {unit}".strip()]
+            if record.get("returned_pcs"):
+                bits.append(f"{_num(record.get('returned_pcs'))} pcs {'back to the order' if head == 'close' else 'taken back from the order'}")
+            if reason:
+                bits.append(reason)
+            detail = " · ".join(bits)
     elif action in {"release_sync_create", "released", "created"}:
         kind, title = "RELEASE", "Released from the sales order"
         detail = f"{payload.get('released_qty') or payload.get('qty') or ''} pcs".strip() if (payload.get("released_qty") or payload.get("qty")) else None
@@ -109,7 +128,8 @@ def _audit_event(event: AuditEvent, card_no: Optional[str]) -> Optional[dict[str
         kind, title = "FORCE_CLOSE", "Cancelled: nothing was made" if cancelled else "Force closed"
         detail = " · ".join(bit for bit in (
             None if cancelled else (f"{payload.get('made_qty'):,.0f} pcs made" if payload.get("made_qty") is not None else None),
-            f"{payload.get('returned_qty'):,.0f} pcs back to the order" if payload.get("returned_qty") else None, reason or None) if bit) or None
+            (f"{payload.get('returned_qty'):,.0f} pcs dropped (order closed)" if payload.get("balance_dropped") else f"{payload.get('returned_qty'):,.0f} pcs back to the order")
+            if payload.get("returned_qty") else None, reason or None) if bit) or None
     elif action == "job_card_emergency_insert":
         kind, title = "PLAN", "Emergency insert"
         detail = " · ".join(str(x) for x in (payload.get("plan_date"), str(payload.get("shift_code") or "").replace("SHIFT_", "Shift "), payload.get("reason")) if x)
@@ -134,6 +154,20 @@ def _audit_event(event: AuditEvent, card_no: Optional[str]) -> Optional[dict[str
         stage = _stage(payload.get("stage") or payload.get("selected_stage")) or stage
     elif action == "hold":
         kind, title = "HOLD", "Put on hold"
+    elif action == "boxes_packed":
+        packed = payload.get("boxes") or []
+        kind, stage = "BOX", "PROCESS"
+        title = f"{len(packed)} box{'es' if len(packed) != 1 else ''} packed" + (" (Process closed)" if payload.get("final") else "")
+        detail = ", ".join(f"{b.get('box_code')} {b.get('qty')} pcs" + (" part box" if b.get("is_part") else "") for b in packed[:12]) or None
+    elif action == "box_labels_printed":
+        printed = payload.get("boxes") or []
+        kind, title = "BOX", ("Box labels reprinted" if payload.get("reprint") else "Box labels printed")
+        detail = ", ".join(str(b.get("box_code")) for b in printed[:12]) or None
+    elif action == "SURPLUS_FG_RETAINED":
+        kind, title = "DISPATCH", "Surplus kept in stock"
+        detail = " · ".join(bit for bit in (f"{_num(payload.get('retained_qty'))} pcs" if payload.get("retained_qty") is not None else None,
+                                           f"{_num(payload.get('returned_to_order_qty'))} pcs back to the order" if payload.get("returned_to_order_qty") else None,
+                                           payload.get("reason")) if bit) or None
     return {
         "id": f"a:{event.id}", "at": _at(event.event_ts), "actor": event.actor_id, "role": event.actor_role,
         "kind": kind, "title": title, "detail": detail, "stage": stage, "stage_label": STAGE_LABEL.get(stage or "", None),

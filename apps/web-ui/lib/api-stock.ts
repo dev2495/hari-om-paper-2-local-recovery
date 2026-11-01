@@ -245,9 +245,10 @@ export type Correction = {
   effective_date: string; reason_code: string; reason_label: string; reason_notes: string | null
   created_by: string; created_at: string | null; approved_by: string | null; posted_at: string | null
   cancelled_by: string | null; cancelled_at: string | null; cancel_note: string | null; count_id: string | null; lines: CorrectionLine[]
+  cancel_reason_code?: string | null; cancel_reason_label?: string | null
 }
 export type CorrectionList = { items: Correction[]; waiting_count: number; reasons: Record<string, string>; can: { approve: boolean; raise: boolean; opening_load: boolean } }
-export type CorrectionInput = { code?: string; item_id?: string; location_id?: string; new_qty?: number; not_here?: boolean; reason: string; note?: string }
+export type CorrectionInput = { code?: string; item_id?: string; location_id?: string; new_qty?: number; not_here?: boolean; reason_code: string; reason_note?: string; reason?: string; note?: string }
 /** What a typed label is, before a correction is raised. */
 export type LotLookup = LotRow & { inward_qty: number | null; returned: boolean; issued_on: string | null; waiting: { id: string; voucher_no: string; created_by: string | null } | null }
 
@@ -281,7 +282,7 @@ export const stockApi = {
   decide: (id: string, entryId: string, decision: "LEAVE_AS_USED" | "ADD_ON_QC_HOLD") => data<CountEntry>(api.post(`/api/inventory/counts/${id}/entries/${entryId}/decide`, { decision })),
   submit: (id: string, note?: string) => data<CountDetail>(api.post(`/api/inventory/counts/${id}/submit`, { note: note || null })),
   approve: (id: string, note?: string) => data<CountDetail>(api.post(`/api/inventory/counts/${id}/approve`, { note: note || null })),
-  sendBack: (id: string, note: string, racks: string[]) => data<CountDetail>(api.post(`/api/inventory/counts/${id}/send-back`, { note, racks })),
+  sendBack: (id: string, body: { reason_code: string; reason_note?: string }, racks: string[]) => data<CountDetail>(api.post(`/api/inventory/counts/${id}/send-back`, { ...body, racks })),
   cancel: (id: string, note?: string) => data<CountDetail>(api.post(`/api/inventory/counts/${id}/cancel`, { note: note || null })),
 
   monthFigures: (month: string) => data<MonthFigures>(api.get("/api/inventory/stock-control/month-figures", { params: { month } })),
@@ -290,7 +291,7 @@ export const stockApi = {
   corrections: (status = "ALL") => data<CorrectionList>(api.get("/api/inventory/stock-control/corrections", { params: { status } })),
   raiseCorrection: (body: CorrectionInput) => data<Correction>(api.post("/api/inventory/stock-control/corrections", body)),
   approveCorrection: (id: string, note?: string) => data<Correction>(api.post(`/api/inventory/stock-control/corrections/${id}/approve`, { note: note || null })),
-  rejectCorrection: (id: string, note: string) => data<Correction>(api.post(`/api/inventory/stock-control/corrections/${id}/cancel`, { note })),
+  rejectCorrection: (id: string, body: { reason_code: string; reason_note?: string }) => data<Correction>(api.post(`/api/inventory/stock-control/corrections/${id}/cancel`, body)),
 }
 
 // Plain words, numbers and dates for the stock pages live in lib/stock-format.ts (no app imports, so the

@@ -241,6 +241,13 @@ const navigationUnits: NavGroup[] = [
         description: "Spec sheet workspace, recipe truth, and print-ready outputs.",
         roles: ["Owner", "Admin"],
       },
+      {
+        name: "Packing setup",
+        href: "/specifications/packing-setup",
+        icon: Package,
+        description: "Box, qty per box, plastic and fadda for every active spec (temporary).",
+        roles: ["Owner", "Admin"],
+      },
     ],
   },
   {
@@ -252,6 +259,7 @@ const navigationUnits: NavGroup[] = [
       { name: "Throughput", href: "/reports/production", icon: BarChart3, description: "Per-stage and per-machine output.", roles: ["PlantManager", "Planner"] },
       { name: "Planning performance", href: "/reports/planning", icon: CalendarRange, description: "How well the plan held: slots done in their shift, machine load, missed slots and stages finished on time.", roles: ["PlantManager", "Planner"] },
       { name: "Plan vs actual", href: "/reports/plan-vs-actual", icon: CalendarCheck2, description: "Did each floor run happen on the planned day, shift and machine? Runs before planning and missed slots.", roles: ["PlantManager", "Planner"] },
+      { name: "Employee performance", href: "/reports/employees", icon: Users, description: "Per operator: runs, made, good, rejected, reject %, flagged QC readings and shifts worked, with the runs behind them.", roles: ["Owner", "Admin", "PlantManager", "Planner"] },
       { name: "Sales pulse", href: "/reports/sales", icon: TrendingUp, description: "Order flow, OTIF, lead time and customers.", roles: ["Sales", "PlantManager"] },
       { name: "Customer 360", href: "/reports/customer-360", icon: Users, description: "Per-customer demand, delivery and risk.", roles: ["Sales"] },
       { name: "Inventory intelligence", href: "/reports/inventory", icon: Boxes, description: "Stock value, ageing and velocity.", roles: ["Store", "Planner", "PlantManager"] },

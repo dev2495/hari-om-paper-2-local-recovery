@@ -10,7 +10,7 @@ from sqlalchemy import text
 from .database import SessionLocal
 from .models import AuditEvent, JobCard, JobCardStage, JobCardStageSegment, PackingRecord, QualityHold
 from .dispatch_quantities import dispatchable_quantity, qc_excluded_quantities
-from .entry_models import CompletionEffect
+from .entry_models import CompletionEffect, FgBox
 from .security.jwt_handler import SECRET_KEY
 
 log=logging.getLogger(__name__)
@@ -52,14 +52,64 @@ def post_accepted_fg(db, job, stage, packing, qc, actor):
                           payload={"packed_qty":gross,**excluded,"qc_close_reason":(qc.actuals_snapshot or {}).get("close_reason"),"fg_posted_qty":0}))
 
 
-def deliver_one():
+def post_box_fg(db, job, box, actor):
+    """One box = one FG batch named by the box code (owner decision 2026-11-01). Idempotent per box."""
+    from .routers import planning
+    from .routers.entries import fg_item_for
+    import httpx
+    if box.fg_status=="POSTED":return
+    if planning._movement_blocking_holds(db,db.query(QualityHold).filter_by(job_card_id=job.id).all()):raise ValueError("A hold placed on purpose stops this box going into stock until it is released")
+    plant=str(job.plant_id)
+    item_id=str(box.fg_item_id) if box.fg_item_id else fg_item_for(job,actor,plant)
+    packing=db.query(JobCardStage).filter_by(job_card_id=job.id,stage_type="PACKING").first()
+    payload={"item_id":item_id,"batch_no":box.box_code,"qty":float(box.qty),"production_job_id":str(job.id),"spec_id":str(job.spec_id) if job.spec_id else None,
+             "external_ref":f"FG-BOX-{box.id}","location_id":str(packing.location_id) if packing is not None and packing.location_id else None,"stock_status":"UNRESTRICTED",
+             "effective_date":box.business_date.isoformat() if box.business_date else None,"box_code":box.box_code,"part_box":bool(box.is_part),"job_card_no":job.job_card_no}
+    response=httpx.post(f"{planning.settings.INVENTORY_SERVICE_URL}/fg-inward/",json=payload,headers={"Authorization":f"Bearer {actor['token']}","X-Plant-ID":plant},timeout=10)
+    if response.status_code not in (200,201):raise ValueError(f"Inventory refused box {box.box_code}: {response.text[:200]}")
+    result=response.json()
+    import uuid as _uuid
+    box.fg_item_id=_uuid.UUID(item_id);box.inventory_batch_id=_uuid.UUID(str(result["batch_id"]));box.inventory_transaction_id=_uuid.UUID(str(result["transaction_id"]));box.fg_status="POSTED"
+
+
+def packaging_masters(actor, plant):
+    """Weights of boxes, plastic sheets and fadda from the Packaging masters, by code (for theory kg)."""
+    from .routers import planning
+    import httpx
+    out={}
+    try:
+        response=httpx.get(f"{planning.settings.MASTERDATA_SERVICE_URL}/master/packaging/unit-weights",headers={"Authorization":f"Bearer {actor['token']}","X-Plant-ID":plant},timeout=8)
+        if response.status_code<400 and isinstance((response.json() or {}).get("by_code"),dict):
+            return {str(k).upper():v for k,v in response.json()["by_code"].items()}
+    except Exception:
+        pass
+    for path,key in (("boxes","code"),("plastic-sheets","sku"),("fadda","sku")):
+        try:
+            response=httpx.get(f"{planning.settings.MASTERDATA_SERVICE_URL}/master/packaging/{path}",headers={"Authorization":f"Bearer {actor['token']}","X-Plant-ID":plant},timeout=8)
+            if response.status_code>=400:continue
+            for row in response.json() or []:
+                code=str(row.get(key) or "").strip().upper()
+                if code:out[code]=row
+        except Exception:continue
+    return out
+
+
+def deliver_keys(keys):
+    """Deliver these effects now (called straight after the request that queued them committed)."""
+    for key in keys:
+        deliver_one(effect_key=key)
+
+
+def deliver_one(effect_key=None):
     from .routers import planning
     import httpx
     db=SessionLocal()
     try:
         # One process at a time per card effect; a dead process releases this
         # transaction and the same stable receiver key is retried.
-        effect=db.query(CompletionEffect).filter(CompletionEffect.status.in_(["PENDING","FAILED"]),CompletionEffect.next_attempt_at<=datetime.utcnow()).order_by(CompletionEffect.created_at).with_for_update(skip_locked=True).first()
+        query=db.query(CompletionEffect).filter(CompletionEffect.status.in_(["PENDING","FAILED"]))
+        query=query.filter(CompletionEffect.effect_key==effect_key) if effect_key else query.filter(CompletionEffect.next_attempt_at<=datetime.utcnow())
+        effect=query.order_by(CompletionEffect.created_at).with_for_update(skip_locked=True).first()
         if not effect:return False
         if not db.execute(text("SELECT pg_try_advisory_xact_lock(hashtext(:key))"),{"key":"production-effect:"+str(effect.job_card_id)}).scalar():return False
         job=db.get(JobCard,effect.job_card_id)
@@ -87,6 +137,28 @@ def deliver_one():
                 if not qc or qc.status!="COMPLETED" or not stage or stage.status!="COMPLETED":raise ValueError("Packing and final QC must both be closed")
                 if planning._movement_blocking_holds(db,db.query(QualityHold).filter_by(job_card_id=job.id).all()):raise ValueError("QC hold prevents FG posting")
                 post_accepted_fg(db,job,stage,packing,qc,actor)
+            elif effect.kind=="fg_box":
+                import uuid as _uuid
+                box=db.get(FgBox,_uuid.UUID(effect.payload["box_id"]))
+                if box is None or box.status=="VOID":effect.status="CANCELLED";db.commit();return True
+                try:post_box_fg(db,job,box,actor)
+                except Exception:
+                    box.fg_status="FAILED";raise
+            elif effect.kind=="box_theory":
+                import uuid as _uuid
+                from . import boxes as box_rules
+                box=db.get(FgBox,_uuid.UUID(effect.payload["box_id"]))
+                if box is not None and box.status!="VOID":
+                    part_note=[w for w in ((box.packaging or {}).get("warnings") or []) if "no qty per box" in w]
+                    fresh=box_rules.box_packaging(job,packaging_masters(actor,plant))
+                    box.packaging={**fresh,"warnings":list(fresh.get("warnings") or [])+part_note}
+                    db.flush()
+                # Only this box's own packing is added (issue #13); Process close re-posts the whole card.
+                planning._post_box_packaging_theory(db=db,job_card=job,box=box,token=actor["token"],plant_id=plant,current_user=actor)
+            elif effect.kind=="sales_return":
+                p=effect.payload
+                response=httpx.post(f"{planning.settings.SALES_SERVICE_URL}/sales-orders/release-lots/{p['release_lot_id']}/stage-returns",headers={"Authorization":f"Bearer {actor['token']}","X-Plant-ID":plant},json={"job_card_id":p["job_card_id"],"return_key":p["return_key"],"qty":p["qty"],"stage":p.get("stage"),"reason":p.get("reason"),"reason_code":p.get("reason_code"),"reason_label":p.get("reason_label"),"reason_note":p.get("reason_note")},timeout=10)
+                if response.status_code>=400:raise ValueError(f"Sales refused the return: {response.text[:300]}")
             elif effect.kind in ("hold_stock","release_stock"):
                 held=bool(planning._movement_blocking_holds(db,db.query(QualityHold).filter_by(job_card_id=job.id).all()))
                 if held!=(effect.kind=="hold_stock"):

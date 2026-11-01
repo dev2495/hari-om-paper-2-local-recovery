@@ -148,7 +148,8 @@ def lock_month(db: Session, plant_id: str, month: date, actor: str, note: Option
     return row
 
 
-def unlock_month(db: Session, plant_id: str, month: date, actor: str, reason: str) -> Optional[InventoryBooksLock]:
+def unlock_month(db: Session, plant_id: str, month: date, actor: str, reason: str,
+                 coded: Optional[dict[str, Any]] = None) -> Optional[InventoryBooksLock]:
     """Re-open one month; returns None when the month was never locked (nothing to do)."""
     month = month_start(month)
     row = db.query(InventoryBooksLock).filter(
@@ -162,7 +163,8 @@ def unlock_month(db: Session, plant_id: str, month: date, actor: str, reason: st
     row.unlocked_at = now
     row.unlock_reason = reason
     row.updated_at = now
-    row.history = [*(row.history or []), _event("UNLOCKED", actor, now, reason)]
+    # A BOOKS_UNLOCK code from the master (owner decision 4, 1 Nov 2026) goes into the history entry.
+    row.history = [*(row.history or []), {**_event("UNLOCKED", actor, now, reason), **(coded or {})}]
     db.flush()
     return row
 

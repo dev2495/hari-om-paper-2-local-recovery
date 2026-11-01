@@ -35,6 +35,8 @@ def card(monkeypatch):
         db.add(JobCardStage(job_card_id=job.id, stage_type=stage, machine_id=uuid.uuid4() if stage in ('WINDER', 'OVEN', 'PROCESS') else None, plan_date=date.today(), shift_code='SHIFT_A'))
     db.commit()
     monkeypatch.setattr(api, 'employee', lambda *args: {'name': 'Operator / Supervisor', 'employee_code': 'E1', 'active': True})
+    monkeypatch.setattr(api, 'check_department', lambda *args: None)
+    monkeypatch.setattr(api, 'deliver_now', lambda *args: None)
     monkeypatch.setattr(api.planning, '_fetch_machine', lambda machine_id, *args: {'id': str(machine_id), 'plant_id': PLANT, 'department': next(s.stage_type for s in job.stages if s.machine_id == machine_id), 'is_active': True, 'capacity_value': 0, 'id_min_mm': 70, 'id_max_mm': 90, 'od_min_mm': 70, 'od_max_mm': 100, 'length_min_mm': 100, 'length_max_mm': 2000})
     yield api, db, job
     db.rollback(); db.close()
@@ -88,7 +90,7 @@ def test_other_process_rules_stay(card):
     # A reject still needs its reason; cutting loss written still needs its reason.
     with pytest.raises(HTTPException) as refused:
         create(a, db, job, 'PROCESS', produced=20, accepted=18, input_quantity=2)
-    assert refused.value.status_code == 422 and 'Reject reason' in refused.value.detail
+    assert refused.value.status_code == 422 and 'rejected or lost pieces' in refused.value.detail
     db.rollback()
 
 
@@ -220,7 +222,7 @@ def test_voiding_a_whole_card_total_puts_the_runs_count_gap_back(card):
     process = state(a, db, job, 'PROCESS')
     whole = create(a, db, job, 'PROCESS', quantity_mode='TOTAL', expected_version=process['row_version'], produced=20, accepted=20, input_quantity=2)['entry']
     assert state(a, db, job, 'PROCESS')['count_gap_runs'] == 0
-    a.void_entry(job.id, uuid.UUID(whole['id']), a.Mutation(request_id=str(uuid.uuid4()), expected_version=whole['row_version'], reason='typed by mistake'), db, PLANT, USER)
+    a.void_entry(job.id, uuid.UUID(whole['id']), a.Mutation(request_id=str(uuid.uuid4()), expected_version=whole['row_version'], reason_code='EC-DUPLICATE'), db, PLANT, USER)
     earlier = db.get(StageEntry, uuid.UUID(run['id']))
     assert earlier.details['count_gap']['gap'] == 1 and 'count_gap_settled' not in earlier.details
     assert 'settled_by_entry' not in earlier.details['count_gap']
@@ -232,7 +234,7 @@ def test_voiding_a_whole_card_total_puts_the_runs_count_gap_back(card):
     process = state(a, db, job, 'PROCESS')
     total = create(a, db, job, 'PROCESS', quantity_mode='TOTAL', expected_version=process['row_version'], produced=30, accepted=30, input_quantity=3)['entry']
     assert 'count_gap' not in total['details'] and state(a, db, job, 'PROCESS')['count_gap_runs'] == 0
-    a.void_entry(job.id, uuid.UUID(second['id']), a.Mutation(request_id=str(uuid.uuid4()), expected_version=second['row_version'], reason='wrong card'), db, PLANT, USER)
+    a.void_entry(job.id, uuid.UUID(second['id']), a.Mutation(request_id=str(uuid.uuid4()), expected_version=second['row_version'], reason_code='EC-WRONG-CARD'), db, PLANT, USER)
     gap = db.get(StageEntry, uuid.UUID(total['id'])).details['count_gap']
     assert gap['card_total'] and gap['possible'] == 20 and gap['counted'] == 21 and gap['gap'] == -1
     assert gap['message'].startswith('Card total: 2 bamboo × 10 pcs = 20 pcs, but the card counts 21 pcs')
@@ -250,10 +252,10 @@ def test_close_with_unused_input_offers_hold_or_scrap_never_return(card):
     oven = state(a, db, job, 'OVEN')
     for disposition in (None, 'RETURN'):
         with pytest.raises(HTTPException) as refused:
-            a.close_stage(job.id, 'OVEN', a.CloseInput(request_id=str(uuid.uuid4()), expected_version=oven['row_version'], short_close=True, residual_disposition=disposition, reason='Short by 4'), db, PLANT, USER)
+            a.close_stage(job.id, 'OVEN', a.CloseInput(request_id=str(uuid.uuid4()), expected_version=oven['row_version'], short_close=True, residual_disposition=disposition, reason_code='SS-MATERIAL-SHORT'), db, PLANT, USER)
         assert refused.value.status_code == 409 and refused.value.detail['code'] == 'RESIDUAL_WIP'
         assert '(hold or scrap)' in refused.value.detail['message'] and 'hold, return' not in refused.value.detail['message']
     assert 'Nothing returns from the floor' in refused.value.detail['message']
-    a.close_stage(job.id, 'OVEN', a.CloseInput(request_id=str(uuid.uuid4()), expected_version=oven['row_version'], short_close=True, residual_disposition='HOLD', reason='Short by 4'), db, PLANT, USER)
+    a.close_stage(job.id, 'OVEN', a.CloseInput(request_id=str(uuid.uuid4()), expected_version=oven['row_version'], short_close=True, residual_disposition='HOLD', reason_code='SS-MATERIAL-SHORT', residual_reason_code='LI-NEXT-RUN'), db, PLANT, USER)
     assert state(a, db, job, 'OVEN')['status'] == 'COMPLETED'
     db.rollback()

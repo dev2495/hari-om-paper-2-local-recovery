@@ -4,8 +4,9 @@ import { useEffect, useMemo, useState } from "react"
 import { History, Ruler, Save } from "lucide-react"
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Field, fieldClass } from "@/components/procurement/procurement-shell"
+import { fieldClass } from "@/components/procurement/procurement-shell"
 import { useQualityStandardScope, useSaveQualityStandardTolerances } from "@/hooks/use-inventory"
+import { ReasonPicker, useReasonChoice } from "@/components/reasons"
 import { useAuth } from "@/context/AuthContext"
 import { cn } from "@/lib/utils"
 import { BAND_MODES, bandLineFrom, bandPayload, blankBand, describeBand, previewBand, showNumber, type BandLine } from "@/lib/qc-bands"
@@ -49,7 +50,8 @@ export function QcBandDialog({ target, onClose }: { target: QcBandTarget | null;
   )
   const save = useSaveQualityStandardTolerances()
   const [lines, setLines] = useState<Record<string, Line>>({})
-  const [note, setNote] = useState("")
+  // Why (optional): a QC_RULE_CHANGE code from Masters › Reason codes (owner decision 4, 1 Nov 2026).
+  const why = useReasonChoice("QC_RULE_CHANGE", undefined, { required: false })
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
   const [showHistory, setShowHistory] = useState(false)
@@ -79,7 +81,7 @@ export function QcBandDialog({ target, onClose }: { target: QcBandTarget | null;
       const band = data.bands?.[parameter.parameter_key]
       next[parameter.parameter_key] = band ? bandLineFrom(band) : { ...blank }
     }
-    setLines(next); setNominalEdits({}); setNote(""); setError(""); setNotice("")
+    setLines(next); setNominalEdits({}); why.reset(); setError(""); setNotice("")
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature])
 
@@ -87,14 +89,14 @@ export function QcBandDialog({ target, onClose }: { target: QcBandTarget | null;
   const preview = (code: string) => previewBand(lines[code] || blank, masterNominal(code), target?.scope === "ITEM")
 
   const submit = async () => {
-    if (!target) return
+    if (!target || !why.validate()) return
     setError(""); setNotice("")
     try {
       const nominals = target.scope === "ITEM"
         ? Object.fromEntries(parameters.map((p) => [p.parameter_key, masterNominal(p.parameter_key)]).filter(([code, value]) => value !== null || nominalEdits[code as string] !== undefined))
         : undefined
       const result = await save.mutateAsync({
-        material_type: target.materialType, scope: target.scope, scope_key: target.scopeKey, note,
+        material_type: target.materialType, scope: target.scope, scope_key: target.scopeKey, ...(why.value.code ? { reason_code: why.value.code, reason_note: why.value.note.trim() || undefined } : {}),
         ...(target.scope === "ITEM" ? { nominals: nominals as Record<string, number>, material_group: target.group || null } : {}),
         lines: parameters.map((p) => bandPayload(p.parameter_key, lines[p.parameter_key] || blank)),
       })
@@ -165,7 +167,7 @@ export function QcBandDialog({ target, onClose }: { target: QcBandTarget | null;
             {notice ? <p role="status" className="rounded-lg border border-signal-emerald-line bg-signal-emerald-soft px-3 py-2 text-sm text-signal-emerald-ink">{notice}</p> : null}
             {canEdit ? (
               <div className="flex flex-wrap items-end gap-3">
-                <div className="min-w-[240px] flex-1"><Field label="Reason for the change" hint="kept with this version"><input className={fieldClass} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. thickness ± 0.05 agreed with supplier" /></Field></div>
+                <div className="min-w-[240px] flex-1"><ReasonPicker category="QC_RULE_CHANGE" label="Reason for the change" required={false} value={why.value} onChange={why.setValue} showErrors={why.touched} compact testIdPrefix="qc-band-reason" /></div>
                 <button type="button" className="erp-btn-primary" disabled={save.isPending} onClick={submit}><Save className="h-4 w-4" />Save as new version</button>
               </div>
             ) : <p className="text-[12.5px] text-muted-foreground">Only Owner or Admin can change QC bands.</p>}

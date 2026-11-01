@@ -33,6 +33,8 @@ class SupplierCreate(BaseModel):
     address: Optional[str] = None
     legal_name: Optional[str] = None
     trade_name: Optional[str] = None
+    # Mill / short name printed on reel labels (owner decision 6, 1 Nov 2026), e.g. AKSHAT.
+    short_name: Optional[str] = None
     alt_phone: Optional[str] = None
     address_line2: Optional[str] = None
     city: Optional[str] = None
@@ -63,6 +65,8 @@ class SupplierUpdate(BaseModel):
     address: Optional[str] = None
     legal_name: Optional[str] = None
     trade_name: Optional[str] = None
+    # Mill / short name printed on reel labels (owner decision 6, 1 Nov 2026), e.g. AKSHAT.
+    short_name: Optional[str] = None
     alt_phone: Optional[str] = None
     address_line2: Optional[str] = None
     city: Optional[str] = None
@@ -97,6 +101,8 @@ class SupplierResponse(BaseModel):
     address: Optional[str]
     legal_name: Optional[str] = None
     trade_name: Optional[str] = None
+    # Mill / short name printed on reel labels (owner decision 6, 1 Nov 2026), e.g. AKSHAT.
+    short_name: Optional[str] = None
     alt_phone: Optional[str] = None
     address_line2: Optional[str] = None
     city: Optional[str] = None
@@ -176,7 +182,16 @@ _DETAIL_FORMATS = {
     "contact_email": ("Email", formats.normalize_email),
     "bank_account_no": ("Bank account number", formats.normalize_account_no),
     "msme_no": ("MSME / Udyam number", lambda value: (formats.blank_to_none(value) or "").upper() or None),
+    "short_name": ("Mill / short name", lambda value: _short_name(value)),
 }
+def _short_name(value) -> str | None:
+    """The mill / short name as the reel label prints it: upper case, single spaces, at most 30 characters."""
+    text = " ".join(str(formats.blank_to_none(value) or "").split()).upper()
+    if len(text) > 30:
+        raise ValueError("Mill / short name must be 30 characters or fewer")
+    return text or None
+
+
 _TEXT_FIELDS = (
     "category_label", "contact_name", "address", "legal_name", "trade_name", "address_line2", "city",
     "state", "country", "bank_name", "notes",
@@ -348,7 +363,7 @@ def create_supplier(
     detail_keys = (
         "contact_name", "contact_phone", "contact_email", "gst_no", "pan_no", "address", "legal_name", "trade_name",
         "alt_phone", "address_line2", "city", "state", "state_code", "pin_code", "payment_terms_days", "credit_days",
-        "credit_limit", "bank_name", "bank_account_no", "bank_ifsc", "msme_no", "notes",
+        "credit_limit", "bank_name", "bank_account_no", "bank_ifsc", "msme_no", "notes", "short_name",
     )
     _check_state_pair(details)
     model = models.Supplier(

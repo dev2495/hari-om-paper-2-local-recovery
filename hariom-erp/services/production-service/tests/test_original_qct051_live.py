@@ -27,6 +27,7 @@ from src.routers.quality import (
     create_supervisor_inspection,
     import_inspections,
     release_hold,
+    HoldReleasePayload,
 )
 from tests.test_original_qct043_live import (
     PLANT,
@@ -37,6 +38,10 @@ from tests.test_original_qct043_live import (
     _create_approved_spec,
     _issue_job,
 )
+
+# Owner decision 4 (1 Nov 2026): a hold release always carries a QC_RELEASE reason code.
+RELEASE_REASON = HoldReleasePayload(reason_code="QR-RETEST-OK", reason_note="Retest passed")
+
 
 
 def setup_module() -> None:
@@ -272,6 +277,7 @@ def test_qct053_reason_keeps_fail_and_blocks_self_release():
         with pytest.raises(HTTPException) as blocked:
             release_hold(
                 recorded.hold_id,
+                RELEASE_REASON,
                 db=db,
                 plant_id=PLANT,
                 current_user=QC,
@@ -519,6 +525,7 @@ def test_qct056_correction_keeps_original_fail_and_hold():
                     stage_type="WINDER",
                     readings=dict(PASS_AFTER_FAIL),
                     sample_id="CORR-1",
+                    correction_reason_code="EC-WRONG-QTY",
                     correction_reason="height was a transcription error from the vernier card",
                     expected_revision=99,
                     final_submission=True,
@@ -535,6 +542,7 @@ def test_qct056_correction_keeps_original_fail_and_hold():
                 stage_type="WINDER",
                 readings=dict(PASS_AFTER_FAIL),
                 sample_id="CORR-1",
+                correction_reason_code="EC-WRONG-QTY",
                 correction_reason="height was a transcription error from the vernier card",
                 expected_revision=1,
                 final_submission=True,
@@ -546,7 +554,8 @@ def test_qct056_correction_keeps_original_fail_and_hold():
         assert corrected.status == "PASS"
         assert str(corrected.parent_inspection_id) == str(original.id)
         assert corrected.correction_revision == 2
-        assert corrected.correction_reason == "height was a transcription error from the vernier card"
+        assert corrected.correction_reason == "Ec wrong qty — height was a transcription error from the vernier card"
+        assert corrected.evaluation["correction_reason_code"] == "EC-WRONG-QTY"
         assert corrected.correction_actor == QC["sub"]
         assert corrected.correction_at
         assert corrected.prior_values["height"]["prior"] == 90

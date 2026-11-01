@@ -40,15 +40,15 @@ def test_partial_receipt_spans_commitments_and_cancel_replace_conserves_the_po()
         assert sorted(row.allocated_qty for row in allocations)==[10,40]
         second_id=uuid.UUID(result['items'][1]['id'])
         before_version = db.get(PurchaseLineSchedule, second_id).version
-        revised=update_supplier_schedule(second_id,SupplierScheduleUpdate(expected_version=before_version,current_date=D(7),confirmation_status='CONFIRMED',reason='Mill reconfirmed arrival'),db,PLANT,CHECKER)
-        assert revised['change_history'][0]['reason']=='Mill reconfirmed arrival'
+        revised=update_supplier_schedule(second_id,SupplierScheduleUpdate(expected_version=before_version,current_date=D(7),confirmation_status='CONFIRMED',reason_code='SCH-SUPPLIER-DELAY',reason_note='Mill reconfirmed arrival'),db,PLANT,CHECKER)
+        assert revised['change_history'][0]['reason_note']=='Mill reconfirmed arrival' and revised['change_history'][0]['reason_code']=='SCH-SUPPLIER-DELAY'
         assert revised['change_history'][0]['previous_date']==D(5).isoformat()
         assert revised['promised_date']==D(5).isoformat() and revised['current_date']==D(7).isoformat()
         with pytest.raises(HTTPException) as stale:
-            update_supplier_schedule(second_id,SupplierScheduleUpdate(expected_version=1,current_date=D(8),confirmation_status='CONFIRMED',reason='Stale calendar edit'),db,PLANT,MAKER)
+            update_supplier_schedule(second_id,SupplierScheduleUpdate(expected_version=1,current_date=D(8),confirmation_status='CONFIRMED',reason_code='SCH-SUPPLIER-DELAY',reason_note='Stale calendar edit'),db,PLANT,MAKER)
         assert stale.value.status_code==409
         db.rollback()
-        cancelled=update_supplier_schedule(second_id,SupplierScheduleUpdate(expected_version=revised['version'],current_date=D(7),confirmation_status='CANCELLED',reason='Replace outstanding commitment'),db,PLANT,CHECKER)
+        cancelled=update_supplier_schedule(second_id,SupplierScheduleUpdate(expected_version=revised['version'],current_date=D(7),confirmation_status='CANCELLED',reason_code='SCH-SUPPLIER-DELAY',reason_note='Replace outstanding commitment'),db,PLANT,CHECKER)
         assert cancelled['cancelled_qty']==50 and cancelled['allocated_qty']==10
         replacement=commit_supplier_schedules(po['id'],SupplierScheduleCommit(rows=[{'purchase_order_line_id':line_id,'scheduled_qty':50,'promised_date':D(10)}]),db,PLANT,MAKER)
         assert replacement['items'][0]['remaining_qty']==50
@@ -57,7 +57,7 @@ def test_partial_receipt_spans_commitments_and_cancel_replace_conserves_the_po()
         db.rollback()
         # A vendor date is never in the past (same rule as the calendar and vendor-confirm).
         with pytest.raises(HTTPException) as past:
-            update_supplier_schedule(uuid.UUID(replacement['items'][0]['id']),SupplierScheduleUpdate(expected_version=1,current_date=ist_today()-timedelta(days=1),confirmation_status='CONFIRMED',reason='Typed the wrong day'),db,PLANT,CHECKER)
+            update_supplier_schedule(uuid.UUID(replacement['items'][0]['id']),SupplierScheduleUpdate(expected_version=1,current_date=ist_today()-timedelta(days=1),confirmation_status='CONFIRMED',reason_code='SCH-SUPPLIER-DELAY',reason_note='Typed the wrong day'),db,PLANT,CHECKER)
         assert past.value.status_code==422
         db.rollback()
         assert sum(row.allocated_qty for row in db.query(ReceiptScheduleAllocation).filter_by(receipt_line_id=saved.lines[0].id))==50

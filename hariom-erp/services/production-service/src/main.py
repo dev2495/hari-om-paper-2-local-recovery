@@ -2,7 +2,9 @@ from fastapi import FastAPI
 from sqlalchemy import text
 from .database import Base, engine
 from . import entry_models
+from .routers import packing_refresh
 from .routers import card_history, dispatch, dispatch_surplus, jobs, lifecycle, operations, plan_actual, planning, planning_overview, quality, reconciliation, reel_issue, reports, entries
+from .routers import boxes_api
 
 Base.metadata.create_all(bind=engine)
 
@@ -99,6 +101,23 @@ def _ensure_schema_compatibility():
         "ALTER TABLE job_card_short_close ADD COLUMN IF NOT EXISTS resolution_decision VARCHAR(20)",
         "ALTER TABLE job_card_short_close ADD COLUMN IF NOT EXISTS resolution_note TEXT",
         "ALTER TABLE machine_downtime ADD COLUMN IF NOT EXISTS reschedule_status VARCHAR(20)",
+        # Reason master (owner decision 4, 1 Nov 2026): label at the time + note next to each code.
+        "ALTER TABLE machine_downtime ADD COLUMN IF NOT EXISTS reason_label VARCHAR(200)",
+        "ALTER TABLE machine_downtime ADD COLUMN IF NOT EXISTS reason_note TEXT",
+        "ALTER TABLE job_card_short_close ADD COLUMN IF NOT EXISTS reason_label VARCHAR(200)",
+        "ALTER TABLE job_card_short_close ADD COLUMN IF NOT EXISTS reason_note TEXT",
+        "ALTER TABLE quality_holds ADD COLUMN IF NOT EXISTS reason_code VARCHAR(40)",
+        "ALTER TABLE quality_holds ADD COLUMN IF NOT EXISTS reason_label VARCHAR(200)",
+        "ALTER TABLE quality_holds ADD COLUMN IF NOT EXISTS reason_note TEXT",
+        "ALTER TABLE quality_holds ADD COLUMN IF NOT EXISTS release_reason_code VARCHAR(40)",
+        "ALTER TABLE quality_holds ADD COLUMN IF NOT EXISTS release_reason_label VARCHAR(200)",
+        "ALTER TABLE quality_holds ADD COLUMN IF NOT EXISTS release_reason_note TEXT",
+        "ALTER TABLE quality_holds ADD COLUMN IF NOT EXISTS release_disposition VARCHAR(30)",
+        # Batch-entry corrections (void, QC reading correction) and leftover input: code + label at the time.
+        "ALTER TABLE continuous_entry_revisions ADD COLUMN IF NOT EXISTS reason_code VARCHAR(40)",
+        "ALTER TABLE continuous_entry_revisions ADD COLUMN IF NOT EXISTS reason_label VARCHAR(200)",
+        "ALTER TABLE continuous_residual_wip ADD COLUMN IF NOT EXISTS reason_code VARCHAR(40)",
+        "ALTER TABLE continuous_residual_wip ADD COLUMN IF NOT EXISTS reason_label VARCHAR(200)",
         # Swap the uniqueness so PROCESS-level short-close is allowed alongside
         # the whole-card ("JOB_CARD") one.
         "ALTER TABLE job_card_short_close DROP CONSTRAINT IF EXISTS uq_short_close_job_card",
@@ -126,6 +145,10 @@ def _ensure_schema_compatibility():
         "ALTER TABLE job_cards ADD COLUMN IF NOT EXISTS is_emergency BOOLEAN NOT NULL DEFAULT FALSE",
         "ALTER TABLE job_cards ADD COLUMN IF NOT EXISTS close_mode VARCHAR(20)",
         "ALTER TABLE job_cards ADD COLUMN IF NOT EXISTS close_reason TEXT",
+        # Force close / cancel reason is a JOB_CARD_CLOSE master code (owner decision 4, 1 Nov 2026).
+        "ALTER TABLE job_cards ADD COLUMN IF NOT EXISTS close_reason_code VARCHAR(40)",
+        "ALTER TABLE job_cards ADD COLUMN IF NOT EXISTS close_reason_label VARCHAR(200)",
+        "ALTER TABLE job_cards ADD COLUMN IF NOT EXISTS close_reason_note TEXT",
         "ALTER TABLE job_cards ADD COLUMN IF NOT EXISTS returned_qty DOUBLE PRECISION NOT NULL DEFAULT 0",
         "ALTER TABLE job_cards ADD COLUMN IF NOT EXISTS closed_at TIMESTAMP",
         "ALTER TABLE job_cards ADD COLUMN IF NOT EXISTS closed_by VARCHAR(200)",
@@ -160,6 +183,9 @@ def _ensure_schema_compatibility():
         "CREATE INDEX IF NOT EXISTS ix_job_cards_release_lot ON job_cards (release_lot_id)",
         "CREATE INDEX IF NOT EXISTS ix_job_cards_sales_order_line ON job_cards (sales_order_line_id)",
         "CREATE INDEX IF NOT EXISTS ix_job_card_stages_entered_at ON job_card_stages (entered_at)",
+        # Boxes (client decision 2026-11-01): the table itself comes from create_all (entry_models.FgBox).
+        "CREATE INDEX IF NOT EXISTS ix_fg_boxes_card_status ON fg_boxes (job_card_id, status)",
+        "CREATE INDEX IF NOT EXISTS ix_fg_boxes_plant_code ON fg_boxes (plant_id, box_code)",
         "CREATE INDEX IF NOT EXISTS ix_segments_capacity_lookup "
         "ON job_card_stage_segments (stage_type, machine_id, shift_code, completed_at) "
         "WHERE status = 'COMPLETED'",
@@ -185,13 +211,16 @@ app = FastAPI(
     version="1.0.0",
 )
 
+app.include_router(packing_refresh.router)  # Packing setup (spec packing amendment -> open cards)
 app.include_router(entries.router)
+app.include_router(boxes_api.router)
 app.include_router(jobs.router)
 app.include_router(lifecycle.router)
 app.include_router(planning.router)
 app.include_router(reel_issue.router)
 app.include_router(reports.router)
 app.include_router(plan_actual.router)
+from .routers import employee_report; app.include_router(employee_report.router)  # noqa: E402,E702 employee performance (2026-11-01)
 app.include_router(planning_overview.router)
 app.include_router(card_history.router)
 app.include_router(reconciliation.router)

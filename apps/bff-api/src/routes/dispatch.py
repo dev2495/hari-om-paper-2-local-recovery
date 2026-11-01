@@ -16,6 +16,10 @@ async def get_ready_jobs_for_dispatch(request: Request, token: str = Depends(get
 async def get_dispatch_by_job_card(job_card_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/dispatch/by-job/{job_card_id}", request, token)
 
+@router.get("/by-job/{job_card_id}/sealed")
+async def list_sealed_dispatches_by_job_card(job_card_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/dispatch/by-job/{job_card_id}/sealed", request, token)
+
 @router.post("")
 @router.post("/", include_in_schema=False)
 async def create_or_update_dispatch(request: Request, token: str = Depends(get_token)):

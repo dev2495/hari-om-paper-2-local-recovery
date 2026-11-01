@@ -9,6 +9,7 @@ import { useMutation, useQuery } from "@tanstack/react-query"
 import { Plus, Save, Trash2 } from "lucide-react"
 
 import { ProcurementShell, Field, MessageBar, WorkPanel, areaClass, fieldClass, primaryButton, secondaryButton } from "@/components/procurement/procurement-shell"
+import { ReasonPicker, useReasonChoice } from "@/components/reasons"
 import { useInventoryItems } from "@/hooks/use-inventory"
 import { useVendors } from "@/hooks/use-master-data"
 import { api, purchaseApi } from "@/lib/api"
@@ -52,7 +53,8 @@ export default function PurchaseOrderEditor({ orderId }: { orderId?: string }) {
   const requisitions = requisitionsQuery.data?.data?.items || []
   const appliedRequisition = useRef("")
   const requestKey = useRef(crypto.randomUUID())
-  const [changeReason, setChangeReason] = useState("")
+  // A revision of an approved PO picks a PO_REVISION code from Masters › Reason codes (owner decision 4, 1 Nov 2026).
+  const changeReason = useReasonChoice("PO_REVISION")
   const existingQuery = useQuery({ queryKey: ["purchase-v2", "edit", orderId, activePlant], refetchOnWindowFocus: false, queryFn: () => purchaseApi.getOrder(orderId!), enabled: Boolean(activePlant && activePlant !== "ALL") && Boolean(orderId) })
   const existing = existingQuery.data?.data
   // A draft that was never approved or sent is not a revision: there is no approved document to
@@ -76,7 +78,7 @@ export default function PurchaseOrderEditor({ orderId }: { orderId?: string }) {
   const quantities = Object.entries(lines.reduce((totals, line) => ({ ...totals, [line.uom]: (totals[line.uom] || 0) + Number(line.qty_ordered || 0) }), {} as Record<string, number>)).map(([uom, qty]) => `${qty.toLocaleString("en-IN")} ${unitWord(uom)}`).join(" + ")
   const totalValue = lines.reduce((sum, line) => sum + Number(line.qty_ordered || 0) * Number(line.unit_cost || 0), 0)
 
-  const create = useMutation({ mutationFn: (data: any) => orderId ? purchaseApi.reviseOrder(orderId, { ...data, expected_version: existing.version, change_reason: draftOnly && changeReason.trim().length < 3 ? "Draft changed before approval" : changeReason }) : purchaseApi.createOrder(data), onSuccess: ({ data }) => router.push(`/purchase/${data.id}`), onError: (caught) => setError(message(caught)) })
+  const create = useMutation({ mutationFn: (data: any) => orderId ? purchaseApi.reviseOrder(orderId, { ...data, expected_version: existing.version, ...(draftOnly ? {} : changeReason.payload("change_reason")) }) : purchaseApi.createOrder(data), onSuccess: ({ data }) => router.push(`/purchase/${data.id}`), onError: (caught) => setError(message(caught)) })
   const setLine = (key: string, patch: Partial<LineDraft>) => setLines((current) => current.map((line) => line.key === key ? { ...line, ...patch } : line))
 
   useEffect(() => {
@@ -111,7 +113,7 @@ export default function PurchaseOrderEditor({ orderId }: { orderId?: string }) {
     if (!selectedVendor || lines.some((line) => !line.item_id || Number(line.qty_ordered) <= 0 || Number(line.unit_cost) < 0)) {
       setError("Select a vendor and complete every material, quantity and rate before saving."); return
     }
-    if (orderId && !draftOnly && changeReason.trim().length < 3) { setError("Explain the vendor change before saving a new revision."); return }
+    if (orderId && !draftOnly && !changeReason.validate()) { setError("Choose the reason for this revision before saving it."); return }
     create.mutate({
       requisition_id: requisitionId || undefined,
       request_id: requestKey.current, category: header.category, po_date: header.po_date,
@@ -146,7 +148,7 @@ export default function PurchaseOrderEditor({ orderId }: { orderId?: string }) {
       <form onSubmit={submit} className="space-y-5">
         {!orderId ? <WorkPanel title="Approved requisition" description="Required for tools, spares and other purchases. Select the approved request to fill its material and quantity."><Field label="PR reference"><select className={inputClass} value={requisitionId} onChange={(event) => setRequisitionId(event.target.value)}><option value="">No requisition · RM / PM purchase</option>{requisitions.map((pr: any) => <option key={pr.id} value={pr.id}>{pr.pr_no} · {pr.item_name} · {Number(pr.quantity).toLocaleString("en-IN")} {unitWord(pr.uom)}</option>)}</select></Field>{requisitionsQuery.isError ? <MessageBar tone="error">Approved requisitions could not load. Retry before creating an OT purchase.</MessageBar> : null}</WorkPanel> : null}
         {draftOnly && existing.source === "SCHEDULE" ? <MessageBar tone="info">Scheduled by the Owner. A change to a quantity, date, vendor or rate needs the Owner&rsquo;s approval before it is sent; a change the Owner makes counts as that approval.</MessageBar> : null}
-        {orderId && !draftOnly ? <WorkPanel title="Reason for revision" description="Any vendor, item, quantity, rate, specification or term change creates a fresh draft requiring independent approval. The old approved document remains in history."><Field label="Change reason"><input required minLength={3} className={inputClass} value={changeReason} onChange={(event) => setChangeReason(event.target.value)} /></Field></WorkPanel> : null}
+        {orderId && !draftOnly ? <WorkPanel title="Reason for revision" description="Any vendor, item, quantity, rate, specification or term change creates a fresh draft requiring independent approval. The old approved document remains in history."><ReasonPicker category="PO_REVISION" label="Change reason" value={changeReason.value} onChange={changeReason.setValue} showErrors={changeReason.touched} testIdPrefix="po:revision" /></WorkPanel> : null}
         <WorkPanel title="Document and vendor" description={`PO identity is automatic. Vendor and legal terms are snapshotted into this ${draftOnly ? "draft" : "revision"}.`}>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <Field label="Series"><select className={inputClass} disabled={Boolean(orderId)} value={header.category} onChange={(e) => setHeader({ ...header, category: e.target.value })}><option value="RM_PM">RP-PM · Raw / packing</option><option value="OT">OT · Other</option></select></Field>

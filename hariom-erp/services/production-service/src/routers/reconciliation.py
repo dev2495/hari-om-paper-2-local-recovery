@@ -55,6 +55,7 @@ from ..models import (
     QualityHold,
     ShiftMaterialLedger,
 )
+from ..reasons import ReasonChoice, reason_input, resolve_reason, token_of
 from ..utils.auth import get_current_plant_scope, get_current_user, require_role
 
 router = APIRouter(prefix="/reconciliation", tags=["reconciliation"])
@@ -2915,11 +2916,7 @@ def _build_live_month_view(
             figures=figures, spec_qty=spec_qty, limits=limits[material_type], actual_known=actual_known,
         )
         note_row = notes.get(code)
-        note = (
-            {"note": note_row.note, "noted_by": note_row.noted_by, "noted_at": _iso(note_row.noted_at)}
-            if note_row is not None
-            else None
-        )
+        note = _month_note_view(note_row) if note_row is not None else None
         row.update({
             "item_id": str((figures or {}).get("item_id") or stock_item.get("id") or "") or None,
             "item_code": code,
@@ -3269,7 +3266,7 @@ def _close_month(
     except _BooksCallUnanswered as exc:
         # The store may have locked the month before its answer was lost: give it back so both services
         # agree that the month is still open, and say plainly what happened.
-        released = _try_books_call(token, str(plant), "unlock", {"month": key, "reason": "Close did not complete (no answer from the store)"})
+        released = _try_books_call(token, str(plant), "unlock", {"month": key, "rollback": True, "reason": "Close did not complete (no answer from the store)"})
         raise HTTPException(
             status_code=502,
             detail=(f"The store did not answer, so {label} was not closed. Try again in a minute."
@@ -3311,15 +3308,17 @@ def _close_month(
     except Exception:
         db.rollback()
         # The production close failed after the store locked: give the store month back.
-        _try_books_call(token, str(plant), "unlock", {"month": key, "reason": "Production close did not complete"})
+        _try_books_call(token, str(plant), "unlock", {"month": key, "rollback": True, "reason": "Production close did not complete"})
         raise
     db.refresh(row)
     return row
 
 
-def _reopen_month(db: Session, plant: uuid.UUID, month: date, current_user: dict, reason: str) -> list[date]:
+def _reopen_month(db: Session, plant: uuid.UUID, month: date, current_user: dict, reason: str,
+                  choice: Optional[ReasonChoice] = None) -> list[date]:
     """Owner re-open with a reason. Later closed months re-open too, newest first, each one store side
-    first and then production, so both services always agree month by month."""
+    first and then production, so both services always agree month by month. `choice` (the BOOKS_UNLOCK
+    code) goes to the store's unlock as `reason_code`/`reason_note`."""
     _plant_month_lock(db, plant)
     rows_by_month = _close_rows_by_month(db, plant)
     target = rows_by_month.get(month)
@@ -3335,8 +3334,13 @@ def _reopen_month(db: Session, plant: uuid.UUID, month: date, current_user: dict
         key = _consumption_month_key(value)
         label = _consumption_month_label(value)
         why = reason if value == month else f"{reason} (re-opened with {_consumption_month_label(month)})"
+        unlock_body: dict[str, Any] = {"month": key, "reason": why[:500]}
+        if choice is not None:
+            extra = None if value == month else f"re-opened with {_consumption_month_label(month)}"
+            unlock_note = " — ".join(part for part in (choice.note, extra) if part) or None
+            unlock_body.update({"reason_code": choice.code, **({"reason_note": unlock_note[:500]} if unlock_note else {})})
         try:
-            _inventory_books_call(token, str(plant), "unlock", {"month": key, "reason": why[:500]})
+            _inventory_books_call(token, str(plant), "unlock", unlock_body)
         except _BooksCallUnanswered as exc:
             # The store may have unlocked the month before its answer was lost: lock it again so both
             # services still say closed. Months re-opened before this one stay re-opened.
@@ -3359,7 +3363,8 @@ def _reopen_month(db: Session, plant: uuid.UUID, month: date, current_user: dict
             db.add(MonthlyCloseEvent(
                 plant_id=plant, month_start=value, event="REOPENED", actor=actor, reason=why,
                 snapshot_hash=(row.snapshot or {}).get("hash") if isinstance(row.snapshot, dict) else None,
-                details={"version": int(row.version or 1), "with_month": _consumption_month_key(month) if value != month else None},
+                details={"version": int(row.version or 1), "with_month": _consumption_month_key(month) if value != month else None,
+                         **({"reason_code": choice.code, "reason_label": choice.label, "reason_note": choice.note} if choice is not None else {})},
             ))
             db.commit()
         except Exception:
@@ -3387,7 +3392,11 @@ class MonthEndReopenPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     month: str
-    reason: str = Field(min_length=3, max_length=500)
+    # BOOKS_UNLOCK code from Masters › Reason codes (owner decision 4, 1 Nov 2026); `reason` is the old
+    # free text, still accepted next to a code but never enough on its own.
+    reason_code: Optional[str] = Field(default=None, max_length=40)
+    reason_note: Optional[str] = Field(default=None, max_length=400)
+    reason: Optional[str] = Field(default=None, max_length=500)
 
 
 class MonthEndNotePayload(BaseModel):
@@ -3397,7 +3406,23 @@ class MonthEndNotePayload(BaseModel):
     item_code: str = Field(min_length=1, max_length=120)
     item_id: Optional[str] = None
     item_name: Optional[str] = Field(default=None, max_length=255)
+    # MONTH_END_VARIANCE code (owner decision 4) + optional note. `note` alone is the old free text: it
+    # is read as the note next to a code, and a blank request (no code, no note) removes the note.
+    reason_code: Optional[str] = Field(default=None, max_length=40)
+    reason_note: Optional[str] = Field(default=None, max_length=1000)
     note: str = Field(default="", max_length=1000)
+
+
+def _month_note_view(row: MonthlyMaterialNote) -> dict[str, Any]:
+    """A stored month-end note; notes written before reason codes have only `note` (shown as is)."""
+    return {
+        "note": row.note,
+        "reason_code": getattr(row, "reason_code", None),
+        "reason_label": getattr(row, "reason_label", None),
+        "reason_note": getattr(row, "reason_note", None),
+        "noted_by": row.noted_by,
+        "noted_at": _iso(row.noted_at),
+    }
 
 
 class UsageLimitInput(BaseModel):
@@ -3715,7 +3740,7 @@ def month_end_sources(
         },
         "store": {"available": store is not None, "data": store},
         "ledger_href": f"/inventory/ledger?item_id={item_id}&start={month_start.isoformat()}&end={_consumption_last_day(month_start).isoformat()}&from=month-end" if item_id else None,
-        "note": {"note": note_row.note, "noted_by": note_row.noted_by, "noted_at": _iso(note_row.noted_at)} if note_row else None,
+        "note": _month_note_view(note_row) if note_row else None,
     }
 
 
@@ -3748,18 +3773,27 @@ def put_month_end_note(
     if not (count and count.get("approved")):
         raise HTTPException(status_code=409, detail=f"Notes open once the {_month_word(month)} month-end count is approved.")
     actor = str(current_user.get("actor_identity") or current_user.get("sub") or current_user.get("email") or "")
+    reason_code, reason_note = reason_input(payload)
+    reason_note = " ".join(reason_note.split()) if reason_note else None
+    # A blank request removes the note; anything else needs a MONTH_END_VARIANCE code (checked before the lock).
+    choice: Optional[ReasonChoice] = None
+    if reason_code or reason_note:
+        choice = resolve_reason(
+            category="MONTH_END_VARIANCE", code=reason_code, note=reason_note, plant_id=plant,
+            token=token_of(current_user), what="the variance",
+        )
     row = (
         db.query(MonthlyMaterialNote)
         .filter(MonthlyMaterialNote.plant_id == plant, MonthlyMaterialNote.month_start == month, MonthlyMaterialNote.item_code == code)
         .with_for_update()
         .first()
     )
-    text_value = " ".join(payload.note.split())
-    if not text_value:
+    if choice is None:
         if row is not None:
             db.delete(row)
             db.commit()
         return {"month": _consumption_month_key(month), "item_code": code, "note": None}
+    text_value = choice.text
     # A note belongs to a material of this month's page: one the store book lists or a job card posted.
     known = {
         str(item.get("item_code") or "").strip().upper()
@@ -3779,6 +3813,9 @@ def put_month_end_note(
         row = MonthlyMaterialNote(plant_id=plant, month_start=month, item_code=code, note=text_value)
         db.add(row)
     row.note = text_value
+    row.reason_code = choice.code
+    row.reason_label = choice.label
+    row.reason_note = choice.note
     row.item_id = item_uuid or row.item_id
     row.item_name = payload.item_name or row.item_name
     row.noted_by = actor
@@ -3787,7 +3824,7 @@ def put_month_end_note(
     return {
         "month": _consumption_month_key(month),
         "item_code": code,
-        "note": {"note": row.note, "noted_by": row.noted_by, "noted_at": _iso(row.noted_at)},
+        "note": _month_note_view(row),
     }
 
 
@@ -3816,10 +3853,13 @@ def post_month_end_reopen(
     """Owner re-opens a closed month with a reason; any later closed month re-opens with it."""
     plant = _concrete_plant(plant_scope)
     month = _month_from_key(payload.month)
-    reason = " ".join(payload.reason.split())
-    if len(reason) < 3:
-        raise HTTPException(status_code=422, detail="Give a reason for re-opening the month.")
-    reopened = _reopen_month(db, plant, month, current_user, reason)
+    # A BOOKS_UNLOCK code from the master (owner decision 4); the store gets the same code and note.
+    code, note = reason_input(payload)
+    choice = resolve_reason(
+        category="BOOKS_UNLOCK", code=code, note=" ".join(note.split()) if note else None, plant_id=plant,
+        token=token_of(current_user), what="re-opening the month",
+    )
+    reopened = _reopen_month(db, plant, month, current_user, choice.text, choice=choice)
     view = _month_end_view(db, plant, month, current_user)
     view["reopened_months"] = [_consumption_month_key(value) for value in reopened]
     return view

@@ -29,13 +29,14 @@ def record():
     db.add(PackingRecord(job_card_id=job.id, total_packed_qty=110, fg_item_id=uuid.uuid4(), snapshot={"inventory_batch_id": str(uuid.uuid4())}))
     shipment = Dispatch(job_card_id=job.id, status="SEALED", dispatch_snapshot={"dispatch_qty": 100})
     db.add(shipment); db.commit()
-    with patch.object(api, "_require_final_qc") as qc, patch("httpx.Client", side_effect=AssertionError("Surplus must not post stock or sales")):
-        yield api, db, job, shipment, qc
+    # Final QC pass is no longer required to settle surplus (owner decision 3, 2026-11-01: QC flags, never blocks).
+    with patch("httpx.Client", side_effect=AssertionError("Surplus must not post stock or sales")):
+        yield api, db, job, shipment, None
     db.close(); transaction.rollback(); conn.close()
 
 
 def command(api, **changes):
-    return api.RetainSurplusInput(**{"request_id": "surplus-" + str(uuid.uuid4()), "expected_remaining_qty": 10, "reason": "Retain excess FG for a future allocation", **changes})
+    return api.RetainSurplusInput(**{"request_id": "surplus-" + str(uuid.uuid4()), "expected_remaining_qty": 10, "reason_code": "SR-NEXT-ORDER", "reason_note": "Retain excess FG for a future allocation", **changes})
 
 
 def test_exact_retry_closes_card_with_one_audit_and_separate_retained_balance(record):
@@ -70,7 +71,7 @@ def test_exact_retry_closes_card_with_one_audit_and_separate_retained_balance(re
     assert error.value.status_code == 409
 
 
-@pytest.mark.parametrize("case", ["stale", "unshipped", "unfinished", "hold", "cross-plant", "no-final-qc"])
+@pytest.mark.parametrize("case", ["stale", "unshipped", "unfinished", "hold", "cross-plant"])
 def test_surplus_guards_prevent_premature_or_unsafe_card_close(record, case):
     from src.models import AuditEvent, Dispatch, QualityHold
     api, db, job, shipment, qc = record
@@ -78,7 +79,6 @@ def test_surplus_guards_prevent_premature_or_unsafe_card_close(record, case):
     if case == "unshipped": shipment.dispatch_snapshot = {"dispatch_qty": 90}
     if case == "unfinished": db.add(Dispatch(job_card_id=job.id, status="DRAFT", dispatch_snapshot={"orchestration_state": "FAILED"}))
     if case == "hold": db.add(QualityHold(plant_id=job.plant_id, job_card_id=job.id, stage_type="QC", status="HOLD", reason="Investigate surplus QC"))
-    if case == "no-final-qc": qc.side_effect = HTTPException(409, "Final QC required")
     db.commit()
     with pytest.raises(HTTPException) as error:
         api.retain_surplus(job.id, body, db, "00000000-0000-0000-0000-0000000000b2" if case == "cross-plant" else A, USER)
@@ -92,7 +92,7 @@ def test_changed_settlement_under_same_request_is_rejected(record):
     body = command(api)
     api.retain_surplus(job.id, body, db, A, USER)
     with pytest.raises(HTTPException) as error:
-        api.retain_surplus(job.id, body.model_copy(update={"reason": "Different decision after settlement"}), db, A, USER)
+        api.retain_surplus(job.id, body.model_copy(update={"reason_note": "Different decision after settlement"}), db, A, USER)
     assert error.value.status_code == 409
 
 

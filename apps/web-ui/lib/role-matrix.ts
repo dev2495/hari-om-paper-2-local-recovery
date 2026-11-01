@@ -85,6 +85,7 @@ export const MATRIX_SCREENS: Array<{ area: string; screen: string; href: string;
   { area: "Purchasing", screen: "Purchase orders (send scheduled drafts)", href: "/purchase", access: { Store: "work", Planner: "work", PlantManager: "work" } },
   { area: "Purchasing", screen: "RM inward calendar (the Owner approves arrivals)", href: "/purchase/scheduler", access: { Planner: "work", Store: "work", PlantManager: "work", GRN: "view" } },
   { area: "Design", screen: "Specifications", href: "/specifications", access: {} },
+  { area: "Design", screen: "Packing setup (box, qty per box, plastic, fadda per spec)", href: "/specifications/packing-setup", access: {} },
   { area: "Foundation", screen: "Masters (incl. inward QC bands per line)", href: "/masters/papers", access: {} },
   { area: "Foundation", screen: "Users, roles & system", href: "/system/users", access: {} },
 ]

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 
+import { boxDayText, boxLabelPages, boxLabelSize, boxPcsText, boxStockLabel } from "../lib/boxes"
 import { jobCardIdOf, locationScanPayload, parseScanCode } from "../lib/scan-code"
 
 const CARD = "2772a320-c3d1-44fb-beb3-f64a0846fe5e"
@@ -68,4 +69,35 @@ assert.deepEqual([crafted.kind, crafted.id, crafted.code], ["CODE", "", "AT-X"])
 assert.equal(parseScanCode(`HARIOM|REEL|bad plant/..|${REEL}|AT-1`).plantId, "")
 assert.equal(parseScanCode(`HARIOM|REEL|${PLANT}|${REEL.toUpperCase()}|AT-1`).id, REEL)
 
-console.log("Scan codes: lot and location labels, job cards, legacy links, tools and typed codes passed")
+// Box labels (owner decision 2026-11-01): the QR link, the bare code and a typed lower-case code open the box page.
+for (const value of ["B261014-001", "b261014-001", " B261014-001\n", "https://35-154-224-14.sslip.io/production/boxes/B261014-001", "/production/boxes/B261014-001?x=1",
+  "http://127.0.0.1:13003/production/boxes/b261014-001", `/scan?c=${encodeURIComponent("https://site/production/boxes/B261014-001")}`, `/scan?c=B261014-001`]) {
+  const parsed = parseScanCode(value)
+  assert.deepEqual([parsed.kind, parsed.code, parsed.id], ["BOX", "B261014-001", ""], value)
+}
+assert.equal(parseScanCode("B26101Q-0012").kind, "BOX")
+// Not a box: other codes keep their own kind, and junk stays a typed code.
+for (const value of ["B261014", "B-001", "B261014-01", "AT-261027-003", "RM-A-01", "BOX", "/production/boxes/", "/production/boxes/../x", "https://site/production/boxes/B1-001", "B261014-001-B001"]) {
+  assert.notEqual(parseScanCode(value).kind, "BOX", value)
+}
+assert.equal(parseScanCode(`/production/job-cards/${CARD}`).kind, "JOB_CARD")
+
+// Box label helpers.
+assert.equal(boxLabelSize("a4-21"), "a4-21")
+assert.equal(boxLabelSize("single"), "single")
+assert.equal(boxLabelSize("huge"), "a4-8")
+assert.equal(boxLabelSize(null), "a4-8")
+const twenty = Array.from({ length: 20 }, (_, i) => i)
+assert.deepEqual(boxLabelPages(twenty, "a4-8").map((page) => page.length), [8, 8, 4])
+assert.deepEqual(boxLabelPages(twenty, "a4-21").map((page) => page.length), [20])
+assert.equal(boxLabelPages(twenty, "single").length, 20)
+assert.deepEqual(boxLabelPages([], "a4-8"), [])
+assert.equal(boxDayText("2026-11-01"), "01 Nov 2026")
+assert.equal(boxDayText("2026-03-09T10:00:00"), "09 Mar 2026")
+assert.equal(boxDayText(null), "")
+assert.equal(boxDayText("2026-13-01"), "")
+assert.equal(boxPcsText({ qty: 30, is_part: false }), "30 pcs")
+assert.equal(boxPcsText({ qty: 1200, is_part: true }), "1,200 pcs · PART BOX")
+assert.equal(boxStockLabel.FAILED, "Posting failed — retried automatically")
+
+console.log("Scan codes: lot and location labels, job cards, legacy links, tools, box labels and typed codes passed")

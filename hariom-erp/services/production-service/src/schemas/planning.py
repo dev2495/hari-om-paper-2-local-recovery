@@ -781,6 +781,16 @@ class StageOutputPayload(BaseModel):
     entry_snapshot: dict[str, Any] = Field(default_factory=dict)
     remarks: Optional[str] = None
     override_reason: Optional[str] = None
+    # Owner decision 4 (2026-11-01): the override is an OVERRIDE code from Masters › Reason codes (+ note);
+    # override_reason keeps the "Label — note" text.
+    override_reason_code: Optional[str] = Field(default=None, max_length=40)
+    override_reason_note: Optional[str] = Field(default=None, max_length=500)
+    # Completing an old-form stage below plan (owner decision 2026-11-01): why it closes short (Plant Manager+).
+    short_reason: Optional[str] = Field(default=None, max_length=500)
+    # Owner decision 4 (2026-11-01): the short reason is a STAGE_SHORT_CLOSE code from Masters › Reason codes
+    # (+ note); short_reason keeps the "Label — note" text.
+    short_reason_code: Optional[str] = Field(default=None, max_length=40)
+    short_reason_note: Optional[str] = Field(default=None, max_length=500)
     # Shift written on the card; recorded on the entry, planner shift is untouched.
     shift_code: Optional[str] = None
 

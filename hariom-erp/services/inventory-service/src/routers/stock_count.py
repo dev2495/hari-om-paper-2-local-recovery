@@ -34,6 +34,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..reasons import reason_input, resolve_reason, token_of
 from ..models import (
     InventoryCertification,
     InventoryCertificationLine,
@@ -1602,7 +1603,10 @@ class NotePayload(BaseModel):
 class SendBackPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    note: str = Field(min_length=3, max_length=500)
+    # An APPROVAL_REJECT code from Masters › Reason codes (owner decision 4, 1 Nov 2026); ``note`` is the optional note.
+    reason_code: Optional[str] = Field(default=None, max_length=80)
+    reason_note: Optional[str] = Field(default=None, max_length=500)
+    note: Optional[str] = Field(default=None, max_length=500)
     racks: list[str] = Field(default_factory=list)
 
 
@@ -1668,7 +1672,10 @@ def send_back_count(
     chosen = [rack for rack in racks if not payload.racks or _rack_key(rack) in set(payload.racks)]
     if not chosen:
         raise HTTPException(status_code=422, detail="Choose the racks to count again.")
-    note = " ".join(payload.note.split())
+    wanted, typed_note = reason_input(payload)
+    choice = resolve_reason(category="APPROVAL_REJECT", code=wanted, note=" ".join((typed_note or "").split()) or None,
+                            plant_id=count.plant_id or plant_id, token=token_of(current_user), what="sending the count back")
+    note = choice.text[:500]
     now = datetime.utcnow()
     for rack in chosen:
         _drop_auto_lines(db, count, rack)
@@ -1682,6 +1689,7 @@ def send_back_count(
     count.sent_back_by = _actor(current_user)
     count.sent_back_at = now
     count.sent_back_note = note
+    count.sent_back_reason_code, count.sent_back_reason_label = choice.code, choice.label
     count.updated_at = now
     db.commit()
     db.refresh(count)

@@ -12,7 +12,7 @@ import { purchaseApi } from "@/lib/api"
 const registers = [
   { key: "receipts", title: "GRN receipt register", grain: "One received material line", fields: "Manual or PO source, vendor, invoice, received quantity, approved and invoice rates, QC and commercial hold" },
   { key: "po-lines", title: "PO line register", grain: "One current saved PO line", fields: "Series, revision, vendor, material/spec, ordered/received/open kg, expected and actual units, rate, amount, approval and fulfillment" },
-  { key: "inward-lots", title: "Inward and lot register", grain: "One physical AT reel or coil", fields: "PO/revision/GRN/invoice, vendor reel, AT, form, width, original/current kg, PO and invoice rates, QC and commercial state" },
+  { key: "inward-lots", title: "Inward and lot register", grain: "One physical reel or coil (AIT / reel number)", fields: "PO/revision/GRN/invoice, vendor reel, AT, form, width, original/current kg, PO and invoice rates, QC and commercial state" },
   { key: "discrepancies", title: "Invoice difference register", grain: "One receipt-invoice allocation", fields: "Vendor, PO, invoice, item, kg, both rates, signed delta, claimable value, owner and resolution" },
   { key: "debit-notes", title: "Debit note register", grain: "One commercial claim document", fields: "Document, vendor, status, total, settled and open amount with immutable source lines" },
   { key: "schedule", title: "Monthly schedule", grain: "One dated material/vendor entry", fields: "Plan, date/day, material, vendor, form, kg, expected units, converted quantity and state" },

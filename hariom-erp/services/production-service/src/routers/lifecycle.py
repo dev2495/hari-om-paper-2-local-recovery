@@ -36,6 +36,7 @@ from ..lifecycle_rules import (
     within_output_tolerance,
 )
 from ..models import AuditEvent, JobCard, JobCardStage, JobCardStageSegment, MachineStageCapacityProfile
+from ..reasons import ReasonChoice, reason_input, resolve_reason, token_of
 from ..utils.auth import get_current_plant, require_role
 from .missed_slots import restore_missed_slot_for_late_entry, sweep_missed_slots
 from .planning import (
@@ -173,6 +174,17 @@ def _audit(db: Session, job: JobCard, action: str, current_user: dict, payload: 
     )
 
 
+def _reason(payload: Any, job: JobCard, current_user: dict, *, category: str, what: str) -> ReasonChoice:
+    """A master reason code (owner decision 4): required, checked for category and the card's plant."""
+    code, note = reason_input(payload)
+    return resolve_reason(category=category, code=code, note=note, plant_id=job.plant_id, token=token_of(current_user), what=what)
+
+
+def _reason_audit(choice: ReasonChoice) -> dict[str, Any]:
+    """Audit / history keys: ``reason`` stays the "Label — note" text older screens read."""
+    return {"reason": choice.text, "reason_code": choice.code, "reason_label": choice.label, "reason_note": choice.note}
+
+
 def _floor_entry_count(db: Session, job: JobCard) -> int:
     """Runs and QC-only entries on a batch-entry card (voided ones do not count)."""
     if (job.spec_snapshot or {}).get("entry_model") != "V2":
@@ -250,18 +262,31 @@ def get_job_card_lifecycle(
     open_first = sum(v.planned_qty for v in first_views if v.status in {"PLANNED", "QUEUED", "ASSIGNED"})
     made_pcs, made_raw = _made_pcs(job, views)
     ppb = _ppb(job)
+    from .. import boxes as box_rules
+    from ..short_close import card_returns, current_released
+    v2_card = (job.spec_snapshot or {}).get("entry_model") == "V2"
+    # Owner decision 1/8 (2026-11-01): one set of numbers everywhere. After a stage short close the card holds
+    # its released pcs (plan − returned); "made" never reads above what the card still holds.
+    held_qty = current_released(job) if v2_card else float(job.planned_qty or 0.0)
+    if v2_card and float(job.returned_qty or 0.0) > 0:
+        made_pcs = round(min(made_pcs, held_qty), 2)
     stages_out = []
     for row in sorted(db.query(JobCardStage).filter(JobCardStage.job_card_id == job.id).all(), key=lambda r: _routing(job).index(r.stage_type) if r.stage_type in _routing(job) else 99):
         running_log = list((row.actuals_snapshot or {}).get("running_log") or [])
         stage_views = [v for v in views if v.stage == row.stage_type]
+        snap = row.actuals_snapshot or {}
+        # Batch-entry cards: the stage's own target after an upstream short close and its good total, the same
+        # numbers as the card page (planner slots miss runs logged after a reopen or off the plan).
+        v2_target = snap.get("effective_target") if v2_card else None
+        v2_good = snap.get("accepted_total") if v2_card else None
         stages_out.append(
             {
                 "stage": row.stage_type,
                 "unit": stage_unit(row.stage_type),
-                "planned_in_unit": planned_in_stage_units(row.stage_type, float(job.planned_qty or 0.0), ppb),
+                "planned_in_unit": float(v2_target) if v2_target is not None else planned_in_stage_units(row.stage_type, float(job.planned_qty or 0.0), ppb),
                 "status": row.status,
                 "planned_qty": round(sum(v.planned_qty for v in stage_views), 2) or float(job.planned_qty or 0.0),
-                "output_qty": round(sum(v.output_qty for v in stage_views if v.status in {"RUNNING", "COMPLETED"}), 2),
+                "output_qty": float(v2_good) if v2_good is not None else round(sum(v.output_qty for v in stage_views if v.status in {"RUNNING", "COMPLETED"}), 2),
                 "running_total": round(sum(float(entry.get("qty") or 0.0) for entry in running_log), 2),
                 "running_entries": running_log[-20:],
                 "segments": [
@@ -286,6 +311,7 @@ def get_job_card_lifecycle(
     )
     return {
         "id": str(job.id),
+        "plant_id": str(job.plant_id) if job.plant_id else None,
         "job_card_no": job.job_card_no,
         "state": state,
         "status": job.status,
@@ -293,21 +319,27 @@ def get_job_card_lifecycle(
         "first_stage": first,
         "parchment_color": job.parchment_color,
         "is_emergency": bool(job.is_emergency),
-        "planned_qty": float(job.planned_qty or 0.0),
+        "planned_qty": held_qty,
+        "original_planned_qty": float(job.planned_qty or 0.0),
         "released_qty": float(job.released_qty or 0.0),
         "made_qty": made_pcs,
+        "boxes": box_rules.box_summary(db, job) if box_rules.box_mode(db, job) else None,
+        "short_closes": card_returns(db, job),
         "made_in_anchor_unit": made_raw,
         "anchor_stage": _anchor_stage(job),
         "pcs_per_bamboo": ppb,
         "open_first_stage_qty": round(open_first, 2),
         "returned_qty": float(job.returned_qty or 0.0),
         "output_tolerance_pct": round(OUTPUT_TOLERANCE * 100),
-        "max_output_qty": round(float(job.planned_qty or 0.0) * (1 + OUTPUT_TOLERANCE), 2),
+        "max_output_qty": round(float(held_qty if v2_card else job.planned_qty or 0.0) * (1 + OUTPUT_TOLERANCE), 2),
         "close_mode": job.close_mode,
         "missed_slot_count": int(job.missed_slot_count or 0),
         "missed_slot_open": bool(job.missed_slot_open),
         "last_missed_slot": job.last_missed_slot,
         "close_reason": job.close_reason,
+        "close_reason_code": getattr(job, "close_reason_code", None),
+        "close_reason_label": getattr(job, "close_reason_label", None),
+        "close_reason_note": getattr(job, "close_reason_note", None),
         "closed_at": job.closed_at,
         "closed_by": job.closed_by,
         "actions": allowed_actions(state, has_release_lot=bool(job.release_lot_id), open_first_stage_qty=open_first),
@@ -316,7 +348,7 @@ def get_job_card_lifecycle(
         "floor_entries": _floor_entry_count(db, job),
         "stages": stages_out,
         "family": [
-            {"id": str(row.id), "job_card_no": row.job_card_no, "split_kind": row.split_kind, "planned_qty": float(row.planned_qty or 0.0), "status": row.status, "close_mode": row.close_mode, "is_self": row.id == job.id}
+            {"id": str(row.id), "job_card_no": row.job_card_no, "split_kind": row.split_kind, "planned_qty": float(current_released(row) if (row.spec_snapshot or {}).get("entry_model") == "V2" else row.planned_qty or 0.0), "status": row.status, "close_mode": row.close_mode, "is_self": row.id == job.id}
             for row in family
         ],
         "events": [
@@ -337,6 +369,9 @@ class AmendPayload(BaseModel):
     planned_qty: Optional[float] = Field(default=None, gt=0)
     parchment_color: Optional[str] = Field(default=None, max_length=100)
     parchment_color_id: Optional[uuid.UUID] = None
+    # JOB_CARD_CHANGE code from Masters › Reason codes (owner decision 4); `reason` alone is refused.
+    reason_code: Optional[str] = Field(default=None, max_length=40)
+    reason_note: Optional[str] = Field(default=None, max_length=1000)
     reason: Optional[str] = Field(default=None, max_length=500)
 
 
@@ -361,6 +396,7 @@ def amend_job_card(
     new_color = (payload.parchment_color or "").strip() or job.parchment_color
     if abs(new_qty - float(job.planned_qty or 0.0)) < 1e-6 and (new_color or "") == (job.parchment_color or ""):
         raise HTTPException(status_code=400, detail="Nothing changed")
+    choice = _reason(payload, job, current_user, category="JOB_CARD_CHANGE", what="editing the job card")
     before = {"planned_qty": float(job.planned_qty or 0.0), "parchment_color": job.parchment_color}
     token = current_user.get("token", "")
 
@@ -375,12 +411,12 @@ def amend_job_card(
         db.flush()
         lot = _sales_call(
             f"/release-lots/{job.release_lot_id}/amend",
-            {"job_card_id": str(job.id), "release_qty": new_qty, "parchment_color": new_color, "parchment_color_id": str(payload.parchment_color_id) if payload.parchment_color_id else None, "reason": payload.reason},
+            {"job_card_id": str(job.id), "release_qty": new_qty, "parchment_color": new_color, "parchment_color_id": str(payload.parchment_color_id) if payload.parchment_color_id else None, "reason": choice.text},
             token,
             plant_id,
         )
         job.parchment_color = lot.get("parchment_color") or new_color
-        _audit(db, job, "job_card_amended", current_user, {"before": before, "after": {"planned_qty": new_qty, "parchment_color": job.parchment_color}, "reason": payload.reason}, before)
+        _audit(db, job, "job_card_amended", current_user, {"before": before, "after": {"planned_qty": new_qty, "parchment_color": job.parchment_color}, **_reason_audit(choice)}, before)
         db.commit()
     except Exception:
         db.rollback()
@@ -394,6 +430,9 @@ def amend_job_card(
 class SplitPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
     qty: float = Field(..., gt=0)
+    # JOB_CARD_CHANGE code from Masters › Reason codes (owner decision 4); `reason` alone is refused.
+    reason_code: Optional[str] = Field(default=None, max_length=40)
+    reason_note: Optional[str] = Field(default=None, max_length=1000)
     reason: Optional[str] = Field(default=None, max_length=500)
     # Same id on a retry (lost response) returns the first split instead of cutting a second card.
     request_id: Optional[str] = Field(default=None, max_length=120)
@@ -427,6 +466,7 @@ def split_job_card(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if qty >= float(job.planned_qty or 0.0) - 1e-6:
         raise HTTPException(status_code=400, detail="Split must leave some quantity on the original card")
+    choice = _reason(payload, job, current_user, category="JOB_CARD_CHANGE", what="splitting the job card")
     token = current_user.get("token", "")
     before = {"planned_qty": float(job.planned_qty or 0.0)}
 
@@ -501,8 +541,8 @@ def split_job_card(
         db.rollback()
         raise
     child.release_lot_id = uuid.UUID(str(lot.get("release_lot_id") or lot.get("id")))
-    _audit(db, job, "job_card_split", current_user, {"child_job_card_id": str(child.id), "child_job_card_no": child.job_card_no, "qty": qty, "reason": payload.reason}, before)
-    _audit(db, child, "job_card_created_by_split", current_user, {"parent_job_card_id": str(job.id), "parent_job_card_no": job.job_card_no, "qty": qty, "reason": payload.reason})
+    _audit(db, job, "job_card_split", current_user, {"child_job_card_id": str(child.id), "child_job_card_no": child.job_card_no, "qty": qty, **_reason_audit(choice)}, before)
+    _audit(db, child, "job_card_created_by_split", current_user, {"parent_job_card_id": str(job.id), "parent_job_card_no": job.job_card_no, "qty": qty, **_reason_audit(choice)})
     db.commit()
     return {"parent": get_job_card_lifecycle(job.id, db, plant_id, current_user), "child_job_card_id": str(child.id), "child_job_card_no": child.job_card_no}
 
@@ -512,7 +552,11 @@ def split_job_card(
 
 class ForceClosePayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    reason: str = Field(..., min_length=3, max_length=500)
+    # JOB_CARD_CLOSE code from Masters › Reason codes (owner decision 4); `reason` (old free text, the UI
+    # sends "Label — note" in it) is no longer enough on its own.
+    reason_code: Optional[str] = Field(default=None, max_length=40)
+    reason_note: Optional[str] = Field(default=None, max_length=1000)
+    reason: Optional[str] = Field(default=None, max_length=500)
 
 
 @router.post("/job-cards/{job_card_id}/force-close")
@@ -548,6 +592,17 @@ def force_close_job_card(
         raise HTTPException(409, BATCH_CLOSE_WHY)
     if returned <= 1e-6:
         raise HTTPException(status_code=400, detail="Everything planned is already made — complete the card normally instead")
+    if made > 1e-6:
+        # Old-form force close follows the stage-close rules (owner decision 2026-11-01): a hold placed on purpose
+        # stops it, and the winding made must carry its 2 readings per required check.
+        from ..models import QualityHold
+        from .planning import _movement_blocking_holds, _old_form_readings_short, _old_form_readings_short_detail
+        if _movement_blocking_holds(db, db.query(QualityHold).filter(QualityHold.job_card_id == job.id, QualityHold.status == "HOLD").all()):
+            raise HTTPException(status_code=409, detail="A hold placed on this card stops all movement. Release it in Quality before force-closing.")
+        short = _old_form_readings_short(db=db, plant_id=job.plant_id, job_card=job, selected_stage=first, quality_checks={})
+        if short:
+            raise HTTPException(status_code=409, detail=_old_form_readings_short_detail(first, short))
+    choice = _reason(payload, job, current_user, category="JOB_CARD_CLOSE", what="closing the job card")
     before = {"planned_qty": planned, "made_qty": made, "status": job.status}
     now = datetime.utcnow()
 
@@ -591,29 +646,39 @@ def force_close_job_card(
                     for row in _open_stage_segments(db, job.id, next_type):
                         row.planned_qty = min(float(row.planned_qty or made), made)
                 _sync_stage_row_from_segments(next_row, _all_stage_segments(db, job.id, next_type))
+            # Every later stage's open slots shrink to what was made, not only the next one (planner load).
+            from ..short_close import _shrink_segments
+            for later in routing[next_index + 1:]:
+                _shrink_segments(db, job, later, made, _ppb(job))
         stages = db.query(JobCardStage).filter(JobCardStage.job_card_id == job.id).all()
         job.current_stage, job.status = _derive_job_current_stage_and_status(stages)
         job.close_mode = "FORCE"
 
     job.returned_qty = returned
     job.released_qty = made
-    job.close_reason = payload.reason.strip()
+    job.close_reason = choice.text
+    job.close_reason_code = choice.code
+    job.close_reason_label = choice.label
+    job.close_reason_note = choice.note
     job.closed_at = now
     job.closed_by = current_user.get("sub")
     db.flush()
     try:  # sales last: if it refuses, the card stays open; return-balance is idempotent on retry
-        _sales_call(
+        returned_to = _sales_call(
             f"/release-lots/{job.release_lot_id}/return-balance",
-            {"job_card_id": str(job.id), "returned_qty": returned, "reason": payload.reason},
+            {"job_card_id": str(job.id), "returned_qty": returned, "reason": choice.text,
+             "reason_code": choice.code, "reason_label": choice.label, "reason_note": choice.note},
             current_user.get("token", ""),
             plant_id,
         )
     except Exception:
         db.rollback()
         raise
-    _audit(db, job, "job_card_force_closed", current_user, {"made_qty": made, "made_in_stage_unit": made_units, "stage": first, "returned_qty": returned, "reason": payload.reason, "mode": job.close_mode}, before)
+    # Short-closed or cancelled order: Sales dropped the pcs instead of putting them back on the order (issue #8).
+    dropped = bool((returned_to or {}).get("balance_dropped"))
+    _audit(db, job, "job_card_force_closed", current_user, {"made_qty": made, "made_in_stage_unit": made_units, "stage": first, "returned_qty": returned, **_reason_audit(choice), "mode": job.close_mode, "balance_dropped": dropped}, before)
     db.commit()
-    return get_job_card_lifecycle(job.id, db, plant_id, current_user)
+    return {**get_job_card_lifecycle(job.id, db, plant_id, current_user), "returned_qty": returned, "balance_dropped": dropped}
 
 
 # ── emergency insert ───────────────────────────────────────────────────────
@@ -625,7 +690,10 @@ class EmergencyPayload(BaseModel):
     machine_id: uuid.UUID
     plan_date: date
     shift_code: str = Field(..., pattern="^SHIFT_[AB]$")
-    reason: str = Field(..., min_length=3, max_length=500)
+    # JOB_CARD_CHANGE code from Masters › Reason codes (owner decision 4); `reason` alone is refused.
+    reason_code: Optional[str] = Field(default=None, max_length=40)
+    reason_note: Optional[str] = Field(default=None, max_length=1000)
+    reason: Optional[str] = Field(default=None, max_length=500)
 
 
 @router.post("/planning/emergency-insert")
@@ -640,6 +708,7 @@ def emergency_insert(
     state, _ = _state(db, job)
     if state not in {"QUEUED", "SCHEDULED"}:
         raise HTTPException(status_code=409, detail="Only a queued or scheduled card can be inserted as an emergency")
+    choice = _reason(payload, job, current_user, category="JOB_CARD_CHANGE", what="the emergency insert")
     first = _first_stage(job)
     job.is_emergency = True
     # The emergency card goes in whole and first (no auto-split); the others make room.
@@ -698,7 +767,7 @@ def emergency_insert(
             moves.append({"segment_id": segment_id, "job_card_id": str(segment.job_card_id), "job_card_no": moved_job.job_card_no if moved_job else None, "from": {"date": str(slot_date), "shift": slot_shift}, "to": {"date": str(target_date), "shift": target_shift}})
         pinned = set()
         slot_date, slot_shift = target_date, target_shift
-    _audit(db, job, "job_card_emergency_insert", current_user, {"machine_id": str(payload.machine_id), "plan_date": str(payload.plan_date), "shift_code": payload.shift_code, "reason": payload.reason, "bumped": moves})
+    _audit(db, job, "job_card_emergency_insert", current_user, {"machine_id": str(payload.machine_id), "plan_date": str(payload.plan_date), "shift_code": payload.shift_code, **_reason_audit(choice), "bumped": moves})
     db.commit()
     return {"job_card_id": str(job.id), "job_card_no": job.job_card_no, "bumped": moves}
 

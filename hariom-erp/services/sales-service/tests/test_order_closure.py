@@ -117,17 +117,20 @@ def test_colour_splits_shrink_to_what_was_released_in_each_colour():
     assert shrink_colour_splits(line(1000), [ColorSplit(color="Blue", qty=600)], {}) is None
 
 
-def test_customer_hold_and_close_needs_an_order_close_reason_code():
-    """Customer hold & close shuts the PO, so it asks for the same reason code (client 2026-10-26)."""
+def test_customer_hold_and_close_needs_an_order_close_reason_code(monkeypatch):
+    """Customer hold & close shuts the PO, so it asks for the same reason code (client 2026-10-26).
+    Since 1 Nov 2026 the sales service checks the code itself (src/reasons.py), not only the BFF."""
     import uuid
     from fastapi import HTTPException
     from src.order_closure import hold_reason_text
+    from src.routers import sales_orders
     from src.routers.sales_orders import SalesOrderHoldPayload, hold_sales_order
 
-    # The code is checked before the order is even read.
+    monkeypatch.setattr(sales_orders, "_load_scoped_order", lambda db, order_id, plant_id: NS(plant_id="P", held_at=None))
+    # Free text alone is refused; OTHER needs a note — both before master data is asked.
     with pytest.raises(HTTPException) as missing:
         hold_sales_order(uuid.uuid4(), SalesOrderHoldPayload(reason="Customer not lifting since July"), db=None, plant_id="P", current_user={})
-    assert missing.value.status_code == 422 and missing.value.detail == "Choose a reason code."
+    assert missing.value.status_code == 422 and "Choose a reason" in missing.value.detail
     with pytest.raises(HTTPException) as other:
         hold_sales_order(uuid.uuid4(), SalesOrderHoldPayload(reason_code="OTHER", note="no"), db=None, plant_id="P", current_user={})
     assert other.value.status_code == 422 and "Other" in other.value.detail

@@ -9,10 +9,10 @@ Screenshots named in this file are in the visual handbook (Hari-Om-TubeOS-Help-G
 > **Where:** Sidebar > Operations > Job card manager (/production/job-cards/manage). A card opens directly with /production/job-cards/manage?card=<card>, which is what **Manage card** on a card or list row does.
 
 ## At a glance
-- Every action shows **What will happen** before you confirm, and asks for a **reason** (at least 3 characters). The reason goes into the card history and the order history with your name.
+- Every action shows **What will happen** before you confirm, and asks for a **reason code** from Masters › Reason codes, with an optional note. Split, edit and emergency insert use the list **Job card split / edit / insert**; force close and cancel use **Job card close early / cancel**. The code, its label and your note go into the card history and the order history with your name.
 - The manager only offers what the card allows right now. Everything else is listed under **Not possible now** with the exact reason.
 - **Split into a new card** makes a separate card with its own number, lot, print, QC and dispatch. **Split plan** (on the Planner board) keeps one card and only cuts the plan into time slots.
-- **Force close** is for old-form cards only. A batch-entry card that has runs or QC logged is closed short with **Close stage** on its card page instead.
+- **Force close** is for old-form cards only. A batch-entry card that has runs or QC logged is closed short, stage by stage, with **Close stage** on its card page instead. The unmade pcs go back to the order and show in the **Back to order** tile here.
 - Closing a stage never asks for a supervisor. The plant manager, Owner or Admin who is logged in is recorded.
 
 ## The flow
@@ -64,9 +64,9 @@ When you pick a card, the right side shows (described in words, no screenshot):
 
 1. **Card list (left)**: all open cards grouped by order, with filters for Queue, Scheduled and Running.
 2. **Card header**: card number, status chips (for example **Missed slot x2**, **Queue**, **batch entry**) and links to the card page, print and the sales order.
-3. **Quantity tiles**: Planned, Made, Not started and Back to order.
+3. **Quantity tiles**: Planned, Made, Not started and **Back to order** (pcs this card gave back to the order by a force close, a cancel or a stage short close, "not released again yet"; "nothing returned" when 0).
 4. **Stage chain**: Winding, Oven, Process and Dispatch, with the current stage highlighted.
-5. **Action tiles**: each action shows a preview of what will happen before you confirm and asks for a reason.
+5. **Action tiles**: each action shows a preview of what will happen before you confirm and asks for a reason code.
 
 ## Step by step
 
@@ -76,7 +76,7 @@ Roles: Planner, Plant Manager, Owner, Admin. Allowed while the card is queued, s
 1. Pick the card, click **Split into a new card**.
 2. The form says "Unstarted on this card: 600 pcs. Move part of it to 26/10/315-A." The new number is the next free letter.
 3. Set **New card gets (pcs, 1–N)** with the slider, the box, or a quick pick (**¼**, **½**, **¾**, **All unstarted**). Quick picks are whole bamboo where the card has pcs per bamboo.
-4. Write the reason, or click a quick reason: "Customer call-off earlier", "Second machine free", "Urgent part dispatch", "Colour / print change on part".
+4. Pick the reason from **Job card split / edit / insert**: CH-CUST-REQUEST Customer asked for a change, CH-URGENT Urgent order to run first, CH-MACHINE-LOAD Balance the machine load, CH-MATERIAL Material available for part only, CH-COLOUR Colour changed by the customer, CH-ENTRY-ERROR Entered wrongly, or CH-OTHER (write a note). The note box is optional for the others.
 5. Read the preview: this card keeps X pcs and its plan; the new card gets Y pcs, "planner queue · unplaced", same colour; which planner slots shrink or come off the board (the latest slots give first); "Order line stays N pcs: now on 2 cards".
 6. Click **Review split of Y pcs**, check the confirm lines, then **Yes, create 26/10/315-A with Y pcs**.
 7. Done: links **Open 26/10/315-A**, **Place it on the planner board**, **Print new card**. Runs already logged stay on the old card.
@@ -86,7 +86,7 @@ Roles: Planner, Plant Manager, Owner, Admin. Only a **queued** card (not yet on 
 
 1. Pick the card, click **Edit qty / colour**.
 2. Change **Quantity (pcs)** (a whole number of at least 1) and/or pick a new colour (**Keep current colour** leaves it). A plain card can change only the qty.
-3. Write the reason (quick reasons: "Customer changed the PO", "Entry mistake at release", "Colour per customer artwork").
+3. Pick the reason code (for example CH-CUST-REQUEST, CH-ENTRY-ERROR or CH-COLOUR) and add a note if useful.
 4. The preview shows the release lot on the order moving by the difference, and that the paper on the material plan follows the new colour. Click **Review change**, then **Yes, save the change**.
 5. The sales order's release lot is changed in step. If nothing changed, the server says "Nothing changed".
 
@@ -96,7 +96,7 @@ Roles: Planner, Plant Manager, Owner, Admin. Only a queued or scheduled card wit
 1. Pick the card, click **Emergency insert**.
 2. Choose the machine, the date (today or later) and **Shift A** or **Shift B**, or a quick slot: **Today · Shift A**, **Today · Shift B**, **Tomorrow · Shift A**.
 3. The preview shows the load already in that slot. If the shift goes over capacity, the lowest-priority cards move to the next shift (and onward). Running cards never move.
-4. Write the reason (for example "Customer line down", "Truck booked today"). Click **Review insert**, then **Yes, insert 26/10/315 first**.
+4. Pick the reason code (for example CH-URGENT Urgent order to run first) and write a note such as "Customer line down". Click **Review insert**, then **Yes, insert 26/10/315 first**.
 5. The card shows an **Emergency** chip. Everyone affected is notified, and each moved card's history records the move.
 
 ### How to force close an old-form card
@@ -104,7 +104,7 @@ Roles: Planner, Plant Manager, Owner, Admin. Only cards on the **old form** that
 
 1. Pick the card, click **Force close**.
 2. The form says "Close 26/10/280 now with what is made." The preview shows "Closed at 400 pcs · 200 pcs back to the order", the planner slots that are freed, and that the card will show **Closed early**.
-3. Write the reason (quick reasons: "Material short", "Customer reduced the PO", "Machine down, re-plan on a new card", "Quality: rest scrapped").
+3. Pick the reason from **Job card close early / cancel**: JC-CUST-CANCEL Customer cancelled or reduced the order, JC-RELEASED-TWICE Released twice by mistake, JC-WRONG-SPEC Wrong spec or size released, JC-MATERIAL-SHORT Paper or material short, JC-MACHINE Machine breakdown / not available, JC-QTY-DONE Enough made for the order, JC-MERGED Merged into another job card, or JC-OTHER (write a note).
 4. Click **Review force close**, then **Yes, close at 400 pcs**. What was made keeps moving through the remaining stages on the same card; the balance can be released again from the order.
 
 ### How to cancel a card
@@ -112,23 +112,23 @@ Roles: Planner, Plant Manager, Owner, Admin. Only when nothing is made. A batch-
 
 1. Pick the card, click **Cancel card**.
 2. The preview says the whole qty goes back to the order and all its planner slots are freed.
-3. Write the reason ("Released by mistake", "Customer cancelled the line", "Merged into another card"). Click **Review cancel**, then **Yes, cancel 26/10/311**.
+3. Pick the reason code (for example JC-RELEASED-TWICE, JC-CUST-CANCEL or JC-MERGED). Click **Review cancel**, then **Yes, cancel 26/10/311**.
 4. The card shows **Cancelled**. No runs, QC or close can be saved on it any more.
 
 ### How to force close several cards at once
 1. Tick the cards in the left column, click **Force close…** in the bulk bar.
-2. Write one reason for all. Each card closes at what is made, or is cancelled if nothing is made; the balance goes back to its order.
+2. Pick one reason code for all (**Reason (one for all)**, list Job card close early / cancel) and add a note if useful, for example "customer cancelled PO 0872F". Each card closes at what is made, or is cancelled if nothing is made; the balance goes back to its order.
 3. Cards the rule does not allow are left as they are, with the reason ("Batch-entry card: left as it is. Close it short with Close stage on its card page.", "Already closed: left as it is.").
 4. Click **Yes, force close N cards**. The result lists each card.
 
 ### How to close a batch-entry card short
-This is done on the card page, not here. See "Job cards", How to close a stage. Roles: Plant Manager, Owner, Admin. There is no supervisor field; the login is recorded.
+This is done on the card page, not here, one stage at a time. See "Job cards", How to close a stage short. Roles: Plant Manager, Owner, Admin. There is no supervisor field; the login is recorded. Pick a **Stage closed short** reason code. The unmade pcs go back to the order at once, the later stages carry on with the pcs passed on, and this manager's **Back to order** tile goes up by the returned pcs.
 
 ### How to move an old-form card to batch entry
 Open the card's **Old form** tab and click **Move to batch entry** (Owner, Admin, Plant Manager, Planner, Operator). It works only while no stage except slitting has closed on the old form. A card whose old form cannot close anything because its stage QC was never approved moves by itself when its page opens. See "Job cards".
 
 ## Rules the system enforces
-- **Reason required** for every action (at least 3 characters on screen; the server also requires it for force close and emergency insert). (Blocks.)
+- **Reason code required** for every action. Split, edit and emergency insert need a **Job card split / edit / insert** code; force close, cancel and bulk close need a **Job card close early / cancel** code. The server checks that the code is active, in the right list and of the card's plant; free text alone is refused. A code with OTHER needs a note of at least 5 characters. (Blocks.)
 - **Edit** only while **queued**. A scheduled card: "On the board already: qty and colour are locked. Take it back to the queue on the planner, or split it." A running card: split the unstarted part instead. (Blocks.)
 - **Split** needs unstarted quantity on the first stage and must leave at least 1 pc on the original card ("Split must leave some quantity on the original card"). (Blocks.)
 - **Emergency** only for queued or scheduled cards; "Already running on a machine: nothing to jump ahead of." (Blocks.)
@@ -145,7 +145,7 @@ Card 26/10/315 for Sharma Tubes Pvt Ltd: 900 pcs, BLUE, scheduled on Winder 1 fo
 |---|---|
 | Action | Split into a new card |
 | New card gets | 300 pcs |
-| Reason | Customer call-off earlier |
+| Reason | CH-CUST-REQUEST Customer asked for a change, note "call-off earlier" |
 | Result: 26/10/315 | 900 → 600 pcs, keeps its plan |
 | Result: 26/10/315-A | 300 pcs, planner queue, unplaced |
 | Slot change | 31 Oct · Shift B · Winder 1: 300 → off the board |
@@ -158,7 +158,11 @@ The planner then places 26/10/315-A on Winder 2 for 1 Nov Shift A and prints it.
 
 **Q: When do I use Split into a new card and when Split plan?** A: Split into a new card when part of the order needs its own card (own print, QC, dispatch). Split plan when the same card should run over more shifts, days or machines.
 
-**Q: Force close is locked on my card. Why?** A: It is a batch-entry card with runs logged. Open the card page and use **Close stage**; a short close needs a reason and sends the balance back to the order.
+**Q: Force close is locked on my card. Why?** A: It is a batch-entry card with runs logged. Open the card page and use **Close stage** on the stage that cannot finish; a short close needs a reason code and sends the balance back to the order.
+
+**Q: What does Back to order show?** A: The pcs this card gave back to the sales order (force close, cancel or a stage short close) that Sales has not released again yet. Sales releases them again or short closes the order on the order page.
+
+**Q: The reason I need is not in the list.** A: Pick the OTHER code of that list and write a note, and ask a Plant Manager, Admin or the Owner to add the code in Masters › Reason codes.
 
 **Q: Can I undo a cancel?** A: No. Release the quantity again from the sales order to make a new card.
 

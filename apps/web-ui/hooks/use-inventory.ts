@@ -770,7 +770,7 @@ export function useCreateInventoryQualityConcession() {
 export function useReturnRejectedLotToSupplier() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (data: { entity_type: string; entity_id: string; reason: string; return_reference?: string; plantId?: string }) =>
+    mutationFn: (data: { entity_type: string; entity_id: string; reason?: string; reason_code?: string; reason_note?: string; return_reference?: string; plantId?: string }) =>
       inventoryApi.returnRejectedLotToSupplier(data),
     onSuccess: () => {
       invalidateIncomingQc(queryClient)

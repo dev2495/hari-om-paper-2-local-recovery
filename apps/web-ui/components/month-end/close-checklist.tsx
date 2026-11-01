@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useState } from "react"
 import { AlertTriangle, ArrowRight, Ban, Check, Clock3, LoaderCircle, LockKeyhole, LockKeyholeOpen, RotateCcw } from "lucide-react"
 
+import { ReasonPicker, useReasonChoice } from "@/components/reasons"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { useApp } from "@/context/AppContext"
 import { useCloseMonth, useReopenMonth } from "@/hooks/use-month-end"
@@ -260,23 +261,25 @@ export function CloseDialog({ view, plantId, open, onOpenChange }: { view: Month
 
 export function ReopenDialog({ view, plantId, open, onOpenChange }: { view: MonthEndOverview; plantId: string; open: boolean; onOpenChange: (open: boolean) => void }) {
   const { showToast } = useApp()
-  const [reason, setReason] = useState("")
+  // A BOOKS_UNLOCK code from Masters › Reason codes (owner decision 4); the store books get the same code.
+  const reason = useReasonChoice("BOOKS_UNLOCK", plantId, { enabled: open })
   const reopen = useReopenMonth(plantId)
   const later = view.later_closed_months || []
-  const valid = reason.trim().length >= 3
-  const submit = () =>
+  const submit = () => {
+    if (!reason.validate()) return
     reopen.mutate(
-      { month: view.month, reason: reason.trim() },
+      { month: view.month, ...reason.payload("reason") },
       {
         onSuccess: (result) => {
           const months = (result.reopened_months || [view.month]).map(monthText)
           showToast(`Re-opened ${months.join(", ")}.`, "success")
-          setReason("")
+          reason.reset()
           onOpenChange(false)
         },
         onError: (error) => showToast(describeApiError(error, "The month could not be re-opened"), "error"),
       },
     )
+  }
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md rounded-2xl" data-testid="month-end-reopen-dialog">
@@ -289,14 +292,10 @@ export function ReopenDialog({ view, plantId, open, onOpenChange }: { view: Mont
             {later.length === 1 ? `${monthText(later[0])} is closed after it, so it re-opens too.` : `${later.map(monthText).join(", ")} are closed after it, so they re-open too (newest first).`}
           </p>
         ) : null}
-        <label className="grid gap-1.5 text-[12.5px] font-medium">
-          Reason (required)
-          <textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={3} maxLength={500} className="min-h-[44px] rounded-lg border border-input bg-card px-3 py-2 text-[13.5px] outline-none focus-visible:ring-2 focus-visible:ring-ring/40" placeholder="e.g. Late GRN for kraft 351 found after the close" aria-invalid={!valid && reason.length > 0} />
-          {!valid && reason.length > 0 ? <span className="text-[12px] font-normal text-signal-rose-ink">Write at least a few words.</span> : null}
-        </label>
+        <ReasonPicker category="BOOKS_UNLOCK" plantId={plantId} rows={reason.list.data} label="Why re-open it" value={reason.value} onChange={reason.setValue} showErrors={reason.touched} compact notePlaceholder="e.g. Late GRN for kraft 351 found after the close" testIdPrefix="month-end-reopen" />
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button type="button" className="erp-btn-secondary !h-11" onClick={() => onOpenChange(false)}>Cancel</button>
-          <button type="button" className="erp-btn-primary !h-11" onClick={submit} disabled={!valid || reopen.isPending} data-testid="month-end-reopen-confirm">
+          <button type="button" className="erp-btn-primary !h-11" onClick={submit} disabled={reopen.isPending} data-testid="month-end-reopen-confirm">
             {reopen.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <RotateCcw className="h-4 w-4" aria-hidden="true" />}
             Re-open {later.length ? `${later.length + 1} months` : view.month_word}
           </button>

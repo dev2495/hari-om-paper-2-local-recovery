@@ -341,7 +341,8 @@ export const salesApi = {
   exportPendingOrders: (params?: any) => api.get("/api/sales/orders/pending/export", { params, responseType: "blob" }),
   getOrderDeliverySchedules: (id: string) => api.get(`/api/sales/orders/${id}/delivery-schedules`),
   holdOrder: (id: string, data: { reason_code: string; note?: string }, plantId?: string) => api.post(`/api/sales/orders/${id}/hold`, data, withPlantHeader(plantId)),
-  resumeOrder: (id: string, plantId?: string) => api.post(`/api/sales/orders/${id}/resume`, {}, withPlantHeader(plantId)),
+  /** Lift a customer hold with an "Order hold lifted" (ORDER_RESUME) reason code (1 Nov 2026). */
+  resumeOrder: (id: string, data: { reason_code: string; reason_note?: string }, plantId?: string) => api.post(`/api/sales/orders/${id}/resume`, data, withPlantHeader(plantId)),
   /** Cancel the whole order (nothing released or dispatched yet) with an "Order cancel / short close" reason code. */
   cancelOrder: (id: string, data: { reason_code: string; note?: string }, plantId?: string) =>
     api.post(`/api/sales/orders/${id}/cancel`, data, withPlantHeader(plantId)),
@@ -421,12 +422,13 @@ export const productionApi = {
   movePlanningBoard: (data: any) => api.post("/api/production/planning/board/move", data),
   splitPlanningSegment: (data: any) => api.post("/api/production/planning/board/split", data),
   getJobCardLifecycle: (jobCardId: string, plantId?: string) => api.get(`/api/production/job-cards/${jobCardId}/lifecycle`, withPlantHeader(plantId)),
-  amendJobCard: (jobCardId: string, data: { planned_qty?: number; parchment_color?: string; parchment_color_id?: string | null; reason?: string }) =>
+  // Reasons are master codes (owner decision 4): reason_code + reason_note; `reason` carries "Label — note".
+  amendJobCard: (jobCardId: string, data: { planned_qty?: number; parchment_color?: string; parchment_color_id?: string | null; reason?: string; reason_code?: string; reason_note?: string }) =>
     api.post(`/api/production/job-cards/${jobCardId}/amend`, data),
-  splitJobCard: (jobCardId: string, data: { qty: number; reason?: string; request_id?: string }) => api.post(`/api/production/job-cards/${jobCardId}/split`, data),
-  forceCloseJobCard: (jobCardId: string, data: { reason: string }) => api.post(`/api/production/job-cards/${jobCardId}/force-close`, data),
+  splitJobCard: (jobCardId: string, data: { qty: number; reason?: string; reason_code?: string; reason_note?: string; request_id?: string }) => api.post(`/api/production/job-cards/${jobCardId}/split`, data),
+  forceCloseJobCard: (jobCardId: string, data: { reason?: string; reason_code: string; reason_note?: string }) => api.post(`/api/production/job-cards/${jobCardId}/force-close`, data),
   postRunningEntry: (jobCardId: string, data: any) => api.post(`/api/production/job-cards/${jobCardId}/running-entry`, data),
-  emergencyInsert: (data: { job_card_id: string; machine_id: string; plan_date: string; shift_code: string; reason: string }) =>
+  emergencyInsert: (data: { job_card_id: string; machine_id: string; plan_date: string; shift_code: string; reason?: string; reason_code: string; reason_note?: string }) =>
     api.post("/api/production/planning/emergency-insert", data),
   // The trail needs one plant: under "All Visible Plants" send the order's own plant.
   getOrderTrail: (salesOrderId: string, plantId?: string) =>
@@ -486,7 +488,8 @@ export const productionApi = {
   getQualityHolds: (params?: any) => api.get("/api/production/quality/holds", { params }),
   createQualityHold: (data: any, plantId?: string) =>
     api.post("/api/production/quality/holds", data, withPlantHeader(plantId)),
-  releaseQualityHold: (holdId: string, plantId?: string, data?: { reason: string; disposition?: string; affected_qty?: number }) =>
+  // A release needs a QC_RELEASE code (owner decision 4); `reason` carries the legacy "Label — note".
+  releaseQualityHold: (holdId: string, plantId?: string, data?: { reason_code?: string; reason_note?: string; reason?: string; disposition?: string; affected_qty?: number }) =>
     api.post(`/api/production/quality/holds/${holdId}/release`, data ?? {}, withPlantHeader(plantId)),
 
   getJobCards: (params?: any) => api.get("/api/production/jobs", { params }),
@@ -650,7 +653,9 @@ export const inventoryApi = {
     scope: "TYPE" | "GROUP" | "SUBGROUP" | "ITEM"
     scope_key?: string
     lines: Array<{ parameter_key: string; mode: "RANGE" | "PLUS_MINUS" | "PERCENT" | "AT_LEAST" | "AT_MOST"; min_value?: number | null; max_value?: number | null; tolerance_value?: number | null }>
-    note?: string
+    /** Why (optional): a QC_RULE_CHANGE code from Masters › Reason codes and its note (owner decision 4). */
+    reason_code?: string
+    reason_note?: string
     nominals?: Record<string, number | null>
     material_group?: string | null
   }) => api.put("/api/inventory/quality/standards/tolerances", data),
@@ -667,7 +672,7 @@ export const inventoryApi = {
   createInventoryQualityConcession: ({ plantId, ...data }: any) => api.post("/api/inventory/quality/concessions", data, onPlant(plantId)),
   getIncomingQualityAnalytics: (params?: { date_from?: string; date_to?: string }) =>
     api.get("/api/inventory/quality/analytics", { params }),
-  returnRejectedLotToSupplier: ({ plantId, ...data }: { entity_type: string; entity_id: string; reason: string; return_reference?: string; plantId?: string }) =>
+  returnRejectedLotToSupplier: ({ plantId, ...data }: { entity_type: string; entity_id: string; reason?: string; reason_code?: string; reason_note?: string; return_reference?: string; plantId?: string }) =>
     api.post("/api/inventory/quality/rejected-lots/return-to-supplier", data, onPlant(plantId)),
   getCustomerRejections: (params?: any) => api.get("/api/inventory/quality/customer-rejections", { params }),
   createCustomerRejection: (data: any) => api.post("/api/inventory/quality/customer-rejections", data),
@@ -744,5 +749,7 @@ export const dispatchApi = {
   getReadyJobs: (plantId?: string) => api.get("/api/dispatch/ready-jobs", withPlantHeader(plantId)),
   getDispatch: (id: string, plantId?: string) => api.get(`/api/dispatch/${id}`, withPlantHeader(plantId)),
   getDispatchByJob: (jobCardId: string, draftsOnly = false, plantId?: string) => api.get(`/api/dispatch/by-job/${jobCardId}`, { ...withPlantHeader(plantId), params: { include_sealed: !draftsOnly } }),
+  /** Every sealed challan of a card (a box card can ship in several), oldest first. */
+  getSealedByJob: (jobCardId: string, plantId?: string) => api.get(`/api/dispatch/by-job/${jobCardId}/sealed`, withPlantHeader(plantId)),
   createOrUpdateDispatch: (data: any, plantId?: string) => api.post("/api/dispatch", data, withPlantHeader(plantId)),
 }

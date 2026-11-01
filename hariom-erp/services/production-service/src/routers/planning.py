@@ -25,7 +25,7 @@ from ..config import get_settings
 from ..database import get_db
 from contextvars import ContextVar
 from ..job_card_numbering import allocate_child_job_card_no, allocate_job_card_no
-from ..lifecycle_rules import OUTPUT_TOLERANCE, missed_slot_deadline, planned_in_stage_units, shift_business_date, shift_slot, within_output_tolerance
+from ..lifecycle_rules import BAMBOO_STAGES, OUTPUT_TOLERANCE, missed_slot_deadline, planned_in_stage_units, shift_business_date, shift_slot, within_output_tolerance
 from ..models import (
     AuditEvent,
     Dispatch,
@@ -550,7 +550,27 @@ def _find_inventory_item_match(
     return matches[0] if len(matches) == 1 else None
 
 
+def _card_live_boxes(job_card: JobCard) -> list:
+    """The card's packed boxes (box cards, owner decision 2026-11-01); [] for cards packed the old way."""
+    from sqlalchemy.orm import object_session
+    from ..entry_models import FgBox
+    try:
+        session = object_session(job_card)
+    except Exception:  # a plain object (tests, previews) has no session and no boxes
+        return []
+    if session is None or getattr(job_card, "id", None) is None:
+        return []
+    try:
+        return session.query(FgBox).filter(FgBox.job_card_id == job_card.id, FgBox.status != "VOID").order_by(FgBox.seq_no).all()
+    except Exception:
+        return []
+
+
 def _job_card_produced_qty_for_theory(job_card: JobCard) -> float:
+    boxes = _card_live_boxes(job_card)
+    if boxes:
+        # Box cards: the theory follows what is actually packed in boxes.
+        return float(sum(int(box.qty or 0) for box in boxes))
     packing_record = getattr(job_card, "packing_record", None)
     if packing_record and float(getattr(packing_record, "total_packed_qty", 0.0) or 0.0) > 0:
         return float(packing_record.total_packed_qty or 0.0)
@@ -586,6 +606,9 @@ def _packaging_theory_rows(
     Boxes = good pieces / Qty per box (rounded up); plastic and fadda = boxes x per-box count.
     Posted in the stock item's unit: pieces for PCS items, pieces x unit weight for KG items."""
     spec_snapshot = dict(getattr(job_card, "spec_snapshot", {}) or {})
+    boxes = _card_live_boxes(job_card)
+    if boxes:
+        return _box_packaging_theory_rows(boxes=boxes, inventory_items=inventory_items, produced_qty=produced_qty)
     packing = getattr(job_card, "packing_record", None)
     consumption = dict(((getattr(packing, "snapshot", None) or {}).get("packaging_consumption")) or {})
     if not consumption and produced_qty > 0:
@@ -603,9 +626,14 @@ def _packaging_theory_rows(
             continue
         item = by_code.get(item_code) or {}
         in_kg = str(item.get("uom") or "PCS").upper() == "KG"
+        warnings = []
+        if in_kg and unit_weight <= 0:
+            # Never dropped silently (owner decision 5, 2026-11-01): kept in pieces with a warning.
+            warnings.append(f"{item_code} is stocked in kg but has no unit weight; theory kept in pieces")
+            in_kg = False
+        if not item:
+            warnings.append(f"{label} {item_code} is not a stock item")
         quantity = round(pieces * unit_weight, 6) if in_kg else float(pieces)
-        if quantity <= 0:
-            continue
         rows.append({
             "item_code": item_code,
             "item_name": str(item.get("name") or f"{label} {code}").strip(),
@@ -613,7 +641,48 @@ def _packaging_theory_rows(
             "advisory_allocated_order_qty": round(produced_qty, 4),
             "unit": "KG" if in_kg else "PCS",
             "pieces": pieces,
+            **({"warnings": warnings} if warnings else {}),
         })
+    return rows
+
+
+def _box_packaging_theory_rows(*, boxes: list, inventory_items: list[dict[str, Any]], produced_qty: float) -> list[dict[str, Any]]:
+    """Packing theory of a box card: one box per packed box, plastic / fadda x per-box count, kg from the
+    Packaging masters' weights. A line that cannot be counted is posted in pieces with a warning (never dropped)."""
+    from ..boxes import card_packaging_totals
+    totals = card_packaging_totals(boxes)
+    by_code = {str(row.get("item_code") or "").strip().upper(): row for row in inventory_items}
+    rows: list[dict[str, Any]] = []
+    labels = {"BOX": "Box", "PLASTIC": "Plastic sheet", "FADDA": "Fadda"}
+    for line in totals["lines"]:
+        code = str(line.get("code") or "").strip().upper()
+        pieces = float(line.get("pcs") or 0)
+        if not code or pieces <= 0:
+            continue
+        item = by_code.get(code)
+        warnings = []
+        in_kg = str((item or {}).get("uom") or "PCS").upper() == "KG"
+        weight = float(line.get("unit_weight_kg") or 0)
+        if item is None:
+            warnings.append(f"{labels.get(line.get('kind'), 'Packing')} {code} is not a stock item; theory kept in pieces")
+        if in_kg and weight <= 0:
+            warnings.append(f"{code} is stocked in kg but has no unit weight; theory kept in pieces")
+        quantity = round(pieces * weight, 6) if in_kg and weight > 0 else pieces
+        rows.append({
+            "item_code": code,
+            "item_name": str((item or {}).get("name") or f"{labels.get(line.get('kind'), 'Packing')} {code}").strip(),
+            "provisional_theory_consumption_kg": quantity,
+            "advisory_allocated_order_qty": round(produced_qty, 4),
+            "unit": "KG" if in_kg and weight > 0 else "PCS",
+            "pieces": pieces,
+            "box_count": totals["box_count"],
+            # The boxes this row already counts: a per-box posting never adds a box twice (issue #13).
+            "box_ids": [str(box.id) for box in boxes if getattr(box, "status", None) != "VOID" and getattr(box, "id", None) is not None],
+            **({"warnings": warnings} if warnings else {}),
+        })
+    if totals["warnings"] and rows:
+        # Spec gaps (no box code, plastic with no SKU …) stay on each box and on the card; the first row carries them.
+        rows[0]["packing_warnings"] = totals["warnings"]
     return rows
 
 
@@ -878,6 +947,10 @@ def _upsert_monthly_provisional_theory(
             "stage_closed_at": activity_dt.isoformat() if activity_dt else None,
             **({"posted_after_close": month_key(closed_month_of_close)} if closed_month_of_close else {}),
             **({"unit": row["unit"], "pieces": row.get("pieces")} if row.get("unit") else {}),
+            **({"warnings": row["warnings"]} if row.get("warnings") else {}),
+            **({"packing_warnings": row["packing_warnings"]} if row.get("packing_warnings") else {}),
+            **({"box_count": row["box_count"]} if row.get("box_count") is not None else {}),
+            **({"box_ids": row["box_ids"]} if row.get("box_ids") is not None else {}),
         }
 
     for item_code, existing in existing_rows.items():
@@ -902,6 +975,143 @@ def _upsert_monthly_provisional_theory(
                 "rows": rows,
             },
         )
+
+
+def _post_box_packaging_theory(
+    *,
+    db: Session,
+    job_card: JobCard,
+    box: Any,
+    token: str,
+    plant_id: str,
+    current_user: dict[str, Any],
+) -> str:
+    """Add one packed box's own packing theory (box, plastic, fadda) to the card's month posting (issue #13).
+
+    Before, every box re-posted the whole card (paper, adhesive, parchment and all boxes' packing). Now a box adds
+    only its own packing, in the same month and with the same rules as the whole-card posting (IST day of the
+    Process stage, never into a closed month, one row per card per material). The rows record which boxes they
+    count, so a retried box or a whole-card posting that already counted it is never added twice. Process close
+    still re-posts the whole card, which gives the same totals as before. Falls back to the whole-card posting
+    when a row cannot simply be added to (posted before box ids were kept, or in another unit).
+    Returns "added", "skipped" (nothing to add / month closed) or "full"."""
+    from ..models import MonthlyMaterialClose
+    from ..services.consumption import ist_day, month_key, next_month_start
+
+    def full() -> str:
+        _upsert_monthly_provisional_theory(db=db, job_card=job_card, selected_stage="PROCESS", token=token, plant_id=plant_id, current_user=current_user)
+        return "full"
+
+    if box is None or getattr(box, "status", None) == "VOID":
+        return "skipped"
+    inventory_items = _fetch_inventory_item_catalog_for_theory(token, plant_id)
+    rows = _box_packaging_theory_rows(boxes=[box], inventory_items=inventory_items, produced_qty=float(getattr(box, "qty", 0) or 0))
+    if not rows:
+        return "skipped"
+    box_id = str(box.id)
+    db.flush()  # the session does not autoflush: rows added by an earlier box in this session must be seen
+    activity_dt = None
+    for stage_row in getattr(job_card, "stages", []) or []:
+        if str(stage_row.stage_type or "").upper() == "PROCESS":
+            activity_dt = stage_row.actual_end or stage_row.entered_at or stage_row.actual_start
+            break
+    posted_on = ist_day(activity_dt)
+    closed_months = {
+        value
+        for (value,) in db.query(MonthlyMaterialClose.month_start).filter(
+            MonthlyMaterialClose.plant_id == job_card.plant_id,
+            MonthlyMaterialClose.status == "APPROVED",
+        ).all()
+    }
+    card_rows = db.query(MonthlyMaterialProvisional).filter(
+        MonthlyMaterialProvisional.plant_id == job_card.plant_id,
+        MonthlyMaterialProvisional.job_card_id == job_card.id,
+    ).all()
+    if any(row.month_start in closed_months for row in card_rows):
+        # Same rule as the whole-card posting: a card already posted into a closed month is never posted again.
+        return full()
+    month_start = posted_on.replace(day=1)
+    closed_month_of_close: Optional[date] = None
+    while month_start in closed_months:
+        closed_month_of_close = closed_month_of_close or month_start
+        month_start = next_month_start(month_start)
+
+    by_code = {str(row.item_code or "").strip().upper(): row for row in card_rows if row.month_start == month_start}
+    for row in rows:
+        existing = by_code.get(str(row["item_code"]).strip().upper())
+        if existing is None:
+            continue
+        snap = existing.snapshot or {}
+        if "box_ids" not in snap or str(snap.get("unit") or "") != str(row.get("unit") or ""):
+            return full()
+    moved = [row for row in card_rows if row.month_start != month_start]
+    if any(str(row.item_code or "").strip().upper() in by_code for row in moved):
+        return full()
+    for row in moved:
+        # An earlier posting in a month that is still open moves to this month (a card is never in two months).
+        row.month_start = month_start
+        by_code[str(row.item_code or "").strip().upper()] = row
+
+    added: list[dict[str, Any]] = []
+    for row in rows:
+        item_code = str(row["item_code"]).strip().upper()
+        existing = by_code.get(item_code)
+        snap = dict((existing.snapshot if existing is not None else None) or {})
+        if box_id in [str(value) for value in snap.get("box_ids") or []]:
+            continue
+        if existing is None:
+            existing = MonthlyMaterialProvisional(
+                plant_id=job_card.plant_id,
+                month_start=month_start,
+                job_card_id=job_card.id,
+                sales_order_line_id=job_card.sales_order_line_id,
+                item_code=item_code,
+                created_by=current_user.get("sub"),
+                provisional_theory_consumption_kg=0.0,
+                advisory_allocated_order_qty=0.0,
+            )
+            db.add(existing)
+            by_code[item_code] = existing
+        existing.item_name = existing.item_name or row.get("item_name")
+        existing.provisional_theory_consumption_kg = round(float(existing.provisional_theory_consumption_kg or 0.0) + float(row["provisional_theory_consumption_kg"] or 0.0), 6)
+        existing.advisory_allocated_order_qty = round(float(existing.advisory_allocated_order_qty or 0.0) + float(row.get("advisory_allocated_order_qty") or 0.0), 4)
+        existing.source_stage = "PROCESS"
+        box_ids = [str(value) for value in snap.get("box_ids") or []] + [box_id]
+        warnings = list(snap.get("warnings") or [])
+        for warning in list(row.get("warnings") or []) + list(row.get("packing_warnings") or []):
+            if warning not in warnings:
+                warnings.append(warning)
+        snap.update({
+            "selected_stage": "PROCESS",
+            "job_card_status": job_card.status,
+            "planned_qty": float(job_card.planned_qty or 0.0),
+            "posted_on": posted_on.isoformat(),
+            "stage_closed_at": activity_dt.isoformat() if activity_dt else None,
+            "unit": row.get("unit"),
+            "pieces": round(float(snap.get("pieces") or 0.0) + float(row.get("pieces") or 0.0), 4),
+            "box_count": len(box_ids),
+            "box_ids": box_ids,
+            **({"warnings": warnings} if warnings else {}),
+            **({"posted_after_close": month_key(closed_month_of_close)} if closed_month_of_close else {}),
+        })
+        existing.snapshot = snap
+        added.append(row)
+    if not added:
+        return "skipped"
+    db.flush()
+    _record_audit_event(
+        db=db,
+        plant_id=job_card.plant_id,
+        entity_type="job_card",
+        entity_id=job_card.id,
+        action="provisional_box_theory_posted",
+        actor_id=current_user.get("sub"),
+        actor_role=str(current_user.get("role") or current_user.get("acting_role") or ""),
+        job_card_id=job_card.id,
+        payload={"box_id": box_id, "box_code": getattr(box, "box_code", None), "month_start": month_start.isoformat(), "posted_on": posted_on.isoformat(),
+                 "rows": [{key: value for key, value in row.items() if key != "box_ids"} for row in added]},
+    )
+    return "added"
 
 
 def _record_audit_event(
@@ -4556,7 +4766,7 @@ def _sync_quality_artifacts(
     readings = {
         key: value
         for key, value in quality_payload.items()
-        if key not in {"reasons", "sample_id", "samples", "unit_conflicts", "checkpoint", "entry_mode", "measured_at", "measured_time", "correction_reason", "expected_revision", "expected_context_version", "signed_profile_fingerprint"}
+        if key not in {"reasons", "sample_id", "samples", "unit_conflicts", "checkpoint", "entry_mode", "measured_at", "measured_time", "correction_reason", "correction_reason_code", "correction_reason_note", "expected_revision", "expected_context_version", "signed_profile_fingerprint"}
     }
     samples = quality_payload.get("samples") if isinstance(quality_payload.get("samples"), list) else None
     created_holds: list[QualityHold] = []
@@ -4596,6 +4806,8 @@ def _sync_quality_artifacts(
             sample_id=item.get("sample_id"),
             entry_mode=entry_mode,
             correction_reason=quality_payload.get("correction_reason") or item.get("correction_reason"),
+            correction_reason_code=quality_payload.get("correction_reason_code") or item.get("correction_reason_code"),
+            correction_reason_note=quality_payload.get("correction_reason_note") or item.get("correction_reason_note"),
             expected_revision=quality_payload.get("expected_revision"),
             expected_context_version=quality_payload.get("expected_context_version"),
             signed_profile_fingerprint=quality_payload.get("signed_profile_fingerprint"),
@@ -4676,7 +4888,13 @@ def _sync_packing_record(
         )
         db.add(existing)
     existing.fg_item_id = _nullable_uuid(snapshot.get("fg_item_id") or (job_card.spec_snapshot or {}).get("fg_item_id"))
-    existing.qty_per_bundle = _optional_positive_float(snapshot.get("qty_per_bundle") or snapshot.get("pcs_per_bundle"))
+    # The spec's qty per box is the bundle size when the floor typed none (the column is NOT NULL: never None).
+    existing.qty_per_bundle = (
+        _optional_positive_float(snapshot.get("qty_per_bundle") or snapshot.get("pcs_per_bundle"))
+        or _optional_positive_float((job_card.spec_snapshot or {}).get("qty_per_box"))
+        or existing.qty_per_bundle
+        or 0.0
+    )
     bundle_count = snapshot.get("bundle_count")
     try:
         existing.bundle_count = int(bundle_count) if bundle_count not in (None, "") else existing.bundle_count
@@ -8489,6 +8707,86 @@ def switch_to_batch_entry(
     return {"job_card_id": str(job_card.id), "entry_model": "V2", "switched": True, "old_drafts": drafts, "record_only": profile.get("record_only") or []}
 
 
+V1_SHORT_STAGES = ("WINDER", "OVEN", "PROCESS", "PACKING", "QC")
+
+
+OLD_FORM_REJECT_STAGES = {"WINDER", "OVEN", "PROCESS"}
+OLD_FORM_REJECT_COUNT_KEYS = {"WINDER": "reject_bamboo_count", "OVEN": "reject_bamboo_count", "PROCESS": "reject_qty"}
+
+
+def _old_form_reject_reason(*, payload, stage, selected_stage, job_card, current_user):
+    """Owner decision 4 (2026-11-01): rejected pieces on an old-form Winder, Oven or Process completion need a
+    SCRAP ("Floor rejection") code: entry_snapshot.reject_reason_code (or rejection_code), note in
+    reject_reason_note (or the old reject_reason text). The old "OT" is RJ-OTHER. The entry snapshot keeps
+    reject_reason_code, reject_reason_label, reject_reason_note and reject_reason = "Label — note"."""
+    if selected_stage not in OLD_FORM_REJECT_STAGES:
+        return None
+    entry = dict(stage.entry_snapshot or {})
+    raw = payload.scrap_qty if payload.scrap_qty is not None else entry.get(OLD_FORM_REJECT_COUNT_KEYS[selected_stage])
+    try:
+        rejected = float(raw or 0)
+    except (TypeError, ValueError):
+        rejected = 0.0
+    if rejected <= 0:
+        return None
+    code = str(entry.get("reject_reason_code") or (entry.get("rejection_code") if selected_stage != "PROCESS" else "") or "").strip().upper()
+    code = "RJ-OTHER" if code == "OT" else code
+    if "reject_reason_note" in entry or entry.get("reject_reason_label"):
+        note = str(entry.get("reject_reason_note") or "").strip() or None
+    else:
+        old = str(entry.get("reject_reason") or "").strip()
+        note = old if old and old.upper() != code else None
+    from ..reasons import resolve_reason
+    choice = resolve_reason(category="SCRAP", code=code, note=note, plant_id=job_card.plant_id, token=current_user.get("token"),
+                            what=f"the {_plain_count(rejected)} rejected on {_stage_word(selected_stage)}")
+    entry.update(reject_reason_code=choice.code, reject_reason_label=choice.label, reject_reason_note=choice.note, reject_reason=choice.text, rejection_code=choice.code)
+    stage.entry_snapshot = entry
+    return choice
+
+
+def _old_form_override_choice(payload, job_card, current_user):
+    """Owner decision 4 (2026-11-01): an old-form override (out of sequence, QC hold, capacity, card times,
+    final QC) is an OVERRIDE code (+ note). A request with only override_reason text gets 422."""
+    from ..reasons import resolve_reason
+    return resolve_reason(category="OVERRIDE", code=getattr(payload, "override_reason_code", None), note=getattr(payload, "override_reason_note", None),
+                          plant_id=job_card.plant_id, token=current_user.get("token"), what="the override")
+
+
+def _old_form_short_completion(*, db, job_card, stage, segment, selected_stage, routing_stages, output_qty, reason_code, reason_note, current_user, reason=None):
+    """Old-form stage completed below what it had to make (owner decision 2026-11-01): a reason and a
+    Plant Manager / Admin / Owner are required, as for a batch-entry short close. Returns the short-close
+    facts, or None when the stage made its plan."""
+    if selected_stage not in V1_SHORT_STAGES:
+        return None
+    ppb = _pcs_per_bamboo_from_snapshot(job_card.spec_snapshot or {})
+    done_before = sum(float(row.output_qty or 0.0) for row in _all_stage_segments(db, job_card.id, selected_stage) if row.status == "COMPLETED" and row.id != segment.id)
+    total = done_before + float(output_qty or 0.0)
+    effective = (stage.actuals_snapshot or {}).get("effective_target")
+    plan = float(effective) if effective is not None else planned_in_stage_units(selected_stage, float(job_card.planned_qty or 0.0), ppb)
+    index = routing_stages.index(selected_stage) if selected_stage in routing_stages else -1
+    previous = routing_stages[index - 1] if index > 0 else None
+    if previous and previous != "SLITTING":
+        prior = db.query(JobCardStage).filter(JobCardStage.job_card_id == job_card.id, JobCardStage.stage_type == previous).first()
+        if prior is not None and prior.status == "COMPLETED" and prior.output_qty is not None:
+            passed = float(prior.output_qty or 0.0)
+            if previous in BAMBOO_STAGES and selected_stage not in BAMBOO_STAGES and ppb:
+                passed *= ppb
+            plan = min(plan, passed)
+    if total + 1e-6 >= plan:
+        return None
+    roles = set(current_user.get("roles") or [])
+    if not roles & {"Owner", "Admin", "PlantManager"}:
+        raise HTTPException(status_code=403, detail=f"{selected_stage.title()} made {total:,.0f} of {plan:,.0f}: completing it below plan needs a Plant Manager, Admin or Owner, with a reason.")
+    # Owner decision 4 (2026-11-01): the reason is a STAGE_SHORT_CLOSE code (+ note). Nothing chosen: the form
+    # is told to ask (409 SHORT_REASON_REQUIRED); free text alone is refused (422) by the reason check.
+    if not str(reason_code or "").strip() and not str(reason or "").strip():
+        raise HTTPException(status_code=409, detail={"code": "SHORT_REASON_REQUIRED", "message": f"{selected_stage.title()} made {total:,.0f} of {plan:,.0f}: completing now is a short close. Choose why it closes short; the balance goes back to the order.", "made": total, "plan": plan})
+    from ..reasons import resolve_reason
+    choice = resolve_reason(category="STAGE_SHORT_CLOSE", code=reason_code, note=reason_note, plant_id=job_card.plant_id,
+                            token=current_user.get("token"), what=f"completing {selected_stage.title()} short")
+    return {"good": total, "target": plan, "reason": choice.text, "reason_code": choice.code, "reason_label": choice.label, "reason_note": choice.note}
+
+
 @router.post("/job-cards/{job_card_id}/stage-output", response_model=StageActionResponse)
 def capture_stage_output(
     job_card_id: uuid.UUID,
@@ -8545,7 +8843,13 @@ def capture_stage_output(
         .all()
     )
     movement_holds = _movement_blocking_holds(db, active_holds)
-    override_reason = (payload.override_reason or "").strip() if hasattr(payload, "override_reason") else ""
+    # Owner decision 4 (2026-11-01): an override is an OVERRIDE code from Masters › Reason codes (+ note);
+    # override_reason keeps the "Label — note" text everywhere it was stored. Free text alone is refused.
+    override_requested = bool(str(getattr(payload, "override_reason", None) or "").strip() or str(getattr(payload, "override_reason_code", None) or "").strip())
+    if actor_role == "Operator" and override_requested:
+        raise HTTPException(status_code=403, detail="Operator cannot use override_reason")
+    override_choice = _old_form_override_choice(payload, job_card, current_user) if override_requested else None
+    override_reason = override_choice.text if override_choice else ""
     if override_reason:
         _enforce_non_waivable_hold_override(db, active_holds)
     qc_hold_override_roles = {"Owner", "Admin", "PlantManager"}
@@ -8661,7 +8965,7 @@ def capture_stage_output(
         if payload.machine_id is not None and planned_machine_id and str(payload.machine_id) != str(planned_machine_id)
         else None
     )
-    if actor_role == "Operator" and (payload.override_reason or "").strip():
+    if actor_role == "Operator" and override_requested:
         raise HTTPException(status_code=403, detail="Operator cannot use override_reason")
 
     machine_warnings: list[str] = []
@@ -8713,7 +9017,7 @@ def capture_stage_output(
                 segment.status = "ASSIGNED"
 
     # Validate card times before touching any stage state.
-    override_reason_for_times = (payload.override_reason or "").strip() or None
+    override_reason_for_times = override_reason or None
     now = datetime.utcnow()
     card_start = _parse_execution_timestamp(payload.start_time)
     card_end = _parse_execution_timestamp(payload.end_time)
@@ -8782,7 +9086,7 @@ def capture_stage_output(
 
     if payload.reel_issue_ids:
         stage.reel_issue_ids = [str(value) for value in payload.reel_issue_ids]
-    override_reason = (payload.override_reason or "").strip() or None
+    override_reason = override_reason or None
     all_stage_rows = (
         db.query(JobCardStage)
         .filter(JobCardStage.job_card_id == job_card.id)
@@ -9002,6 +9306,7 @@ def capture_stage_output(
         override_reason=override_reason,
         actor_role=actor_role,
     )
+    _old_form_reject_reason(payload=payload, stage=stage, selected_stage=selected_stage, job_card=job_card, current_user=current_user)
     _validate_stage_completion_payload(
         selected_stage=selected_stage,
         payload=payload,
@@ -9011,6 +9316,9 @@ def capture_stage_output(
         stage.actuals_snapshot = {
             **(stage.actuals_snapshot or {}),
             "override_reason": override_reason,
+            "override_reason_code": override_choice.code if override_choice else None,
+            "override_reason_label": override_choice.label if override_choice else None,
+            "override_reason_note": override_choice.note if override_choice else None,
             "override_stage": selected_stage,
             "override_ts": now.isoformat(),
         }
@@ -9079,6 +9387,11 @@ def capture_stage_output(
                 f"over the planned {segment_planned:,.0f}{' for this stage' if stage_open_parts else ' for this shift'}. Add an override reason if this is real."
             ),
         )
+    v1_short = _old_form_short_completion(
+        db=db, job_card=job_card, stage=stage, segment=segment, selected_stage=selected_stage, routing_stages=routing_stages,
+        output_qty=float(payload.output_qty or 0.0), reason_code=getattr(payload, "short_reason_code", None),
+        reason_note=getattr(payload, "short_reason_note", None), reason=getattr(payload, "short_reason", None), current_user=current_user,
+    ) if save_mode == "complete" else None
     segment.started_at = actual_start_value
     segment.completed_at = actual_end_value or now
     segment.input_qty = payload.input_qty if payload.input_qty is not None else segment.input_qty
@@ -9215,6 +9528,14 @@ def capture_stage_output(
                     next_segments = _all_stage_segments(db, job_card.id, next_stage)
                 _sync_stage_row_from_segments(next_stage_row, next_segments)
 
+    if v1_short:
+        # Old-form card completed below plan: the balance goes back to the order and the stages after it
+        # are cut to what was made (the same rule as a batch-entry short close).
+        from ..short_close import apply_short_close
+        db.flush()
+        apply_short_close(db, job_card, selected_stage, stage, good=v1_short["good"], target=v1_short["target"], routing=routing_stages,
+                          ppb=_pcs_per_bamboo_from_snapshot(job_card.spec_snapshot or {}), reason=v1_short["reason"], user=current_user,
+                          reason_code=v1_short.get("reason_code"), reason_label=v1_short.get("reason_label"), reason_note=v1_short.get("reason_note"))
     all_stages = (
         db.query(JobCardStage)
         .filter(JobCardStage.job_card_id == job_card.id)
@@ -9272,6 +9593,8 @@ def capture_stage_output(
             "location_id": str(stage.location_id) if stage.location_id else None,
             "packing_record_id": str(packing_record.id) if packing_record else None,
             "override_reason": override_reason,
+            "override_reason_code": override_choice.code if override_choice else None,
+            "override_reason_label": override_choice.label if override_choice else None,
             "prior_incomplete": prior_incomplete,
             "physical_tool_asset_ids": physical_tool_asset_ids,
             "time_reconciliation": time_record,

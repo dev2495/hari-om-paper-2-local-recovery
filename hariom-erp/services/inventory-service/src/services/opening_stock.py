@@ -373,9 +373,10 @@ def check_lines(db: Session, plant_id: str, lines: list[Any]) -> dict[str, Any]:
         status = _line_status(line)
         if status not in {CLEARED, ON_HOLD}:
             errors.append({"field": "status", "message": "Opening stock is either cleared or on hold."})
-        hold_reason = _clean(getattr(line, "hold_reason", None), 300)
-        if status == ON_HOLD and not hold_reason:
-            errors.append({"field": "hold_reason", "message": "Say why this lot is on hold."})
+        # A lot put on hold picks a QC_HOLD code from Masters › Reason codes (owner decision 4, 1 Nov 2026);
+        # posting checks the code against the master.
+        if status == ON_HOLD and not _clean(getattr(line, "hold_reason_code", None), 80):
+            errors.append({"field": "hold_reason", "message": "Choose why this lot is on hold."})
         mark = _old_mark(line)
         if mark:
             key = mark.upper()
@@ -463,18 +464,12 @@ def _token(value: Optional[str]) -> str:
     return token[:32] or "ITEM"
 
 
-def _next_reel_code(db: Session, plant_uuid: uuid.UUID, on_day: date) -> str:
-    """AT-yymmdd-nnn dated the go-live date, the same series (and lock) goods inward uses."""
-    db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": f"document:{plant_uuid}:AT"})
-    base = f"AT-{on_day.strftime('%y%m%d')}"
-    taken = {
-        code for (code,) in db.query(PaperReel.reel_code).filter(PaperReel.plant_id == plant_uuid, PaperReel.reel_code.like(f"{base}-%")).all()
-    }
-    for seq in range(1, 10000):
-        candidate = f"{base}-{seq:03d}"
-        if candidate not in taken:
-            return candidate
-    raise HTTPException(status_code=500, detail="No reel number is left for this day")
+def _next_reel_code(db: Session, plant_uuid: uuid.UUID, on_day: date) -> dict:
+    """The plant's AIT serial (owner decision 6, 1 Nov 2026), the same series goods inward uses, of the
+    financial year of the go-live date. Returns ``{"serial", "reel_code", "metadata"}``."""
+    from .reel_serial import next_reel_serial
+
+    return next_reel_serial(db, plant_uuid, on_day)
 
 
 def _next_lot_no(db: Session, plant_id: str, item: ItemMaster, on_day: date) -> str:
@@ -595,10 +590,13 @@ def post_batch(db: Session, plant_id: str, payload: Any, actor: str) -> dict[str
             "rate": unit_cost if unit_cost > 0 else None,
             "location_code": location.code if location else None,
             "hold_reason": hold_reason,
+            **({"hold_reason_code": getattr(line, "hold_reason_code", None), "hold_reason_label": getattr(line, "hold_reason_label", None),
+                "hold_reason_note": getattr(line, "hold_reason_note", None)} if hold_reason else {}),
             "notes": line.notes,
         }
         if _line_kind(item) == "REEL":
-            reel_code = _next_reel_code(db, plant_uuid, go_live)
+            serial = _next_reel_code(db, plant_uuid, go_live)
+            reel_code = serial["reel_code"]
             nominals = item.qc_nominals or {}
             form = (line.physical_form or ("COIL" if _enum(item.type) == ItemType.PARCHMENT.value else "REEL")).upper()
             reel = PaperReel(
@@ -614,7 +612,7 @@ def post_batch(db: Session, plant_id: str, payload: Any, actor: str) -> dict[str
                     "source_document_type": "OPENING_LOAD", "opening_load_id": str(header.id),
                     "document_no": document_no, "line_no": index, "go_live_date": go_live.isoformat(), "source_label": label,
                 },
-                inward_metadata=meta, inward_date=go_live,
+                inward_metadata={**meta, **serial["metadata"]}, inward_date=go_live,
             )
             db.add(reel)
             db.flush()
@@ -629,7 +627,7 @@ def post_batch(db: Session, plant_id: str, payload: Any, actor: str) -> dict[str
                 location_id=reel.location_id, stock_status=status, unit_cost=unit_cost if unit_cost > 0 else None,
                 notes=_line_note(old_mark, hold_reason, line.notes),
             ))
-            response_lines.append({"item_code": item.item_code, "reel_code": reel_code, "qty": line.qty})
+            response_lines.append({"item_code": item.item_code, "reel_code": serial["serial"], "qty": line.qty})
         else:
             batch_no = _next_lot_no(db, plant_id, item, go_live)
             batch = StockBatch(

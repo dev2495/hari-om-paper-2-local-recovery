@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..reasons import reason_input, resolve_reason, token_of
 from ..models import (
     CostSource,
     InventoryCarryForward,
@@ -66,6 +67,8 @@ LINE_STATUSES = {"UNRESTRICTED", "WIP", "QC_HOLD", "BLOCKED", "DISPATCH_STAGING"
 NEW_LOT_KEEP_STATUSES = {"QC_HOLD", "BLOCKED", "SCRAP"}
 # Reasons only a stock count writes: a hand-made voucher never shows as a "count difference".
 COUNT_ONLY_REASONS = {"PHYSICAL_COUNT_VARIANCE"}
+# Corrections now pick a STOCK_CORRECTION code from Masters › Reason codes (owner decision 4, 1 Nov 2026).
+# This fixed list stays only so older vouchers (OTHER …) still show a name.
 CORRECTION_REASONS = {
     "COUNT_SHORT": "Count short",
     "COUNT_EXTRA": "Count extra",
@@ -351,6 +354,10 @@ class OpeningLoadLinePayload(BaseModel):
     stock_status: str = "UNRESTRICTED"
     on_hold: bool = False
     hold_reason: Optional[str] = Field(default=None, max_length=300)
+    # A line put on hold picks a QC_HOLD code from Masters › Reason codes (owner decision 4, 1 Nov 2026).
+    hold_reason_code: Optional[str] = Field(default=None, max_length=80)
+    hold_reason_note: Optional[str] = Field(default=None, max_length=300)
+    hold_reason_label: Optional[str] = Field(default=None, max_length=200)  # set by the server from the master
     unit_cost: Optional[float] = Field(default=None, ge=0)
     cost_source: Optional[str] = None
     notes: Optional[str] = Field(default=None, max_length=500)
@@ -675,9 +682,11 @@ def _post_reel_adjustment_line(
         return
 
     if qty_delta > 0:
-        reel_code = f"{_new_lot_prefix(header.voucher_no)}-R{line_index:03d}"
-        if db.query(PaperReel.id).filter(PaperReel.plant_id == plant_uuid, PaperReel.reel_code == reel_code).first():
-            reel_code = f"{reel_code}-{uuid.uuid4().hex[:4].upper()}"[:100]
+        # A reel found in stock gets the plant's AIT serial like any new reel (owner decision 6, 1 Nov 2026).
+        from ..services.reel_serial import next_reel_serial
+
+        serial = next_reel_serial(db, plant_uuid, header.effective_date)
+        reel_code = serial["reel_code"]
         reel = PaperReel(
             plant_id=plant_uuid,
             reel_code=reel_code,
@@ -700,7 +709,7 @@ def _post_reel_adjustment_line(
                 "count_id": str(header.count_id) if header.count_id else None,
                 "notes": line.notes,
             },
-            inward_metadata={"amigo_no": reel_code, "source_document_type": "STOCK_ADJUSTMENT", "voucher_no": header.voucher_no},
+            inward_metadata={**serial["metadata"], "source_document_type": "STOCK_ADJUSTMENT", "voucher_no": header.voucher_no},
             inward_date=header.effective_date,
         )
         db.add(reel)
@@ -1178,6 +1187,27 @@ def list_opening_loads(
     }
 
 
+def _resolve_opening_hold_reasons(payload: OpeningLoadPayload, plant_id: Any, current_user: dict) -> None:
+    """Every opening line put on hold needs a QC_HOLD code from the master (owner decision 4, 1 Nov 2026);
+    the label and note go on the line (``hold_reason`` becomes "Label — note" for the lot and its label)."""
+    checked: dict[tuple[str, Optional[str]], Any] = {}
+    for index, line in enumerate(payload.lines, start=1):
+        if opening_stock._line_status(line) != opening_stock.ON_HOLD:
+            continue
+        code, note = reason_input(line, code_key="hold_reason_code", note_keys=("hold_reason_note",))
+        if not code:
+            # The row check in post_batch names every row still missing its hold reason (all or nothing).
+            line.hold_reason = None
+            continue
+        key = (code, note)
+        if key not in checked:
+            checked[key] = resolve_reason(category="QC_HOLD", code=code, note=note, plant_id=plant_id,
+                                          token=token_of(current_user), what=f"putting row {index} on hold")
+        choice = checked[key]
+        line.hold_reason_code, line.hold_reason_label, line.hold_reason_note = choice.code, choice.label, choice.note
+        line.hold_reason = choice.text[:300]
+
+
 @router.post("/opening-loads")
 def create_opening_load(
     payload: OpeningLoadPayload,
@@ -1189,6 +1219,7 @@ def create_opening_load(
     # Go-live rule (client 2026-10-30): the first batch fixes the go-live date, later batches use the same
     # date until that month is closed; each reel / lot gets a new system number, all or nothing, once per
     # request key. The rules and the posting live in services/opening_stock.py.
+    _resolve_opening_hold_reasons(payload, plant_id, current_user)
     result = opening_stock.post_batch(db, plant_id, payload, _actor(current_user))
     if result.get("idempotent"):
         return result
@@ -2118,12 +2149,18 @@ class CorrectionPayload(BaseModel):
     location_id: Optional[uuid.UUID] = None
     new_qty: Optional[float] = Field(default=None, ge=0)
     not_here: bool = False
-    reason: str = Field(min_length=1, max_length=40)
+    # A STOCK_CORRECTION code from Masters › Reason codes (owner decision 4, 1 Nov 2026).
+    reason_code: Optional[str] = Field(default=None, max_length=80)
+    reason_note: Optional[str] = Field(default=None, max_length=500)
+    reason: Optional[str] = Field(default=None, max_length=500)  # legacy; a code is required
     note: Optional[str] = Field(default=None, max_length=500)
 
 
 class CorrectionDecisionPayload(BaseModel):
     note: Optional[str] = Field(default=None, max_length=500)
+    # Reject picks an APPROVAL_REJECT code (owner decision 4, 1 Nov 2026); approve needs none.
+    reason_code: Optional[str] = Field(default=None, max_length=80)
+    reason_note: Optional[str] = Field(default=None, max_length=500)
 
 
 def _voucher_kind(header: StockAdjustmentVoucher) -> str:
@@ -2205,11 +2242,13 @@ def _correction_view(db: Session, header: StockAdjustmentVoucher) -> dict[str, A
             row["still_to_post"] = still
             row["issued_since"] = issued.isoformat() if issued is not None else None
     payload["kind"] = _voucher_kind(header)
-    payload["reason_label"] = CORRECTION_REASONS.get(header.reason_code) or {"PHYSICAL_COUNT_VARIANCE": "Stock count", "CUSTOMER_REJECTION_SCRAP": "Customer complaint scrap"}.get(header.reason_code, header.reason_code.replace("_", " ").capitalize())
+    payload["reason_label"] = getattr(header, "reason_label", None) or CORRECTION_REASONS.get(header.reason_code) or {"PHYSICAL_COUNT_VARIANCE": "Stock count", "CUSTOMER_REJECTION_SCRAP": "Customer complaint scrap"}.get(header.reason_code, header.reason_code.replace("_", " ").capitalize())
     payload["count_id"] = str(header.count_id) if header.count_id else None
     payload["cancelled_by"] = header.cancelled_by
     payload["cancelled_at"] = header.cancelled_at.isoformat() if header.cancelled_at else None
     payload["cancel_note"] = header.cancel_note
+    payload["cancel_reason_code"] = getattr(header, "cancel_reason_code", None)
+    payload["cancel_reason_label"] = getattr(header, "cancel_reason_label", None)
     return payload
 
 
@@ -2282,12 +2321,13 @@ def raise_correction(
     plant_id: str = Depends(get_one_plant),
     current_user: dict = Depends(require_role(CORRECTION_RAISE_ROLES)),
 ):
-    reason = payload.reason.strip().upper()
-    if reason not in CORRECTION_REASONS:
-        raise HTTPException(status_code=422, detail="Choose a reason: count short, count extra, damaged in store, wrong GRN weight, label lost / found, or other.")
-    note = " ".join((payload.note or "").split()) or None
-    if reason == "OTHER" and len(note or "") < 3:
-        raise HTTPException(status_code=422, detail="Write what happened when the reason is Other.")
+    wanted, typed_note = reason_input(payload)
+    if wanted in COUNT_ONLY_REASONS:
+        raise HTTPException(status_code=422, detail="A count difference is posted by a stock count, not by a correction.")
+    choice = resolve_reason(category="STOCK_CORRECTION", code=wanted, note=" ".join((typed_note or "").split()) or None,
+                            plant_id=plant_id, token=token_of(current_user), what="the correction")
+    reason = choice.code
+    note = choice.note
     today = ist_today()
     assert_books_open(db, plant_id, today)
     # Two raises at the same moment: the second waits here, then sees the first one's waiting correction
@@ -2374,6 +2414,7 @@ def raise_correction(
         effective_date=today,
         effective_at=ist_day_end_utc(today),
         reason_code=reason,
+        reason_label=choice.label,
         reason_notes=note,
         source_type="CORRECTION",
         attachment_refs=[],
@@ -2476,18 +2517,20 @@ def reject_correction(
     current_user: dict = Depends(require_owner),
 ):
     """Owner only: reject a waiting correction with a note; stock does not change."""
-    note = " ".join((payload.note or "").split())
-    if len(note) < 3:
-        raise HTTPException(status_code=422, detail="Write why the correction is rejected.")
     header = _draft_correction(db, plant_id, voucher_id)
     if header.status == "CANCELLED":
         return _correction_view(db, header)
+    wanted, typed_note = reason_input(payload)
+    choice = resolve_reason(category="APPROVAL_REJECT", code=wanted, note=" ".join((typed_note or "").split()) or None,
+                            plant_id=header.plant_id or plant_id, token=token_of(current_user), what="rejecting the correction")
+    note = choice.text[:500]
     if header.status != "DRAFT":
         raise HTTPException(status_code=409, detail="This correction is already posted.")
     header.status = "CANCELLED"
     header.cancelled_by = _actor(current_user)
     header.cancelled_at = datetime.utcnow()
     header.cancel_note = note
+    header.cancel_reason_code, header.cancel_reason_label = choice.code, choice.label
     db.commit()
     db.refresh(header)
     return _correction_view(db, header)

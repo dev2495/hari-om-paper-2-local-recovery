@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..reasons import reason_input, resolve_reason, token_of
 from ..models import InventoryLocation, ItemType, ItemMaster, ReferenceType, StockBatch, StockTransaction, TransactionType
 from ..services import get_item_balance
 from ..utils.audit_client import emit_audit_event
@@ -49,6 +50,10 @@ class FGInwardCreate(BaseModel):
     external_ref: Optional[str] = None
     effective_date: Optional[date] = None
     actual_end: Optional[datetime] = None
+    # One packed box = one FG batch (owner decision 2026-11-01): the batch is named by the box code.
+    box_code: Optional[str] = None
+    part_box: bool = False
+    job_card_no: Optional[str] = None
 
 
 class FGInwardResponse(BaseModel):
@@ -148,7 +153,7 @@ def create_fg_inward(
         plant_id=plant_id,
         location_id=location_id,
         stock_status=stock_status,
-        movement_metadata={"batch_no": batch_no},
+        movement_metadata={"batch_no": batch_no, **({"box_code": fg_inward.box_code, "part_box": bool(fg_inward.part_box), "job_card_no": fg_inward.job_card_no} if fg_inward.box_code else {})},
         external_ref=fg_inward.external_ref,
         effective_date=effective_date_value,
     )
@@ -197,13 +202,16 @@ def create_fg_inward(
 # ──────────────────────────────────────────────────────────────────────────
 
 
+# Older fixed list (kept for reading old movements). New manual inwards pick a MANUAL_FG code from
+# Masters › Reason codes (owner decision 4, 1 Nov 2026).
 VALID_MANUAL_REASONS = {"REWORK", "RETURN", "ADJUSTMENT", "OPENING", "OTHER"}
 
 
 class ManualFGInwardCreate(BaseModel):
     item_id: uuid.UUID
     qty: float
-    reason_code: str = "REWORK"
+    reason_code: Optional[str] = None
+    reason_note: Optional[str] = None
     notes: Optional[str] = None
     reference: Optional[str] = None
     batch_no: Optional[str] = None
@@ -220,14 +228,15 @@ def create_manual_fg_inward(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "PlantManager", "Owner", "SupervisorEntry", "Production"])),
 ):
-    reason = (payload.reason_code or "REWORK").strip().upper()
-    if reason not in VALID_MANUAL_REASONS:
-        raise HTTPException(status_code=400, detail=f"Invalid reason_code; must be one of {sorted(VALID_MANUAL_REASONS)}")
-    if reason == "RETURN":
+    wanted, reason_note = reason_input(payload, note_keys=("reason_note", "notes"))
+    if wanted == "RETURN" or wanted.endswith("-RETURN"):
         raise HTTPException(
             status_code=400,
             detail="Customer returns are received in Quality → Results & holds → Inward rejected FG, so they are held for QC and linked to the customer and dispatch.",
         )
+    choice = resolve_reason(category="MANUAL_FG", code=wanted, note=reason_note, plant_id=plant_id,
+                            token=token_of(current_user), what="the manual FG inward")
+    reason = choice.code
 
     if payload.qty <= 0:
         raise HTTPException(status_code=400, detail="qty must be greater than zero")
@@ -309,7 +318,7 @@ def create_manual_fg_inward(
         transaction_type=TransactionType.FG_INWARD,
         qty_change=payload.qty,
         # Manual FG inward — no production_job_id; use a synthetic reference.
-        reference_type=ReferenceType.ADJUSTMENT if reason in {"ADJUSTMENT", "OPENING", "OTHER"} else ReferenceType.PRODUCTION_JOB,
+        reference_type=ReferenceType.PRODUCTION_JOB if reason in {"REWORK", "FG-REWORK"} else ReferenceType.ADJUSTMENT,
         reference_id=payload.item_id,  # self-reference for adjustments
         plant_id=plant_id,
         location_id=location_id,
@@ -318,6 +327,9 @@ def create_manual_fg_inward(
             "batch_no": batch_no,
             "manual": True,
             "reason_code": reason,
+            "reason_label": choice.label,
+            "reason_note": choice.note,
+            "reason": choice.text,
             "notes": payload.notes or "",
             "ref": payload.reference or "",
         },

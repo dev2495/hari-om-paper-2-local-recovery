@@ -70,6 +70,8 @@ export type OpeningLineInput = {
   vendor_ref?: string
   on_hold?: boolean
   hold_reason?: string
+  hold_reason_code?: string
+  hold_reason_note?: string
   unit_cost?: number
 }
 export type PreviewLine = Partial<Omit<OpeningLineInput, "qty">> & { qty?: number | null }

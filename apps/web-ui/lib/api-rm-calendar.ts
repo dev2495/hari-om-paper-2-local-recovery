@@ -227,7 +227,8 @@ export const rmCalendarApi = {
   suggest: (body: { weeks: number; material_class?: string; item_ids?: string[] }) => api.post<{ weeks: number; items: Suggestion[] }>("/api/purchase/schedule/suggest", body),
   propose: (entries: ArrivalInput[]) => api.post("/api/purchase/schedule/entries", { entries }),
   update: (id: string, body: Partial<ArrivalInput> & { confirm_po_change?: boolean }) => api.patch(`/api/purchase/schedule/entries/${id}`, body),
-  cancel: (id: string, reason?: string) => api.post(`/api/purchase/schedule/entries/${id}/cancel`, { reason: reason || null }),
+  // Cancelling an arrival needs a SUPPLIER_SCHEDULE code from Masters › Reason codes (owner decision 4, 1 Nov 2026).
+  cancel: (id: string, body: { reason_code: string; reason_note?: string; reason?: string }) => api.post(`/api/purchase/schedule/entries/${id}/cancel`, body),
   approve: (entryIds: string[], supplierIds: string[]) =>
     api.post<ApproveResult>("/api/purchase/schedule/approve", { request_id: crypto.randomUUID(), entry_ids: entryIds, supplier_ids: supplierIds }),
   supply: (start: string, end: string) => api.get<{ today: string; items: Array<{ item_id: string; item_code: string; item_name: string; uom: string }>; arrivals: Arrival[] }>("/api/purchase/schedule/supply", { params: { start, end } }),

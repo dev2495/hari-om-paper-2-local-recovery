@@ -3,14 +3,18 @@
 // Log output: one run of one stage, as written on the printed card. No QC fields here — QC is its own
 // short form. Every rule of the older entry desk is kept: drafts for operators and straight save for
 // supervisors, the upstream QC gate with a supervisor override and reason, +10% over the plan needs a
-// reason, a rejection needs a code (and a note for "Other"), cutting loss written needs a reason, held
-// pieces carried in or out need a reason, and the same command is resent on a retry (request_id +
+// reason, a rejection or cutting loss needs a code (and a note for "Other"), held pieces carried in or out
+// need a reason, and the same command is resent on a retry (request_id +
 // expected_version). The Process count (bamboo × pcs per bamboo) is a check, never a gate (client
 // 2026-10-28): a gap saves and is flagged on the run. What is typed is kept on the device until saved.
+// Reasons are codes from Masters › Reason codes (owner decision 4, 1 Nov 2026): rejected or lost pieces pick
+// from "Floor rejection" (SCRAP), anything outside the plan (over +10%, held carryover, taking a batch before
+// its QC) from one "Override" picker; both lists load once per card.
 
 import { CalendarRange, CheckCircle2, ChevronDown, Clock3, Flag, Plus } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 
+import { ReasonPicker, reasonProblem, reasonText, useReasonList } from "@/components/reasons"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
@@ -18,7 +22,6 @@ import { useCardMasters, useCardMutation, useEntryApi, useStableCommand } from "
 import { DraftRestoredBar, draftKey, useFormDraft } from "./draft"
 import { Chips, FormStageTabs, Segmented, bigNumberClass, fieldLabel, selectClass, type StageTab } from "./EntrySheet"
 import {
-  REJECT_CODES,
   clockOf,
   clockShift,
   count,
@@ -33,12 +36,13 @@ import {
   planMatchFor,
   plannerSlots,
   previousStage,
-  rejectCodeText,
+  reasonDetailKeys,
   remember,
   runNo,
   remembered,
   shiftLabel,
   stageLabel,
+  stageOperators,
   stamp,
   today,
   latestDate,
@@ -76,6 +80,16 @@ export function outputStageTabs(stages: any[]): StageTab[] {
     }))
 }
 
+// A saved run's reasons back in the form: the old "OT" is RJ-OTHER; runs saved before the note had its own key kept text only.
+const savedRejectCode = (d: any) => {
+  const code = String(d?.reject_code || "").toUpperCase()
+  return code === "OT" ? "RJ-OTHER" : code
+}
+const savedRejectNote = (d: any) => (d && ("reject_note" in d || d.reject_label) ? d.reject_note || "" : d?.reject_reason || "")
+const OVERRIDE_KEYS = ["overproduction_reason", "carryover_reason", "qc_gate_override_reason"]
+const savedOverrideCode = (d: any) => d?.override_reason_code || OVERRIDE_KEYS.map((k) => d?.[`${k}_code`]).find(Boolean) || ""
+const savedOverrideNote = (d: any) => d?.override_reason_note || OVERRIDE_KEYS.map((k) => d?.[`${k}_code`] && d?.[`${k}_note`]).find(Boolean) || ""
+
 export function LogOutputForm({
   card,
   flow,
@@ -103,6 +117,9 @@ export function LogOutputForm({
   const { canSubmit, canDraft } = useCardRoles()
   const { activeEmployees, machines, employees, machineName } = useCardMasters(card)
   const { mutation, error, setError } = useCardMutation(String(card.id))
+  // Reason lists of the card's plant, loaded once (Masters › Reason codes).
+  const scrapList = useReasonList("SCRAP", card.plant_id)
+  const overrideList = useReasonList("OVERRIDE", card.plant_id)
   const { stableCommand, reset } = useStableCommand()
   const state = stages.find((s: any) => s.stage === stage)
   const prevStage = previousStage(stages, stage)
@@ -119,31 +136,30 @@ export function LogOutputForm({
   const [rejected, setRejected] = useState("")
   const [rejectCode, setRejectCode] = useState("")
   const [rejectNote, setRejectNote] = useState("")
+  // One override choice covers every reason the run is outside the plan (over +10%, held carryover, before QC).
+  const [overCode, setOverCode] = useState("")
   const [overNote, setOverNote] = useState("")
   const [input, setInput] = useState("")
   const [loss, setLoss] = useState("")
   const [carryIn, setCarryIn] = useState("")
   const [carryOut, setCarryOut] = useState("")
-  const [remark, setRemark] = useState("")
-  const [lossNote, setLossNote] = useState("")
   const [showTimes, setShowTimes] = useState(false)
   const [startTime, setStartTime] = useState("")
   const [endTime, setEndTime] = useState("")
   const [gateOverride, setGateOverride] = useState(false)
-  const [gateReason, setGateReason] = useState("")
   const [forceOpen, setForceOpen] = useState(false)
   // Process: bamboo in and pieces out fill themselves from the card until the operator types over them.
   const inputTouched = useRef(false)
   const outputTouched = useRef(false)
   // Kept on the device as it is typed (card · stage · draft run), restored when the form opens again.
-  const typed = { businessDate, shift, machine, operator, helper, output, rejected, rejectCode, rejectNote, overNote, input, loss, carryIn, carryOut, remark, lossNote, showTimes, startTime, endTime, gateOverride, gateReason, inputTouched: inputTouched.current, outputTouched: outputTouched.current }
+  const typed = { businessDate, shift, machine, operator, helper, output, rejected, rejectCode, rejectNote, overCode, overNote, input, loss, carryIn, carryOut, showTimes, startTime, endTime, gateOverride, inputTouched: inputTouched.current, outputTouched: outputTouched.current }
   // A server draft being revised counts as typed only once a value differs from the saved draft.
   const savedDraftValues: Record<string, string> | null = editing
-    ? { businessDate: editing.business_date || today(), shift: editing.shift_code || clockShift(), machine: editing.machine_id || "", operator: editing.operator_id || "", helper: editing.details?.helper_name || "", output: editing.produced ? String(editing.produced) : "", rejected: editing.rejected ? String(editing.rejected) : "", rejectCode: editing.details?.reject_code || "", rejectNote: editing.details?.reject_reason || "", overNote: editing.details?.overproduction_reason || "", input: editing.input_quantity ? String(editing.input_quantity) : "", loss: editing.cutting_loss_pcs ? String(editing.cutting_loss_pcs) : "", carryIn: editing.carry_in_pcs ? String(editing.carry_in_pcs) : "", carryOut: editing.carry_out_pcs ? String(editing.carry_out_pcs) : "", remark: editing.details?.carryover_reason || "", lossNote: editing.details?.cutting_loss_reason || "" }
+    ? { businessDate: editing.business_date || today(), shift: editing.shift_code || clockShift(), machine: editing.machine_id || "", operator: editing.operator_id || "", helper: editing.details?.helper_name || "", output: editing.produced ? String(editing.produced) : "", rejected: editing.rejected ? String(editing.rejected) : "", rejectCode: savedRejectCode(editing.details), rejectNote: savedRejectNote(editing.details), overCode: savedOverrideCode(editing.details), overNote: savedOverrideNote(editing.details), input: editing.input_quantity ? String(editing.input_quantity) : "", loss: editing.cutting_loss_pcs ? String(editing.cutting_loss_pcs) : "", carryIn: editing.carry_in_pcs ? String(editing.carry_in_pcs) : "", carryOut: editing.carry_out_pcs ? String(editing.carry_out_pcs) : "" }
     : null
   const typedSomething = savedDraftValues
     ? Object.entries(savedDraftValues).some(([k, v]) => String((typed as any)[k] ?? "") !== v)
-    : Boolean(rejected || rejectNote || overNote || loss || carryIn || carryOut || remark || lossNote || startTime || endTime || gateReason.trim()) ||
+    : Boolean(rejected || rejectCode || rejectNote || overCode || overNote || loss || carryIn || carryOut || startTime || endTime) ||
       (Boolean(output) && (stage !== "PROCESS" || outputTouched.current)) ||
       (Boolean(input) && (stage !== "PROCESS" || inputTouched.current)) ||
       businessDate !== today()
@@ -157,34 +173,25 @@ export function LogOutputForm({
     setHelper(d.helper || "")
     setOutput(d.output || "")
     setRejected(d.rejected || "")
-    setRejectCode(d.rejectCode || "")
+    setRejectCode(d.rejectCode === "OT" ? "RJ-OTHER" : d.rejectCode || "")
     setRejectNote(d.rejectNote || "")
+    setOverCode(d.overCode || "")
     setOverNote(d.overNote || "")
     setInput(d.input || "")
     setLoss(d.loss || "")
     setCarryIn(d.carryIn || "")
     setCarryOut(d.carryOut || "")
-    setRemark(d.remark || "")
-    setLossNote(d.lossNote || "")
     setShowTimes(Boolean(d.showTimes))
     setStartTime(d.startTime || "")
     setEndTime(d.endTime || "")
     setGateOverride(Boolean(d.gateOverride))
-    setGateReason(d.gateReason || "")
     if (d.gateOverride) setForceOpen(true)
     inputTouched.current = Boolean(d.inputTouched)
     outputTouched.current = Boolean(d.outputTouched)
   }
 
-  const worksHere = (e: any) =>
-    String(e.department || "").toUpperCase() === stage ||
-    String(e.skills || "")
-      .toUpperCase()
-      .split(/[,;/|]/)
-      .map((t: string) => t.trim())
-      .includes(stage)
-  const operatorRank = (e: any) => (String(e.role || "").toLowerCase() === "operator" ? 0 : 2) + (worksHere(e) ? 0 : 1)
-  const operatorOptions = useMemo(() => [...activeEmployees].sort((a: any, b: any) => operatorRank(a) - operatorRank(b) || String(a.name).localeCompare(String(b.name))), [activeEmployees, stage]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Owner decision 7 (1 Nov 2026): only active employees of the department that runs this stage (Masters › Employees).
+  const operatorOptions = useMemo(() => stageOperators(activeEmployees, stage), [activeEmployees, stage])
   const stageMachines = useMemo(() => (machines.data || []).filter((m: any) => m.is_active !== false && String(m.department || "").toUpperCase() === stage), [machines.data, stage])
   const openSegments = (state?.segments || []).filter((s: any) => !["COMPLETED", "CANCELLED"].includes(s.status))
   const plannedParts = plannerSlots(state, true).sort((a: any, b: any) => String(a.plan_date).localeCompare(String(b.plan_date)) || String(a.shift_code).localeCompare(String(b.shift_code)))
@@ -207,20 +214,18 @@ export function LogOutputForm({
     setRejected("")
     setRejectCode("")
     setRejectNote("")
+    setOverCode("")
     setOverNote("")
     setInput("")
     setLoss("")
     setCarryIn("")
     setCarryOut("")
-    setRemark("")
-    setLossNote("")
     inputTouched.current = false
     outputTouched.current = false
     setStartTime("")
     setEndTime("")
     setShowTimes(false)
     setGateOverride(false)
-    setGateReason("")
     reset()
   }
 
@@ -237,22 +242,20 @@ export function LogOutputForm({
       setHelper(editing.details?.helper_name || "")
       setOutput(editing.produced ? String(editing.produced) : "")
       setRejected(editing.rejected ? String(editing.rejected) : "")
-      setRejectCode(editing.details?.reject_code || "")
-      setRejectNote(editing.details?.reject_reason || "")
-      setOverNote(editing.details?.overproduction_reason || "")
+      setRejectCode(savedRejectCode(editing.details))
+      setRejectNote(savedRejectNote(editing.details))
+      setOverCode(savedOverrideCode(editing.details))
+      setOverNote(savedOverrideNote(editing.details))
       setInput(editing.input_quantity ? String(editing.input_quantity) : "")
       setLoss(editing.cutting_loss_pcs ? String(editing.cutting_loss_pcs) : "")
       setCarryIn(editing.carry_in_pcs ? String(editing.carry_in_pcs) : "")
       setCarryOut(editing.carry_out_pcs ? String(editing.carry_out_pcs) : "")
-      setRemark(editing.details?.carryover_reason || "")
-      setLossNote(editing.details?.cutting_loss_reason || "")
       inputTouched.current = true
       outputTouched.current = true
       setStartTime(clockOf(editing.details?.start_time))
       setEndTime(clockOf(editing.details?.end_time))
       setShowTimes(Boolean(editing.details?.start_time || editing.details?.end_time))
       setGateOverride(Boolean(editing.details?.qc_gate_override_reason))
-      setGateReason(editing.details?.qc_gate_override_reason || "")
       reset()
     } else {
       setOperator(remembered(memoryKey(card, stage, "operator")))
@@ -274,15 +277,14 @@ export function LogOutputForm({
       setHelper(editing.details?.helper_name || "")
       setOutput(editing.produced ? String(editing.produced) : "")
       setRejected(editing.rejected ? String(editing.rejected) : "")
-      setRejectCode(editing.details?.reject_code || "")
-      setRejectNote(editing.details?.reject_reason || "")
-      setOverNote(editing.details?.overproduction_reason || "")
+      setRejectCode(savedRejectCode(editing.details))
+      setRejectNote(savedRejectNote(editing.details))
+      setOverCode(savedOverrideCode(editing.details))
+      setOverNote(savedOverrideNote(editing.details))
       setInput(editing.input_quantity ? String(editing.input_quantity) : "")
       setLoss(editing.cutting_loss_pcs ? String(editing.cutting_loss_pcs) : "")
       setCarryIn(editing.carry_in_pcs ? String(editing.carry_in_pcs) : "")
       setCarryOut(editing.carry_out_pcs ? String(editing.carry_out_pcs) : "")
-      setRemark(editing.details?.carryover_reason || "")
-      setLossNote(editing.details?.cutting_loss_reason || "")
     } else {
       setBusinessDate(today())
       setShift(clockShift())
@@ -326,10 +328,14 @@ export function LogOutputForm({
   const startStamp = stamp(businessDate, startTime, undefined, shift)
   const endStamp = stamp(businessDate, endTime, startTime || undefined, shift)
   const overTarget = state ? Number(state.produced_total || 0) + made > Number(state.target || 0) * 1.1 : false
-  const rejectPart = rejectNote.trim() || (rejectCode && rejectCode !== "OT" ? `${rejectCode} · ${rejectCodeText(rejectCode)}` : "")
-  // One reason on the entry covers rejected pieces and cutting loss; writing off held pieces uses the carryover reason.
-  const lossPart = disposition ? remark.trim() : lossQty ? (pcsPerBamboo ? lossNote.trim() : remark.trim()) : ""
-  const rejectReason = [bad ? rejectPart : "", lossPart && !disposition && pcsPerBamboo ? `Cutting loss: ${lossPart}` : lossPart].filter(Boolean).join(" · ")
+  // One "Floor rejection" code covers rejected pieces and cutting loss (writing off held pieces is cutting loss too).
+  const needsReject = bad > 0 || lossQty > 0
+  const rejectChoice = { value: { code: rejectCode, note: rejectNote }, text: rejectCode ? reasonText(scrapList.data, { code: rejectCode, note: rejectNote }) : "" }
+  const rejectIssue = needsReject ? reasonProblem(rejectChoice.value) : null
+  // One "Override" code for whatever puts the run outside the plan.
+  const overrideKeys = [overTarget ? "overproduction_reason" : "", carryInQty || carryOutQty ? "carryover_reason" : "", gateOverride ? "qc_gate_override_reason" : ""].filter(Boolean)
+  const overrideChoice = { value: { code: overCode, note: overNote }, text: overCode ? reasonText(overrideList.data, { code: overCode, note: overNote }) : "" }
+  const overrideIssue = overrideKeys.length ? reasonProblem(overrideChoice.value) : null
   const unit = state?.unit || "pieces"
   const missing = [
     !businessDate ? "the date" : "",
@@ -337,15 +343,10 @@ export function LogOutputForm({
     !operator ? "the operator" : "",
     !made && !disposition ? `how many ${unit} were made` : "",
     bad > made ? "a rejected count that is not more than the output" : "",
-    bad > 0 && !rejectCode ? "the rejection code" : "",
-    bad > 0 && rejectCode === "OT" && !rejectNote.trim() ? "what the 'Other' rejection was" : "",
+    needsReject && rejectIssue ? (rejectCode ? "a note for the 'Other' rejection" : bad > 0 ? "the rejection reason" : "why pieces were lost in cutting") : "",
     stage === "PROCESS" && !takenIn && !disposition ? `how many ${state?.input_unit || "bamboo"} were taken from ${stageLabel(prevStage || "OVEN")}` : "",
     stage === "PROCESS" && !pcsPerBamboo ? "pieces per bamboo on the spec (ask the planner)" : "",
-    lossQty && !disposition && !lossPart ? "why pieces were lost in cutting" : "",
-    disposition && !rejectReason ? "the reason for the cutting loss" : "",
-    (carryInQty || carryOutQty) && !remark.trim() ? "the reason for the held carryover" : "",
-    overTarget && !overNote.trim() ? "why output is above the planned +10%" : "",
-    gateOverride && !gateReason.trim() ? "why the batch is taken before its QC" : "",
+    overrideIssue ? (overCode ? "a note for the 'Other' override" : overTarget ? "why output is above the planned +10%" : gateOverride ? "why the batch is taken before its QC" : "the reason for the held carryover") : "",
   ].filter(Boolean)
   const planMatch = planMatchFor(state, businessDate, shift, machine)
   // One truth with the Plan match tile (and the server): no machine + date + shift slot means not on the planner.
@@ -353,16 +354,14 @@ export function LogOutputForm({
 
   const saveRun = (submit: boolean) => {
     const details: any = {
-      reject_reason: bad || lossQty || disposition ? rejectReason : undefined,
-      reject_code: bad ? rejectCode || null : null,
+      // Codes from Masters › Reason codes; the server checks them and stores code, label, note and the old text keys.
+      ...(needsReject ? reasonDetailKeys("reject_reason", "reject_code", "reject_note", rejectChoice) : { reject_code: null }),
+      ...(lossQty && !disposition && rejectChoice.text ? { cutting_loss_reason: rejectChoice.text } : {}),
       helper_name: helper.trim() || null,
-      overproduction_reason: overTarget ? overNote.trim() : undefined,
-      carryover_reason: carryInQty || carryOutQty ? remark.trim() : undefined,
-      cutting_loss_reason: lossQty && !disposition && pcsPerBamboo ? lossNote.trim() : undefined,
+      ...Object.assign({}, ...overrideKeys.map((key) => reasonDetailKeys(key, `${key}_code`, `${key}_note`, overrideChoice))),
       start_time: startStamp,
       end_time: endStamp,
       instrument: editing?.details?.instrument || {},
-      ...(gateOverride && gateReason.trim() ? { qc_gate_override_reason: gateReason.trim() } : {}),
     }
     const body: any = {
       stage,
@@ -383,7 +382,7 @@ export function LogOutputForm({
       samples: editing?.samples || [],
       machine_id: machine || null,
       details,
-      reason: [rejectReason, overTarget ? overNote.trim() : "", remark.trim()].filter(Boolean).join(" · "),
+      reason: [needsReject ? rejectChoice.text : "", overrideKeys.length ? overrideChoice.text : ""].filter(Boolean).join(" · "),
       submit,
     }
     remember(memoryKey(card, stage, "operator"), operator)
@@ -610,7 +609,7 @@ export function LogOutputForm({
               {employees.isLoading ? (
                 <p className="text-[13px] text-muted-foreground">Loading…</p>
               ) : operatorOptions.length === 0 ? (
-                <p className="text-[13px] text-signal-amber-ink">No active employees — add them in Masters › Employees.</p>
+                <p className="text-[13px] text-signal-amber-ink" data-testid="season-entry-no-operator">No active employee in the {stageLabel(stage)} department — set the department in Masters › Employees.</p>
               ) : operatorOptions.length <= 8 ? (
                 <Chips label="Operator" value={operator} onChange={setOperator} options={operatorOptions.map((e: any) => ({ value: String(e.id), label: e.name }))} testId="season-entry-operator" />
               ) : (
@@ -736,31 +735,32 @@ export function LogOutputForm({
                       </Button>
                     ) : null}
                   </div>
-                  {lossQty > 0 ? (
-                    <Input className="h-11 min-h-11 bg-card text-[15px]" aria-label="Cutting loss reason" placeholder={`Why were ${fmt(lossQty)} pcs lost in cutting? (required)`} value={lossNote} onChange={(e) => setLossNote(e.target.value)} data-testid="process-loss-reason" />
-                  ) : null}
                 </div>
               )
             ) : null}
-            {bad > 0 ? (
+            {needsReject ? (
               <div className="space-y-2" data-testid="season-entry-reject">
-                <span className={fieldLabel}>Why rejected?</span>
-                <Chips label="Rejection code" tone="rose" value={rejectCode} onChange={setRejectCode} options={REJECT_CODES.map(([code, text]) => ({ value: code, label: code, sub: text }))} allowClear={false} />
-                <Input className="h-11 min-h-11 text-[15px]" aria-label="Entry reason" placeholder={rejectCode === "OT" ? "What was wrong? (required)" : "Note (optional)"} value={rejectNote} onChange={(e) => setRejectNote(e.target.value)} />
+                <ReasonPicker
+                  category="SCRAP"
+                  plantId={card.plant_id}
+                  rows={scrapList.data}
+                  value={{ code: rejectCode, note: rejectNote }}
+                  onChange={(next) => {
+                    setRejectCode(next.code)
+                    setRejectNote(next.note)
+                  }}
+                  showErrors={Boolean(rejectCode)}
+                  compact
+                  label={bad > 0 && lossQty > 0 ? "Why rejected or lost in cutting?" : bad > 0 ? "Why rejected?" : `Why were ${fmt(lossQty)} pcs lost in cutting?`}
+                  testIdPrefix="log-output:reject"
+                />
               </div>
-            ) : null}
-            {overTarget ? (
-              <label className="block text-sm text-signal-amber-ink">
-                Output goes above the planned quantity +10%. Why?
-                <Input className="mt-1 h-11 min-h-11 text-[15px]" value={overNote} onChange={(e) => setOverNote(e.target.value)} aria-label="Overproduction reason" />
-              </label>
             ) : null}
             {canSubmit && Number(state.awaiting_qc_from_upstream) > 0 ? (
               <div className="rounded-lg border border-border bg-muted p-3 text-sm">
                 <label className="flex min-h-11 items-center gap-2">
                   <input type="checkbox" className="h-5 w-5 shrink-0" checked={gateOverride} onChange={(e) => setGateOverride(e.target.checked)} /> Supervisor override: take batches whose QC is not recorded yet
                 </label>
-                {gateOverride ? <Input className="mt-2 h-11 min-h-11" placeholder="Why this batch is taken before its QC (kept on the entry)" aria-label="QC gate override reason" value={gateReason} onChange={(e) => setGateReason(e.target.value)} /> : null}
               </div>
             ) : null}
             {stage === "PROCESS" ? (
@@ -782,12 +782,29 @@ export function LogOutputForm({
                       <Input inputMode="numeric" type="number" min="0" step="1" className="h-11 min-h-11" value={value} onChange={(e) => setter(e.target.value)} />
                     </label>
                   ))}
-                  <label className="text-sm sm:col-span-3">
-                    {pcsPerBamboo ? "Reason for held pieces" : "Reason for loss or carryover"}
-                    <Input className="h-11 min-h-11" value={remark} onChange={(e) => setRemark(e.target.value)} aria-label="Loss or carryover reason" />
-                  </label>
                 </div>
               </details>
+            ) : null}
+            {overrideKeys.length ? (
+              <div className={cn("space-y-2 rounded-lg border p-3", toneClass("amber"))} data-testid="log-output-override">
+                <p className="text-[12.5px]">
+                  {[overTarget ? "Output goes above the planned quantity +10%" : "", carryInQty || carryOutQty ? "pieces are held over (carryover)" : "", gateOverride ? "batches are taken before their QC" : ""].filter(Boolean).join("; ")}.
+                </p>
+                <ReasonPicker
+                  category="OVERRIDE"
+                  plantId={card.plant_id}
+                  rows={overrideList.data}
+                  value={{ code: overCode, note: overNote }}
+                  onChange={(next) => {
+                    setOverCode(next.code)
+                    setOverNote(next.note)
+                  }}
+                  showErrors={Boolean(overCode)}
+                  compact
+                  label="Why is this outside the plan?"
+                  testIdPrefix="log-output:override"
+                />
+              </div>
             ) : null}
           </fieldset>
 

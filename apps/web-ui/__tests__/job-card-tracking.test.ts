@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert"
-import { floorStage, groupRows, managementTrail, serverTime, stageTrack, stageWord, trackStatus } from "../lib/job-card-tracking"
+import { closedEarly, floorStage, groupRows, managementTrail, serverTime, stageTrack, stageWord, trackStatus } from "../lib/job-card-tracking"
 
 // Server timestamps are naive UTC: 05:30 UTC is 11:00 in the plant, never 05:30.
 assert.equal(serverTime("2026-10-27T05:30:15")?.toISOString(), "2026-10-27T05:30:15.000Z")
@@ -14,7 +14,14 @@ assert.equal(trackStatus({ status: "PLANNED", current_stage: "WINDER", current_s
 assert.equal(trackStatus({ status: "IN_PROGRESS", current_stage: "WINDER" }), "RUNNING")
 assert.equal(trackStatus({ status: "IN_PROGRESS", current_stage: "WINDER" }, true), "ON_HOLD")
 assert.equal(trackStatus({ status: "CANCELLED", close_mode: "CANCELLED" }), "CLOSED_EARLY")
-assert.equal(trackStatus({ status: "IN_PROGRESS", close_mode: "FORCE", current_stage: "OVEN" }), "CLOSED_EARLY")
+// A force-closed card whose made pcs are still in production stays in an open tab (owner decision 1, 1 Nov 2026).
+assert.equal(trackStatus({ status: "IN_PROGRESS", close_mode: "FORCE", current_stage: "OVEN" }), "RUNNING")
+assert.equal(trackStatus({ status: "IN_PROGRESS", close_mode: "FORCE", current_stage: "DISPATCH" }), "READY_DISPATCH")
+assert.equal(trackStatus({ status: "COMPLETED", close_mode: "FORCE", current_stage: "DONE" }), "DONE")
+assert.deepEqual(stageTrack({ status: "IN_PROGRESS", close_mode: "FORCE", current_stage: "OVEN" }).map((step) => step.state), ["done", "current", "pending", "pending"])
+assert.equal(closedEarly({ close_mode: "FORCE" }), true)
+assert.equal(closedEarly({ returned_qty: 40 }), true)
+assert.equal(closedEarly({ returned_qty: 0 }), false)
 assert.equal(trackStatus({ status: "COMPLETED", current_stage: "DONE" }), "DONE")
 assert.deepEqual(stageTrack({ status: "IN_PROGRESS", current_stage: "OVEN" }).map((step) => step.state), ["done", "current", "pending", "pending"])
 // Packing and the end QC are part of Process: the track is W · O · P · D and an old PACKING/QC stage reads as Process.

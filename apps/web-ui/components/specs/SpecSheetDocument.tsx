@@ -24,7 +24,9 @@ import { PaperPicker } from "@/components/specs/shared/PaperPicker"
 import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
 import { displayPlantScope } from "@/lib/plant-scope"
-import { masterApi } from "@/lib/api"
+import { api, masterApi } from "@/lib/api"
+import { addBoxHref } from "@/lib/packing-setup"
+import { useQuery } from "@tanstack/react-query"
 import { resolveSpecSummary } from "@/lib/spec-summary"
 import { buildBambooPlan, DELTA_ABS_G, RECIPE_MAX_PAPERS, RECIPE_MAX_PLIES, RECIPE_MIN_PAPERS } from "@/lib/spec-math"
 import {
@@ -1060,6 +1062,35 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
       },
     }))
   }, [form.dynamicValues.fadda_per_box, form.dynamicValues.fadda_sku, form.dynamicValues.fadda_unit_weight_kg, form.dynamicValues.fadda_weight_per_box_kg, packagingFaddaMap])
+
+  // Packing from the masters (owner decision 5): on a new spec, the only active plastic / fadda master is
+  // chosen by default (once, so it can still be cleared to "none").
+  const packingDefaultsApplied = useRef(false)
+  useEffect(() => {
+    if (!isCreate || packingDefaultsApplied.current || !packagingPlasticSheets || !packagingFadda) return
+    packingDefaultsApplied.current = true
+    const plastic = activePackagingPlasticSheets.length === 1 ? String(activePackagingPlasticSheets[0].sku || "") : ""
+    const fadda = activePackagingFadda.length === 1 ? String(activePackagingFadda[0].sku || "") : ""
+    if (!plastic && !fadda) return
+    setForm((current) => {
+      const next = { ...current.dynamicValues }
+      if (plastic && !optionValue(next.plastic_sku)) {
+        next.plastic_sku = plastic
+        if (!(Number(next.plastic_per_box) > 0)) next.plastic_per_box = "1"
+      }
+      if (fadda && !optionValue(next.fadda_sku)) {
+        next.fadda_sku = fadda
+        if (!(Number(next.fadda_per_box) > 0)) next.fadda_per_box = "1"
+      }
+      return { ...current, dynamicValues: next }
+    })
+  }, [activePackagingFadda, activePackagingPlasticSheets, isCreate, packagingFadda, packagingPlasticSheets])
+  const packingAmendmentsQuery = useQuery({
+    queryKey: ["spec-packing-amendments", specId],
+    enabled: Boolean(specId) && !isCreate,
+    queryFn: async () => (await api.get(`/api/spec/specifications/${specId}/packing-amendments`)).data,
+  })
+  const latestPackingAmendment = packingAmendmentsQuery.data?.items?.[0] || null
 
   // Final-limit bands: the spec's own saved bands, else plant defaults for a new spec,
   // else the historic ±0.5/0.5/2 mm, ±5 g, ±7 % C.S., ±1 % moisture every older spec used.
@@ -3922,8 +3953,34 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
       </NotchingCard>
 
       <PackingCard forceOpen={isPrint}>
-        <SectionLabel title="Packing" subtitle="Master-backed floor quantities in PCS with inward-weight equivalents." />
-        <MasterLinkRow links={[{ href: "/masters/packaging", label: "Packaging master" }]} />
+        <SectionLabel title="Packing" subtitle="Box, plastic and fadda come from the Packaging master; size and weight per piece are read from the master." />
+        <MasterLinkRow links={[{ href: "/masters/packaging", label: "Packaging master" }, { href: "/specifications/packing-setup", label: "Packing setup" }]} />
+        {(() => {
+          const boxCode = optionValue(form.dynamicValues.box_code || form.dynamicValues.box)
+          const qty = Number(form.dynamicValues.qty_per_box || 0)
+          const missing = [!boxCode ? "a box" : "", !(qty > 0 && Number.isInteger(qty)) ? "the quantity per box" : ""].filter(Boolean)
+          const boxNotInMaster = Boolean(boxCode) && Boolean(packagingBoxes) && !selectedPackagingBox
+          return (
+            <>
+              {missing.length > 0 && !isPrint ? (
+                <p data-testid="packing-required" className="mt-3 rounded-lg border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-xs text-signal-amber-ink">
+                  Required before approval: choose {missing.join(" and ")}.
+                </p>
+              ) : null}
+              {boxNotInMaster && !isPrint ? (
+                <p data-testid="packing-box-not-in-master" className="mt-3 rounded-lg border border-signal-rose-line bg-signal-rose-soft px-3 py-2 text-xs text-signal-rose-ink">
+                  Box <span className="font-mono font-semibold">{boxCode}</span> on this spec is not in the Packaging master, so its size and weight are unknown.{" "}
+                  <Link className="font-semibold underline" href={addBoxHref(boxCode)}>Add box {boxCode}</Link> or pick a master box.
+                </p>
+              ) : null}
+              {latestPackingAmendment && !isPrint ? (
+                <p data-testid="packing-amendment-note" className="mt-3 rounded-lg border border-border bg-muted px-3 py-2 text-xs text-muted-foreground">
+                  Packing amended on {new Date(latestPackingAmendment.created_at).toLocaleString()} by {latestPackingAmendment.actor}: {latestPackingAmendment.summary}. Spec version {latestPackingAmendment.spec_version} kept its approval (packing-only change).
+                </p>
+              ) : null}
+            </>
+          )
+        })()}
         <div className="mt-4 grid gap-3 xl:grid-cols-3">
           <div className="rounded-xl border border-[#d7dfdc] bg-[#f8faf9] p-3">
             <FieldLabel>Box Master</FieldLabel>
@@ -3944,8 +4001,8 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
             <p className="mt-2 text-xs font-bold text-[#102832]">{selectedPackagingBox?.size_label || "Select a box to see its size"}</p>
             <p className="mt-0.5 text-[10px] text-muted-foreground">
               {selectedPackagingBox
-                ? `${Number(selectedPackagingBox.length_mm || 0)} × ${Number(selectedPackagingBox.width_mm || 0)} × ${Number(selectedPackagingBox.height_mm || 0)} mm · ${Number(selectedPackagingBox.weight_kg || 0).toFixed(4)} kg/pc`
-                : "Dimensions and unit weight come from Packaging Master."}
+                ? `${Number(selectedPackagingBox.length_mm || 0)} × ${Number(selectedPackagingBox.width_mm || 0)} × ${Number(selectedPackagingBox.height_mm || 0)} mm · ${selectedPackagingBox.weight_kg == null ? "weight not set in master" : `${Number(selectedPackagingBox.weight_kg).toFixed(4)} kg per box`}`
+                : "Dimensions and weight per box come from the Packaging master."}
             </p>
           </div>
           <div className="rounded-xl border border-[#d7dfdc] bg-[#f8faf9] p-3">
@@ -3965,7 +4022,7 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
               />
             </div>
             <p className="mt-2 text-xs font-bold text-[#102832]">{selectedPackagingPlastic?.size_label || "Select plastic to see its detail"}</p>
-            <p className="mt-0.5 text-[10px] text-muted-foreground">{selectedPackagingPlastic ? `${Number(selectedPackagingPlastic.weight_kg || 0).toFixed(4)} kg per pc · floor issue in PCS` : "Per-piece weight converts PCS use back to inward kg."}</p>
+            <p className="mt-0.5 text-[10px] text-muted-foreground">{selectedPackagingPlastic ? (selectedPackagingPlastic.weight_kg == null ? "Weight per sheet not set in master" : `${Number(selectedPackagingPlastic.weight_kg).toFixed(4)} kg per sheet (from master)`) : "Weight per sheet comes from the master (stock is kept in kg)."}</p>
           </div>
           <div className="rounded-xl border border-[#d7dfdc] bg-[#f8faf9] p-3">
             <FieldLabel>Fadda SKU</FieldLabel>
@@ -3984,7 +4041,7 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
               />
             </div>
             <p className="mt-2 text-xs font-bold text-[#102832]">{selectedPackagingFadda?.sku || "Select fadda to see its detail"}</p>
-            <p className="mt-0.5 text-[10px] text-muted-foreground">{selectedPackagingFadda ? `${Number(selectedPackagingFadda.weight_kg || 0).toFixed(4)} kg per pc · floor issue in PCS` : "Per-piece weight converts PCS use back to inward kg."}</p>
+            <p className="mt-0.5 text-[10px] text-muted-foreground">{selectedPackagingFadda ? (selectedPackagingFadda.weight_kg == null ? "Weight per piece not set in master" : `${Number(selectedPackagingFadda.weight_kg).toFixed(4)} kg per piece (from master)`) : "Fadda is the sheet inside the box (putha); weight per piece comes from the master."}</p>
           </div>
         </div>
         <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">

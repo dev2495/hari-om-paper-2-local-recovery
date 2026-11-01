@@ -50,6 +50,7 @@ def _require_qc_approver(current_user: dict) -> None:
         return
     raise HTTPException(status_code=403, detail="Operation not permitted for your role")
 from .. import spec_math
+from ..packing import packing_blockers
 from ..services.approval import ApprovalService
 from ..utils.auth import (
     apply_plant_scope,
@@ -1573,6 +1574,7 @@ def submit_spec_for_review(
         blockers.append(
             "stage QC tolerances are incomplete (set winding, oven and process limits and decide notching)"
         )
+    blockers.extend(packing_blockers(dynamic_map))
     if blockers:
         raise HTTPException(status_code=409, detail="Review blockers: " + "; ".join(blockers))
 
@@ -1632,6 +1634,13 @@ def approve_spec(
 
     if not recipe:
         raise HTTPException(status_code=400, detail="No trial recipe found for this specification")
+
+    missing_packing = packing_blockers(_dynamic_field_map(spec))
+    if missing_packing:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "PACKING_INCOMPLETE", "message": "Approval blockers: " + "; ".join(missing_packing), "blockers": missing_packing},
+        )
 
     # A live spec must carry an approved process-QC standard; otherwise job cards are
     # released with missing_qc_setup and stage inspections are blocked on the floor.

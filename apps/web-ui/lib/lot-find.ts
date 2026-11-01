@@ -46,10 +46,26 @@ export function compactNumber(value: unknown): string {
   return String(value ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase()
 }
 
-/** Same number, whatever the case, spaces, slashes or dashes. A blank never matches. */
+const AIT_TYPED = /^\s*AIT[\s\-/._]*0*(\d{1,6})(?:\s*-\s*(\d{1,3}))?\s*$/i
+
+/**
+ * An Amigo reel / coil serial however it was typed, as the server stores it (inventory reel_serial.normal_serial):
+ * "ait6284", "AIT6284", "ait 6284", "AIT-06284" -> "AIT 06284"; "ait 6284-1" -> "AIT 06284-1". null for anything else.
+ */
+export function reelSerial(value: unknown): string | null {
+  const match = String(value ?? "").match(AIT_TYPED)
+  if (!match) return null
+  const base = `AIT ${String(Number(match[1])).padStart(5, "0")}`
+  return match[2] ? `${base}-${Number(match[2])}` : base
+}
+
+/** Same number, whatever the case, spaces, slashes or dashes (and the leading zeros of an AIT serial). A blank never matches. */
 export function sameNumber(a: unknown, b: unknown): boolean {
   const left = compactNumber(a)
-  return Boolean(left) && left === compactNumber(b)
+  if (!left) return false
+  if (left === compactNumber(b)) return true
+  const serial = reelSerial(a)
+  return serial !== null && serial === reelSerial(b)
 }
 
 /** In stock, passed incoming QC, something left (and, for a reel, not already issued). */

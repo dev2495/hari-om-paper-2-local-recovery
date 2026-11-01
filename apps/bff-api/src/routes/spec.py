@@ -48,6 +48,23 @@ async def seasonal_spec_summary(request: Request, token: str = Depends(get_token
     return await proxy_to_service(SPEC_SERVICE_URL, "/specs/summary", request, token)
 
 
+@router.get("/specifications/packing-setup")
+async def packing_setup_rows(request: Request, token: str = Depends(get_token)):
+    """Packing setup page: every active spec with its packing (Owner/Admin)."""
+    return await proxy_to_service(SPEC_SERVICE_URL, "/specs/packing-setup", request, token)
+
+
+@router.put("/specifications/{spec_id}/packing")
+async def amend_specification_packing(spec_id: str, request: Request, token: str = Depends(get_token)):
+    """Packing-only amendment of a live spec; spec-service pushes it into open job cards."""
+    return await proxy_to_service(SPEC_SERVICE_URL, f"/specs/{spec_id}/packing", request, token)
+
+
+@router.get("/specifications/{spec_id}/packing-amendments")
+async def specification_packing_amendments(spec_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SPEC_SERVICE_URL, f"/specs/{spec_id}/packing-amendments", request, token)
+
+
 @router.post("/specifications/document")
 async def seasonal_spec_create(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(SPEC_SERVICE_URL, "/specs/document", request, token)

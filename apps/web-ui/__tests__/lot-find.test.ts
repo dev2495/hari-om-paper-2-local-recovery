@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 
-import { chooseFound, compactNumber, foundWords, isReady, matchWords, sameNumber, type FoundRow } from "../lib/lot-find"
+import { chooseFound, compactNumber, foundWords, isReady, matchWords, reelSerial, sameNumber, type FoundRow } from "../lib/lot-find"
 
 // A typed number on the issue desks works like a scan (client 2026-10-30): case, spaces and separators never matter.
 assert.equal(compactNumber(" in/26/028 - b002 "), "IN26028B002")
@@ -8,6 +8,17 @@ assert.ok(sameNumber("in 26 028 b002", "IN/26/028-B002"))
 assert.ok(sameNumber("at 261028 025", "AT-261028-025"))
 assert.ok(!sameNumber("", ""), "a blank never matches")
 assert.ok(!sameNumber("AT-261028-02", "AT-261028-025"))
+
+// Issue #10 (1 Nov 2026): AIT serials typed loosely match the stored "AIT 06284" (and coil "AIT 06284-1").
+for (const typed of ["ait6284", "AIT6284", "ait 6284", "AIT-06284", "AIT 06284", " ait06284 "]) {
+  assert.equal(reelSerial(typed), "AIT 06284", typed)
+  assert.ok(sameNumber(typed, "AIT 06284"), typed)
+}
+assert.equal(reelSerial("ait 6284 - 1"), "AIT 06284-1")
+assert.ok(sameNumber("ait6284-1", "AIT 06284-1"))
+assert.ok(!sameNumber("ait6284", "AIT 06284-1"), "a reel is not its coil")
+assert.ok(!sameNumber("ait628", "AIT 06284"))
+assert.equal(reelSerial("AT-261028-025"), null)
 
 const row = (over: Partial<FoundRow>): FoundRow => ({
   kind: "LOT", id: "x", code: "IN/26/028-B002", item_id: "i", uom: "KG", qty: 45, stock_status: "UNRESTRICTED", plant_id: "p",

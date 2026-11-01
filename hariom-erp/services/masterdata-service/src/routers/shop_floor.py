@@ -32,6 +32,7 @@ from ..utils.auth import (
     apply_plant_scope,
     get_current_plant,
     get_current_plant_scope,
+    get_current_user,
     require_role,
 )
 
@@ -708,13 +709,21 @@ def delete_holiday(
 reason_router = APIRouter(prefix="/master/reason-codes", tags=["Master · Reason Codes"])
 
 
-# CUSTOMER_COMPLAINT: the "Customer complaints" master the client keeps updating (2026-10-18).
-# SO_CLOSE: reasons for cancelling or short-closing a sales order (2026-10-20, seeded by reason_seed.py).
-REASON_CATEGORIES = {"DOWNTIME", "SCRAP", "QC_REJECT", "SHORT_CLOSE", "RM_ISSUE", "RETURN", "CUSTOMER_COMPLAINT", "SO_CLOSE", "OTHER"}
+# Every reason list lives in reason_catalog.py (owner decision 4, 1 Nov 2026: reasons are master codes
+# only, everywhere). CUSTOMER_COMPLAINT is the complaints master (2026-10-18); SO_CLOSE the order cancel /
+# short close list (2026-10-20). Standard codes are seeded once per plant by reason_seed.py.
+from ..reason_seed import ensure_plant_reason_codes  # noqa: E402
+from ..reason_catalog import (  # noqa: E402
+    OWNER_ONLY_REASON_CATEGORIES,
+    REASON_CATEGORIES,
+    ReasonChoiceError,
+    check_reason_choice,
+    public_catalog,
+)
+
 REASON_SEVERITIES = {"OK", "WATCH", "CRITICAL"}
 # Order close reasons are the Owner's list (client 2026-10-28): a Plant Manager may keep the
 # floor reason lists, but only the Owner or an Admin adds, renames or deactivates SO_CLOSE rows.
-OWNER_ONLY_REASON_CATEGORIES = {"SO_CLOSE"}
 
 
 def _require_reason_category_writer(current_user: dict, *categories: Optional[str]) -> None:
@@ -762,6 +771,60 @@ class ReasonResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+@reason_router.get("/categories")
+def list_reason_categories(
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+):
+    """Every reason list with its group, where it is used and how many codes this plant has in it."""
+    ensure_plant_reason_codes((plant_scope or {}).get("selected_plant_id"))
+    query = apply_plant_scope(db.query(models.ReasonCode.category, models.ReasonCode.active), models.ReasonCode.plant_id, plant_scope)
+    counts: dict[str, dict[str, int]] = {}
+    for category, active in query.all():
+        bucket = counts.setdefault(str(category or "").upper(), {"active": 0, "total": 0})
+        bucket["total"] += 1
+        bucket["active"] += 1 if active else 0
+    return [{**row, **counts.get(row["key"], {"active": 0, "total": 0})} for row in public_catalog()]
+
+
+class ReasonValidate(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    category: str
+    reason_code: Optional[str] = None
+    code: Optional[str] = None
+    reason_note: Optional[str] = None
+    note: Optional[str] = None
+    plant_id: Optional[str] = None
+
+
+@reason_router.post("/validate")
+def validate_reason_choice(
+    payload: ReasonValidate,
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(get_current_user),
+):
+    """Check a reason choice for a record of ``plant_id`` (else the selected plant): the code is in the
+    right list, active, of that plant, and an OTHER code has a 5+ character note. Every service calls
+    this before it saves a reason, and stores the returned code, label and note."""
+    record_plant = str(payload.plant_id or "").strip()
+    ensure_plant_reason_codes(record_plant or (plant_scope or {}).get("selected_plant_id"))
+    if record_plant and record_plant.upper() != "ALL":
+        allowed = [str(p).strip() for p in (plant_scope or {}).get("allowed_plants", []) or [] if str(p).strip()]
+        aliases = accepted_persisted_plant_ids(record_plant)
+        if allowed and not (set(aliases) & {alias for plant in allowed for alias in accepted_persisted_plant_ids(plant)}):
+            raise HTTPException(status_code=403, detail="You cannot use reasons of that plant.")
+        query = db.query(models.ReasonCode).filter(models.ReasonCode.plant_id.in_(aliases))
+    else:
+        query = apply_plant_scope(db.query(models.ReasonCode), models.ReasonCode.plant_id, plant_scope)
+    code = str(payload.reason_code or payload.code or "").strip().upper()
+    rows = query.filter(models.ReasonCode.code == code).all() if code else []
+    try:
+        return check_reason_choice(rows, payload.category, code, payload.reason_note if payload.reason_note is not None else payload.note)
+    except ReasonChoiceError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @reason_router.get("/", response_model=List[ReasonResponse])
 def list_reasons(
     category: Optional[str] = Query(None),
@@ -769,6 +832,7 @@ def list_reasons(
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
 ):
+    ensure_plant_reason_codes((plant_scope or {}).get("selected_plant_id"))
     query = db.query(models.ReasonCode)
     if not include_inactive:
         query = query.filter(models.ReasonCode.active == True)

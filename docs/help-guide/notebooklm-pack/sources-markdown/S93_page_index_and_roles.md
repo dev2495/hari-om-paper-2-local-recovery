@@ -62,6 +62,7 @@ Owner and Admin can open every page. A page with no roles listed is open to all 
 ## Sidebar group: Design
 
 - **Specifications** (address /specifications): Spec sheet workspace, recipe truth, and print-ready outputs. Roles that see it: Owner, Admin (plus Owner and Admin).
+- **Packing setup** (address /specifications/packing-setup): Box, qty per box, plastic and fadda for every active spec (temporary). Roles that see it: Owner, Admin (plus Owner and Admin).
 
 ## Sidebar group: Reports
 
@@ -71,6 +72,7 @@ Owner and Admin can open every page. A page with no roles listed is open to all 
 - **Throughput** (address /reports/production): Per-stage and per-machine output. Roles that see it: PlantManager, Planner (plus Owner and Admin).
 - **Planning performance** (address /reports/planning): How well the plan held: slots done in their shift, machine load, missed slots and stages finished on time. Roles that see it: PlantManager, Planner (plus Owner and Admin).
 - **Plan vs actual** (address /reports/plan-vs-actual): Did each floor run happen on the planned day, shift and machine? Runs before planning and missed slots. Roles that see it: PlantManager, Planner (plus Owner and Admin).
+- **Employee performance** (address /reports/employees): Per operator: runs, made, good, rejected, reject %, flagged QC readings and shifts worked, with the runs behind them. Roles that see it: Owner, Admin, PlantManager, Planner (plus Owner and Admin).
 - **Sales pulse** (address /reports/sales): Order flow, OTIF, lead time and customers. Roles that see it: Sales, PlantManager (plus Owner and Admin).
 - **Customer 360** (address /reports/customer-360): Per-customer demand, delivery and risk. Roles that see it: Sales (plus Owner and Admin).
 - **Inventory intelligence** (address /reports/inventory): Stock value, ageing and velocity. Roles that see it: Store, Planner, PlantManager (plus Owner and Admin).

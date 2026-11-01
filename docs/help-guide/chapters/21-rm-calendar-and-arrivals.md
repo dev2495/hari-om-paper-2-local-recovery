@@ -9,14 +9,14 @@
 - **A proposal is not cover.** A **Proposed** arrival is not counted until the Owner approves it. After approval it counts as arriving, and it goes onto a draft PO, one PO per vendor per week, tagged **Scheduled by Owner**.
 - **Stock waiting for incoming QC is not an arrival.** It is already in the store, so it counts as stock from tomorrow, never twice.
 - **Expected arrivals lists only approved POs** with an open quantity, in four groups: **Overdue**, **Today**, **This week** (until Sunday) and **Later**.
-- **Vendor dates are recorded, not guessed.** **Confirm** records the date the vendor gives. **Change date** needs a reason. A date can only be today or later.
+- **Vendor dates are recorded, not guessed.** **Confirm** records the date the vendor gives. **Change date** needs a reason code from **Supplier schedule change**. A date can only be today or later.
 
 ## The flow
 ```flow
 title: From shortage to goods in the store
 See short day [Planner/Store] -> Add or suggest arrival [Planner/Store/Plant Manager] (Proposed) -> Approve [Owner] -> Draft PO, Scheduled by Owner -> Check & send [Purchase desk] -> Vendor confirms date -> Make GRN [GRN/Store]
 after Approve: Desk changes qty, date, vendor or rate -> Owner approves PO again -> Check & send
-after Vendor confirms date: Overdue (date passed) -> Change date with reason [Purchase desk] -> Make GRN
+after Vendor confirms date: Overdue (date passed) -> Change date with reason code [Purchase desk] -> Make GRN
 ```
 
 The calendar is where buying is decided; the purchase orders page is where the drafts are sent (see the Purchase orders chapter); Expected arrivals is where the store watches the trucks.
@@ -46,7 +46,7 @@ What you see:
 2. **Bucket tiles**: **Overdue**, **Today**, **This week**, **Later**: number of rows and the open quantity per unit. Click a tile to jump to its list.
 3. **Bucket lists**: each row shows the day ("Thu 1 Oct", in red when overdue) and full date ("· no date on PO" when the PO has no dated row), the material name and code, a state chip, "100 kg still to come" (with what was already received), the vendor and the PO number (a link for the desk).
 4. **Row buttons**: **Confirm** (or **Add date** when the PO line has no dated row yet), **Change date** and **Make GRN**. A confirmed row shows only Change date and Make GRN.
-5. **Confirm / Change date form** (opens under the row): **Date the vendor gives** or **New date**, **Note** (optional) or **Why it moved** (required), **Save** and **Close**.
+5. **Confirm / Change date form** (opens under the row): **Date the vendor gives** or **New date**, **Note** (optional) or **Why it moved** (required: a code from **Supplier schedule change**, with a note), **Save** and **Close**.
 6. **Add a delivery date to a PO** (folded panel at the bottom, desk roles): for hand-made POs and split deliveries. Fields **Purchase order**, **Material** (shows the open quantity), **Quantity**, **Arrives on**, **Vendor confirmation** (Not confirmed yet / Vendor confirmed) and **Save delivery date**.
 
 ## Step by step
@@ -85,12 +85,13 @@ Roles: Planner, Store, Plant Manager, Owner.
 2. A proposal changes freely. An approved arrival can be changed only by the Owner. An approved arrival keeps its vendor; to change vendor, cancel it and propose a new one.
 3. If the PO was already sent, the system asks "PO already sent — change the PO?". **Change the PO** makes a new PO revision with the new date (quantities and rates stay approved); send it to the vendor again. **Keep the date** leaves it.
 4. After the PO is approved, the quantity is fixed on the calendar; change it on the PO itself (Edit / vendor change), which goes to the Owner again.
+5. To cancel an arrival, open it in the material sheet, pick **Reason to cancel (only for Cancel arrival)** from **Supplier schedule change**, and click cancel. The message says "Kraft 230 GSM arrival of 6 Nov cancelled."
 
 ### How to confirm or change a vendor's date
 Roles: Store, Planner, Plant Manager, Owner.
 1. Open **Expected arrivals** and find the row.
 2. Click **Confirm**, set **Date the vendor gives** (today or later), add a note such as "Confirmed on call", and click **Save**. The chip becomes **Confirmed**.
-3. If the date moves, click **Change date**, set **New date**, write **Why it moved** (for example "Mill shut, truck late") and click **Save**.
+3. If the date moves, click **Change date**, set **New date**, pick **Why it moved** (SCH-SUPPLIER-DELAY Supplier asked to delay, SCH-PLAN-CHANGE Production plan changed, SCH-STOCK-OK Enough stock in hand, SCH-TRANSPORT Transport problem, SCH-RATE Rate or terms under discussion, SCH-OTHER), add a note such as "Mill shut, truck late" and click **Save**.
 
 ### How to make a GRN from an arrival
 Roles: GRN, Store, Plant Manager, Owner, Admin.
@@ -102,7 +103,7 @@ Roles: GRN, Store, Plant Manager, Owner, Admin.
 - **BLOCKS:** an arrival needs a quantity above 0 and a date of today or later ("Arrival 1: pick today or a later day"). Arrivals without a vendor are skipped at approval ("… needs a vendor").
 - **BLOCKS:** "Only the Owner can change an approved arrival." "An approved arrival keeps its vendor. Cancel it and propose a new one for the other vendor."
 - **BLOCKS:** once the PO is past draft, the quantity cannot change on the calendar ("… is past draft. Change the quantity on the PO itself (Edit / vendor change), which goes to the Owner again.").
-- **BLOCKS:** a vendor date in the past is refused ("… has passed. Pick today or a later day."). **Change date** needs a reason of at least 3 characters.
+- **BLOCKS:** a vendor date in the past is refused ("… has passed. Pick today or a later day."). **Change date** and **Cancel arrival** need a **Supplier schedule change** code (OTHER needs a note of at least 5 characters).
 - **BLOCKS:** vendor confirmation is for approved POs: "Send the approved PO to the vendor first; the vendor confirms an approved PO." Delivery rows cannot add up to more than the PO line's open quantity.
 - **ASKS:** moving an arrival on a sent PO asks "PO already sent — change the PO?" before making a new revision.
 - **AUTOMATIC:** balance per day; late need placed on today; overdue arrivals counted on today; QC-pending stock counted from tomorrow; received goods counted as stock only once; packing material (boxes, plastic, fadda) for a card counts as needed until its Packing step closes.

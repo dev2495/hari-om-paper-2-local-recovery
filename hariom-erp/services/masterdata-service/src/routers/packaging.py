@@ -139,6 +139,81 @@ def _get_fadda_or_404(db: Session, plant_values: list[str], fadda_id: uuid.UUID)
     return model
 
 
+# Stock unit of each packaging kind (bff master_items creates the stock items with these units).
+PACKAGING_STOCK_UNIT = {"BOX": "PCS", "PLASTIC": "KG", "FADDA": "PCS"}
+
+
+def _packaging_rows(db: Session, plant_scope: dict, include_inactive: bool) -> list[dict]:
+    """Every box, plastic sheet and fadda master in scope as one list keyed by code."""
+    rows: list[dict] = []
+    for kind, model, code_attr in (
+        ("BOX", models.PackagingBox, "code"),
+        ("PLASTIC", models.PackagingPlasticSheet, "sku"),
+        ("FADDA", models.PackagingFadda, "sku"),
+    ):
+        query = db.query(model)
+        if not include_inactive:
+            query = query.filter(model.active == True)
+        query = apply_plant_scope(query, model.plant_id, plant_scope)
+        for item in query.order_by(getattr(model, code_attr).asc()).all():
+            rows.append(
+                {
+                    "kind": kind,
+                    "code": getattr(item, code_attr),
+                    "size_label": getattr(item, "size_label", None),
+                    "weight_kg": item.weight_kg,
+                    "stock_unit": PACKAGING_STOCK_UNIT[kind],
+                    "length_mm": getattr(item, "length_mm", None),
+                    "width_mm": getattr(item, "width_mm", None),
+                    "height_mm": getattr(item, "height_mm", None),
+                    "active": bool(item.active),
+                    "plant_id": item.plant_id,
+                }
+            )
+    return rows
+
+
+@router.get("/unit-weights")
+def get_packaging_unit_weights(
+    codes: Optional[str] = Query(None, description="Comma-separated box codes / plastic or fadda SKUs; all when omitted"),
+    include_inactive: bool = Query(False),
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+):
+    """Per-piece weight (kg) of packaging masters by code: the source for packing consumption maths.
+
+    ``weight_kg`` is the weight of ONE piece (one box, one plastic sheet, one fadda). Codes are matched
+    case-insensitively; codes with no master in this plant are listed in ``missing``. A master whose
+    weight is blank is returned with ``weight_kg: null`` (callers must warn, not drop it silently).
+    """
+    rows = _packaging_rows(db, plant_scope, include_inactive)
+    wanted = [str(code).strip().upper() for code in (codes or "").split(",") if str(code).strip()]
+    if wanted:
+        wanted_set = set(wanted)
+        rows = [row for row in rows if str(row["code"]).upper() in wanted_set]
+        found = {str(row["code"]).upper() for row in rows}
+        missing = [code for code in dict.fromkeys(wanted) if code not in found]
+    else:
+        missing = []
+    return {"items": rows, "by_code": {str(row["code"]).upper(): row for row in rows}, "missing": missing}
+
+
+@router.get("/defaults")
+def get_packaging_defaults(
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+):
+    """Default plastic / fadda for a spec: the master when exactly one active one exists, else none."""
+    rows = _packaging_rows(db, plant_scope, False)
+    counts = {kind: sum(1 for row in rows if row["kind"] == kind) for kind in ("BOX", "PLASTIC", "FADDA")}
+
+    def single(kind: str) -> Optional[str]:
+        matches = [row["code"] for row in rows if row["kind"] == kind]
+        return matches[0] if len(matches) == 1 else None
+
+    return {"plastic_sku": single("PLASTIC"), "fadda_sku": single("FADDA"), "active_counts": counts}
+
+
 @router.get("/boxes", response_model=List[BoxResponse])
 def get_boxes(
     include_inactive: bool = Query(False, description="Include disabled boxes for master maintenance"),

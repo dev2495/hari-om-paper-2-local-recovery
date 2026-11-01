@@ -649,8 +649,8 @@ export function PackagingBoxForm({ initialData, onSubmit, onCancel }: MasterForm
           <Input {...register("code", { required: true })} />
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-medium">Color</label>
-          <Input {...register("size_label", { required: true })} />
+          <label className="text-sm font-medium">Size label</label>
+          <Input placeholder="e.g. 400x300x200" {...register("size_label", { required: true })} />
         </div>
       </div>
       <div className="grid grid-cols-3 gap-4">
@@ -668,7 +668,7 @@ export function PackagingBoxForm({ initialData, onSubmit, onCancel }: MasterForm
         </div>
       </div>
       <div className="space-y-2">
-        <label className="text-sm font-medium">Weight (kg)</label>
+        <label className="text-sm font-medium">Weight per box (kg)</label>
         <Input type="number" step="0.0001" {...register("weight_kg")} />
       </div>
       <DialogFooter>
@@ -696,7 +696,7 @@ export function PlasticSheetForm({ initialData, onSubmit, onCancel }: MasterForm
         </div>
       </div>
       <div className="space-y-2">
-        <label className="text-sm font-medium">Weight (kg)</label>
+        <label className="text-sm font-medium">Weight per sheet (kg)</label>
         <Input type="number" step="0.0001" {...register("weight_kg")} />
       </div>
       <DialogFooter>
@@ -718,7 +718,7 @@ export function FaddaForm({ initialData, onSubmit, onCancel }: MasterFormProps) 
         <Input {...register("sku", { required: true })} />
       </div>
       <div className="space-y-2">
-        <label className="text-sm font-medium">Weight (kg)</label>
+        <label className="text-sm font-medium">Weight per piece (kg)</label>
         <Input type="number" step="0.0001" {...register("weight_kg")} />
       </div>
       <DialogFooter>

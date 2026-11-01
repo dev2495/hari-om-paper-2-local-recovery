@@ -91,5 +91,5 @@ def test_only_owner_or_admin_decide_a_po(decider):
 def test_owner_may_send_back_his_own_revision():
     with SessionLocal() as db, patch("src.routers.purchase.emit_audit_event"):
         submitted = _made_and_submitted(db, OWNER)
-        rejected = reject_purchase_order(submitted["id"], RevisionActionPayload(expected_version=submitted["version"], reason="Wrong vendor"), db, PLANT, OWNER)
+        rejected = reject_purchase_order(submitted["id"], RevisionActionPayload(expected_version=submitted["version"], reason_code="PJ-WRONG-VENDOR"), db, PLANT, OWNER)
         assert rejected["status"] == "REJECTED"

@@ -39,6 +39,7 @@ import { JobCardLifecycleSheet } from "@/components/production/job-card-lifecycl
 import { ErrorState, LoadingState } from "@/components/workspace/query-state"
 import { ReleaseToQueueDialog } from "@/components/sales/release-to-queue-dialog"
 import { OrderClosureDialog, orderClosureAction, orderPlantId } from "@/components/sales/order-closure-dialog"
+import { OrderResumeDialog } from "@/components/sales/order-resume-dialog"
 import { OrderHoldDialog } from "@/components/sales/order-hold-dialog"
 import { CustomerPoDialog, awaitingCustomerPo, poChangeOptions } from "@/components/sales/customer-po-dialog"
 import { OrderCardStepper } from "@/components/sales/order-card-stepper"
@@ -50,7 +51,7 @@ import { useAuth } from "@/context/AuthContext"
 import { apiErrorText, useUpdateLineColors, type JobCardLifecycle } from "@/hooks/use-lifecycle"
 import { useCustomers, useParchments } from "@/hooks/use-master-data"
 import { usePlanningJobCards } from "@/hooks/use-production"
-import { useApproveSalesOrder, useMoveDeliverySchedule, useOrderDeliverySchedules, useOrderHistory, useResumeSalesOrder, useSalesOrder, useSubmitSalesOrder } from "@/hooks/use-sales"
+import { useApproveSalesOrder, useMoveDeliverySchedule, useOrderDeliverySchedules, useOrderHistory, useSalesOrder, useSubmitSalesOrder } from "@/hooks/use-sales"
 import { dispatchApi, productionApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { peopleInText, personLabel } from "@/lib/people"
@@ -108,7 +109,7 @@ export default function SalesOrderPage() {
   const jobCardsQuery = usePlanningJobCards({ sales_order_id: orderId, limit: 250 }, Boolean(orderId))
   const approveOrder = useApproveSalesOrder()
   const submitOrder = useSubmitSalesOrder()
-  const resumeOrder = useResumeSalesOrder()
+  const [resumeOpen, setResumeOpen] = useState(false)
 
   const orderJobs: any[] = useMemo(
     () => (Array.isArray(jobCardsQuery.data) ? jobCardsQuery.data : []).filter((job: any) => String(job.sales_order_id || "") === orderId).sort((a: any, b: any) => String(a.job_card_no || "").localeCompare(String(b.job_card_no || ""))),
@@ -127,11 +128,13 @@ export default function SalesOrderPage() {
     lifecycleQueries.forEach((result, index) => { if (result.data) map.set(String(orderJobs[index]?.id), result.data) })
     return map
   }, [lifecycleQueries, orderJobs])
-  const dispatchJobs = useMemo(() => orderJobs.filter((job) => cardState(job) === "COMPLETED" || cardReadyToDispatch(job) || String(job.current_stage || "").toUpperCase() === "DONE"), [orderJobs])
+  // Every sealed challan of every card (issue #9): a box card ships some boxes while Process still runs, and can
+  // ship in several challans, so the latest challan of finished cards alone undercounts.
+  const dispatchJobs = useMemo(() => orderJobs.filter((job) => cardState(job) !== "CANCELLED"), [orderJobs])
   const dispatchQueries = useQueries({
     queries: dispatchJobs.map((job) => ({
-      queryKey: ["dispatch-by-job", String(job.id), false, plantId || null],
-      queryFn: async () => { try { return (await dispatchApi.getDispatchByJob(String(job.id), false, plantId)).data } catch { return null } },
+      queryKey: ["dispatch-sealed-by-job", String(job.id), plantId || null],
+      queryFn: async () => { try { const rows = (await dispatchApi.getSealedByJob(String(job.id), plantId)).data; return Array.isArray(rows) ? rows : [] } catch { return [] } },
       staleTime: 30_000,
     })),
   })
@@ -166,6 +169,11 @@ export default function SalesOrderPage() {
   const closure = orderClosureAction(order)
   const editable = !["closed", "cancelled"].includes(status) && !order?.is_held
   const finished = ["closed", "cancelled"].includes(status)
+  // Issue #9: a closed, cancelled or short-closed order shows no Release / Short close; nor does an order with
+  // nothing left unreleased (a draft still shows Release, disabled, as the next step after approval).
+  const shortClosed = String(order?.closure_kind || "").toUpperCase() === "SHORT_CLOSED"
+  const showRelease = !finished && !shortClosed && (canApprove || releasableLineIds.length > 0)
+  const showClosure = !finished && !shortClosed && Boolean(closure.kind)
   const unsyncedReleaseLots = useMemo(
     () => (order?.lines || []).flatMap((line: any) => (Array.isArray(line.release_lots) ? line.release_lots : []).filter((lot: any) => !lot.job_card_id && String(lot.status || "").toLowerCase() !== "cancelled")),
     [order?.lines],
@@ -183,7 +191,8 @@ export default function SalesOrderPage() {
   }
   const handleApprove = () => run(() => approveOrder.mutateAsync({ orderId, plantId }), "Sales order approved. Next: release its lines.")
   const handleSubmit = () => run(() => submitOrder.mutateAsync({ orderId }), "Sent for approval.")
-  const handleResume = () => run(() => resumeOrder.mutateAsync({ orderId, plantId }), "Customer hold lifted.")
+  // Lifting a hold asks why (ORDER_RESUME reason, 1 Nov 2026).
+  const handleResume = () => setResumeOpen(true)
   const handleOpenRelease = (lineIds?: string[]) => {
     const ids = lineIds?.length ? lineIds : selectedLineIds.length ? selectedLineIds : releasableLineIds
     if (!ids.length) { showToast("Nothing is left to release on this order.", "error"); return }
@@ -204,7 +213,7 @@ export default function SalesOrderPage() {
   const firstReady = cards.firstReadyId
   const dcHref = firstReady ? `/logistics/dispatch/new?job_card_id=${firstReady}` : "/logistics/dispatch"
   const callOffs = scheduleItems.filter((row) => row.status !== "cancelled")
-  const dcs = dispatchQueries.map((result, index) => ({ job: dispatchJobs[index], data: result.data })).filter((row) => row.data?.dispatch_snapshot || row.data?.challan_no)
+  const dcs = dispatchQueries.flatMap((result, index) => (Array.isArray(result.data) ? result.data : []).map((data: any) => ({ job: dispatchJobs[index], data })))
 
   const actionBtn = "erp-btn-secondary !h-11 sm:!h-9 whitespace-nowrap"
   return (
@@ -246,19 +255,19 @@ export default function SalesOrderPage() {
             <button type="button" className="erp-btn-primary !h-11 sm:!h-9" onClick={() => void handleApprove()} disabled={approveOrder.isPending} title={enteredByMe && selfApprove ? `You entered this order; as ${selfApprove} you may approve it yourself. The history records it as approved by the same person.` : undefined} data-testid="sales-order:approve"><CheckCircle2 className="h-4 w-4" />Approve</button>
           )
         ) : null}
-        <button type="button" className={cn(canApprove ? actionBtn : "erp-btn-primary !h-11 sm:!h-9")} disabled={!canRelease} title={!canRelease ? (order.is_held ? "Lift the customer hold to release" : canApprove ? "Approve the order first" : finished ? "The order is closed" : "All lines are already released to job cards") : "Make job cards for the open lines"} onClick={() => handleOpenRelease()} data-testid="sales-order:release"><Rocket className="h-4 w-4" />Release lines</button>
+        {showRelease ? <button type="button" className={cn(canApprove ? actionBtn : "erp-btn-primary !h-11 sm:!h-9")} disabled={!canRelease} title={!canRelease ? (order.is_held ? "Lift the customer hold to release" : canApprove ? "Approve the order first" : finished ? "The order is closed" : "All lines are already released to job cards") : "Make job cards for the open lines"} onClick={() => handleOpenRelease()} data-testid="sales-order:release"><Rocket className="h-4 w-4" />Release lines</button> : null}
         {/* On a phone the buttons that cannot be used yet are left out so the bar stays short. */}
         {cards.total ? <Link href={`/planning/board?section=winder&order_id=${order.id}&view=calendar`} className={actionBtn}><CalendarDays className="h-4 w-4" />Plan</Link> : <button type="button" className={cn(actionBtn, "max-sm:!hidden")} disabled title="Nothing to plan — release the lines first"><CalendarDays className="h-4 w-4" />Plan</button>}
         {cards.ready && !canChallan ? <span className={cn(actionBtn, "cursor-default opacity-80")} data-testid="sales-order:waiting-dc" title="Dispatch makes the delivery challan for the packed pieces"><Truck className="h-4 w-4" />Waiting for dispatch · {fmt(cards.readyQty)} ready</span> : cards.ready ? <Link href={dcHref} className={actionBtn} data-testid="sales-order:make-dc" title="Make the delivery challan for the packed pieces"><Truck className="h-4 w-4" />Make challan · {fmt(cards.readyQty)} ready</Link> : canChallan ? <button type="button" className={cn(actionBtn, "max-sm:!hidden")} disabled title="No packed pieces waiting for a delivery challan"><Truck className="h-4 w-4" />Make challan</button> : null}
         <span className="hidden h-6 w-px bg-border sm:block" aria-hidden="true" />
         {order.is_held ? (
-          <button type="button" className={cn(actionBtn, "!text-signal-emerald-ink")} onClick={() => void handleResume()} disabled={resumeOrder.isPending} data-testid="sales-order:resume"><PlayCircle className="h-4 w-4" />Resume</button>
+          <button type="button" className={cn(actionBtn, "!text-signal-emerald-ink")} onClick={() => handleResume()} data-testid="sales-order:resume"><PlayCircle className="h-4 w-4" />Resume</button>
         ) : (
           <button type="button" className={cn(actionBtn, "!text-signal-amber-ink")} disabled={finished || totals.pending <= 0} title={finished ? "The order is closed" : totals.pending <= 0 ? "Nothing pending to hold" : "Customer hold: the undelivered balance is held and the PO closes until Resume"} onClick={() => setHoldOpen(true)} data-testid="sales-order:hold"><PauseCircle className="h-4 w-4" />Hold</button>
         )}
-        <button type="button" className={cn(actionBtn, closure.kind === "cancel" ? "!text-signal-rose-ink" : "!text-signal-amber-ink")} disabled={!closure.kind} title={closure.kind === "cancel" ? "Nothing is released or dispatched yet: cancel the whole order with a reason" : closure.kind === "short_close" ? "Drop the balance not yet released; released job cards still finish" : closure.reason || "Nothing to close"} onClick={() => setClosureOpen(true)} data-testid={closure.kind === "cancel" ? "sales-order-detail:cancel" : "sales-order-detail:short-close"}>
+        {showClosure ? <button type="button" className={cn(actionBtn, closure.kind === "cancel" ? "!text-signal-rose-ink" : "!text-signal-amber-ink")} disabled={!closure.kind} title={closure.kind === "cancel" ? "Nothing is released or dispatched yet: cancel the whole order with a reason" : closure.kind === "short_close" ? "Drop the balance not yet released; released job cards still finish" : closure.reason || "Nothing to close"} onClick={() => setClosureOpen(true)} data-testid={closure.kind === "cancel" ? "sales-order-detail:cancel" : "sales-order-detail:short-close"}>
           {closure.kind === "cancel" ? <Ban className="h-4 w-4" /> : <CircleSlash2 className="h-4 w-4" />}{closure.kind === "cancel" ? "Cancel order" : "Short close"}
-        </button>
+        </button> : null}
         <span className="hidden h-6 w-px bg-border sm:block" aria-hidden="true" />
         <button type="button" className={cn(actionBtn, "max-sm:!hidden")} onClick={() => window.print()}><Printer className="h-4 w-4" />Print</button>
         {canApprove ? <Link href={`/sales-orders/${order.id}/edit`} className={actionBtn} title="Edit the order, its lines and the customer PO" data-testid="sales-order:edit"><Pencil className="h-4 w-4" />Edit</Link> : null}
@@ -301,7 +310,7 @@ export default function SalesOrderPage() {
 
       <div className="flex items-center gap-1 overflow-x-auto border-b border-border print:hidden max-sm:flex-wrap max-sm:overflow-visible" role="tablist" aria-label="Order sections">
         {TABS.map((item) => {
-          const count = item.key === "cards" ? cards.total : item.key === "deliveries" ? callOffs.length : item.key === "history" ? history?.summary?.events ?? null : null
+          const count = item.key === "cards" ? cards.total : item.key === "deliveries" ? (dispatchQueries.some((result) => result.isLoading) ? null : dcs.length) : item.key === "history" ? history?.summary?.events ?? null : null
           const active = tab === item.key
           return (
             <button key={item.key} type="button" role="tab" aria-selected={active} data-testid={`sales-order:tab-${item.key}`} onClick={() => setTab(item.key)} className={cn("-mb-px inline-flex h-11 shrink-0 items-center gap-1.5 border-b-2 px-3 text-[13px] font-medium transition-colors", active ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")}>
@@ -486,6 +495,7 @@ export default function SalesOrderPage() {
       />
       <OrderHoldDialog orders={holdOpen ? [order] : []} open={holdOpen} onOpenChange={setHoldOpen} testIdPrefix="sales-order:hold" />
       <OrderClosureDialog order={order} open={closureOpen} onOpenChange={setClosureOpen} />
+      <OrderResumeDialog order={order} open={resumeOpen} onOpenChange={setResumeOpen} />
       <CustomerPoDialog order={order} open={poOpen} onOpenChange={setPoOpen} />
       <JobCardLifecycleSheet jobCardId={sheetJobId} open={Boolean(sheetJobId)} onOpenChange={(open) => { if (!open) setSheetJobId(null) }} />
     </div>
@@ -619,6 +629,18 @@ function CardBlock({ job, jobs, lifecycle, onManage }: { job: any; jobs: any[]; 
         </span>
       </div>
       {job.blocked_reason ? <p className="mt-2 rounded-md border border-signal-rose-line bg-signal-rose-soft px-2.5 py-1.5 text-[12.5px] text-signal-rose-ink"><PauseCircle className="mr-1 inline h-3.5 w-3.5" />{job.blocked_reason}</p> : null}
+      {(lifecycle?.short_closes || []).filter((row) => Number(row.returned_pcs) > 0).map((row) => (
+        <p key={row.stage} className="mt-2 rounded-md border border-border bg-card px-2.5 py-1.5 text-[12.5px] text-muted-foreground" data-testid="order-card-short-close">
+          <CircleSlash2 className="mr-1 inline h-3.5 w-3.5" />
+          {({ WINDER: "Winding", OVEN: "Oven", PROCESS: "Process" } as Record<string, string>)[row.stage] || row.stage} closed short {formatDateTime(row.at)}: {fmt(row.good)} of {fmt(row.target)} {row.unit} · {fmt(row.returned_pcs)} pcs back to the order{row.reason ? ` · ${row.reason}` : ""}
+        </p>
+      ))}
+      {lifecycle?.boxes && lifecycle.boxes.box_count > 0 ? (
+        <p className="mt-1 text-[12px] text-muted-foreground" data-testid="order-card-boxes">
+          {fmt(lifecycle.boxes.box_count)} box{lifecycle.boxes.box_count === 1 ? "" : "es"} packed ({fmt(lifecycle.boxes.boxed_pcs)} pcs) · {fmt(lifecycle.boxes.dispatched_boxes)} shipped
+          {lifecycle.boxes.flagged_boxes ? ` · ${fmt(lifecycle.boxes.flagged_boxes)} QC flagged` : ""}
+        </p>
+      ) : null}
       {lifecycle?.close_reason ? <p className="mt-2 rounded-md border border-border bg-card px-2.5 py-1.5 text-[12.5px] text-muted-foreground"><CircleSlash2 className="mr-1 inline h-3.5 w-3.5" />{state === "FORCE_CLOSED" ? "Force closed" : "Closed"} {formatDateTime(lifecycle.closed_at)} by {lifecycle.closed_by || "—"} · {lifecycle.close_reason}{Number(lifecycle.returned_qty || 0) > 0 ? ` · ${fmt(lifecycle.returned_qty)} pcs back to the order` : ""}</p> : null}
       {job.missed_slot_open ? <p className="mt-2 rounded-md border border-signal-amber-line bg-signal-amber-soft px-2.5 py-1.5 text-[12.5px] text-signal-amber-ink">Slot passed with nothing logged — back in the planner queue.</p> : null}
       <div className="mt-3">

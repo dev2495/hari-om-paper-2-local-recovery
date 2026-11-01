@@ -12,7 +12,8 @@ import { ErrorState, LoadingState } from "@/components/workspace/query-state"
 import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
 import { useCreateCustomerRejection, useCustomerRejections, useDisposeCustomerRejection, useInventoryItems, useInventoryLocations } from "@/hooks/use-inventory"
-import { useCreateReasonCode, useCustomers, useReasonCodes, useTubeSizes } from "@/hooks/use-master-data"
+import { useCustomers, useReasonCodes, useTubeSizes } from "@/hooks/use-master-data"
+import { ReasonPicker, useReasonChoice } from "@/components/reasons"
 import { inventoryApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
@@ -34,18 +35,6 @@ const DISPOSITIONS = [
   { value: "ACCEPT", label: "Accept to stock", hint: "Released to sellable stock and the complaint closes. Held goods need an Owner/Admin who did not record it." },
   { value: "SCRAP", label: "Scrap", hint: "Written off with a scrap voucher and the complaint closes." },
 ] as const
-
-// Starter list for the "Customer complaints" master; the client keeps adding their own.
-const COMMON_REASONS = [
-  ["CC-DAMAGE", "Crushed / damaged tubes"],
-  ["CC-SIZE", "Size out of tolerance (I.D. / O.D. / length)"],
-  ["CC-STRENGTH", "Low crushing strength"],
-  ["CC-MOISTURE", "Moisture / soft tubes"],
-  ["CC-QTY", "Short or wrong quantity"],
-  ["CC-FINISH", "Finish, colour or print issue"],
-  ["CC-PACKING", "Packing issue"],
-  ["CC-OTHER", "Other"],
-]
 
 const EMPTY_FORM = { customer_id: "", customer_name: "", complaint_batch: "", item_id: "", size_label: "", rejected_qty: "", reason_code: "", reason_notes: "", dispatch_ref: "", invoice_ref: "", location_id: "", effective_date: "", attachment_refs: "" }
 const EMPTY_DECISION = { disposition: "REWORK", notes: "", root_cause_department: "", owner_department: "", corrective_action: "", closure_due_date: "", rework_cost: "", scrap_cost: "" }
@@ -69,7 +58,6 @@ export default function CustomerComplaintsPage() {
   const roles = useMemo(() => new Set([user?.role, ...(user?.roles || [])].filter(Boolean) as string[]), [user?.role, user?.roles])
   const canRecord = ["Owner", "Admin", "PlantManager", "QC", "Store", "Sales", "Dispatch"].some((role) => roles.has(role))
   const canDecide = ["Owner", "Admin", "PlantManager", "QC", "Store"].some((role) => roles.has(role))
-  const canEditMaster = ["Owner", "Admin"].some((role) => roles.has(role))
   const rejections = useCustomerRejections({ limit: 300 })
   const items = useInventoryItems()
   const locations = useInventoryLocations()
@@ -77,7 +65,9 @@ export default function CustomerComplaintsPage() {
   const tubeSizes = useTubeSizes()
   const complaintReasons = useReasonCodes("CUSTOMER_COMPLAINT")
   const legacyReasons = useReasonCodes("RETURN")
-  const createReason = useCreateReasonCode()
+  // The complaint reason is a CUSTOMER_COMPLAINT code (seeded in Masters › Reason codes), checked by the
+  // inventory service; CC-OTHER needs a note (owner decision 4, 1 Nov 2026).
+  const complaintReason = useReasonChoice("CUSTOMER_COMPLAINT")
   const create = useCreateCustomerRejection()
   const dispose = useDisposeCustomerRejection()
   const [view, setView] = useState<"open" | "closed" | "all">("open")
@@ -115,18 +105,9 @@ export default function CustomerComplaintsPage() {
   }
   const visible = states.filter(({ row, state }) => (view === "all" || (view === "open") === (state.step < 3))
     && (!reasonFilter || row.reason_code === reasonFilter)
-    && `${row.customer_name} ${row.complaint_batch || ""} ${row.size_label || ""} ${row.dispatch_ref || ""} ${row.invoice_ref || ""} ${reasonLabel(row.reason_code)} ${itemName(row.item_id)}`.toLowerCase().includes(search.toLowerCase()))
+    && `${row.customer_name} ${row.complaint_batch || ""} ${row.size_label || ""} ${row.dispatch_ref || ""} ${row.invoice_ref || ""} ${row.reason_label || reasonLabel(row.reason_code)} ${itemName(row.item_id)}`.toLowerCase().includes(search.toLowerCase()))
   const selected = states.find(({ row }) => row.id === selectedId)
   const lookupLine = lookup?.lines?.find((line: any) => line.item_id === form.item_id) || null
-
-  const addCommonReasons = async () => {
-    try {
-      for (const [code, label] of COMMON_REASONS) {
-        await createReason.mutateAsync({ code, label, category: "CUSTOMER_COMPLAINT", severity: "WATCH", description: "Customer complaint reason" })
-      }
-      showToast("Common complaint reasons added. Edit or add more in Masters › Reason codes.", "success")
-    } catch (error: any) { showToast(errorText(error, "Reasons could not be added."), "error") }
-  }
 
   const checkDispatch = async () => {
     const ref = form.dispatch_ref.trim()
@@ -149,20 +130,20 @@ export default function CustomerComplaintsPage() {
     if (!form.complaint_batch.trim()) return showToast("Enter the batch on the goods (job card / batch number).", "error")
     if (!form.item_id) return showToast("Choose the product (finished good).", "error")
     if (!(qty > 0)) return showToast("Enter the quantity complained about.", "error")
-    if (!form.reason_code) return showToast("Pick the reason from the Customer complaints master.", "error")
+    if (!complaintReason.validate()) return showToast("Pick the reason from the Customer complaints list.", "error")
     if (lookupLine && qty > Number(lookupLine.returnable_qty) + 1e-6) return showToast(`Only ${lookupLine.returnable_qty} of this product can still come back against ${form.dispatch_ref}.`, "error")
     const customer = customers.find((row: any) => String(row.id) === customerId)
     try {
       const { data } = await create.mutateAsync({
         item_id: form.item_id, rejected_qty: qty, customer_id: customerId || undefined, customer_name: (customer?.name || form.customer_name).trim(),
         complaint_batch: form.complaint_batch.trim(), size_label: form.size_label.trim() || undefined,
-        dispatch_ref: form.dispatch_ref.trim() || undefined, invoice_ref: form.invoice_ref.trim() || undefined, reason_code: form.reason_code,
-        reason_notes: form.reason_notes.trim() || undefined, location_id: form.location_id || undefined, effective_date: form.effective_date || undefined,
+        dispatch_ref: form.dispatch_ref.trim() || undefined, invoice_ref: form.invoice_ref.trim() || undefined, reason_code: complaintReason.value.code,
+        reason_note: complaintReason.value.note.trim() || undefined, reason_notes: complaintReason.value.note.trim() || undefined, location_id: form.location_id || undefined, effective_date: form.effective_date || undefined,
         source_job_card_id: lookupLine?.production_job_id || undefined,
         attachment_refs: form.attachment_refs.split(",").map((item) => item.trim()).filter(Boolean),
       })
       showToast("Complaint recorded; goods held for QC. QC, the plant head and Sales are notified.", "success")
-      setForm(EMPTY_FORM); setLookup(null); setRecording(false); setMoreOpen(false)
+      setForm(EMPTY_FORM); complaintReason.reset(); setLookup(null); setRecording(false); setMoreOpen(false)
       if (data?.id) { setSelectedId(String(data.id)); setDecision(EMPTY_DECISION) }
     } catch (error: any) {
       showToast(errorText(error, "Complaint could not be recorded."), "error")
@@ -226,7 +207,6 @@ export default function CustomerComplaintsPage() {
           <div className="flex flex-wrap items-center gap-3 rounded-xl border border-signal-amber-line bg-signal-amber-soft px-4 py-3 text-[13px] text-signal-amber-ink">
             <ListChecks className="h-4 w-4 shrink-0" aria-hidden="true" />
             <span className="min-w-0 flex-1">The <b>Customer complaints</b> reason master is empty. Reasons come from Masters › Reason codes (category Customer complaints).</span>
-            {canEditMaster ? <button type="button" className="erp-btn-secondary !h-9" disabled={createReason.isPending} onClick={() => void addCommonReasons()}>Add common reasons</button> : null}
             <Link className="font-semibold underline" href="/masters/reason-codes?category=CUSTOMER_COMPLAINT">Open the master</Link>
           </div>
         ) : null}
@@ -260,13 +240,7 @@ export default function CustomerComplaintsPage() {
               <Field label="Quantity" hint={lookupLine ? `up to ${lookupLine.returnable_qty} more` : "pcs"}>
                 <input className={fieldClass} type="number" min="0.001" step="0.001" value={form.rejected_qty} onChange={(e) => setForm({ ...form, rejected_qty: e.target.value })} data-testid="customer-return-qty" />
               </Field>
-              <Field label="Reason" hint="Customer complaints master">
-                <select className={fieldClass} value={form.reason_code} onChange={(e) => setForm({ ...form, reason_code: e.target.value })} data-testid="customer-return-reason">
-                  <option value="">Select reason</option>
-                  {reasons.map((row: any) => <option key={row.code} value={row.code}>{row.label || row.code}</option>)}
-                </select>
-              </Field>
-              <div className="md:col-span-3"><Field label="What the customer said" hint="optional"><input className={fieldClass} value={form.reason_notes} onChange={(e) => setForm({ ...form, reason_notes: e.target.value })} placeholder="Defect seen, photos received…" /></Field></div>
+              <div className="md:col-span-3"><ReasonPicker category="CUSTOMER_COMPLAINT" label="Reason" value={complaintReason.value} onChange={complaintReason.setValue} showErrors={complaintReason.touched} notePlaceholder="What the customer said: defect seen, photos received…" testIdPrefix="customer-return-reason" /></div>
             </div>
             <div className="border-t border-border px-4 py-2">
               <button type="button" className="flex items-center gap-1.5 py-1 text-[13px] font-semibold text-primary" onClick={() => setMoreOpen(!moreOpen)} aria-expanded={moreOpen}><ChevronDown className={cn("h-4 w-4 transition-transform", moreOpen && "rotate-180")} />More details (dispatch, invoice, location, date, documents)</button>
@@ -323,7 +297,7 @@ export default function CustomerComplaintsPage() {
                         <td>{row.complaint_batch || <span className="text-muted-foreground">—</span>}</td>
                         <td className="whitespace-nowrap">{row.size_label || <span className="text-muted-foreground">—</span>}</td>
                         <td className="text-right tabular-nums">{row.rejected_qty}</td>
-                        <td>{reasonLabel(row.reason_code)}</td>
+                        <td>{row.reason_label || reasonLabel(row.reason_code)}</td>
                         <td>{statusChip(state)}{state.overdue ? <span className="mt-1 block text-[11px] font-semibold text-signal-rose-ink">Action overdue</span> : null}</td>
                         <td className="max-w-[260px] text-[12.5px] text-muted-foreground">{state.next}</td>
                       </tr>
@@ -350,7 +324,7 @@ export default function CustomerComplaintsPage() {
                     <div className="mt-2">{stepper(state.step)}</div>
                   </header>
                   <dl className="grid grid-cols-2 gap-x-4 gap-y-2 px-4 py-3 text-[12.5px]">
-                    {[["Batch", row.complaint_batch || "—"], ["Size", row.size_label || "—"], ["Reason", reasonLabel(row.reason_code)], ["Received", day(row.effective_date || row.created_at)], ["Dispatch", row.dispatch_ref || "—"], ["Invoice", row.invoice_ref || "—"], ["Stock status", String(row.status || "").replace(/_/g, " ").toLowerCase()], ["Root cause", row.root_cause_department || "—"], ["Action owner", row.owner_department || "—"], ["Action due", row.closure_due_date ? day(row.closure_due_date) : "—"], ["Cost impact", `₹${Number(row.cost_impact || 0).toLocaleString("en-IN")}`]].map(([label, value]) => (
+                    {[["Batch", row.complaint_batch || "—"], ["Size", row.size_label || "—"], ["Reason", row.reason_label || reasonLabel(row.reason_code)], ["Received", day(row.effective_date || row.created_at)], ["Dispatch", row.dispatch_ref || "—"], ["Invoice", row.invoice_ref || "—"], ["Stock status", String(row.status || "").replace(/_/g, " ").toLowerCase()], ["Root cause", row.root_cause_department || "—"], ["Action owner", row.owner_department || "—"], ["Action due", row.closure_due_date ? day(row.closure_due_date) : "—"], ["Cost impact", `₹${Number(row.cost_impact || 0).toLocaleString("en-IN")}`]].map(([label, value]) => (
                       <div key={label}><dt className="text-muted-foreground">{label}</dt><dd className="font-medium">{value}</dd></div>
                     ))}
                   </dl>

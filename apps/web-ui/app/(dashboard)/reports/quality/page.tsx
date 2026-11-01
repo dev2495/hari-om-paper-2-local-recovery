@@ -156,7 +156,7 @@ export default function QualityReportsPage() {
   const labels = useMemo(() => endLabels(trend, stagesInTrend), [trend, stagesInTrend])
   const incomingTrend: any[] = asArray(inc.weekly)
   const holdTrend: any[] = asArray(prod.holds_weekly)
-  const reasonRows = asArray(returns.by_reason).map((row: any) => ({ ...row, label: reasonLabel.get(row.reason_code) || row.reason_code }))
+  const reasonRows = asArray(returns.by_reason).map((row: any) => ({ ...row, label: reasonLabel.get(row.reason_code) || (row.reason_label && row.reason_label !== row.reason_code ? row.reason_label : row.reason_code) }))
   const maxFailing = Math.max(1, ...asArray(prod.failing_parameters).map((row: any) => Number(row.job_cards || 0)))
   const openHolds: any[] = asArray(prod.open_holds)
 

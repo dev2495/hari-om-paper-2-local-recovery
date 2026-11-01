@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from ..concession_use import guard_concession_stock
 from ..database import get_db
+from ..reasons import reason_input, resolve_reason, token_of
 from ..models import (
     InventoryLocation,
     ItemMaster,
@@ -449,7 +450,7 @@ def issue_parchment_by_weight(
     if not item:
         raise HTTPException(status_code=404, detail="Material not found in this plant")
     if _item_type(item) not in WEIGHT_ISSUE_TYPES:
-        raise HTTPException(status_code=400, detail=f"{item.name} is not issued by weight. Reels and coils of paper are issued by their AT label.")
+        raise HTTPException(status_code=400, detail=f"{item.name} is not issued by weight. Reels and coils of paper are issued by their reel label (AIT / reel number).")
     _lock_request(db, "weight-issue", plant_id, payload.request_id)
     if payload.request_id is not None:
         replay = db.query(ReelIssue).options(joinedload(ReelIssue.reel)).filter(
@@ -768,7 +769,11 @@ class SlittingCardPayload(BaseModel):
     shift: Optional[str] = None
     operator_name: Optional[str] = Field(default=None, max_length=120)
     notes: Optional[str] = Field(default=None, max_length=500)
+    # Correcting a written card picks an ENTRY_CORRECTION code from Masters › Reason codes (owner decision 4,
+    # 1 Nov 2026); `correction_reason` is the old free text, kept as the note when sent with a code.
     correction_reason: Optional[str] = Field(default=None, max_length=500)
+    correction_reason_code: Optional[str] = Field(default=None, max_length=80)
+    correction_reason_note: Optional[str] = Field(default=None, max_length=500)
 
     @field_validator("shift")
     @classmethod
@@ -796,11 +801,13 @@ def record_slitting_card(
         raise HTTPException(status_code=422, detail=f"Wastage {payload.wastage_kg:g} kg is more than the {issued:g} kg reel")
     existing = dict(issue.slitting_card or {})
     roles = set(current_user.get("roles") or [])
+    correction = None
     if existing:
         if not roles & {"Owner", "Admin", "PlantManager"}:
             raise HTTPException(status_code=403, detail="The slitting card is already written; a plant manager corrects it")
-        if len((payload.correction_reason or "").strip()) < 3:
-            raise HTTPException(status_code=422, detail="Say why the slitting card is being corrected")
+        code, note = reason_input(payload, code_key="correction_reason_code", note_keys=("correction_reason_note", "correction_reason"))
+        correction = resolve_reason(category="ENTRY_CORRECTION", code=code, note=note, plant_id=plant_id,
+                                    token=token_of(current_user), what="correcting the slitting card")
     good_kg = round(issued - float(payload.wastage_kg), 3)
     card = {
         "coils_made": int(payload.coils_made),
@@ -815,7 +822,9 @@ def record_slitting_card(
         "notes": (payload.notes or "").strip() or None,
         "recorded_by": current_user.get("sub"),
         "recorded_at": datetime.utcnow().isoformat(),
-        "history": [*(existing.get("history") or []), *([{k: v for k, v in existing.items() if k != "history"} | {"corrected_because": payload.correction_reason.strip()}] if existing else [])],
+        "history": [*(existing.get("history") or []), *([{k: v for k, v in existing.items() if k != "history"} | {
+            "corrected_because": correction.text, "corrected_because_code": correction.code,
+            "corrected_because_label": correction.label, "corrected_because_note": correction.note}] if existing else [])],
     }
     issue.slitting_card = card
     issue.status = ReelIssueStatus.CLOSED

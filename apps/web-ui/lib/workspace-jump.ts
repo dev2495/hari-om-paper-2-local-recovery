@@ -39,6 +39,7 @@ export const WORKSPACE_JUMP_ITEMS: WorkspaceJumpItem[] = [
   { name: "Manual FG", href: "/inventory/fg-inward", description: "Rework yield, returns, and adjustments.", group: "Supply Chain" },
   { name: "Dispatch", href: "/logistics/dispatch", description: "Packing handoff, challans, and finished-goods release.", group: "Supply Chain" },
   { name: "Specifications", href: "/specifications", description: "Spec sheet workspace, recipe truth, and print-ready outputs.", group: "Design" },
+  { name: "Packing setup", href: "/specifications/packing-setup", description: "Box, qty per box, plastic and fadda for every active spec.", group: "Design", keywords: ["box", "carton", "plastic", "fadda", "putha", "packing"] },
   { name: "Intelligence", href: "/analytics", description: "Live KPIs and finished reports in one intelligence home.", group: "Intelligence", keywords: ["analytics", "reports", "kpis"] },
   { name: "Owner daily pack", href: "/reports/owner", description: "Dispatch, OTIF, backlog, variance, blocked jobs.", group: "Intelligence" },
   { name: "Operations command", href: "/reports/operations", description: "Stage throughput and machine utilization.", group: "Intelligence" },

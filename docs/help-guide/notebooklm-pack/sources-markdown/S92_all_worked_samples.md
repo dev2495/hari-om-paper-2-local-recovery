@@ -9,7 +9,7 @@ Sharma Tubes Pvt Ltd sends PO GOLIVE-PO-118 for 5,000 pcs of 76.4 x 81 x 150 at 
 2. Sales releases it: two job cards, **26/10/315** (BLUE, 3,000 pcs) and **26/10/316** (RED, 2,000 pcs), go to the winder queue.
 3. The planner places 26/10/315 on a winder, Shift A, 31 Oct. Operators log Winding, Oven and Process runs with two QC readings each.
 4. Meanwhile the RM inward calendar shows Kraft 300 GSM running short on 4 Nov. The Owner approves an arrival; PO **RP-PM/68** goes to Bharat Paper Mills, arrives as **P/26/014** with 12 reels, passes incoming QC and is issued to the floor.
-5. When 26/10/315 closes Process, Dispatch makes the challan for 3,000 pcs; the order shows **Partly dispatched** until 26/10/316 ships too.
+5. As 26/10/315's Process runs get their readings, its pcs are packed in boxes of 48. Dispatch ships the first 40 boxes (1,920 pcs) while Process is still running. Process then closes with 2,990 good pcs (10 short of 3,000, reason SS-HIGH-REJECT): 62 full boxes and a part box of 14, and 10 pcs go back to the order. The second challan takes the other 23 boxes (1,070 pcs). The order shows **Partly dispatched** until 26/10/316 ships too.
 
 
 ## From chapter 01: Getting started
@@ -54,8 +54,8 @@ Sharma Tubes Pvt Ltd sends PO 4500012345 dated 28 Oct for 76.4 x 81 x 150 tubes.
 1. Priya (Sales) creates it: **SO/26/10/412**, Draft. She presses **Send for approval**.
 2. Ramesh (Planner) presses **Approve**: Ready to release.
 3. Priya releases: BLUE 3,000 on SHARMA_WINDER-1, RED 2,000 on SHARMA_WINDER-2. Two job cards, 26/10/315 and 26/10/316. Status: In production.
-4. 26/10/315 ships 3,000 pcs: **Partly dispatched**, "3,000 of 5,000 dispatched".
-5. The customer now says it does not want the RED pieces. They are already on 26/10/316, so Short close has nothing to drop and explains: "Everything left is already on job cards; the order closes by itself once they are dispatched." To stop the card, the planner force-closes 26/10/316 in the Job card manager. If the order was short-closed first, the balance that card hands back is dropped too instead of becoming releasable again.
+4. On card 26/10/315, Winding closes short at 270 of 300 bamboo (SS-MATERIAL-SHORT). 300 pcs come back to the BLUE line at once; the History tab shows "Winding closed short: 300 pcs back to the order — Paper or input short". Priya releases them again as card 26/10/321. Card 26/10/315 ships its 2,700 pcs in boxes: **Partly dispatched**, "2,700 of 5,000 dispatched".
+5. The customer now says it does not want the RED pieces. They are already on 26/10/316, so Short close has nothing to drop and explains: "Everything left is already on job cards; the order closes by itself once they are dispatched." To stop the card, the planner cancels 26/10/316 in the Job card manager (nothing made yet) with JC-CUST-CANCEL. The 2,000 pcs come back to the line; Priya presses **Short close** with SO-BALANCE-NOT-REQ. If the order had been short-closed first, the balance the card hands back would have been dropped at once.
 
 
 ## From chapter 05: Specifications
@@ -78,24 +78,26 @@ Sharma Tubes Pvt Ltd orders 76.4 x 81 x 150 tubes, dry weight 33.78 g, C.S. 400 
 Thursday 31 Oct, Plant A:
 - 08:10 Priya (Sales) enters SO/26/10/418 for Sharma Tubes Pvt Ltd, 2,000 pcs RED, and sends it for approval.
 - 08:30 Ramesh (Planner) approves and releases it: job card 26/10/320 in the SHARMA_WINDER-1 queue; he places it on Shift A.
-- 08:45 Anil (RM issue) scans reel AT-26-0415 (cleared) and issues it; it shows under Slitting cards to write.
-- 09:00 Suresh (Operator) scans 26/10/320, logs 100 bamboo on Winding, and two readings per check.
-- 13:30 Meena (Plant Manager) submits the runs and closes Winding.
-- Next day the card closes Process; Ravi (Dispatch) makes the challan for 2,000 pcs.
+- 08:45 Anil (RM issue) scans reel AIT 06281 (cleared) and issues it; it shows under Slitting cards to write.
+- 09:00 Suresh (Operator, Winder department) scans 26/10/320, logs 180 bamboo on Winding, and two readings per check.
+- 13:30 Meena (Plant Manager) submits the runs. Paper ran out, so she closes Winding short at 180 of 200 bamboo with SS-MATERIAL-SHORT. 200 pcs go back to SO/26/10/418 at once; Priya releases them again the next morning.
+- Next day Process logs its runs; boxes of 50 are packed as the readings are saved, and Kiran prints their labels. Ravi (Dispatch) ships 20 boxes (1,000 pcs) before lunch. Process closes at 1,790 good pcs: 35 full boxes and a part box of 40, and 10 pcs go back to the order. Ravi ships the other 16 boxes (790 pcs) in the evening.
 
 
 ## From chapter 10: Job cards
 
-Sharma Tubes Pvt Ltd orders 900 pcs of 76.4 x 81 x 150, BLUE, on SO/26/10/408. Sales releases it; card **26/10/315** is made with 900 pcs = 90 bamboo × 10 pcs, bamboo 1,540 mm.
+Sharma Tubes Pvt Ltd orders 400 pcs of 76.4 x 81 x 150, BLUE, on SO/26/10/412. Sales releases it; card **26/10/315** is made with 400 pcs = 40 bamboo × 10 pcs. The spec packs **48 pcs per box** in box R-150.
 
-| Stage | Target | Made | Good | Rejected | Status |
-|---|---|---|---|---|---|
-| Winding | 90 bamboo | 90 | 90 | 0 | Done, 1 flagged |
-| Oven | 90 bamboo | 90 | 90 | 0 | Done, 1 flagged |
-| Process | 900 pcs | 893 | 893 | 0 | Done, 1 flagged |
-| Dispatch | 893 pcs | 893 | 893 | 0 | Done |
+| Step | What happens | Card numbers |
+|---|---|---|
+| Winding closes short | 30 of 40 bamboo good, reason SS-MATERIAL-SHORT | Returned: 400 − 30 × 10 = **100 pcs** to the order at once |
+| Targets cut | Oven target 40 → 30 bamboo; Process target 400 → 300 pcs | Planner slots of Oven and Process shrink |
+| Oven closes | 30 of 30 bamboo good | Nothing returned |
+| Process runs | 300 made, 5 rejected (code DM), 295 good | Boxes packed as readings are done |
+| Boxes while running | 6 full boxes of 48 = 288 pcs (B2610315-001 to -006) | 7 pcs wait for the next run |
+| Process closes short | 295 of 300 good, reason SS-HIGH-REJECT | Part box B2610315-007 with **7 pcs**; returned 300 − 295 = **5 pcs** |
 
-A Process reading of I.D. 76.3 mm against a band of 76.4–76.6 was saved as "Flagged · I.D. 76.3 mm · not held". The card still moved on. Closing Process posted 893 pcs as finished goods; the card showed **Ready to dispatch**, and after the challan was sealed, **Done**.
+The totals reconcile: 100 + 5 returned to the order + 295 pcs in 7 boxes = 400 pcs released. On the order line, 105 pcs are unreleased again. Dispatch ships boxes 001–004 (192 pcs) on 1 Nov while Process is still running, and boxes 005–007 (103 pcs) on 2 Nov. After the second challan the card is **Done**. A Process reading of I.D. 76.9 mm against 76.2–76.5 was flagged on run P#3; boxes 002 and 003, which hold pcs of P#3, show **QC flagged**, and they still shipped.
 
 
 ## From chapter 11: Job card manager
@@ -106,7 +108,7 @@ Card 26/10/315 for Sharma Tubes Pvt Ltd: 900 pcs, BLUE, scheduled on Winder 1 fo
 |---|---|
 | Action | Split into a new card |
 | New card gets | 300 pcs |
-| Reason | Customer call-off earlier |
+| Reason | CH-CUST-REQUEST Customer asked for a change, note "call-off earlier" |
 | Result: 26/10/315 | 900 → 600 pcs, keeps its plan |
 | Result: 26/10/315-A | 300 pcs, planner queue, unplaced |
 | Slot change | 31 Oct · Shift B · Winder 1: 300 → off the board |
@@ -137,11 +139,12 @@ Night shift, card 26/10/315 (Sharma Tubes Pvt Ltd, 76.4 x 81 x 150, BLUE, 10 pcs
 | Time on the clock | 01:30, 31 Oct | Date 30 Oct, Shift B (automatic) |
 | Stage / machine | Process / Line 1 | Plan match: As planned · 30 Oct · Shift B |
 | Bamboo taken from Oven | 9 | 9 × 10 = 90 pcs possible |
-| Made / Rejected | 86 / 2 (code OD) | Good = 84 pcs |
-| Cutting loss | 4, "end trimming" | all pieces accounted for (86 + 4) |
+| Operator | Suresh Patel (Process department) | Accepted; a winder operator would not be listed |
+| Made / Rejected | 86 / 2, reason OD O.D. out | Good = 84 pcs |
+| Cutting loss | 4, reason picked with note "end trimming" | all pieces accounted for (86 + 4) |
 | Saved by | Operator | "Run P#2 sent to the supervisor" |
 
-QC on run P#2: I.D. 76.5 and 76.9 mm against band 76.2–76.5. The second reading is red; the operator saves. Result: "QC saved · run P#2 · flagged", "I.D. 76.9 mm (band 76.2–76.5) · S2". The run is accepted; the flag shows on the card and in In-process QC.
+QC on run P#2: I.D. 76.5 and 76.9 mm against band 76.2–76.5. The second reading is red; the operator saves. Result: "QC saved · run P#2 · flagged", "I.D. 76.9 mm (band 76.2–76.5) · S2". The run is accepted; the flag shows on the card and in In-process QC. The spec packs 48 pcs per box and 20 pcs from run P#1 were waiting, so 20 + 84 = 104 pcs fill boxes B2610315-002 (20 from P#1 + 28 from P#2) and B2610315-003 (48 from P#2); 8 pcs wait for the next run. Both boxes show **QC flagged** because they hold pcs of P#2, and both can still ship.
 
 
 ## From chapter 14: Quality
@@ -154,7 +157,7 @@ Bharat Paper Mills delivers 6 reels of Kraft 300 GSM (P/26/014). The paper band 
 | R2 | 298 | 6.8 | By readings | Released |
 | R3 | 285 | 7.4 | By readings, reason "GSM low on two sheets" | Held |
 
-R3 is on hold. The plant head grants a concession for outer plies ("still fit for use"); the FAIL stays on record. Later, card 26/10/315 has a Winding I.D. reading of 76.9 mm against 76.2–76.5: flagged, not held; it appears in In-process QC under I.D., High.
+R3 is on hold. The plant head grants a concession with CN-NON-CRITICAL, note "use on outer plies"; the FAIL stays on record. Later, card 26/10/315 has a Process I.D. reading of 76.9 mm against 76.2–76.5: flagged, not held; it appears in In-process QC under I.D., High, and the two boxes holding that run's pcs show **QC flagged**. They ship on the next challan. A week later the customer reports soft tubes in box B2610315-003; Sales records a complaint with CC-MOISTURE.
 
 
 ## From chapter 15: Month-end close
@@ -172,14 +175,14 @@ The plant head writes on Kraft 180 GSM: "Two reels wet at edges, outer plies scr
 
 ## From chapter 16: Dispatch
 
-Card 26/10/315 for Sharma Tubes Pvt Ltd closed Process with 893 good pcs (released 900). Tube weight on the spec: 33.78 g.
+Card 26/10/315 for Sharma Tubes Pvt Ltd: 400 pcs released, Winding closed short (100 pcs back to the order), Process target 300 pcs, 48 pcs per box, tube weight 33.78 g.
 
-| Challan | Pcs | Bundles (100 per bundle) | Net weight | Vehicle | Left to ship |
+| Day | Boxes | Pcs | Net weight | Vehicle | State after seal |
 |---|---|---|---|---|---|
-| Challan 1 | 500 | 5 | 16.890 kg | GJ15AB1234 | 393 |
-| Challan 2 | 393 | 4 (last holds 93) | 13.276 kg | GJ15CD5678 | 0 |
+| 1 Nov (Process running) | B2610315-001 to -004 | 192 | 6.486 kg | GJ15AB1234 | 4 of 4 boxes shipped · Packing boxes |
+| 2 Nov (Process closed) | B2610315-005, -006 and part box -007 | 48 + 48 + 7 = 103 | 3.479 kg | GJ15CD5678 | All boxes done |
 
-After Challan 2 is sealed, the card shows **Done** and the order line SO/26/10/408 counts 893 pcs delivered.
+Process closed with 295 good pcs, so 5 more pcs went back to the order. Total shipped 295 pcs in 7 boxes. The order line SO/26/10/412 shows 295 pcs delivered and 105 pcs unreleased (100 + 5), which Sales releases again or short closes. Challan 2 prints "Boxes on this challan (3)", the three codes with "part" on -007, and "Packed as 2 boxes × 48 + part box 7 = 103 pcs".
 
 
 ## From chapter 20: Purchase orders, PO approvals and requisitions
@@ -191,7 +194,7 @@ Store makes a PO for Bharat Paper Mills on 31 Oct 2026.
 | 1 | Kraft 230 GSM | 2,000 kg | ₹44.50 / kg | ₹89,000 |
 | 2 | Kraft 300 GSM | 1,500 kg | ₹46 / kg | ₹69,000 |
 
-**Save PO draft** gives **RP-PM/54**, Draft, total "2 lines · 3,500 kg · ₹1,58,000". Store clicks **Submit for approval**. The Owner approves it with the reason "Rates as agreed on call". Store clicks **Send to vendor** › **WhatsApp**; the chip reads "Sent on WhatsApp · 31 Oct". Bharat Paper Mills confirms 6 Nov for line 1 and 10 Nov for line 2; Store records both. On 6 Nov the truck brings 2,012 kg of Kraft 230 GSM, which Store receives with **Make GRN** (see the Goods inward chapter).
+**Save PO draft** gives **RP-PM/54**, Draft, total "2 lines · 3,500 kg · ₹1,58,000". Store clicks **Submit for approval**. The Owner approves it with the note "Rates as agreed on call". Store clicks **Send to vendor** › **WhatsApp**; the chip reads "Sent on WhatsApp · 31 Oct". Bharat Paper Mills confirms 6 Nov for line 1 and 10 Nov for line 2; Store records both. On 6 Nov the truck brings 2,012 kg of Kraft 230 GSM, which Store receives with **Make GRN** (see the Goods inward chapter).
 
 
 ## From chapter 21: RM inward calendar and expected arrivals
@@ -230,21 +233,21 @@ Bharat Paper Mills delivers on 6 Nov 2026 against **RP-PM/54**, challan BPM/2231
 | BPM-7782 | 655.5 | 1,000 mm | Reel |
 | BPM-7783 | 654.5 | 1,000 mm | Reel |
 
-Total 2,012 kg of Kraft 230 GSM; PO open 2,000 kg, so the strip shows "more than the PO by 12 kg — reason needed below". Store types "Last reels of the order, supplier confirmed extra kg". Invoice rate ₹45.25 / kg against PO ₹44.50 / kg: an amber note shows ₹1,509.00 more. Store validates and posts: **P/26/021**, 3 lots, AT-261106-001 to AT-261106-003, all **Waiting for QC**. A rate case opens for the plant head. Store prints three A4 labels. QC passes the reels the same afternoon and they appear under **Ready for the floor** on the reel issue desk.
+Total 2,012 kg of Kraft 230 GSM; PO open 2,000 kg, so the strip shows "more than the PO by 12 kg — reason needed below". Invoice rate ₹45.25 / kg against PO ₹44.50 / kg: an amber note shows ₹1,509.00 more. Store picks OR-ROLL-WEIGHT with the note "Last reels of the order, supplier confirmed extra kg". Store validates and posts: **P/26/021**, 3 lots, **AIT 06281**, **AIT 06282** and **AIT 06283**, all **Waiting for QC**. A rate case opens for the plant head. Store prints three A4 labels: each reads AMIGO INDUSTRIES UNIT II, MILL NAME BHARAT (the vendor's short name), the invoice number, 06-Nov-26, PLYBOND 400, VARIETY 230, GSM 230 (no QC reading yet), the mill's roll number, the AIT serial in big letters and the weight. QC passes the reels the same afternoon and they appear under **Ready for the floor** on the reel issue desk.
 
 
 ## From chapter 24: Issue to the floor: reels, coils and materials
 
 Friday 7 Nov 2026, 10:15 (Shift A). Ramesh on the RM issue desk scans three reels of Kraft 230 GSM from GRN P/26/021 that QC passed yesterday, and one coil.
 
-| AT number | Form | Weight | Went to |
+| Label number | Form | Weight | Went to |
 |---|---|---|---|
-| AT-261106-001 | Reel | 702 kg | Slitter |
-| AT-261106-002 | Reel | 655.5 kg | Slitter |
-| AT-261106-003 | Reel | 654.5 kg | Slitter |
-| AT-261104-011 | Coil | 98 kg | Winders |
+| AIT 06281 | Reel | 702 kg | Slitter |
+| AIT 06282 | Reel | 655.5 kg | Slitter |
+| AIT 06283 | Reel | 654.5 kg | Slitter |
+| AT-261104-011 (older reel number) | Coil | 98 kg | Winders |
 
-He clicks **Issue 4 to floor · 2,110 kg**. At 13:00 Ramesh writes the slitting card for AT-261106-001 from the slitter's figures: 7 coils, 12 kg wastage. Ramesh then issues 25 kg of PVA adhesive (oldest lot A/26/005) and 400 pcs of Box R-150 to the floor. In **Issue history** for 7 Nov, Shift A, the six issues appear with Ramesh's name and the racks they came from; the CSV matches the stock book's **Issued** column.
+He clicks **Issue 4 to floor · 2,110 kg**. At 13:00 Ramesh writes the slitting card for AIT 06281 from the slitter's figures: 7 coils, 12 kg wastage. Ramesh then issues 25 kg of PVA adhesive (oldest lot A/26/005) and 400 pcs of Box R-150 to the floor. In **Issue history** for 7 Nov, Shift A, the six issues appear with Ramesh's name and the racks they came from; the CSV matches the stock book's **Issued** column.
 
 
 ## From chapter 25: Stock counts, stock book, locations and opening stock
@@ -287,6 +290,8 @@ The count is sent to the Owner on 31 Oct. The Owner chooses **Leave as used** fo
 | Slitting report | 6 carded reels, 3,575 kg issued, 67.5 kg wastage | Wastage % = 67.5 ÷ 3,575 = 1.9% |
 | Customer 360 | Sharma Tubes Pvt Ltd: 1 delayed order, OTIF 80% | Watch (not Critical, because OTIF is not below 75%) |
 | Inventory intelligence | Kraft 180 GSM: 2,400 kg available, 9,000 kg issued in 30 days | 9,000 ÷ 30 = 300 kg/day; 2,400 ÷ 300 = 8 days → watch |
+| Employee performance | Suresh Patel, Process: 22 runs, 6,480 made, 6,350 good, 130 rejected, 4 flagged QC, 11 shifts | Reject % = 130 ÷ 6,480 = 2.0% |
+| Sales pulse, closures by reason | SO-QTY-REDUCED: 3 orders, 0 cancelled, 3 short-closed, 4,200 pcs lost | Customers cutting quantity is the biggest cause of lost pcs |
 
 
 ## From chapter 28: Masters
@@ -294,6 +299,8 @@ The count is sent to the Owner on 31 Oct. The Owner chooses **Leave as used** fo
 **New customer for the challan.** The Admin adds Sharma Tubes Pvt Ltd: Code WB-SHARMA, GSTIN 24AAKCS4821M1Z3. The system fills PAN AAKCS4821M and the billing state Gujarat (24). Billing address: Plot 14, GIDC Phase II, Vapi 396195. The Dispatch (ship-to) address is their Daman warehouse with stores contact Mr Patel, 98250 12345. The row now shows **Ready**. When Dispatch makes a challan for SO/26/10/412, it prints the GSTIN and the Daman ship-to address.
 
 **Paper edit.** The Admin changes paper 350 (Kraft) bulk factor from 1.55 to 1.50, so the derived thickness goes from 0.5425 to 0.525 mm. Recipe version 3 of spec 76.4 x 81 x 150 for Sharma Tubes, approved last week, keeps 1.55 in its layers. The next recipe version saved will use 1.50.
+
+**Reason code.** Paper often runs out because adhesive is late. The Plant Manager adds SS-NO-ADHESIVE "Adhesive not available" to the list **Stage closed short**. The next day, when Winding on 26/10/318 closes at 52 of 60 bamboo, the plant manager picks it; the card history, the order history and the returned balance all show "Adhesive not available".
 
 **Order close reason.** The Owner adds "Customer moved the plant" and the code becomes SO-CUSTOMER-MOVED-THE-PLANT. Later the Owner renames it "Customer shifted the plant"; the code stays the same, so orders already closed with it still show it.
 

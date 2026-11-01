@@ -1,6 +1,7 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { Suspense, useMemo, useState } from "react"
+import { useSearchParams } from "next/navigation"
 
 import { CrudTable } from "@/components/common/crud-table"
 import { MastersNav } from "@/components/master/masters-nav"
@@ -44,7 +45,20 @@ const PACKING_SECTIONS = [
 type PackingSectionKey = (typeof PACKING_SECTIONS)[number]["key"]
 
 export default function PackagingMasterPage() {
-  const [activeSection, setActiveSection] = useState<PackingSectionKey>("boxes")
+  return (
+    <Suspense fallback={null}>
+      <PackagingMasterContent />
+    </Suspense>
+  )
+}
+
+function PackagingMasterContent() {
+  // Deep link from Packing setup: /masters/packaging?add=box&code=R.125 opens "Add box" with the code filled.
+  const params = useSearchParams()
+  const addKind = params.get("add")
+  const addCode = (params.get("code") || "").trim()
+  const [activeSection, setActiveSection] = useState<PackingSectionKey>(addKind === "plastic" ? "plastics" : addKind === "fadda" ? "fadda" : "boxes")
+  const initialAdd = addKind && addCode ? (addKind === "box" ? { code: addCode } : { sku: addCode }) : undefined
 
   const boxesQuery = usePackagingBoxes({ include_inactive: true })
   const plasticsQuery = usePackagingPlasticSheets({ include_inactive: true })
@@ -105,13 +119,13 @@ export default function PackagingMasterPage() {
       title: section.title,
       columns: [
         { header: "Code", accessorKey: "code" },
-        { header: "Color", accessorKey: "size_label" },
+        { header: "Size label", accessorKey: "size_label" },
         {
           header: "Dimensions",
           accessorKey: "length_mm",
           render: (_value: any, row: any) => `${row.length_mm} x ${row.width_mm} x ${row.height_mm} mm`,
         },
-        { header: "Weight (kg)", accessorKey: "weight_kg" },
+        { header: "Weight per box (kg)", accessorKey: "weight_kg" },
       ],
       data: boxesQuery.data || [],
       isLoading: boxesQuery.isLoading,
@@ -177,6 +191,8 @@ export default function PackagingMasterPage() {
       </section>
 
       <CrudTable
+        key={activeSection}
+        initialAdd={initialAdd && activeSection === (addKind === "plastic" ? "plastics" : addKind === "fadda" ? "fadda" : "boxes") ? initialAdd : undefined}
         embedded
         title={sectionConfig.title}
         columns={sectionConfig.columns}

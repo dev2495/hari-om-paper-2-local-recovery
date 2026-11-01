@@ -8,6 +8,7 @@ import { Field, MessageBar, fieldClass, primaryButton, secondaryButton } from "@
 import { useApproveArrivals, useCancelArrival, useProposeArrivals, useUpdateArrival } from "@/hooks/use-rm-calendar"
 import { apiErrorText, type Arrival, type CalendarData, type CalendarMaterial } from "@/lib/api-rm-calendar"
 import { cn } from "@/lib/utils"
+import { ReasonPicker, reasonPayload, useReasonChoice } from "@/components/reasons"
 
 import { ArrivalChip, BalanceBar, CoverBadge, StatPair } from "./atoms"
 import { CLASS_LABEL, dayCoverWord, dayLabel, longDate, personName, qty, rateText, relativeDay, rupees, shortDate, unitWord } from "./format"
@@ -137,6 +138,7 @@ export function ArrivalRow({ arrival, material, data, vendors, permissions, onNo
   const [vendorId, setVendorId] = useState(arrival.supplier_id || "")
   const update = useUpdateArrival()
   const cancel = useCancelArrival()
+  const cancelWhy = useReasonChoice("SUPPLIER_SCHEDULE")
   const approve = useApproveArrivals()
   const proposal = arrival.state === "PROPOSED"
   const owned = Boolean(arrival.entry_id)
@@ -222,13 +224,15 @@ export function ArrivalRow({ arrival, material, data, vendors, permissions, onNo
               </select>
             </Field>
           ) : null}
+          {canCancel ? <ReasonPicker category="SUPPLIER_SCHEDULE" label="Reason to cancel (only for Cancel arrival)" value={cancelWhy.value} onChange={cancelWhy.setValue} showErrors={cancelWhy.touched} compact testIdPrefix="rm-calendar:cancel" /> : null}
           <div className="flex flex-wrap gap-2">
             <button type="button" className={cn(primaryButton, tap)} disabled={busy || !(Number(amount) > 0)} onClick={save}>{update.isPending ? "Saving…" : "Save"}</button>
             <button type="button" className={cn(secondaryButton, tap)} onClick={() => setEditing(false)}>Keep as is</button>
             {canCancel ? (
               <button type="button" className={cn(secondaryButton, tap, "text-signal-rose-ink")} disabled={busy}
                 onClick={async () => {
-                  try { await cancel.mutateAsync({ id: arrival.entry_id!, reason: "Cancelled on the calendar" }); onNotice({ tone: "success", text: `${material.item_name} arrival of ${shortDate(arrival.date)} cancelled.` }) }
+                  if (!cancelWhy.validate()) return
+                  try { await cancel.mutateAsync({ id: arrival.entry_id!, ...reasonPayload(cancelWhy.rows, cancelWhy.value, "reason") }); cancelWhy.reset(); onNotice({ tone: "success", text: `${material.item_name} arrival of ${shortDate(arrival.date)} cancelled.` }) }
                   catch (failure) { onNotice({ tone: "error", text: apiErrorText(failure) }) }
                 }}>
                 <Trash2 className="h-4 w-4" aria-hidden="true" />Cancel arrival

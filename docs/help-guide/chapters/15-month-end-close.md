@@ -15,14 +15,15 @@
 ```flow
 title: Closing a month
 Month ends -> Count the store [Store/any role] -> Approve the count [Owner] -> Store book adds up -> Notes on items outside the limit [Owner/Plant head] -> Close the month [Owner] (figures frozen, entries locked)
-after Close the month: Re-open with a reason [Owner] -> Entries allowed again -> Close the month [Owner]
+after Close the month: Re-open with a reason code [Owner] -> Entries allowed again -> Close the month [Owner]
 ```
 Earlier months must be closed first. Closing March is the **financial year close**; 1 April opens from the 31 March closing.
 
 ```flow
 title: Where the spec comes from
-Process closes on a card [Plant Manager] -> Theory posted for the month (paper, adhesive, parchment, packing) -> Spec allows on Month-end close -> Compared with Used per count
+Run packed into box [Operator] -> Box posted (its packing theory) -> Process closes on a card [Plant Manager] (paper, adhesive, parchment theory) -> Spec allows on Month-end close -> Compared with Used per count
 ```
+On batch-entry cards the packing theory comes from the boxes: each box packed uses 1 box plus the spec's plastic and fadda per box, posted as the box is packed, in the box's month. Paper, adhesive and parchment theory is posted when Process closes.
 
 ## Screen tour
 
@@ -43,7 +44,7 @@ What you see:
 6. **Close bar**: "Close September 2026 · Everything is ready. Closing freezes these figures and locks floor and store entries dated in September." with the **Close September 2026** button (Owner). Others see "Only the Owner closes the month".
 7. **Material use in <month>**: the explanation line; filter chips **All**, **Needs a note**, **Explained**, **Within limit**, **No use** (a running month shows **So far** and **Waiting for count**); the view switch **Use against spec** / **Store book**; a search box. Items are grouped by unit (**Kilogram items**, **Piece items**, **Litre items**), so kilograms and pieces are never added together.
 8. **Use against spec** columns: **Material**, **Spec allows**, **Issued to floor**, **Used per count**, **Used against spec + wastage** (a bar showing less, within, or more). **Store book** columns: **Opening**, **Received**, **Sent back**, **Issued**, **Count and corrections**, **Closing**, and "Does not add up" where the book is wrong.
-9. Each item opens a card with its status in words (for example "Used 6.2 kg more than the spec allows. Within the limit of ± 7.5 kg."), a **note** box, and **Where the numbers come from**: the job cards that posted spec, issues to the floor, GRNs, returns to supplier, count lines and corrections.
+9. Each item opens a card with its status in words (for example "Used 6.2 kg more than the spec allows. Within the limit of ± 7.5 kg."), the **reason** picker for an item outside its limit (list **Month-end variance**) with a note, and **Where the numbers come from**: the job cards that posted spec, issues to the floor, GRNs, returns to supplier, count lines and corrections.
 10. **Spec items not linked to a stock item**: spec that cannot be compared with the store ("No stock item" or "Unit differs"). They stay out of the totals until the Owner links them in Masters.
 
 ![Alt: Usage limits page for Plant A with Paper and Adhesive limits](../screens/usage-limits.jpg)
@@ -73,7 +74,7 @@ Roles: Owner closes; Plant Manager and Admin can prepare.
 2. Work the checklist from left to right. The first open step is marked as "now".
 3. **Count**: if the count has not started, click **Count <month> stock** (it opens Stock counts). Count, submit, and have the Owner approve it. See "Stock counts, stock book, locations and opening stock".
 4. **Store book**: if items do not add up, click **Open the stock book** and fix the entries (corrections are made in Stores).
-5. **Notes**: click **Go to the N items**. For each item outside its limit, write a short note (for example "Reel R-1182 wet at edges, two plies trimmed") and save. The item moves to **Explained**.
+5. **Notes**: click **Go to the N items**. For each item outside its limit, pick the reason from **Month-end variance** (MV-WASTAGE Higher wastage on the floor, MV-WRONG-ISSUE Wrong issue entry, MV-COUNT Physical count difference, MV-MOISTURE Moisture / weight loss, MV-SPEC Spec weight differs from actual, MV-TRIAL Trial or sample runs, MV-OTHER) and add a note if useful (for example "Reel AIT 06182 wet at edges, two plies trimmed"), then save. The item moves to **Explained** and shows "Label — note".
 6. **Earlier months**: if an earlier month is open, open it and close it first.
 7. When the bar says "Everything is ready", the Owner clicks **Close <month>**. The dialog repeats that figures, statuses, limits and notes will be frozen and entries dated in the month refused. If store entries were posted after the count was approved, it lists them ("counted 412 kg, closing now 405 kg") and asks you to accept the new closing.
 8. Confirm. Message: "September 2026 is closed. Entries dated in it are now locked." For March: "Financial year 2026-27 closed. 1 April opens from this close."
@@ -81,7 +82,7 @@ Roles: Owner closes; Plant Manager and Admin can prepare.
 ### How to write or change a note on an item
 Roles: Owner and Plant Manager (plant head). Notes open only after the month-end count is approved.
 1. Click the item (or use **Needs a note**).
-2. Type the note and save ("Note saved on Kraft 300 GSM."). Clear it to remove it.
+2. Pick the **Month-end variance** reason, add a note if useful, and save ("Note saved on Kraft 300 GSM."). MV-OTHER needs a note of at least 5 characters. Remove it to clear the explanation. Notes written before 1 Nov 2026 show their old text.
 
 ### How to see where a number comes from
 1. Click the item, then **Where the numbers come from** (or "See the issues and count lines").
@@ -90,7 +91,7 @@ Roles: Owner and Plant Manager (plant head). Notes open only after the month-end
 ### How to re-open a closed month
 Roles: Owner only.
 1. Open the closed month, click **Re-open month**.
-2. The dialog **Re-open September 2026?** asks for the reason (a few words at least). Any later closed month re-opens with it, and the button then reads "Re-open 2 months".
+2. The dialog **Re-open September 2026?** asks **Why re-open it** from the list **Books unlock** (BU-LATE-GRN Late GRN or bill to post, BU-CORRECTION Correction to a closed month, BU-AUDIT Auditor's adjustment, BU-ERROR Closed by mistake, BU-OTHER), with a note such as "Late GRN for kraft 351 found after the close". The store books are unlocked with the same code. Any later closed month re-opens with it, and the button then reads "Re-open 2 months".
 3. Confirm. "Re-opened September 2026." Floor and store entries dated in the month are allowed again until it is closed again. Every close and re-open is kept under **Past months**.
 
 ### How to check past months and the financial year
@@ -110,16 +111,16 @@ Roles: Owner, Admin, Plant Manager, Planner.
 3. Read **Lag** and **Source**. A late entry or a missing card time is information only; it never blocks anything.
 
 ## Rules the system enforces
-- **Only the Owner closes and re-opens** a month. Re-open needs a reason. (Blocks others.)
+- **Only the Owner closes and re-opens** a month. Re-open needs a **Books unlock** code; free text alone is refused. If a close does not finish, the system undoes it by itself and records "Month-end close did not finish (undone automatically)". (Blocks others.)
 - **All five checklist steps** must be done before the close: month ended (closing opens on the 1st of the next month, India time), month-end count approved, store book adds up, every item outside its limit has a note, earlier months closed. (Blocks.)
 - **A count cannot be made for a month once a later month is closed**: "Re-open <later month> first." (Blocks.)
 - **Closed month locks entries.** Floor runs dated in it are refused: "<Month> is closed. Ask the owner to re-open it." Store movements dated in it are refused too. QC-only readings are not affected. (Blocks.)
-- **Notes** only by Owner or plant head, and only after the count is approved. (Blocks.)
+- **Notes** only by Owner or plant head, and only after the count is approved. An item outside its limit is explained with a **Month-end variance** code (plus an optional note). (Blocks.)
 - **Expected use** = Spec × (1 + normal wastage % ÷ 100). **Allowed gap** = the larger of allowed gap % × expected and the minimum gap. Within the allowed gap = **Within limit**; outside = **Needs a note** (more or less than spec); with a note = **Explained**; before the count = not known. (Automatic.)
 - **Standard usage limits**: Paper 7 % wastage, 7 % gap, minimum 5 kg; Adhesive 0 %, 7 %, 0.5 kg; Parchment 0 %, 7 %, 1 kg; Packing 0 %, 7 %, 10 in its unit; Other 0 %, 7 %, 5. (Automatic until a plant saves its own.)
 - **Frozen figures.** A closed month keeps the figures and limits it closed with. Live store changes made later show as "Live store figures differ for …". (Automatic.)
 - **Units are never mixed.** Totals are per unit; a kg total never includes pieces. (Automatic.)
-- **Spec is posted when Process closes** on a card (theoretical paper, adhesive, parchment and packing for the good tubes). Cards still open add nothing yet. (Automatic.)
+- **Spec is posted when Process closes** on a card (theoretical paper, adhesive and parchment for the good tubes). **Packing theory is posted per box** on batch-entry cards: 1 box plus the spec's plastic and fadda per box; kg = pieces × the master's weight per piece. A packing row that cannot be costed (no stock item, no weight in the master, box code not a stock item) is kept with a warning, never dropped. Old cards whose finished goods posted in one lot keep the card-level packing. (Automatic.)
 - **Late card entry** = typed more than 6 hours after the card time; shown in time reconciliation only. (Flag only.)
 
 **Old links.** /production/reconciliation/actuals, /drift and /history now open Month-end close (the running month's "so far" view or the **Past months** tab).

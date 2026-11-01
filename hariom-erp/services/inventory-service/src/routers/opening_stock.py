@@ -33,6 +33,9 @@ class PreviewLine(BaseModel):
     stock_status: Optional[str] = Field(default=None, max_length=20)
     on_hold: bool = False
     hold_reason: Optional[str] = Field(default=None, max_length=300)
+    # QC_HOLD code from Masters › Reason codes for a line put on hold (owner decision 4, 1 Nov 2026).
+    hold_reason_code: Optional[str] = Field(default=None, max_length=80)
+    hold_reason_note: Optional[str] = Field(default=None, max_length=300)
     unit_cost: Optional[float] = None
 
 

@@ -124,6 +124,8 @@ def _enter(db, job, stage, output, user=SUPERVISOR, **extra):
     if stage == 'OVEN':
         payload.setdefault('entry_snapshot', dict(OVEN_CARD))
         payload.update(_times(8, 2.5))  # an oven batch runs 5-6 h
+    # These flows complete old-form stages below plan; since 2026-11-01 that needs a reason (short close).
+    payload.setdefault('short_reason_code', 'SS-OTHER'); payload.setdefault('short_reason_note', 'Short run in this test')
     payload.update(extra)
     return planning.capture_stage_output(job.id, StageOutputPayload(**payload), db, PLANT, user)
 
@@ -148,7 +150,7 @@ def test_card_numbers_follow_the_monthly_series(db):
 def test_single_stage_entry_completes_only_that_stage(db):
     job = _card(db)  # 2000 pcs / 8 = 250 bamboos
     _schedule(db, job)
-    _enter(db, job, 'WINDER', 250, input_qty=252, scrap_qty=2)
+    _enter(db, job, 'WINDER', 250, input_qty=252, scrap_qty=2, entry_snapshot={'reject_reason_code': 'WL'})
     db.refresh(job)
     assert _stage(db, job, 'WINDER').status == 'COMPLETED'
     assert job.current_stage == 'OVEN' and job.status != 'COMPLETED'
@@ -164,7 +166,14 @@ def test_whole_card_entered_at_once_in_route_order_completes_the_job(db):
     _preassign(db, job, 'PACKING', PACK)
     _enter(db, job, 'WINDER', 250, input_qty=250)
     _enter(db, job, 'OVEN', 248, input_qty=250)
-    _enter(db, job, 'PROCESS', 1980, scrap_qty=4, entry_snapshot={'reject_reason': 'Crushed ends'})  # rejects need a reason
+    # Rejects need a "Floor rejection" code (owner decision 4): the old free text alone is refused.
+    with pytest.raises(HTTPException) as refused:
+        _enter(db, job, 'PROCESS', 1980, scrap_qty=4, entry_snapshot={'reject_reason': 'Crushed ends'})
+    assert refused.value.status_code == 422 and 'rejected on Process' in refused.value.detail
+    db.rollback()
+    _enter(db, job, 'PROCESS', 1980, scrap_qty=4, entry_snapshot={'reject_reason_code': 'DM', 'reject_reason_note': 'Crushed ends'})
+    snap = _stage(db, job, 'PROCESS').entry_snapshot
+    assert (snap['reject_reason_code'], snap['reject_reason_label'], snap['reject_reason']) == ('DM', 'Dm', 'Dm — Crushed ends')
     _enter(db, job, 'PACKING', 1980)  # this route has no QC stage, so packing closes the card
     db.refresh(job)
     assert [(_stage(db, job, stage).status) for stage in ROUTE] == ['COMPLETED'] * 4
@@ -245,7 +254,7 @@ def test_emergency_insert_takes_the_slot_and_bumps_the_others(db):
     _schedule(db, first, day=tomorrow)
     _schedule(db, second, day=tomorrow, seq=2)
     result = lifecycle.emergency_insert(lifecycle.EmergencyPayload(job_card_id=urgent.id, machine_id=BIG_WINDER, plan_date=tomorrow,
-                                        shift_code='SHIFT_A', reason='Customer line down'), db, PLANT, PLANNER)
+                                        shift_code='SHIFT_A', reason_code='CH-URGENT', reason_note='Customer line down'), db, PLANT, PLANNER)
     segment = db.query(JobCardStageSegment).filter_by(job_card_id=urgent.id, stage_type='WINDER').filter(JobCardStageSegment.status != 'CANCELLED').one()
     assert segment.sequence_no == 1 and segment.plan_date == tomorrow
     assert round(float(segment.planned_qty)) == 2000  # never split
@@ -256,7 +265,7 @@ def test_emergency_insert_takes_the_slot_and_bumps_the_others(db):
 
 def test_amend_only_while_queued(db):
     job = _card(db)
-    changed = lifecycle.amend_job_card(job.id, lifecycle.AmendPayload(planned_qty=2400, parchment_color='RED', reason='Customer revised'), db, PLANT, PLANNER)
+    changed = lifecycle.amend_job_card(job.id, lifecycle.AmendPayload(planned_qty=2400, parchment_color='RED', reason_code='CH-CUST-REQUEST'), db, PLANT, PLANNER)
     assert changed['planned_qty'] == 2400 and changed['parchment_color'] == 'RED'
     _schedule(db, job)
     with pytest.raises(HTTPException) as error:
@@ -266,7 +275,7 @@ def test_amend_only_while_queued(db):
 
 def test_manual_split_creates_an_a_suffixed_card(db):
     job = _card(db, qty=3000)
-    result = lifecycle.split_job_card(job.id, lifecycle.SplitPayload(qty=1000, reason='Two winders'), db, PLANT, PLANNER)
+    result = lifecycle.split_job_card(job.id, lifecycle.SplitPayload(qty=1000, reason_code='CH-MACHINE-LOAD', reason_note='Two winders'), db, PLANT, PLANNER)
     child = db.get(JobCard, uuid.UUID(str(result.get('child_job_card_id') or result.get('child', {}).get('id'))))
     assert child.job_card_no == f'{job.job_card_no}-A'
     db.refresh(job)
@@ -279,7 +288,7 @@ def test_force_close_mid_run_returns_the_balance_to_the_order(db):
     job = _card(db)  # 2000 pcs
     _schedule(db, job)
     lifecycle.add_running_entry(job.id, lifecycle.RunningEntryPayload(stage='WINDER', qty=100), db, PLANT, SUPERVISOR)  # 800 pcs
-    lifecycle.force_close_job_card(job.id, lifecycle.ForceClosePayload(reason='Customer cut the order'), db, PLANT, PLANNER)
+    lifecycle.force_close_job_card(job.id, lifecycle.ForceClosePayload(reason_code='JC-CUST-CANCEL', reason_note='Customer cut the order'), db, PLANT, PLANNER)
     db.refresh(job)
     assert job.close_mode and round(float(job.returned_qty)) == 1200
     assert any(path.endswith('/return-balance') for path, _ in db.sales_calls)
@@ -290,9 +299,23 @@ def test_force_close_mid_run_returns_the_balance_to_the_order(db):
 def test_force_close_before_any_output_cancels_the_card(db):
     job = _card(db)
     _schedule(db, job)
-    lifecycle.force_close_job_card(job.id, lifecycle.ForceClosePayload(reason='Released twice by mistake'), db, PLANT, PLANNER)
+    result = lifecycle.force_close_job_card(job.id, lifecycle.ForceClosePayload(reason_code='JC-RELEASED-TWICE'), db, PLANT, PLANNER)
     db.refresh(job)
     assert job.status == 'CANCELLED' and round(float(job.returned_qty)) == 2000
+    assert result['balance_dropped'] is False and result['returned_qty'] == 2000
+
+
+def test_cancel_on_a_short_closed_order_says_the_pcs_were_dropped(db, monkeypatch):
+    """Issue #8: Sales drops the handed-back pcs of a short-closed order; the result and card history say so."""
+    from src.routers.card_history import card_events
+    real = lifecycle._sales_call
+    monkeypatch.setattr(lifecycle, '_sales_call', lambda path, *a: {'balance_dropped': True} if path.endswith('/return-balance') else real(path, *a))
+    job = _card(db)
+    _schedule(db, job)
+    result = lifecycle.force_close_job_card(job.id, lifecycle.ForceClosePayload(reason_code='JC-RELEASED-TWICE'), db, PLANT, PLANNER)
+    assert result['balance_dropped'] is True
+    event = next(row for row in card_events(db, [job]) if row['kind'] == 'FORCE_CLOSE')
+    assert '2,000 pcs dropped (order closed)' in event['detail'] and 'back to the order' not in event['detail']
 
 
 def _batch_card(db):
@@ -308,7 +331,7 @@ def test_batch_entry_card_with_nothing_logged_can_be_cancelled(db):
     _schedule(db, job)
     state = lifecycle.get_job_card_lifecycle(job.id, db, PLANT, PLANNER)
     assert state['entry_model'] == 'V2' and state['floor_entries'] == 0
-    lifecycle.force_close_job_card(job.id, lifecycle.ForceClosePayload(reason='Released twice by mistake'), db, PLANT, PLANNER)
+    lifecycle.force_close_job_card(job.id, lifecycle.ForceClosePayload(reason_code='JC-RELEASED-TWICE'), db, PLANT, PLANNER)
     db.refresh(job)
     assert job.status == 'CANCELLED' and round(float(job.returned_qty)) == 2000
     assert any(path.endswith('/return-balance') for path, _ in db.sales_calls)
@@ -326,7 +349,7 @@ def test_batch_entry_card_with_a_run_closes_short_through_close_stage(db):
     db.flush()
     assert lifecycle.get_job_card_lifecycle(job.id, db, PLANT, PLANNER)['floor_entries'] == 1
     with pytest.raises(HTTPException) as refused:
-        lifecycle.force_close_job_card(job.id, lifecycle.ForceClosePayload(reason='Customer cut the order'), db, PLANT, PLANNER)
+        lifecycle.force_close_job_card(job.id, lifecycle.ForceClosePayload(reason_code='JC-CUST-CANCEL', reason_note='Customer cut the order'), db, PLANT, PLANNER)
     assert refused.value.status_code == 409 and 'Close stage' in refused.value.detail
     db.refresh(job)
     assert job.status != 'CANCELLED' and not db.sales_calls
@@ -335,8 +358,8 @@ def test_batch_entry_card_with_a_run_closes_short_through_close_stage(db):
 def test_split_and_edit_history_show_before_and_after(db):
     from src.routers.card_history import card_events
     job = _card(db)
-    lifecycle.amend_job_card(job.id, lifecycle.AmendPayload(planned_qty=1600, reason='Customer reduced the PO'), db, PLANT, PLANNER)
-    lifecycle.split_job_card(job.id, lifecycle.SplitPayload(qty=400, reason='Second winder free'), db, PLANT, PLANNER)
+    lifecycle.amend_job_card(job.id, lifecycle.AmendPayload(planned_qty=1600, reason_code='CH-CUST-REQUEST', reason_note='Customer reduced the PO'), db, PLANT, PLANNER)
+    lifecycle.split_job_card(job.id, lifecycle.SplitPayload(qty=400, reason_code='CH-MACHINE-LOAD', reason_note='Second winder free'), db, PLANT, PLANNER)
     events = card_events(db, [job])
     edit = next(row for row in events if row['kind'] == 'EDIT')
     assert edit['before']['planned_qty'] == 2000 and edit['after']['planned_qty'] == 1600 and 'reason' not in edit['after']
@@ -399,6 +422,7 @@ def _entry(stage, output, **extra):
     if stage == 'OVEN':
         payload['entry_snapshot'] = dict(OVEN_CARD)
         payload.update(_times(8, 2.5))
+    payload.setdefault('short_reason_code', 'SS-OTHER'); payload.setdefault('short_reason_note', 'Short run in this test')
     payload.update(extra)
     return StageOutputPayload(**payload)
 
@@ -419,7 +443,7 @@ def _planned_whole_route(db):
 def test_whole_card_batch_saves_every_stage_in_one_go(db):
     job = _planned_whole_route(db)
     result = _batch(db, job, [_entry('WINDER', 250, input_qty=250), _entry('OVEN', 248, input_qty=250),
-                              _entry('PROCESS', 1980, scrap_qty=4, entry_snapshot={'reject_reason': 'Crushed ends'}), _entry('PACKING', 1980)], request_id='card-1')
+                              _entry('PROCESS', 1980, scrap_qty=4, entry_snapshot={'reject_reason_code': 'OT', 'reject_reason_note': 'Crushed ends'}), _entry('PACKING', 1980)], request_id='card-1')
     assert result['saved_stages'] == ROUTE and result['external_pending'] == []
     db.refresh(job)
     assert job.current_stage == 'DONE' and all(_stage(db, job, stage).status == 'COMPLETED' for stage in ROUTE)
@@ -460,10 +484,18 @@ def test_route_with_qc_stage_needs_final_inspection_or_owner_override(db):
     assert job.current_stage == 'QC' and job.status != 'COMPLETED'
     for user, reason in ((SUPERVISOR, None), (SUPERVISOR, 'Plant manager wants to close')):
         with pytest.raises(HTTPException) as blocked:
-            _enter(db, job, 'QC', 1980, user=user, **({'override_reason': reason} if reason else {}))
+            _enter(db, job, 'QC', 1980, user=user, **({'override_reason_code': 'OV-OTHER', 'override_reason_note': reason} if reason else {}))
         assert blocked.value.status_code == 409 and 'Final QC' in str(blocked.value.detail)
         db.rollback()
-    _enter(db, job, 'QC', 1980, user=OWNER, override_reason='Customer accepted on joint inspection; report attached')
+    # An override is an OVERRIDE code (owner decision 4): free text alone is refused.
+    with pytest.raises(HTTPException) as refused:
+        _enter(db, job, 'QC', 1980, user=OWNER, override_reason='Customer accepted on joint inspection; report attached')
+    assert refused.value.status_code == 422 and 'override' in refused.value.detail
+    db.rollback()
+    result = _enter(db, job, 'QC', 1980, user=OWNER, override_reason_code='OV-OTHER', override_reason_note='Customer accepted on joint inspection; report attached')
+    assert result.override_reason == 'Ov other — Customer accepted on joint inspection; report attached'
+    snap = _stage(db, job, 'QC').actuals_snapshot
+    assert (snap['override_reason_code'], snap['override_reason_label']) == ('OV-OTHER', 'Ov other')
     db.refresh(job)
     assert job.current_stage == 'DONE' and job.status == 'COMPLETED'
 
@@ -472,8 +504,8 @@ def test_route_with_qc_stage_needs_final_inspection_or_owner_override(db):
 
 def test_split_retry_with_same_request_id_does_not_cut_a_second_card(db):
     job = _card(db, qty=3000)
-    first = lifecycle.split_job_card(job.id, lifecycle.SplitPayload(qty=1000, request_id='split-1'), db, PLANT, PLANNER)
-    again = lifecycle.split_job_card(job.id, lifecycle.SplitPayload(qty=1000, request_id='split-1'), db, PLANT, PLANNER)
+    first = lifecycle.split_job_card(job.id, lifecycle.SplitPayload(qty=1000, request_id='split-1', reason_code='CH-MACHINE-LOAD'), db, PLANT, PLANNER)
+    again = lifecycle.split_job_card(job.id, lifecycle.SplitPayload(qty=1000, request_id='split-1', reason_code='CH-MACHINE-LOAD'), db, PLANT, PLANNER)
     assert again['replayed'] is True and again['child_job_card_id'] == first['child_job_card_id']
     db.refresh(job)
     assert round(float(job.planned_qty)) == 2000
@@ -507,7 +539,7 @@ def test_force_close_refused_by_sales_keeps_the_card_open(db, monkeypatch):
     _schedule(db, job)
     monkeypatch.setattr(lifecycle, '_sales_call', lambda *args: (_ for _ in ()).throw(HTTPException(status_code=502, detail='Sales service unreachable')))
     with pytest.raises(HTTPException):
-        lifecycle.force_close_job_card(job.id, lifecycle.ForceClosePayload(reason='Customer cut the order'), db, PLANT, PLANNER)
+        lifecycle.force_close_job_card(job.id, lifecycle.ForceClosePayload(reason_code='JC-CUST-CANCEL', reason_note='Customer cut the order'), db, PLANT, PLANNER)
     db.expire_all()
     fresh = db.get(JobCard, job.id)
     assert fresh.status != 'CANCELLED' and not fresh.close_mode
@@ -530,9 +562,55 @@ def test_winder_load_counts_pieces_and_metres_with_bamboo_output_converted(db):
 def test_order_trail_collects_every_card_event_of_the_order(db):
     job = _card(db, qty=3000)
     _schedule(db, job)
-    lifecycle.split_job_card(job.id, lifecycle.SplitPayload(qty=1000, request_id='trail-split'), db, PLANT, PLANNER)
+    lifecycle.split_job_card(job.id, lifecycle.SplitPayload(qty=1000, request_id='trail-split', reason_code='CH-MACHINE-LOAD'), db, PLANT, PLANNER)
     trail = lifecycle.order_production_trail(job.sales_order_id, 300, db, PLANT, PLANNER)['items']
     actions = {row['action'] for row in trail}
     assert {'job_card_split', 'job_card_created_by_split'} <= actions
     assert all(row['job_card_no'] for row in trail)
     assert trail == sorted(trail, key=lambda row: row['at'], reverse=True)
+
+
+# ---- reasons are master codes (owner decision 4, 1 Nov 2026) ----------------------------
+
+def test_force_close_with_free_text_only_is_refused_and_changes_nothing(db):
+    job = _card(db)
+    _schedule(db, job)
+    with pytest.raises(HTTPException) as refused:
+        lifecycle.force_close_job_card(job.id, lifecycle.ForceClosePayload(reason='Customer cut the order'), db, PLANT, PLANNER)
+    assert refused.value.status_code == 422 and 'Choose a reason for closing the job card' in refused.value.detail
+    db.refresh(job)
+    assert job.close_mode is None and not job.close_reason and not db.sales_calls
+
+
+def test_force_close_stores_code_label_note_and_tells_sales(db):
+    job = _card(db)
+    _schedule(db, job)
+    state = lifecycle.force_close_job_card(job.id, lifecycle.ForceClosePayload(reason_code='jc-material-short', reason_note='No kraft this week'), db, PLANT, PLANNER)
+    db.refresh(job)
+    assert (job.close_reason_code, job.close_reason_label, job.close_reason_note) == ('JC-MATERIAL-SHORT', 'Jc material short', 'No kraft this week')
+    assert job.close_reason == 'Jc material short — No kraft this week' and state['close_reason_label'] == 'Jc material short'
+    _, body = next(call for call in db.sales_calls if call[0].endswith('/return-balance'))
+    assert (body['reason_code'], body['reason_label'], body['reason']) == ('JC-MATERIAL-SHORT', 'Jc material short', 'Jc material short — No kraft this week')
+    audit = db.query(AuditEvent).filter_by(job_card_id=job.id, action='job_card_force_closed').one()
+    assert audit.payload['reason_code'] == 'JC-MATERIAL-SHORT' and audit.payload['reason_label'] == 'Jc material short'
+
+
+def test_split_edit_and_emergency_insert_need_a_change_code(db):
+    job = _card(db, qty=3000)
+    for call in (
+        lambda: lifecycle.split_job_card(job.id, lifecycle.SplitPayload(qty=1000, reason='Two winders'), db, PLANT, PLANNER),
+        lambda: lifecycle.amend_job_card(job.id, lifecycle.AmendPayload(planned_qty=2400, reason='Customer revised'), db, PLANT, PLANNER),
+        lambda: lifecycle.emergency_insert(lifecycle.EmergencyPayload(job_card_id=job.id, machine_id=BIG_WINDER, plan_date=date.today() + timedelta(days=1),
+                                                                      shift_code='SHIFT_A', reason='Customer line down'), db, PLANT, PLANNER),
+        lambda: lifecycle.split_job_card(job.id, lifecycle.SplitPayload(qty=1000, reason_code='CH-OTHER', reason_note='x'), db, PLANT, PLANNER),
+    ):
+        with pytest.raises(HTTPException) as refused:
+            call()
+        assert refused.value.status_code == 422
+    db.refresh(job)
+    assert round(float(job.planned_qty)) == 3000 and not job.is_emergency and not db.sales_calls
+    lifecycle.amend_job_card(job.id, lifecycle.AmendPayload(planned_qty=2400, reason_code='CH-CUST-REQUEST', reason_note='PO revised'), db, PLANT, PLANNER)
+    audit = db.query(AuditEvent).filter_by(job_card_id=job.id, action='job_card_amended').one()
+    assert (audit.payload['reason_code'], audit.payload['reason_label'], audit.payload['reason']) == ('CH-CUST-REQUEST', 'Ch cust request', 'Ch cust request — PO revised')
+    _, body = next(call for call in db.sales_calls if call[0].endswith('/amend'))
+    assert body['reason'] == 'Ch cust request — PO revised'

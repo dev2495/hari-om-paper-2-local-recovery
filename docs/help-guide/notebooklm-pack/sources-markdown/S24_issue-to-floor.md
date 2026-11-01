@@ -4,7 +4,7 @@ Screenshots named in this file are in the visual handbook (Hari-Om-TubeOS-Help-G
 
 # Issue to the floor: reels, coils and materials
 
-> **What it is:** the two store desks that send raw material to the production floor, the history of every issue, and the genealogy page that traces a reel from inward to dispatch. Reels and coils are issued by their AT label; adhesive, parchment and packing are issued by quantity.
+> **What it is:** the two store desks that send raw material to the production floor, the history of every issue, and the genealogy page that traces a reel from inward to dispatch. Reels and coils are issued by their label (the plant's AIT serial, or the AT number on older reels); adhesive, parchment and packing are issued by quantity.
 > **Who uses it:** the RM issue desk (RMIssue role), Store and the Plant Manager issue (Owner and Admin too). The store writes the slitting card from the slitter's figures. Planner and GRN read the issue history. Many roles read genealogy.
 > **Where:** Sidebar > Stores & inventory > Reel & coil issue (/inventory/reels/issue), Material issue (/inventory/production-issue), Issue history (/inventory/issue-history), Genealogy (/inventory/genealogy)
 
@@ -13,6 +13,8 @@ Screenshots named in this file are in the visual handbook (Hari-Om-TubeOS-Help-G
 - **Everything issued is used in full. Nothing comes back from the floor.** A reel or coil goes out whole (its full current weight). The job card records production and the stock count settles consumption.
 - **Only stock that passed incoming QC can go.** Reels and lots waiting for QC, failed or rejected are listed separately with the reason. Invoice or rate questions never hold stock back.
 - **A reel goes to the slitter and gets a slitting card; a coil goes straight to the winders.** The slitting card records coils made and wastage and feeds the slitting report.
+- **Reel numbers.** New reels carry the plant's serial, for example **AIT 06281**; coils made from a reel carry the reel's serial plus -1, -2 (AIT 06281-1). Older reels keep AT-… numbers. The desk finds both: scan the QR, or type the serial in any form ("ait 6281", "AIT-06281-1").
+- **Boxes for finished goods** are issued here by pieces like any packing. The month's packing theory comes from the boxes packed on job cards (1 box plus the spec's plastic and fadda per box), so the stock count compares what was issued with what the boxes used.
 - **Parchment is issued by colour and kg**, oldest cleared coil first, on the material desk, not by coil number. Plastic is issued in kg, boxes in pieces.
 
 ## The flow
@@ -44,7 +46,7 @@ What you see:
 
 1. **Desk tabs**: **Reels & coils → floor**, **Adhesive / parchment / packing → floor**, **Issue history**. Under them: "Issued material is consumed in full on the floor; the job card records production and the stock count settles consumption."
 2. **Tiles**: **Ready for the floor** (count and kg), **Not cleared yet** (QC decides), **Slitting cards to write** and **Issued · date** (today's count and kg).
-3. **Ready for the floor** panel: a scan box "Scan QR or type AT / vendor reel no." with **Add** and **Camera**, a search box (paper, AT number, vendor reel), the filter **All**, **Reels → slitter**, **Coils → winders**, and the list. Each row shows a tick circle, AT number, material, **Pick from** rack, GSM, width, vendor reel or old mark, weight and a chip saying where it goes.
+3. **Ready for the floor** panel: a scan box "Scan QR or type AT / vendor reel no." with **Add** and **Camera**, a search box (paper, AT or AIT number, vendor reel), the filter **All**, **Reels → slitter**, **Coils → winders**, and the list. Each row shows a tick circle, the reel number (AIT serial on new reels, AT number on older ones), material, **Pick from** rack, GSM, width, vendor reel or old mark, weight and a chip saying where it goes.
 4. **Shift strip**: "Shift A · 31 Oct (now 11:50) · Shift and date are taken from the clock when you press Issue."
 5. **Issue button**: "Pick reels or coils to issue" until something is picked, then **Issue 3 to floor · 1,960 kg**.
 6. **Not cleared yet** (right): reels in stock but not passed by incoming QC, each with its reason (**Waiting for incoming QC**, **Failed incoming QC**, **Rejected by QC**) and **Inspect now** (QC, Store, Plant Manager, Owner, Admin) or **Ask QC to inspect**.
@@ -87,8 +89,8 @@ What you see:
 Roles: RMIssue, Store, Plant Manager, Owner, Admin.
 
 1. Open **Reel & coil issue**.
-2. Scan the reel's QR label with the scanner or **Camera**, or type its AT number, vendor reel number or old mark in the scan box and press **Add**. Case, spaces and dashes do not matter. You can also tap rows in the **Ready for the floor** list.
-3. The message confirms: "AT-261106-001 added · reel → slitter." If the number fits several reels, a short list appears; tap the one in your hand.
+2. Scan the reel's QR label with the scanner or **Camera**, or type its AIT serial (or older AT number), vendor reel number or old mark in the scan box and press **Add**. Case, spaces and dashes do not matter; "ait 6281" finds AIT 06281. You can also tap rows in the **Ready for the floor** list.
+3. The message confirms: "AIT 06281 added · reel → slitter." If the number fits several reels, a short list appears; tap the one in your hand.
 4. Repeat for every reel and coil going out. A reel scanned twice stays picked once.
 5. Check the shift strip, then click **Issue 3 to floor · 2,012 kg**. Each reel goes out at its full weight.
 6. The message says "3 issued to the floor · Shift A · 6 Nov. Write the slitting card for the 3 reels once slit." with an **Issue history** link. Reels move to **Issued today**; reels sent to the slitter appear under **Slitting cards to write**.
@@ -98,7 +100,7 @@ Roles: RMIssue, Store, Plant Manager (Owner and Admin too).
 
 1. Under **Slitting cards to write**, click **Write card** on the reel.
 2. Fill **Coils made** (a whole number above 0), **Wastage kg** (0 up to the reel's weight), and if known **Coil width mm**, **Slitter operator** and **Notes**.
-3. Click **Save slitting card**. The message says "Slitting card saved for AT-261106-001: 7 coils, 12 kg wastage." The card feeds the slitting report.
+3. Click **Save slitting card**. The message says "Slitting card saved for AIT 06281: 7 coils, 12 kg wastage." The card feeds the slitting report.
 4. A saved card can be corrected only by the Plant Manager, Owner or Admin, with a reason.
 
 ### How to issue adhesive, parchment or packing
@@ -133,7 +135,7 @@ There is no undo: an issue to the floor is final and the reel counts as used.
 3. The Owner decides when approving the count: **Leave as used (no change)** or **Add as new stock on QC hold**. Added stock must pass incoming QC again before it can be issued.
 
 ## Rules the system enforces
-- **BLOCKS:** only stock with a cleared QC status can be issued. A held reel shows "AT-261030-032 cannot go to the floor yet: waiting for incoming QC." A held lot shows "Lot … cannot be issued: it has not passed incoming QC yet. Only QC-cleared lots go to the floor."
+- **BLOCKS:** only stock with a cleared QC status can be issued. A held reel shows "AIT 06290 cannot go to the floor yet: waiting for incoming QC." A held lot shows "Lot … cannot be issued: it has not passed incoming QC yet. Only QC-cleared lots go to the floor."
 - **BLOCKS:** a reel goes out whole ("… goes to the floor whole: issue its full 702 kg"). A reel already issued is refused ("… was already issued to the floor (Shift A, 6 Nov) and is used up. Nothing is left to issue."). Scrapped reels and reels with no weight cannot be issued.
 - **BLOCKS:** parchment coils are not issued by coil number on the reel desk ("Parchment is issued by colour and kg, not by coil number."). Paper reels are not issued on the material desk ("Use reel/coil issue so physical identities and mandatory slitting are preserved."). Finished goods are never issued to the floor; they leave on a dispatch.
 - **BLOCKS:** a quantity above the cleared stock is refused ("Only 40 kg of … is in stock and cleared for issue. You asked for 50 kg."; "Not enough cleared stock of … to issue …"). A chosen lot cannot give more than it holds.
@@ -147,16 +149,18 @@ There is no undo: an issue to the floor is final and the reel counts as used.
 ## Sample
 Friday 7 Nov 2026, 10:15 (Shift A). Ramesh on the RM issue desk scans three reels of Kraft 230 GSM from GRN P/26/021 that QC passed yesterday, and one coil.
 
-| AT number | Form | Weight | Went to |
+| Label number | Form | Weight | Went to |
 |---|---|---|---|
-| AT-261106-001 | Reel | 702 kg | Slitter |
-| AT-261106-002 | Reel | 655.5 kg | Slitter |
-| AT-261106-003 | Reel | 654.5 kg | Slitter |
-| AT-261104-011 | Coil | 98 kg | Winders |
+| AIT 06281 | Reel | 702 kg | Slitter |
+| AIT 06282 | Reel | 655.5 kg | Slitter |
+| AIT 06283 | Reel | 654.5 kg | Slitter |
+| AT-261104-011 (older reel number) | Coil | 98 kg | Winders |
 
-He clicks **Issue 4 to floor · 2,110 kg**. At 13:00 Ramesh writes the slitting card for AT-261106-001 from the slitter's figures: 7 coils, 12 kg wastage. Ramesh then issues 25 kg of PVA adhesive (oldest lot A/26/005) and 400 pcs of Box R-150 to the floor. In **Issue history** for 7 Nov, Shift A, the six issues appear with Ramesh's name and the racks they came from; the CSV matches the stock book's **Issued** column.
+He clicks **Issue 4 to floor · 2,110 kg**. At 13:00 Ramesh writes the slitting card for AIT 06281 from the slitter's figures: 7 coils, 12 kg wastage. Ramesh then issues 25 kg of PVA adhesive (oldest lot A/26/005) and 400 pcs of Box R-150 to the floor. In **Issue history** for 7 Nov, Shift A, the six issues appear with Ramesh's name and the racks they came from; the CSV matches the stock book's **Issued** column.
 
 ## Common questions
+**Q: The label says AIT 06281 but the desk asks for an AT number. Which do I type?** A: Type what is on the label. New labels carry the AIT serial; older ones the AT number. Both are found.
+
 **Q: Why isn't there a shift or date box?** A: The shift and date come from the clock when you press Issue. An issue at 01:30 on 7 Nov is Shift B of 6 Nov.
 
 **Q: A reel is in the store but not in Ready for the floor. Why?** A: It has not passed incoming QC. It is under **Not cleared yet** with the reason. Ask QC to inspect it, or use **Inspect now** if you have QC access.

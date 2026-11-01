@@ -12,6 +12,7 @@ import { Camera, CheckCircle2, ClipboardCheck, ClipboardList, Copy, Download, Fl
 import { QRCodeSVG } from "qrcode.react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 
+import { ReasonPicker, useReasonChoice, type ReasonPayload } from "@/components/reasons"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -125,6 +126,39 @@ function PhoneLinkDialog({ card, open, onOpenChange }: { card: any; open: boolea
   )
 }
 
+/** Reopening a closed stage asks why with an "Entry correction" code (owner decision 4, 1 Nov 2026). */
+function ReopenStageDialog({ card, stage, pending, error, onCancel, onConfirm }: { card: any; stage: string | null; pending: boolean; error?: string; onCancel: () => void; onConfirm: (reason: ReasonPayload) => void }) {
+  const reason = useReasonChoice("ENTRY_CORRECTION", card?.plant_id, { enabled: Boolean(stage) })
+  const { reset } = reason
+  useEffect(() => {
+    if (stage) reset()
+  }, [stage, reset])
+  return (
+    <Dialog open={Boolean(stage)} onOpenChange={(open) => (open ? undefined : onCancel())}>
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-md" data-testid="reopen-stage-dialog">
+        <DialogHeader>
+          <DialogTitle>Reopen {stageLabel(stage || "")}</DialogTitle>
+          <DialogDescription>Posted stock or tool usage needs a governed reversal or an additional card. A short close is taken back from the order where it still can be.</DialogDescription>
+        </DialogHeader>
+        <ReasonPicker category="ENTRY_CORRECTION" plantId={card?.plant_id} rows={reason.rows} value={reason.value} onChange={reason.setValue} showErrors={reason.touched} compact label="Why is it reopened?" testIdPrefix="reopen-stage" />
+        {error ? (
+          <p role="alert" className="rounded-lg border border-signal-rose-line bg-signal-rose-soft p-3 text-sm text-signal-rose-ink">
+            {error}
+          </p>
+        ) : null}
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" className="min-h-11" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button className="min-h-11" disabled={pending} onClick={() => reason.validate() && onConfirm(reason.payload("reason") as ReasonPayload)} data-testid="reopen-stage-confirm">
+            {pending ? "Reopening…" : "Reopen stage"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 export function JobCardPage({ jobCardId }: { jobCardId: string }) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -167,6 +201,7 @@ export function JobCardPage({ jobCardId }: { jobCardId: string }) {
   const [panel, setPanel] = useState<EntryPanel>(null)
   const [closing, setClosing] = useState<string | null>(null)
   const [phoneLink, setPhoneLink] = useState(false)
+  const [reopening, setReopening] = useState<string | null>(null)
   const [wholeCard, setWholeCard] = useState(false)
   // Deep link from the floor or a notification: ?log=output|qc opens that form once (only what the card
   // and the role allow).
@@ -249,12 +284,17 @@ export function JobCardPage({ jobCardId }: { jobCardId: string }) {
   }, [card, isV2, cardOpen, cancelled, drafts.length, waitingQc.length, current, stages, canSubmit, canQc, canDraft])
 
   const reopen = (stage: string) => {
+    setActionError("")
+    setReopening(stage)
+  }
+  const confirmReopen = (reason: ReasonPayload) => {
+    const stage = reopening
     const state = stages.find((s: any) => s.stage === stage)
-    const reason = window.prompt("Reason to reopen this stage. Posted stock or tool usage needs a governed reversal or an additional card.")
-    if (!reason?.trim() || !state) return
+    if (!stage || !state) return
     mutation.mutate(async () => {
-      const r = await entryApi.reopen(card.id, stage, stableCommand({ expected_version: state.row_version, reason: reason.trim() }, `reopen:${stage}`))
+      const r = await entryApi.reopen(card.id, stage, stableCommand({ expected_version: state.row_version, ...reason }, `reopen:${stage}`))
       reset()
+      setReopening(null)
       showToast(`${stageLabel(stage)} reopened.`, "success")
       return r
     })
@@ -615,6 +655,7 @@ export function JobCardPage({ jobCardId }: { jobCardId: string }) {
         />
       ) : null}
       <PhoneLinkDialog card={card} open={phoneLink} onOpenChange={setPhoneLink} />
+      <ReopenStageDialog card={card} stage={reopening} pending={mutation.isPending} error={reopening ? actionError : ""} onCancel={() => setReopening(null)} onConfirm={confirmReopen} />
     </div>
   )
 }

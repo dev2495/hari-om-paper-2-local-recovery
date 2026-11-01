@@ -322,6 +322,7 @@ def _ensure_schema_compatibility() -> None:
         for column_sql in (
             "legal_name VARCHAR(200)",
             "trade_name VARCHAR(200)",
+            "short_name VARCHAR(60)",
             "alt_phone VARCHAR(50)",
             "address_line2 VARCHAR(300)",
             "city VARCHAR(120)",
@@ -783,9 +784,9 @@ from .tool_backfill import backfill_tools_from_specs
 backfill_tools_from_specs()
 
 
-from .reason_seed import seed_order_close_reasons
+from .reason_seed import seed_reason_codes
 
-seed_order_close_reasons()
+seed_reason_codes()
 
 
 @app.get("/")

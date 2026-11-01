@@ -1,8 +1,9 @@
 "use client"
 
 // Closing a stage: the plant manager / owner / admin who is logged in confirms the totals; no supervisor is
-// picked (client 2026-10-27), the login is recorded as who closed it. Short of target needs a reason,
-// unused input needs a disposition, Packing / the completing Process step may name the finished-good item
+// picked (client 2026-10-27), the login is recorded as who closed it. Short of target needs a reason code
+// (Masters › Reason codes › Stage closed short), unused input a disposition and a "Leftover input" code
+// (owner decision 4, 1 Nov 2026), Packing / the completing Process step may name the finished-good item
 // and location, Winding may link reel issues. QC must be ready (at least 2 readings per required check on the
 // stage — the same rule for a short close) and drafts must be submitted or voided first; the server refuses
 // otherwise and its words are shown. Anyone may open this to see what is missing; only those logins confirm.
@@ -12,9 +13,9 @@ import { AlertTriangle, CheckCircle2, ClipboardCheck, Clock3, Lock } from "lucid
 import { useEffect, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 
+import { EMPTY_REASON, ReasonPicker, useReasonChoice } from "@/components/reasons"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { useCardMutation, useEntryApi, useStableCommand } from "./data"
 import { DraftRestoredBar, draftKey, useFormDraft } from "./draft"
@@ -66,13 +67,18 @@ export function CloseStageDialog({
   const { mutation, error, setError } = useCardMutation(String(card.id))
   const { stableCommand, reset } = useStableCommand()
   const state = (flow?.stages || []).find((s: any) => s.stage === stage)
-  const [closeReason, setCloseReason] = useState("")
+  const shortReason = useReasonChoice("STAGE_SHORT_CLOSE", card.plant_id, { enabled: open })
+  const leftoverReason = useReasonChoice("LEFTOVER_INPUT", card.plant_id, { enabled: open })
   const [fgItem, setFgItem] = useState("")
   const [location, setLocation] = useState("")
   const [reelLinks, setReelLinks] = useState<string[]>([])
   const [residual, setResidual] = useState("HOLD")
   const winderMachine = card.stages?.find((s: any) => s.stage_type === "WINDER")?.machine_id
-  const draft = useFormDraft(open ? draftKey("close", card.id, stage) : null, { closeReason, fgItem, location, reelLinks, residual }, Boolean(closeReason.trim() || fgItem || location || reelLinks.length || residual !== "HOLD"))
+  const draft = useFormDraft(
+    open ? draftKey("close", card.id, stage) : null,
+    { shortReason: shortReason.value, leftoverReason: leftoverReason.value, fgItem, location, reelLinks, residual },
+    Boolean(shortReason.value.code || shortReason.value.note || leftoverReason.value.code || leftoverReason.value.note || fgItem || location || reelLinks.length || residual !== "HOLD"),
+  )
   const items = useQuery({
     queryKey: ["continuous-items", card.plant_id],
     queryFn: async () => (await entryApi.items()).data,
@@ -91,14 +97,16 @@ export function CloseStageDialog({
   useEffect(() => {
     if (open) {
       setError("")
-      setCloseReason("")
+      shortReason.reset()
+      leftoverReason.reset()
       setReelLinks([])
       setResidual("HOLD")
       setFgItem("")
       setLocation("")
       const typed: any = draft.restore()
       if (typed) {
-        setCloseReason(typed.closeReason || "")
+        if (typed.shortReason?.code || typed.shortReason?.note) shortReason.setValue({ ...EMPTY_REASON, ...typed.shortReason })
+        if (typed.leftoverReason?.code || typed.leftoverReason?.note) leftoverReason.setValue({ ...EMPTY_REASON, ...typed.leftoverReason })
         setFgItem(typed.fgItem || "")
         setLocation(typed.location || "")
         setReelLinks(Array.isArray(typed.reelLinks) ? typed.reelLinks : [])
@@ -112,19 +120,24 @@ export function CloseStageDialog({
   const short = Number(state.accepted_total) < Number(state.target)
   const completes = state.completes_card || stage === "QC" || stage === "PACKING"
   const blocked = closeBlockedReason(state, card)
-  const needsReason = short || Number(state.available_from_upstream) > 0
-  const canConfirm = canSubmit && !mutation.isPending && Boolean(state.qc?.ready) && !state.draft_count && (!needsReason || closeReason.trim().length > 0)
+  const leftover = Number(state.available_from_upstream) > 0
+  const reasonsDone = (!short || shortReason.complete) && (!leftover || leftoverReason.complete)
+  const canConfirm = canSubmit && !mutation.isPending && Boolean(state.qc?.ready) && !state.draft_count && reasonsDone
   const missingLines = missingQcLines(state, card)
   const unchecked = runsWithoutQc(card, entries, stage).filter((e: any) => e.status === "SUBMITTED")
   const confirmHint = !canSubmit
     ? ""
     : blocked
       ? "The stage can be closed once the note above is cleared."
-      : needsReason && !closeReason.trim()
-        ? short
-          ? "Write why the stage closes short."
-          : "Write the reason for the unused input."
-        : ""
+      : short && !shortReason.complete
+        ? shortReason.value.code
+          ? "Write a short note for Other."
+          : "Choose why the stage closes short."
+        : leftover && !leftoverReason.complete
+          ? leftoverReason.value.code
+            ? "Write a short note for Other."
+            : "Choose the reason for the unused input."
+          : ""
 
   const confirm = () =>
     mutation.mutate(async () => {
@@ -138,12 +151,23 @@ export function CloseStageDialog({
           location_id: location || null,
           short_close: short,
           residual_disposition: residual,
-          reason: closeReason,
+          // Reason codes (owner decision 4): the short close as reason_code / reason_note (+ the old "reason" text),
+          // leftover input as residual_reason_code / residual_reason_note.
+          ...(short ? shortReason.payload("reason") : {}),
+          ...(leftover && leftoverReason.value.code
+            ? { residual_reason_code: leftoverReason.value.code, residual_reason_note: leftoverReason.value.note.trim() || undefined }
+            : {}),
         }),
       )
       draft.clear()
       onOpenChange(false)
-      onClosed?.(completes ? `Job card complete: ${fmt(state.accepted_total)} pcs go to finished goods and are ready for dispatch.` : `${stageLabel(stage)} closed${short ? " short" : ""}.`, Boolean(completes))
+      const back = Number(result?.data?.short_close?.returned_pcs || 0)
+      onClosed?.(
+        completes
+          ? `Process closed: ${fmt(state.accepted_total)} pcs are packed in boxes and go into stock box by box; ship them from Dispatch.`
+          : `${stageLabel(stage)} closed${short ? " short" : ""}.${back ? ` ${fmt(back)} pcs went back to the sales order.` : ""}`,
+        Boolean(completes),
+      )
       return result
     })
 
@@ -154,7 +178,10 @@ export function CloseStageDialog({
           <DialogTitle>{state.completes_card || stage === "QC" ? `Close ${stageLabel(stage)} and complete the job card` : `Close ${stageLabel(stage)}`}</DialogTitle>
           <DialogDescription>
             {fmt(state.accepted_total)} of {fmt(state.target)} {state.unit} good
-            {short ? " — closing now is a short close and needs a reason; the balance goes back to the order" : ""}.
+            {short
+              ? ` — closing now is a short close and needs a reason. ${Number(state.short_return_preview) > 0 ? `${fmt(state.short_return_preview)} pcs go back to the sales order at once (Sales can release them again or short-close the order)` : "Nothing goes back to the order"}; the stages after this one are cut to what was passed on`
+              : ""}
+            .
           </DialogDescription>
         </DialogHeader>
 
@@ -163,7 +190,8 @@ export function CloseStageDialog({
             savedAt={draft.restoredAt}
             onDiscard={() => {
               draft.discard()
-              setCloseReason("")
+              shortReason.reset()
+              leftoverReason.reset()
               setFgItem("")
               setLocation("")
               setReelLinks([])
@@ -223,8 +251,8 @@ export function CloseStageDialog({
           <p className={cn("flex items-start gap-2 rounded-lg border px-3 py-2 text-[13px]", toneClass("amber"))} data-testid="close-stage-unchecked">
             <Clock3 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
             <span>
-              No QC yet on {unchecked.map((e: any) => runNo(e)).join(", ")} ({fmt(unchecked.reduce((n: number, e: any) => n + Number(e.accepted || 0), 0))} {state.unit}). The stage may close, but the next stage takes these only after their QC is
-              recorded.
+              No QC yet on {unchecked.map((e: any) => runNo(e)).join(", ")} ({fmt(unchecked.reduce((n: number, e: any) => n + Number(e.accepted || 0), 0))} {state.unit}). The stage may close once it has its readings; the readings of the stage count
+              together, and the next stage can then take every batch.
             </span>
           </p>
         ) : null}
@@ -251,7 +279,14 @@ export function CloseStageDialog({
                 {fmt(state.completion_preview?.fg_qty ?? state.accepted_total)} pcs become finished goods
                 {state.completion_preview?.fg_code ? ` (item ${state.completion_preview.fg_code}, created if new)` : ""} and are ready for dispatch.
               </li>
-              {Number(state.completion_preview?.packing?.box_count) > 0 ? (
+              {state.completion_preview?.boxes ? (
+                <li data-testid="process-completion-boxes">
+                  {fmt(state.completion_preview.boxes.boxed)} box{Number(state.completion_preview.boxes.boxed) === 1 ? " is" : "es are"} already packed ({fmt(state.completion_preview.boxes.boxed_pcs)} pcs).
+                  {Number(state.completion_preview.boxes.full_boxes_at_close) > 0 ? ` ${fmt(state.completion_preview.boxes.full_boxes_at_close)} more full box${Number(state.completion_preview.boxes.full_boxes_at_close) === 1 ? "" : "es"} of ${fmt(state.completion_preview.boxes.qty_per_box)} will be packed.` : ""}
+                  {Number(state.completion_preview.boxes.part_box_pcs) > 0 ? ` The ${fmt(state.completion_preview.boxes.part_box_pcs)} pcs left become a part box with its own label.` : " No part box is needed."}
+                  {!state.completion_preview.boxes.qty_per_box ? " The spec has no qty per box, so all pcs go into one part box." : ""} Each box goes into stock on its own and ships on a challan by its box code.
+                </li>
+              ) : Number(state.completion_preview?.packing?.box_count) > 0 ? (
                 <li>
                   Packing from the spec sheet is consumed: {fmt(state.completion_preview.packing.box_count)} box
                   {Number(state.completion_preview.packing.box_count) === 1 ? "" : "es"}
@@ -322,28 +357,43 @@ export function CloseStageDialog({
                 </label>
               </div>
             ) : null}
-            {Number(state.available_from_upstream) > 0 ? (
-              <label className="block text-sm">
-                <span className={fieldLabel}>
-                  Unused input ({fmt(state.available_from_upstream)} {state.input_unit})
-                </span>
-                <select className={selectClass} value={residual} onChange={(e) => setResidual(e.target.value)} data-testid="close-stage-residual">
-                  <option value="HOLD">Hold for follow-up</option>
-                  <option value="SCRAP">Scrap with reason</option>
-                </select>
-              </label>
-            ) : null}
-            <label className="block text-sm">
-              <span className={fieldLabel}>Reason {needsReason ? "(required — short close or unused input)" : "(optional)"}</span>
-              <Input
-                className="h-11 min-h-11"
-                value={closeReason}
-                onChange={(e) => setCloseReason(e.target.value)}
-                placeholder={short ? "Why the stage closes short of target" : "Material exception, unused input…"}
-                aria-label="Close reason"
-                data-testid="close-stage-reason"
+            {short ? (
+              <ReasonPicker
+                category="STAGE_SHORT_CLOSE"
+                plantId={card.plant_id}
+                rows={shortReason.rows}
+                value={shortReason.value}
+                onChange={shortReason.setValue}
+                showErrors={Boolean(shortReason.value.code)}
+                compact
+                label="Why does it close short?"
+                testIdPrefix="close-stage"
               />
-            </label>
+            ) : null}
+            {leftover ? (
+              <div className="space-y-2">
+                <label className="block text-sm">
+                  <span className={fieldLabel}>
+                    Unused input ({fmt(state.available_from_upstream)} {state.input_unit})
+                  </span>
+                  <select className={selectClass} value={residual} onChange={(e) => setResidual(e.target.value)} data-testid="close-stage-residual">
+                    <option value="HOLD">Hold for follow-up</option>
+                    <option value="SCRAP">Scrap with reason</option>
+                  </select>
+                </label>
+                <ReasonPicker
+                  category="LEFTOVER_INPUT"
+                  plantId={card.plant_id}
+                  rows={leftoverReason.rows}
+                  value={leftoverReason.value}
+                  onChange={leftoverReason.setValue}
+                  showErrors={Boolean(leftoverReason.value.code)}
+                  compact
+                  label={residual === "SCRAP" ? "Why is it scrapped?" : "Why is it held?"}
+                  testIdPrefix="close-stage:leftover"
+                />
+              </div>
+            ) : null}
           </>
         ) : null}
         {error ? (

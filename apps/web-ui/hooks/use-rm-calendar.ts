@@ -106,7 +106,7 @@ export function useUpdateArrival() {
 
 export function useCancelArrival() {
   const refresh = useRefreshPurchasing()
-  return useMutation({ mutationFn: ({ id, reason }: { id: string; reason?: string }) => rmCalendarApi.cancel(id, reason), onSuccess: refresh })
+  return useMutation({ mutationFn: ({ id, ...body }: { id: string; reason_code: string; reason_note?: string; reason?: string }) => rmCalendarApi.cancel(id, body), onSuccess: refresh })
 }
 
 export function useApproveArrivals() {

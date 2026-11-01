@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..reasons import reason_input, resolve_reason, token_of
 from ..models import InventoryBooksLock
 from ..services.books import (
     ist_today,
@@ -51,15 +52,21 @@ class BooksUnlockPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     month: str = Field(pattern=MONTH_PATTERN)
-    reason: str = Field(min_length=3, max_length=500)
+    # A BOOKS_UNLOCK code from Masters › Reason codes is required (owner decision 4, 1 Nov 2026), for the
+    # Owner's own re-open and for production's month-end re-open (which passes the Owner's code on).
+    reason_code: Optional[str] = Field(default=None, max_length=80)
+    reason_note: Optional[str] = Field(default=None, max_length=500)
+    # Old free-text field: ignored for the decision, kept so older callers still validate.
+    reason: Optional[str] = Field(default=None, max_length=500)
+    # System undo of a month-end close that did not finish (production's compensating call right after it
+    # locked the month). Allowed without a code only while the lock is fresh; it records a fixed system text.
+    rollback: bool = False
 
     @field_validator("reason")
     @classmethod
-    def clean_reason(cls, value: str) -> str:
+    def clean_reason(cls, value: Optional[str]) -> Optional[str]:
         cleaned = " ".join(str(value or "").split())
-        if len(cleaned) < 3:
-            raise ValueError("Give a reason for re-opening the month")
-        return cleaned
+        return cleaned or None
 
 
 def _audit(current_user: dict, plant_id: str, event_type: str, summary: str, payload: dict) -> None:
@@ -119,6 +126,23 @@ def lock_books_month(
     return result
 
 
+ROLLBACK_REASON = "Month-end close did not finish (undone automatically)"
+ROLLBACK_WINDOW_MINUTES = 15
+
+
+def rollback_allowed(db: Session, plant_id: str, month, *, now=None) -> bool:
+    """A system undo may re-open a month only if it was locked moments ago (the close it undoes)."""
+    from datetime import datetime, timedelta
+
+    row = db.query(InventoryBooksLock).filter(
+        InventoryBooksLock.plant_id == str(plant_id), InventoryBooksLock.month == month_start(month),
+    ).first()
+    if row is None or row.status != "LOCKED":
+        return True  # nothing to undo: unlock_month is a no-op
+    locked_at = getattr(row, "locked_at", None)
+    return bool(locked_at) and (now or datetime.utcnow()) - locked_at <= timedelta(minutes=ROLLBACK_WINDOW_MINUTES)
+
+
 @router.post("/unlock")
 def unlock_books_month(
     payload: BooksUnlockPayload,
@@ -127,7 +151,21 @@ def unlock_books_month(
     current_user: dict = Depends(require_owner),
 ):
     month = parse_month(payload.month)
-    row = unlock_month(db, plant_id, month, _actor(current_user), payload.reason)
+    code, note = reason_input(payload)
+    choice = None
+    if payload.rollback and not code:
+        if not rollback_allowed(db, plant_id, month):
+            raise HTTPException(
+                status_code=409,
+                detail="Only a month-end close that did not finish can be undone without a reason. Choose a reason to re-open this month.",
+            )
+        reason_text = ROLLBACK_REASON
+    else:
+        choice = resolve_reason(category="BOOKS_UNLOCK", code=code, note=note, plant_id=plant_id,
+                                token=token_of(current_user), required=True, what="re-opening the month")
+        reason_text = choice.text
+    row = unlock_month(db, plant_id, month, _actor(current_user), reason_text[:500],
+                       coded=({"reason_code": choice.code, "reason_label": choice.label, "reason_note": choice.note} if choice else None))
     db.commit()
     if row is None:
         return {"plant_id": str(plant_id), "month": month_key(month), "month_label": month_label(month), "status": "OPEN",
@@ -135,5 +173,5 @@ def unlock_books_month(
                 "unlock_reason": None, "history": []}
     db.refresh(row)
     result = serialize_lock(row)
-    _audit(current_user, plant_id, "inventory_books_unlocked", f"Store books re-opened for {month_label(month)}: {payload.reason}", result)
+    _audit(current_user, plant_id, "inventory_books_unlocked", f"Store books re-opened for {month_label(month)}: {reason_text}", result)
     return result

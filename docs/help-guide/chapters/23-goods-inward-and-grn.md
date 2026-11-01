@@ -6,7 +6,8 @@
 
 ## At a glance
 - **Weigh every reel and coil.** Paper is received reel by reel: vendor reel number, **net kg**, width and form (reel or coil). Stock, the PO balance and the invoice all go by net kg. There is no gross or tare at inward.
-- **Each physical unit gets its own AT number and QR label**, for example **AT-261106-004**, dated by the receipt date.
+- **Each reel gets the plant's own serial and label.** New reels are numbered in the **AIT series**, for example **AIT 06243**: "AIT", a space and 5 digits, one running series per plant and financial year, starting again at AIT 00001 on 1 April. Coils slit from a reel carry the reel's serial plus -1, -2 (AIT 06243-1). Older AT-… numbers stay valid and can still be scanned and searched.
+- **The reel label matches the plant's own printed label**, with a QR added: plant heading, MILL NAME, invoice number, date, PLYBOND, VARIETY, GSM, ROLL NO., the AIT serial in very large letters, and WEIGHT.
 - **The inward number is automatic** and restarts every financial year on 1 April: **P/26/021** for paper, **A/26/005** for adhesive, **IN/26/030** for everything else or a mix (26 = 2026-27).
 - **Everything received waits for incoming QC.** New lots show **Waiting for QC** and cannot be issued until QC passes them. An invoice that is pending or a rate that differs never holds them.
 - **Validate, then post once.** **Validate receipt** checks everything first; **Post goods inward** saves it once, even if you click twice or the line drops.
@@ -14,14 +15,14 @@
 ## The flow
 ```flow
 title: Truck to store
-Truck arrives [GRN/Store] -> Make GRN or Goods inward (PO filled in) -> Enter challan, invoice, reels [GRN/Store] -> Validate receipt -> Post goods inward (P/26/021, AT labels) -> Print QR labels [GRN/Store] -> Incoming QC [QC] -> Usable for issue
+Truck arrives [GRN/Store] -> Make GRN or Goods inward (PO filled in) -> Enter challan, invoice, reels [GRN/Store] -> Validate receipt -> Post goods inward (P/26/021, AIT serials) -> Print reel labels [GRN/Store] -> Incoming QC [QC] -> Usable for issue
 after Enter challan, invoice, reels: Invoice pending (challan only) -> Attach invoice later [Store] (GRN register)
 after Post goods inward: Rate differs from PO -> Rate case [Plant Manager/Accounts] (does not hold the reels)
 ```
 
 ```flow
 title: Manual GRN (no PO)
-Manual GRN with reason [GRN/Store] -> Validate and post -> Attach invoice -> Approve manual purchase [Plant Manager/Accounts] -> Incoming QC [QC]
+Manual GRN with reason code [GRN/Store] -> Validate and post -> Attach invoice -> Approve manual purchase [Plant Manager/Accounts] -> Incoming QC [QC]
 ```
 
 Approved POs come from the Purchase orders chapter. After posting, inspection happens in the Incoming QC chapter; issue to the floor is in the Issue to floor chapter.
@@ -33,7 +34,7 @@ Approved POs come from the Purchase orders chapter. After posting, inspection ha
 
 What you see:
 1. **GRN register** button (top right).
-2. **Vendor & receipt source**: **Receipt source** ("Against approved system PO" or "Manual GRN · without PO"), **Vendor**, **Approved purchase order** (each shows its PO number and revision) or, for manual, **Reason for no PO**, and **Inward date · automatic** (today, cannot be changed). After you pick a vendor, a grey line shows its **GSTIN** (or "not in vendor master"), city and state, and contact.
+2. **Vendor & receipt source**: **Receipt source** ("Against approved system PO" or "Manual GRN · without PO"), **Vendor**, **Approved purchase order** (each shows its PO number and revision) or, for manual, **Reason for no PO** (a code from the list **Receipt without PO**: MR-URGENT Urgent buy, PO to follow, MR-SAMPLE Free sample from the supplier, MR-RETURNABLE Returnable / job-work material, MR-CASH Cash purchase, MR-CUST-SUPPLIED Customer-supplied material, MR-OTHER), and **Inward date · automatic** (today, cannot be changed). After you pick a vendor, a grey line shows its **GSTIN** (or "not in vendor master"), city and state, and contact, and **Mill name on reel labels** (the vendor's mill / short name, or "not set, labels print the vendor name (Masters › Vendors)").
 3. **Net weight only** note and the **Inward number** rule (P/26/001 paper, A/26/001 adhesive, IN/26/001 everything else; restarts on 1 April).
 4. **Supplier challan & invoice**: **Supplier challan number** (required), **Invoice number**, **Invoice date** and **Challan received · invoice pending**. When ticked, the invoice fields are disabled and a note says the invoice is added later in the GRN register.
 5. **Material 1** panel: **PO material / variety** (only lines of the chosen PO; each PO line once), **Put in location** (required; defaults to the RM store), **Approved PO rate · locked**, **Invoice rate / kg** (called **Challan / invoice rate** when the invoice is pending; it starts at the PO rate and can be edited) and **Invoice quantity** (defaults to the weighed quantity). **Remove material** drops the panel.
@@ -64,6 +65,9 @@ What you see:
 6. **Attach supplier invoice** (while pending): **Invoice number**, **Invoice date**, and for each line its invoice quantity and invoice rate (filled from the challan rate), then **Attach and validate invoice**.
 7. **Label printing** (further down): **Label sheet** (A4 · 8 labels per sheet, or Thermal · 4 × 2 inch), **Copies** (1 to 20), **Reprint reason** ("if printed before"), **Prepare N labels**, then **Open A4 sheet PDF · print at actual size**. The label previews show under it.
 
+![Alt: Reel label in the plant layout with the AIT serial in large letters and a QR](../screens/reel-label.jpg)
+*Figure: A printed reel label. One bordered label: the heading AMIGO INDUSTRIES UNIT II across the top; a row with MILL NAME (AKSHAT), the invoice number and the date 28-Oct-26; a row of headers PLYBOND, VARIETY, GSM with 400, 351, 351 under them; ROLL NO. 65686; the serial AIT 06243 in very large bold letters; WEIGHT 1161; and the QR code at the side.*
+
 ## Step by step
 
 ### How to receive goods against an approved PO
@@ -76,15 +80,15 @@ Roles: GRN, Store, Plant Manager, Owner, Admin.
 6. For paper: weigh each reel and type one row per reel: **Vendor reel / coil no.**, **Net kg**, **Width** and **Form**. Press Enter in the last field to add a row, or use **Add 10 more**. To paste from a weighing sheet, open **Paste measured lot rows from Excel**, paste and click **Append pasted lots**.
 7. For bulk material: type the **Received quantity** in its unit.
 8. Click **Add another material** for each further PO line on the same truck.
-9. If the total is more than the PO has open, fill **Reason for receiving more than the PO**.
+9. If the total is more than the PO has open, pick the **Reason for receiving more than the PO** from the list **Receiving more than the PO** (OR-ROLL-WEIGHT Full reel weighs more, OR-MIN-LOT Supplier minimum lot, OR-NEEDED Extra needed for production, OR-TOLERANCE Within agreed tolerance, OR-OTHER) and add a note if useful.
 10. Click **Validate receipt** and read the **Validation result** (each line with its quantity and reels, and words such as "rates match the PO", "invoice to follow" or "differs from the PO · goes to Accounts"). Warnings such as a reused challan number appear in amber; you can still post if it is a different delivery.
-11. Click **Post goods inward**. The message gives the inward number: "Inward P/26/021 saved (challan BPM/2231). 12 lots recorded. Incoming QC decides when the lots can be issued."
+11. Click **Post goods inward**. The message gives the inward number: "Inward P/26/021 saved (challan BPM/2231). 12 lots recorded. Incoming QC decides when the lots can be issued." Each reel gets the next AIT serial of the year (for example AIT 06281, AIT 06282…).
 12. Print the labels (next task), then click **Start next receipt**.
 
 ### How to make a manual GRN (no PO)
 Roles: GRN, Store, Plant Manager.
 1. Set **Receipt source** to **Manual GRN · without PO** and pick the **Vendor**.
-2. Write the **Reason for no PO** (for example "approved urgent local purchase").
+2. Pick the **Reason for no PO** (for example MR-URGENT Urgent buy, PO to follow) and add a note such as "approved urgent local purchase".
 3. Fill the challan and invoice, pick each **Material / variety** from the master and enter the reels or quantity and the invoice rate.
 4. Validate and post. The receipt shows **Manual review**.
 5. The plant head or Accounts (not the person who made it) opens it in the GRN register, attaches the invoice if pending, types a **Commercial review reason** and clicks **Approve manual purchase and invoice rates**.
@@ -96,7 +100,19 @@ Roles: GRN, Store, Plant Manager, Owner, Admin.
 3. If these labels were printed before, type a **Reprint reason** (for example "Damaged label").
 4. Click **Prepare N labels**, then **Open … PDF** and print at actual size. Stick one label on each reel, coil or lot.
 
-Each reel label shows the AT number and QR code, the material, the PO and inward number, GSM, BF and Polybond (from the reel's incoming QC readings, otherwise the material master), width, weight, vendor and the received date. The QR opens the lot in the phone camera; scanning it later tells the issue desk whether QC has passed it.
+Each reel or coil label is one bordered label in the plant's own layout (from the plant's "REEL PRINT." sheet), in big clear black letters, with a QR added. Nothing else is printed: no PO, GRN, vendor or QC words. A lot that is not a reel (adhesive, parchment, packing) keeps the plain lot label with its code and QR. The QR opens the lot in the phone camera; scanning it later tells the issue desk whether QC has passed it.
+
+| Row | What it shows | Example |
+|---|---|---|
+| 1 | Label heading of the plant (System › Plants) | AMIGO INDUSTRIES UNIT II |
+| 2 | MILL NAME · supplier invoice no. · received date (dd-Mon-yy) | AKSHAT · VPI/1686/2026-27 · 28-Oct-26 |
+| 3 | Headers PLYBOND · VARIETY · GSM | |
+| 4 | Polybond · variety (paper code) · GSM | 400 · 351 · 351 |
+| 5 | ROLL NO. · the mill's roll / reel number | 65686 |
+| 6 | The AIT serial, very large and bold | AIT 06243 |
+| 7 | WEIGHT · net kg | 1161 |
+
+Where the values come from: **MILL NAME** is the vendor's mill / short name (else the vendor name). **Inv No.** is the invoice number typed at inward, else the invoice attached later, else the challan number while the invoice is pending. **PLYBOND** is the incoming QC reading when measured, else the PO line or paper master. **GSM** is the GSM measured at incoming QC when there is one; otherwise it prints the variety number, as the plant does. A value nobody gave stays blank, never 0. A coil label has the same layout with the coil's own serial (AIT 06243-1) and weight.
 
 ### How to attach an invoice that came later
 Roles: GRN, Store, Plant Manager.
@@ -117,14 +133,14 @@ Roles: QC and Inward QC enter readings; Store and the Plant Manager can view.
 - **BLOCKS:** a supplier challan number is required. Invoice number and date are required unless **invoice pending** is ticked, and an invoice number must not be typed while it is ticked.
 - **BLOCKS:** an invoice rate is required for every material unless the invoice is pending (then it may be left empty or typed from the challan). An invoice number already used with a different date is refused.
 - **BLOCKS:** only an approved PO with an open balance can be received ("Only an approved purchase order can receive material"). Each PO line may appear only once per receipt.
-- **BLOCKS:** each filled reel row needs its own vendor reel number, net kg and width. A vendor reel number used twice in a receipt, or already received before, is refused ("Vendor reel BPM-7781 is already inwarded as AT-261029-003").
-- **BLOCKS:** receiving more than the PO line has open needs a reason ("Line 1 (KRAFT230): 2100 kg is more than the 2000 kg still open on the PO. Enter a reason to receive more than the PO.").
+- **BLOCKS:** each filled reel row needs its own vendor reel number, net kg and width. A vendor reel number used twice in a receipt, or already received before, is refused ("Vendor reel BPM-7781 is already inwarded as AIT 06212").
+- **BLOCKS:** receiving more than the PO line has open needs a **Receiving more than the PO** code ("Line 1 (KRAFT230): 2100 kg is more than the 2000 kg still open on the PO. Enter a reason to receive more than the PO."). Codes with OTHER need a note of at least 5 characters; free text alone is refused.
 - **BLOCKS:** goods must go to an active store location of this plant, not a floor or closed location. Parchment is received as coils. Paper lines are in kg.
 - **BLOCKS:** **Post goods inward** works only after **Validate receipt**, and only if nothing changed since ("Receipt details changed. Validate them again before posting."). Posting is saved once even if repeated.
-- **BLOCKS:** a manual GRN needs a reason, cannot be used for tools or other items (they need a requisition and PO), and is approved by someone other than its maker, after the invoice is attached.
+- **BLOCKS:** a manual GRN needs a **Receipt without PO** code, cannot be used for tools or other items (they need a requisition and PO), and is approved by someone other than its maker, after the invoice is attached.
 - **BLOCKS:** reprinting labels already printed needs a reprint reason ("A reprint reason is required for previously printed lots"). Copies are 1 to 20.
 - **WARNS:** a challan number this vendor already used on another inward: "Challan … was already used by this supplier on P/26/018 (30 Oct 2026). Check this is not the same delivery entered twice." It does not block.
-- **AUTOMATIC:** inward number per plant and financial year (P, A or IN series; Jan–Mar 2027 stay under 26, and 1 April 2027 starts P/27/001); AT number per reel; QC hold and an incoming QC task for every lot; PO balance and dated delivery rows updated (oldest date first); rate, quantity and specification cases opened; the plant head and Accounts notified of rate cases.
+- **AUTOMATIC:** inward number per plant and financial year (P, A or IN series; Jan–Mar 2027 stay under 26, and 1 April 2027 starts P/27/001); AIT serial per reel (one series per plant and financial year, restarting at AIT 00001 on 1 April; the Owner or Admin sets the next number once in System › Plants; numbers are never given twice in a year); coils slit later get the parent serial plus -1, -2; QC hold and an incoming QC task for every lot; PO balance and dated delivery rows updated (oldest date first); rate, quantity and specification cases opened; the plant head and Accounts notified of rate cases.
 
 ## Sample
 Bharat Paper Mills delivers on 6 Nov 2026 against **RP-PM/54**, challan BPM/2231, invoice BPM/INV/884 dated 6 Nov.
@@ -135,7 +151,7 @@ Bharat Paper Mills delivers on 6 Nov 2026 against **RP-PM/54**, challan BPM/2231
 | BPM-7782 | 655.5 | 1,000 mm | Reel |
 | BPM-7783 | 654.5 | 1,000 mm | Reel |
 
-Total 2,012 kg of Kraft 230 GSM; PO open 2,000 kg, so the strip shows "more than the PO by 12 kg — reason needed below". Store types "Last reels of the order, supplier confirmed extra kg". Invoice rate ₹45.25 / kg against PO ₹44.50 / kg: an amber note shows ₹1,509.00 more. Store validates and posts: **P/26/021**, 3 lots, AT-261106-001 to AT-261106-003, all **Waiting for QC**. A rate case opens for the plant head. Store prints three A4 labels. QC passes the reels the same afternoon and they appear under **Ready for the floor** on the reel issue desk.
+Total 2,012 kg of Kraft 230 GSM; PO open 2,000 kg, so the strip shows "more than the PO by 12 kg — reason needed below". Invoice rate ₹45.25 / kg against PO ₹44.50 / kg: an amber note shows ₹1,509.00 more. Store picks OR-ROLL-WEIGHT with the note "Last reels of the order, supplier confirmed extra kg". Store validates and posts: **P/26/021**, 3 lots, **AIT 06281**, **AIT 06282** and **AIT 06283**, all **Waiting for QC**. A rate case opens for the plant head. Store prints three A4 labels: each reads AMIGO INDUSTRIES UNIT II, MILL NAME BHARAT (the vendor's short name), the invoice number, 06-Nov-26, PLYBOND 400, VARIETY 230, GSM 230 (no QC reading yet), the mill's roll number, the AIT serial in big letters and the weight. QC passes the reels the same afternoon and they appear under **Ready for the floor** on the reel issue desk.
 
 ## Common questions
 **Q: The vendor sent only the challan. Can I still receive?** A: Yes. Tick **Challan received · invoice pending**, type the challan rate if you have it, and attach the invoice later in the GRN register. The reels are not held for the invoice.
@@ -150,7 +166,15 @@ Total 2,012 kg of Kraft 230 GSM; PO open 2,000 kg, so the strip shows "more than
 
 **Q: It is January 2027. Why is the number still P/26/…?** A: The number follows the financial year, April to March. 26 means 2026-27; it changes to P/27/001 on 1 April 2027.
 
-**Q: The label got wet. How do I print a new one?** A: Open the receipt in the GRN register, type a **Reprint reason** and click **Prepare 1 label**.
+**Q: The label got wet. How do I print a new one?** A: Open the receipt in the GRN register, type a **Reprint reason** and click **Prepare 1 label**. The reprint keeps the same AIT serial.
+
+**Q: Why does the new reel say AIT 06281 and not AT-…?** A: New reels follow the plant's own AIT series. Old reels keep their AT numbers; both can be scanned and searched.
+
+**Q: The label shows the vendor name, not the mill name.** A: The vendor has no **Mill / short name**. Ask the Owner or Admin to fill it in Masters › Vendors; the next print uses it.
+
+**Q: Why does the GSM on the label equal the variety?** A: No GSM was measured at incoming QC yet, so the label prints the variety number, as the plant always has. Once QC measures it, a reprint shows the measured GSM.
+
+**Q: Can I find a reel by typing its serial?** A: Yes. Type it any way (ait 6243, AIT-06243, AIT 6243-2); the search reads it as AIT 06243 or AIT 06243-2.
 
 **Q: Can the reels go to the floor before QC?** A: No. They show **Waiting for QC** until incoming QC passes them. Rate and invoice questions never hold them, but QC does.
 

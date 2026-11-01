@@ -19,6 +19,7 @@ import {
   SearchField,
   type GridColumn,
 } from "@/components/master/master-cockpit"
+import { useReasonCategories, type ReasonCategory } from "@/components/reasons"
 import { RoleGate } from "@/components/workspace/role-gate"
 import {
   useCreateReasonCode,
@@ -37,15 +38,12 @@ type ReasonRow = {
   is_active?: boolean
 }
 
-const CATEGORIES = ["DOWNTIME", "SCRAP", "QC_REJECT", "SHORT_CLOSE", "SO_CLOSE", "RM_ISSUE", "RETURN", "CUSTOMER_COMPLAINT", "OTHER"] as const
-// "Customer complaints" is the master the client keeps updating for the complaints module.
-// SO_CLOSE: reasons offered when a sales order is cancelled or short-closed. SHORT_CLOSE: job-card shortages.
-const CATEGORY_LABELS: Record<string, string> = { CUSTOMER_COMPLAINT: "Customer complaints", QC_REJECT: "QC reject", SHORT_CLOSE: "Job card short close", SO_CLOSE: "Order cancel / short close", RM_ISSUE: "RM issue" }
-// Order cancel / short close reasons (SO_CLOSE) are kept on Masters › Order close reasons only: their code
-// never changes there, because closed orders keep it (checker 30 Oct). This page shows them read-only.
-const EDITABLE_CATEGORIES = CATEGORIES.filter((c) => c !== "SO_CLOSE")
+// Every reason list comes from master data (reason_catalog.py, owner decision 4, 1 Nov 2026: every "why"
+// in the app is a code from one of these lists). Order cancel / short close reasons (SO_CLOSE) are kept on
+// Masters › Order close reasons only: their code never changes there, because closed orders keep it.
 const CLOSE_REASONS_HREF = "/masters/order-close-reasons"
-const categoryLabel = (value: string) => CATEGORY_LABELS[value] || value.charAt(0) + value.slice(1).toLowerCase().replace(/_/g, " ")
+const GROUP_ORDER = ["Sales", "Job cards and floor", "Quality", "Stores and stock", "Purchase", "Specifications", "Dispatch", "Not linked yet"]
+const titleCase = (value: string) => value.charAt(0) + value.slice(1).toLowerCase().replace(/_/g, " ")
 const SEVERITIES = ["OK", "WATCH", "CRITICAL"] as const
 
 function errorMessage(err: any) {
@@ -70,11 +68,17 @@ export default function ReasonCodesWrapper() {
 function ReasonCodesPage() {
   const { showToast } = useApp()
   const [categoryFilter, setCategoryFilter] = useState<string>("ALL")
-  // Deep link from the complaints page: /masters/reason-codes?category=CUSTOMER_COMPLAINT
+  const categoriesQuery = useReasonCategories()
+  const categories: ReasonCategory[] = useMemo(() => categoriesQuery.data || [], [categoriesQuery.data])
+  const categoryByKey = useMemo(() => new Map(categories.map((c) => [c.key, c])), [categories])
+  const categoryLabel = (value: string) => categoryByKey.get(value)?.label || titleCase(value)
+  const groups = useMemo(() => GROUP_ORDER.map((group) => ({ group, items: categories.filter((c) => c.group === group) })).filter((g) => g.items.length), [categories])
+  // Deep link from a reason picker or the complaints page: /masters/reason-codes?category=CUSTOMER_COMPLAINT
   useEffect(() => {
     const wanted = new URLSearchParams(window.location.search).get("category")
-    if (wanted && (CATEGORIES as readonly string[]).includes(wanted)) setCategoryFilter(wanted)
+    if (wanted) setCategoryFilter(wanted.toUpperCase())
   }, [])
+  const filterCategory = categoryByKey.get(categoryFilter)
   const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ACTIVE")
   const [search, setSearch] = useState("")
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -111,9 +115,10 @@ function ReasonCodesPage() {
   const kpis = useMemo(() => {
     const total = rows.length
     const active = rows.filter((r) => r.is_active !== false).length
-    const byCat = (c: string) => rows.filter((r) => r.category === c).length
-    return { total, active, downtime: byCat("DOWNTIME"), scrap: byCat("SCRAP"), shortClose: byCat("SHORT_CLOSE") }
-  }, [rows])
+    const linked = categories.filter((c) => c.linked).length
+    const emptyLists = categories.filter((c) => c.linked && !Number(c.active || 0)).length
+    return { total, active, linked, emptyLists }
+  }, [rows, categories])
 
   const submitCreate = async () => {
     setCreateError(null)
@@ -157,30 +162,30 @@ function ReasonCodesPage() {
   const columns: GridColumn<ReasonRow>[] = [
     { key: "code", label: "Code", width: "140px", sortAccessor: (r) => r.code || "", render: (r) => <span className="font-mono text-xs font-bold">{r.code}</span> },
     { key: "label", label: "Label", sortAccessor: (r) => r.label || "", render: (r) => <div><div className="text-sm font-semibold">{r.label}</div>{r.description ? <div className="text-[11px] text-muted-foreground">{r.description}</div> : null}</div> },
-    { key: "category", label: "Category", width: "130px", sortAccessor: (r) => r.category || "", render: (r) => <Pill tone="info">{categoryLabel(r.category || "")}</Pill> },
+    { key: "category", label: "List", width: "170px", sortAccessor: (r) => r.category || "", render: (r) => <Pill tone="info">{categoryLabel(r.category || "")}</Pill> },
     { key: "severity", label: "Severity", width: "110px", sortAccessor: (r) => r.severity === "CRITICAL" ? 0 : r.severity === "WATCH" ? 1 : 2, render: (r) => <Pill tone={sevToTone(r.severity)}>{r.severity}</Pill> },
     { key: "is_active", label: "Status", width: "100px", sortAccessor: (r) => (r.is_active === false ? 0 : 1), render: (r) => r.is_active === false ? <Pill tone="neutral">Inactive</Pill> : <Pill tone="ok">Active</Pill> },
   ]
 
   return (
     <CockpitShell
-      hero={<MasterHero eyebrow={`Shop floor · ${kpis.active} active · ${kpis.downtime} downtime · ${kpis.scrap} scrap · ${kpis.shortClose} short-close`} title="Reason codes" description="Normalized reason taxonomy used by downtime logging, scrap entries, QC rejects, and short-close on job-card close. Without these, every Pareto is a free-text mess." accent="cyan" chips={[
-        { label: `${kpis.total} total`, tone: "neutral" },
+      hero={<MasterHero eyebrow={`Every "why" in the app · ${kpis.linked} lists · ${kpis.active} active codes`} title="Reason codes" description="Every place that asks for a reason picks a code from one of these lists, with an optional note. Codes with OTHER in them always need a short note. Each list says where it is used." accent="cyan" chips={[
+        { label: `${kpis.total} codes`, tone: "neutral" },
         { label: `${kpis.active} active`, tone: "ok" },
-        { label: "Owner / Admin / PlantManager write", tone: "warn" },
+        ...(kpis.emptyLists ? [{ label: `${kpis.emptyLists} lists with no active code`, tone: "warn" as const }] : []),
+        { label: "Owner / Admin / Plant Manager write", tone: "warn" },
       ]} />}
       kpis={<>
-        <KpiTile label="Total reasons" value={String(kpis.total)} tone="cyan" detail={`${kpis.active} active`} />
-        <KpiTile label="Downtime" value={String(kpis.downtime)} tone="rose" />
-        <KpiTile label="Scrap" value={String(kpis.scrap)} tone="amber" />
-        <KpiTile label="Short-close" value={String(kpis.shortClose)} tone="violet" />
+        <KpiTile label="Reason lists" value={String(kpis.linked)} tone="cyan" detail="used by a screen" />
+        <KpiTile label="Active codes" value={String(kpis.active)} tone="amber" detail={`${kpis.total} in all`} />
+        <KpiTile label="Lists with no code" value={String(kpis.emptyLists)} tone="rose" detail="the action cannot be saved" />
       </>}
       filters={<>
         <FilterField label="Search"><SearchField value={search} onChange={setSearch} placeholder="code, label, description…" /></FilterField>
         <FilterField label="Category">
-          <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="rounded-md border border-border bg-card px-2 py-1 text-sm">
-            <option value="ALL">All</option>
-            {CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}
+          <select data-testid="reason-codes:category-filter" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="max-w-[16rem] rounded-md border border-border bg-card px-2 py-1 text-sm">
+            <option value="ALL">All lists</option>
+            {groups.map((g) => <optgroup key={g.group} label={g.group}>{g.items.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}</optgroup>)}
           </select>
         </FilterField>
         <FilterField label="Status">
@@ -189,11 +194,39 @@ function ReasonCodesPage() {
           </select>
         </FilterField>
         <span className="ml-auto" />
-        <button onClick={() => { setCreateForm({ ...blank }); setCreateOpen(true) }} className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90">+ New reason</button>
+        <button onClick={() => { setCreateForm({ ...blank, category: filterCategory && !filterCategory.owner_only ? filterCategory.key : blank.category }); setCreateOpen(true) }} className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90">+ New reason</button>
       </>}
     >
+      <section className="mb-4 grid gap-3" aria-label="Reason lists" data-testid="reason-codes:lists">
+        {categoriesQuery.isError ? <p role="alert" className="text-[13px] text-signal-rose-ink">The reason lists could not be loaded. <button type="button" className="font-semibold underline" onClick={() => void categoriesQuery.refetch()}>Try again</button></p> : null}
+        {groups.map((g) => (
+          <div key={g.group} className="grid gap-2">
+            <h2 className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">{g.group}</h2>
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {g.items.map((c) => {
+                const selectedList = categoryFilter === c.key
+                const empty = c.linked && !Number(c.active || 0)
+                return (
+                  <button key={c.key} type="button" data-testid={`reason-codes:list-${c.key}`} aria-pressed={selectedList} onClick={() => setCategoryFilter(selectedList ? "ALL" : c.key)}
+                    className={`rounded-lg border bg-card p-3 text-left transition-colors hover:border-primary/50 ${selectedList ? "border-primary ring-1 ring-primary/30" : empty ? "border-signal-amber-line" : "border-border"}`}>
+                    <span className="flex items-start justify-between gap-2">
+                      <span className="text-[13.5px] font-semibold text-foreground">{c.label}</span>
+                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${empty ? "bg-signal-amber-soft text-signal-amber-ink" : "bg-muted text-muted-foreground"}`}>{Number(c.active || 0)} active</span>
+                    </span>
+                    <span className="mt-1 block font-mono text-[10.5px] text-muted-foreground">{c.key}{c.owner_only ? " · Owner / Admin only" : ""}</span>
+                    {c.used_in.length ? (
+                      <span className="mt-1.5 block text-[12px] text-muted-foreground">Used in: {c.used_in.join(" · ")}</span>
+                    ) : <span className="mt-1.5 block text-[12px] text-muted-foreground">No screen uses this list. Kept so older records stay readable.</span>}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        ))}
+      </section>
+
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(380px,0.9fr)]">
-        <DataGrid<ReasonRow> columns={columns} rows={filtered} selectedId={selectedId} onSelect={(r) => setSelectedId(r.id)} emptyHint={query.isLoading ? "Loading…" : rows.length === 0 ? "No reason codes yet — seed the first ones (DT-POWER, SCR-MOISTURE, SHORT-RM)." : "No reasons match filters."} />
+        <DataGrid<ReasonRow> columns={columns} rows={filtered} selectedId={selectedId} onSelect={(r) => setSelectedId(r.id)} emptyHint={query.isLoading ? "Loading…" : rows.length === 0 ? "No codes in this list yet. Add the first one with + New reason." : "No reasons match filters."} />
 
         <DetailDrawer open={Boolean(selected)} onClose={() => setSelectedId(null)} title={selected?.label || "—"} subtitle={selected ? `${selected.code} · ${selected.category}` : undefined} accent="cyan"
           chips={selected ? [
@@ -204,7 +237,8 @@ function ReasonCodesPage() {
             key: "overview", label: "Overview", content: (
               <div className="space-y-3 text-sm">
                 <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Code</span><span className="font-mono">{selected.code}</span></div>
-                <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Category</span><span>{selected.category}</span></div>
+                <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">List</span><span>{categoryLabel(selected.category || "")} <span className="font-mono text-[11px] text-muted-foreground">{selected.category}</span></span></div>
+                <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Used in</span><span>{categoryByKey.get(selected.category || "")?.used_in.join(" · ") || "No screen"}</span></div>
                 <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Severity</span><Pill tone={sevToTone(selected.severity)}>{selected.severity}</Pill></div>
                 <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Description</span><span>{selected.description || "—"}</span></div>
               </div>
@@ -235,10 +269,11 @@ function ReasonCodesPage() {
         <div className="grid gap-3 sm:grid-cols-2">
           <LabeledInput label="Code" required value={createForm.code} onChange={(v) => setCreateForm({ ...createForm, code: v })} placeholder="DT-POWER" />
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[11.5px] font-semibold text-muted-foreground">Category *</span>
-            <select value={createForm.category} onChange={(e) => setCreateForm({ ...createForm, category: e.target.value })} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
-              {EDITABLE_CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}
+            <span className="text-[11.5px] font-semibold text-muted-foreground">List *</span>
+            <select data-testid="reason-codes:create-category" value={createForm.category} onChange={(e) => setCreateForm({ ...createForm, category: e.target.value })} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
+              {groups.map((g) => <optgroup key={g.group} label={g.group}>{g.items.filter((c) => !c.owner_only).map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}</optgroup>)}
             </select>
+            {categoryByKey.get(createForm.category)?.used_in.length ? <span className="text-[11px] text-muted-foreground">Used in: {categoryByKey.get(createForm.category)?.used_in.join(" · ")}</span> : null}
             <span className="text-[11px] text-muted-foreground">Order cancel / short close reasons: add them on <Link href={CLOSE_REASONS_HREF} className="font-semibold text-primary underline">Order close reasons</Link>.</span>
           </label>
           <div className="sm:col-span-2">
@@ -264,9 +299,9 @@ function ReasonCodesPage() {
         <div className="grid gap-3 sm:grid-cols-2">
           <LabeledInput label="Code" required value={editForm.code || ""} onChange={(v) => setEditForm({ ...editForm, code: v })} />
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[11.5px] font-semibold text-muted-foreground">Category *</span>
+            <span className="text-[11.5px] font-semibold text-muted-foreground">List *</span>
             <select value={editForm.category || ""} onChange={(e) => setEditForm({ ...editForm, category: e.target.value })} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
-              {EDITABLE_CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}
+              {groups.map((g) => <optgroup key={g.group} label={g.group}>{g.items.filter((c) => !c.owner_only).map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}</optgroup>)}
             </select>
           </label>
           <div className="sm:col-span-2"><LabeledInput label="Label" required value={editForm.label || ""} onChange={(v) => setEditForm({ ...editForm, label: v })} /></div>

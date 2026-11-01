@@ -16,8 +16,10 @@ from ..season_models import SeasonState, RuleVersion, OverlayVersion, RecipeBind
 from ..utils.auth import get_current_user, get_current_plant, get_current_plant_scope, apply_plant_scope, require_role
 from .. import spec_math
 from ..calculators import generate_bom, calculate_yield, calculate_weights
+from ..packing import packing_blockers
 from .specs import SpecCreate, SpecUpdate, _serialize_spec, _dynamic_field_map, _upsert_dynamic_values, _upsert_compat_dynamic_values, _compat_dynamic_values_from_payload, _validate_recipe_profile_limits, _replacement_spec_from_payload, _merged_dynamic_fields_for_replacement, _enforce_live_spec_edit_lock
 from ..final_limits import merge_canonical_into_payload
+from ..reasons import ReasonChoice, reason_input, resolve_reason, token_of
 from season_quality import SEASONS, RuleError, initial_rules, validate_rules, resolve_profile, fingerprint, potentially_loosens
 
 router = APIRouter(tags=["seasonal manufacturing"])
@@ -28,6 +30,10 @@ class Command(BaseModel):
     request_id: str = Field(min_length=8, max_length=100)
     expected_version: int | None = None
     note: str = ""
+    # Commands that ask "why" (publish QC rules, overrides, spec-sheet QC values, recipe revisions, season
+    # switch) take a code from Masters › Reason codes (owner decision 4, 1 Nov 2026) and an optional note.
+    reason_code: str | None = Field(default=None, max_length=80)
+    reason_note: str | None = Field(default=None, max_length=1000)
 
 
 class RuleDraft(Command):
@@ -96,10 +102,21 @@ def receipt(db, key, payload):
     return None
 
 
-def complete(db, key, payload, response, user, action, note="", spec_ids=None):
+def reason_choice(payload, category, user, what, plant=None, required=True) -> ReasonChoice | None:
+    """The reason picked for this command (owner decision 4). Free text in ``note`` alone is never enough:
+    a required reason needs a code, and an optional one typed without a code is refused."""
+    code, note = reason_input(payload, note_keys=("reason_note",))
+    if not code and not required and str(getattr(payload, "note", "") or "").strip():
+        raise HTTPException(422, f"Choose a reason for {what} from the list (Masters › Reason codes).")
+    return resolve_reason(category=category, code=code, note=note, plant_id=plant, token=token_of(user), required=required, what=what)
+
+
+def complete(db, key, payload, response, user, action, note="", spec_ids=None, reason: ReasonChoice | None = None):
     result = jsonable_encoder(response)
     db.add(SeasonReceipt(operation_key=key, fingerprint=fingerprint(jsonable_encoder(payload)), response=result))
-    db.add(SeasonEvent(action=action, actor=str(user["sub"]), note=note, payload=result))
+    db.add(SeasonEvent(action=action, actor=str(user["sub"]), note=reason.text if reason else note, payload=result,
+                       reason_code=reason.code if reason else None, reason_label=reason.label if reason else None,
+                       reason_note=reason.note if reason else None))
     db.flush()
     if action not in ("production_season_switched","season_release_authorized","season_release_acknowledged"):
         # Spec-scoped commands refresh only the specs they touched.
@@ -418,18 +435,20 @@ def save_rules(payload: RuleDraft, season: str, db: Session = Depends(get_db), u
     key = f"rules:{season}:{payload.request_id}"
     prior = receipt(db, key, payload.model_dump())
     if prior: return prior
+    why = reason_choice(payload, "QC_RULE_CHANGE", user, "this QC rule change", required=False)
+    note = why.text if why else ""
     rows = checked_rules(payload.rules)
     draft = db.query(RuleVersion).filter_by(season=season, status="DRAFT").first()
     if draft:
         version_check(draft.row_version, payload.expected_version)
         draft.rules, draft.fingerprint = rows, fingerprint(rows)
         draft.row_version += 1
-        draft.change_note = payload.note
+        draft.change_note = note
     else:
         head = db.query(func.max(RuleVersion.version)).filter_by(season=season).scalar() or 0
-        draft = RuleVersion(season=season, version=head+1, rules=rows, fingerprint=fingerprint(rows), change_note=payload.note, created_by=user["sub"])
+        draft = RuleVersion(season=season, version=head+1, rules=rows, fingerprint=fingerprint(rows), change_note=note, created_by=user["sub"])
         db.add(draft); db.flush()
-    return complete(db, key, payload.model_dump(), rule_dict(draft), user, "qc_rule_draft_saved", payload.note)
+    return complete(db, key, payload.model_dump(), rule_dict(draft), user, "qc_rule_draft_saved", note, reason=why)
 
 
 def impact(db, season, candidate):
@@ -461,7 +480,7 @@ def publish_rules(payload: Command, season: str, db: Session = Depends(get_db), 
     key = f"publish:{season}:{payload.request_id}"
     prior = receipt(db, key, payload.model_dump())
     if prior: return prior
-    if not payload.note.strip(): raise HTTPException(422, "Publication change note is required")
+    why = reason_choice(payload, "QC_RULE_CHANGE", user, "publishing these QC rules")
     draft = db.query(RuleVersion).filter_by(season=season, status="DRAFT").first()
     if not draft: raise HTTPException(404, "No draft")
     version_check(draft.row_version, payload.expected_version)
@@ -469,8 +488,8 @@ def publish_rules(payload: Command, season: str, db: Session = Depends(get_db), 
     report = impact(db, season, draft)
     for old in db.query(RuleVersion).filter_by(season=season, status="PUBLISHED").all(): old.status = "SUPERSEDED"
     db.flush()
-    draft.status = "PUBLISHED"; draft.published_at = datetime.utcnow(); draft.published_by = user["sub"]; draft.change_note = payload.note
-    return complete(db, key, payload.model_dump(), {"published": rule_dict(draft), "impact": report}, user, "qc_rules_published", payload.note)
+    draft.status = "PUBLISHED"; draft.published_at = datetime.utcnow(); draft.published_by = user["sub"]; draft.change_note = why.text
+    return complete(db, key, payload.model_dump(), {"published": rule_dict(draft), "impact": report}, user, "qc_rules_published", why.text, reason=why)
 
 
 @router.get("/qc-overlays")
@@ -483,7 +502,7 @@ def read_overlays(db: Session = Depends(get_db), scope: dict = Depends(get_curre
 def save_overlay(payload: OverlayDraft, db: Session = Depends(get_db), plant: str = Depends(get_current_plant), user: dict = Depends(require_role(["QC", "Admin", "Owner"]))):
     if payload.target_type not in ("CUSTOMER", "SPEC") or payload.season not in (*SEASONS, "BOTH"):
         raise HTTPException(422, "Invalid overlay scope")
-    if not payload.note.strip(): raise HTTPException(422, "Customer/spec override reason is required")
+    why = reason_choice(payload, "QC_RULE_CHANGE", user, "this customer / spec override", plant=plant)
     key=f"overlay:{plant}:{payload.request_id}"
     prior=receipt(db,key,payload.model_dump())
     if prior:return prior
@@ -501,17 +520,20 @@ def save_overlay(payload: OverlayDraft, db: Session = Depends(get_db), plant: st
     row = query.filter_by(status="DRAFT").first()
     rules=checked_rules(payload.rules, True)
     if row:
-        version_check(row.row_version,payload.expected_version); row.row_version+=1; row.rules=rules; row.reason=payload.note; row.fingerprint=fingerprint(rules)
+        version_check(row.row_version,payload.expected_version); row.row_version+=1; row.rules=rules; row.reason=why.text; row.fingerprint=fingerprint(rules)
     else:
-        row=OverlayVersion(plant_id=plant,target_type=payload.target_type,target_id=payload.target_id,season=payload.season,version=(query.with_entities(func.max(OverlayVersion.version)).scalar() or 0)+1,rules=rules,fingerprint=fingerprint(rules),reason=payload.note,created_by=user["sub"])
+        row=OverlayVersion(plant_id=plant,target_type=payload.target_type,target_id=payload.target_id,season=payload.season,version=(query.with_entities(func.max(OverlayVersion.version)).scalar() or 0)+1,rules=rules,fingerprint=fingerprint(rules),reason=why.text,created_by=user["sub"])
         db.add(row); db.flush()
-    return complete(db,key,payload.model_dump(),{"id":str(row.id),"row_version":row.row_version},user,"qc_overlay_saved",payload.note)
+    return complete(db,key,payload.model_dump(),{"id":str(row.id),"row_version":row.row_version},user,"qc_overlay_saved",why.text,reason=why)
 
 
 @router.post("/qc-overlays/{overlay_id}/publish")
 def publish_overlay(overlay_id: uuid.UUID, payload: Command, db: Session=Depends(get_db), plant: str=Depends(get_current_plant), user: dict=Depends(require_role(["QC","Admin","Owner"]))):
     lock_state(db); key=f"overlay-publish:{plant}:{payload.request_id}"; prior=receipt(db,key,payload.model_dump())
     if prior: return prior
+    # Publishing carries the reason the draft was saved with (row.reason); a code sent here is checked too.
+    code, extra = reason_input(payload, note_keys=("reason_note",))
+    why = resolve_reason(category="QC_RULE_CHANGE", code=code, note=extra, plant_id=plant, token=token_of(user), required=False, what="publishing this override")
     row=db.query(OverlayVersion).filter_by(id=overlay_id,plant_id=plant,status="DRAFT").first()
     if not row: raise HTTPException(404,"Draft overlay not found")
     version_check(row.row_version,payload.expected_version)
@@ -524,7 +546,7 @@ def publish_overlay(overlay_id: uuid.UUID, payload: Command, db: Session=Depends
     if row.loosens and not ({"Owner","Admin"}&set(user.get("roles",[]))): raise HTTPException(403,"Potentially loosening overrides require Owner/Admin approval")
     for old in db.query(OverlayVersion).filter_by(plant_id=plant,target_type=row.target_type,target_id=row.target_id,season=row.season,status="PUBLISHED").all(): old.status="SUPERSEDED"
     db.flush(); row.status="PUBLISHED"; row.parent_fingerprint=overlay_parent_basis(db,row); row.published_by=user["sub"]; row.published_at=datetime.utcnow()
-    return complete(db,key,payload.model_dump(),{"id":str(row.id),"status":row.status,"loosens":row.loosens},user,"qc_overlay_published",payload.note)
+    return complete(db,key,payload.model_dump(),{"id":str(row.id),"status":row.status,"loosens":row.loosens},user,"qc_overlay_published",why.text if why else row.reason or "",reason=why)
 
 
 @router.get("/specs/{spec_id}/qc-resolved")
@@ -602,6 +624,7 @@ def save_spec_qc_values(spec_id: uuid.UUID,payload: SpecQcValues,db: Session=Dep
     """
     lock_state(db);key=f"spec-qc:{plant}:{payload.request_id}";prior=receipt(db,key,payload.model_dump())
     if prior:return prior
+    why=reason_choice(payload,"QC_RULE_CHANGE",user,"these spec-sheet QC values",plant=plant,required=False)
     spec=load_spec(db,spec_id,plant,True)
     if not spec.active or spec.status=="obsolete":raise HTTPException(409,"This version is no longer live. Open the current version.")
     if not spec.seasonal_model:raise HTTPException(409,"This older specification keeps its own stage QC profile. Save it once from the spec sheet to move it to seasonal rules.")
@@ -620,7 +643,7 @@ def save_spec_qc_values(spec_id: uuid.UUID,payload: SpecQcValues,db: Session=Dep
         b=base[k]
         rows[k]={"rule_id":f"{value.stage}:{value.parameter}","stage":value.stage,"parameter":value.parameter,"mode":"BAND","lower":[{"ref":"CONST","factor":1,"offset":value.min}] if value.min is not None else [],"upper":[{"ref":"CONST","factor":1,"offset":value.max}] if value.max is not None else [],"required":True,"min_readings":b["min_readings"],"gating":b["gating"],"non_waivable":b.get("non_waivable",False),"applicability":b.get("applicability","ALWAYS"),"on_missing_ref":"BLOCK","requires_instrument":b.get("requires_instrument",False)}
     clean=checked_rules(list(rows.values()),True)
-    note=payload.note.strip() or "Stage QC values set on the spec sheet"
+    note=why.text if why else "Stage QC values set on the spec sheet"
     target=spec.lineage_id or spec.id
     if current:current.status="SUPERSEDED";db.flush()
     created=None
@@ -630,7 +653,7 @@ def save_spec_qc_values(spec_id: uuid.UUID,payload: SpecQcValues,db: Session=Dep
         db.add(created);db.flush();created.parent_fingerprint=overlay_parent_basis(db,created)
     db.flush()
     lineage=[r.id for r in db.query(SpecificationSheet.id).filter(SpecificationSheet.plant_id==plant,or_(SpecificationSheet.lineage_id==target,SpecificationSheet.id==target)).all()]
-    return complete(db,key,payload.model_dump(),qc_overview_dict(db,spec),user,"spec_qc_values_saved",note,spec_ids=lineage)
+    return complete(db,key,payload.model_dump(),qc_overview_dict(db,spec),user,"spec_qc_values_saved",note,spec_ids=lineage,reason=why)
 
 
 class ImportDocument(Document):
@@ -938,6 +961,9 @@ def common_release_blockers(spec):
 
 def seasonal_blockers(db,spec):
     blockers=common_release_blockers(spec)
+    # Approval (not release) needs box + qty per box: live specs without packing keep releasing
+    # while the Packing setup page fills them in (owner decision 5, 1 Nov 2026).
+    blockers+=packing_blockers(_dynamic_field_map(spec))
     for season in SEASONS:
         binding=db.query(RecipeBinding).filter_by(spec_id=spec.id,season=season).first()
         if not binding: blockers.append(f"{season}: recipe missing");continue
@@ -1052,17 +1078,18 @@ def save_revision(spec_id: uuid.UUID,season: str,payload: RecipeEdit,db: Session
     if any(str(layer.get('paper_id')) not in active for layer in payload.layers):raise HTTPException(422,"Recipe paper must be active in this plant")
     lock_state(db);prior=receipt(db,key,payload.model_dump())
     if prior:return prior
-    if not payload.note.strip():raise HTTPException(422,"Revision change note is required")
+    why=reason_choice(payload,"SPEC_REVISION",user,"this recipe revision",plant=plant)
+    note=why.text
     spec=load_spec(db,spec_id,plant,True)
     if spec.status!="approved":raise HTTPException(409,"Use document save for draft spec recipes")
     binding=db.query(RecipeBinding).filter_by(spec_id=spec.id,season=season).one(); current=db.get(RecipeHeader,binding.draft_recipe_id or binding.recipe_id)
     version_check(current.row_version,payload.expected_version)
     if binding.draft_recipe_id:
-        recipe=current;recipe.layers.clear();db.flush();fill_layers(recipe,payload.layers,plant);recipe.sheet_rows=canonical_recipe_rows(spec,payload.layers,db.info.get('season_papers',{}));recipe.notes=payload.note;recipe.change_note=payload.note;recipe.row_version+=1;db.flush();recipe.content_hash=recipe_hash(recipe)
+        recipe=current;recipe.layers.clear();db.flush();fill_layers(recipe,payload.layers,plant);recipe.sheet_rows=canonical_recipe_rows(spec,payload.layers,db.info.get('season_papers',{}));recipe.notes=note;recipe.change_note=note;recipe.row_version+=1;db.flush();recipe.content_hash=recipe_hash(recipe)
     else:
-        recipe=new_recipe(db,spec,season,payload.layers,payload.sheet_rows,user,payload.note,current);binding.draft_recipe_id=recipe.id
+        recipe=new_recipe(db,spec,season,payload.layers,payload.sheet_rows,user,note,current);binding.draft_recipe_id=recipe.id
     binding.confirmed_hash=confirmation_hash(spec,recipe) if payload.confirm else None
-    return complete(db,key,payload.model_dump(),document_dict(db,spec),user,"season_recipe_revision_saved",payload.note,spec_ids=[spec.id])
+    return complete(db,key,payload.model_dump(),document_dict(db,spec),user,"season_recipe_revision_saved",note,spec_ids=[spec.id],reason=why)
 
 
 @router.post("/specs/{spec_id}/recipes/{season}/approve")
@@ -1119,18 +1146,18 @@ def switch_season(payload: Switch,db: Session=Depends(get_db),user: dict=Depends
     season_key(payload.to);state=lock_state(db);key=f"switch:{payload.request_id}";prior=receipt(db,key,payload.model_dump())
     if prior:return prior
     version_check(state.epoch,payload.expected_version)
-    if not payload.note.strip():raise HTTPException(422,"Season switch note is required")
+    why=reason_choice(payload,"SEASON_SWITCH",user,"switching the production season")
     preview=switch_preview(db,payload.to)
     if preview["fingerprint"]!=payload.preview_fingerprint:raise HTTPException(409,"Season preview changed; review it again")
     if preview["blocked_count"] and not payload.acknowledge_blocked:raise HTTPException(409,"Acknowledge that listed specifications cannot release until their seasonal setup is ready")
     state.active_season=payload.to;state.epoch+=1;state.switched_by=user["sub"];state.switched_at=datetime.utcnow()
-    return complete(db,key,payload.model_dump(),{"active_season":state.active_season,"epoch":state.epoch,"preview":preview},user,"production_season_switched",payload.note)
+    return complete(db,key,payload.model_dump(),{"active_season":state.active_season,"epoch":state.epoch,"preview":preview},user,"production_season_switched",why.text,reason=why)
 
 
 @router.get("/season/history")
 def season_history(db: Session=Depends(get_db),user: dict=Depends(require_role(["Owner"]))):
     global_owner(user)
-    return [{"action":r.action,"actor":r.actor,"note":r.note,"payload":r.payload,"created_at":r.created_at} for r in db.query(SeasonEvent).filter(SeasonEvent.action.in_(["production_season_switched","season_initialized"])).order_by(SeasonEvent.created_at.desc()).limit(100).all()]
+    return [{"action":r.action,"actor":r.actor,"note":r.note,"reason_code":r.reason_code,"reason_label":r.reason_label,"payload":r.payload,"created_at":r.created_at} for r in db.query(SeasonEvent).filter(SeasonEvent.action.in_(["production_season_switched","season_initialized"])).order_by(SeasonEvent.created_at.desc()).limit(100).all()]
 
 
 @router.get("/season/release-authorizations")

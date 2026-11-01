@@ -50,6 +50,7 @@ from ..models import (
     JobCardStage,
     MachineDowntime,
 )
+from ..reasons import ReasonChoice, resolve_reason
 from ..utils.auth import get_current_plant_scope, require_role
 from ..utils.audit import record_audit_event
 
@@ -145,65 +146,23 @@ def downtime_needs_reschedule(
 
 
 def _validate_reason_code(
-    token: str,
+    token: Optional[str],
     plant_id: Optional[uuid.UUID],
     code: str,
     category: str,
-) -> None:
-    """Strictly validate `code` against active masterdata reason codes.
+    note: Optional[str] = None,
+    what: str = "this",
+) -> Optional[ReasonChoice]:
+    """Strictly check `code` against Masters › Reason codes and return the choice (code, label, note).
 
-    Reason codes drive reconciliation and operational reporting. Accepting an
-    unvalidated value while masterdata is unavailable permanently corrupts
-    those dimensions, so availability failures are surfaced for a safe retry.
+    Delegates to the shared helper (owner decision 4, 1 Nov 2026): the code must be active, in
+    `category` and of the record's plant; a code with OTHER needs a note of 5+ characters. Reason
+    codes drive reconciliation and reporting, so a master that cannot be reached is a 503 "try again",
+    never a silent accept.
     """
-    if not code or not category:
-        return
-    code_upper = code.strip().upper()
-    cat_upper = category.strip().upper()
-    headers: dict[str, str] = {}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    if plant_id is not None:
-        headers["X-Plant-ID"] = str(plant_id)
-    try:
-        with httpx.Client(timeout=5.0) as client:
-            response = client.get(
-                f"{settings.MASTERDATA_SERVICE_URL}/master/reason-codes/",
-                headers=headers,
-                params={"category": cat_upper},
-            )
-    except httpx.RequestError as exc:
-        logger.warning("reason_code validation network failure: %s", exc)
-        raise HTTPException(
-            status_code=502,
-            detail="Reason-code master is unavailable; retry without changing the entry",
-        ) from exc
-    if response.status_code != 200:
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "Reason-code master rejected validation "
-                f"(HTTP {response.status_code}); retry without changing the entry"
-            ),
-        )
-    try:
-        rows = response.json() or []
-    except ValueError as exc:
-        logger.warning("reason_code validation parse failure: %s", exc)
-        raise HTTPException(
-            status_code=502,
-            detail="Reason-code master returned an invalid response; retry without changing the entry",
-        ) from exc
-    valid = {
-        str((r or {}).get("code") or "").strip().upper()
-        for r in rows
-        if isinstance(r, dict)
-    }
-    if code_upper not in valid:
-        raise HTTPException(
-            status_code=422,
-            detail=f"reason_code '{code_upper}' is not a valid {cat_upper} reason",
-        )
+    if not category:
+        return None
+    return resolve_reason(category=category, code=code, note=note, plant_id=plant_id, token=token, what=what)
 
 
 def _scope_uuid(plant_scope: dict, *, action: str) -> Optional[uuid.UUID]:
@@ -234,6 +193,8 @@ def _sync_sales_short_close(
     reason_code: str,
     notes: Optional[str],
     expected_release_qty: Optional[float] = None,
+    reason_label: Optional[str] = None,
+    reason_note: Optional[str] = None,
 ) -> None:
     """Reduce the sales line/release lot for a SHORT_CLOSE_SO decision.
 
@@ -252,6 +213,9 @@ def _sync_sales_short_close(
                     "produced_qty": produced_qty,
                     "gap_qty": gap_qty,
                     "reason_code": reason_code,
+                    # Label at the time + note of the SHORT_CLOSE code checked here (owner decision 4).
+                    "reason_label": reason_label,
+                    "reason_note": reason_note,
                     "notes": notes,
                     **({"expected_release_qty": expected_release_qty} if expected_release_qty is not None else {}),
                 },
@@ -458,6 +422,10 @@ class ShortClosePayload(BaseModel):
     # Allowed: JOB_CARD | WINDER | OVEN | PROCESS | SLITTING | PACKING | QC.
     stage_type: Optional[str] = "JOB_CARD"
     notes: Optional[str] = None
+    # Note on the reason (needed for an OTHER code); `notes` is still read when this is empty.
+    reason_note: Optional[str] = Field(default=None, max_length=1000)
+    # Legacy "Label — note" text some screens send next to the code; the code decides.
+    reason: Optional[str] = Field(default=None, max_length=1000)
 
 
 class ResolveHoldPayload(BaseModel):
@@ -474,6 +442,8 @@ class ShortCloseResponse(BaseModel):
     produced_qty: float
     gap_qty: float
     reason_code: str
+    reason_label: Optional[str] = None
+    reason_note: Optional[str] = None
     decision: str
     carry_forward_job_card_id: Optional[uuid.UUID] = None
     hold_status: Optional[str] = None
@@ -494,6 +464,8 @@ def _serialize_short_close(row: JobCardShortClose) -> ShortCloseResponse:
         produced_qty=row.produced_qty,
         gap_qty=row.gap_qty,
         reason_code=row.reason_code,
+        reason_label=getattr(row, "reason_label", None),
+        reason_note=getattr(row, "reason_note", None),
         decision=row.decision,
         carry_forward_job_card_id=row.carry_forward_job_card_id,
         hold_status=row.hold_status,
@@ -582,7 +554,7 @@ def _short_close_job_card(
         raise HTTPException(status_code=422, detail="decision must be CARRY_FORWARD, SHORT_CLOSE_SO, or HOLD")
     reason_code = (payload.reason_code or "").strip().upper()
     if not reason_code:
-        raise HTTPException(status_code=422, detail="reason_code is required")
+        raise HTTPException(status_code=422, detail="Choose a reason for the short close from the list (Masters › Reason codes).")
     # Process-level short-close: validate stage_type against the allowed set.
     stage_type = normalize_short_close_stage_type(payload.stage_type)
 
@@ -632,7 +604,10 @@ def _short_close_job_card(
             detail=f"Short-close already recorded for this job card at stage {stage_type}",
         )
 
-    planned = float(job.planned_qty or 0.0)
+    # Old-form cards: pcs a stage short close already gave back to the order are not released any more,
+    # so the gap is worked out from what the card holds now (planned − returned), not the original plan.
+    from ..short_close import current_released as _current_released
+    planned = float(_current_released(job))
     produced = float(payload.produced_qty or 0.0)
     if v2:
         planned, produced = _v2_shortage_quantities(db, job, stage_type, produced)
@@ -642,13 +617,16 @@ def _short_close_job_card(
     if decision == "SHORT_CLOSE_SO" and not job.sales_order_line_id:
         raise HTTPException(status_code=422, detail="Job card has no linked sales order line to short-close")
 
-    # P2.2 — soft-validate the reason_code against masterdata. Network/upstream
-    # failures do NOT block; only an active 200 that omits the code raises 422.
-    _validate_reason_code(
+    # Strict check against Masters › Reason codes (SHORT_CLOSE, the card's plant): an unknown or
+    # switched-off code is a 422, a master that cannot be reached is a 503 "try again". The note
+    # (`reason_note`, else the old `notes`) is what an OTHER code needs.
+    short_choice = _validate_reason_code(
         token=str(current_user.get("token") or ""),
         plant_id=job.plant_id,
         code=reason_code,
         category="SHORT_CLOSE",
+        note=(payload.reason_note or payload.notes or None),
+        what="the short close",
     )
 
     actor_id = current_user.get("sub") or current_user.get("actor_identity") or "unknown"
@@ -671,6 +649,8 @@ def _short_close_job_card(
             produced_qty=produced,
             gap_qty=gap,
             reason_code=reason_code,
+            reason_label=getattr(short_choice, "label", None),
+            reason_note=getattr(short_choice, "note", None),
             decision=decision,
             notes=(payload.notes or None),
             actor_id=str(actor_id),
@@ -692,6 +672,8 @@ def _short_close_job_card(
                 reason_code=reason_code,
                 notes=payload.notes,
                 expected_release_qty=planned if v2 else None,
+                reason_label=getattr(short_choice, "label", None),
+                reason_note=getattr(short_choice, "note", None),
             )
 
         # Carry-forward branch: spawn a top-up job card sharing the same spec.
@@ -712,7 +694,15 @@ def _short_close_job_card(
         if v2:
             _settle_v2_card_after_decision(db, job, produced)
         elif job.status != "COMPLETED":
-            job.status = "COMPLETED"
+            # Old-form card (owner decision 2026-11-01): pcs already made but still in Oven / Process / Packing
+            # must finish and ship, so the card stays open until its stages complete; only a card with no stage
+            # left to run is marked done here (it used to be set COMPLETED mid-route, stranding that WIP).
+            from ..models import JobCardStage as _Stage
+            open_floor = db.query(_Stage).filter(_Stage.job_card_id == job.id, _Stage.stage_type.in_(["WINDER", "OVEN", "PROCESS", "PACKING", "QC"]), _Stage.status != "COMPLETED").count()
+            if not open_floor:
+                job.status = "COMPLETED"
+            else:
+                job.planned_qty = min(float(job.planned_qty or 0.0), float(produced or 0.0)) or job.planned_qty
 
         db.commit()
         db.refresh(short)
@@ -997,6 +987,8 @@ def _resolve_short_close_hold(
                 reason_code=short.reason_code,
                 notes=payload.notes,
                 expected_release_qty=float(short.planned_qty) if v2 else None,
+                reason_label=getattr(short, "reason_label", None),
+                reason_note=getattr(short, "reason_note", None),
             )
         elif decision == "CARRY_FORWARD" and gap > 0:
             carry, carry_release_orphan = _spawn_carry_forward_job_card(
@@ -1163,7 +1155,9 @@ class DowntimeCreate(BaseModel):
     machine_code: Optional[str] = None
     started_at: datetime
     ended_at: Optional[datetime] = None
-    reason_code: str
+    reason_code: str  # DOWNTIME code from Masters › Reason codes
+    reason_note: Optional[str] = Field(default=None, max_length=1000)  # needed for an OTHER code
+    reason: Optional[str] = Field(default=None, max_length=1000)  # legacy "Label — note"; the code decides
     notes: Optional[str] = None
     is_planned: bool = False
     affected_job_card_ids: Optional[List[uuid.UUID]] = None
@@ -1173,6 +1167,8 @@ class DowntimeUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     ended_at: Optional[datetime] = None
     reason_code: Optional[str] = None
+    reason_note: Optional[str] = Field(default=None, max_length=1000)
+    reason: Optional[str] = Field(default=None, max_length=1000)
     notes: Optional[str] = None
     is_planned: Optional[bool] = None
 
@@ -1185,6 +1181,8 @@ class DowntimeResponse(BaseModel):
     ended_at: Optional[datetime]
     duration_minutes: Optional[float]
     reason_code: str
+    reason_label: Optional[str] = None
+    reason_note: Optional[str] = None
     notes: Optional[str]
     is_planned: bool
     affected_job_card_ids: List[str]
@@ -1211,6 +1209,8 @@ def _serialize_downtime(row: MachineDowntime) -> DowntimeResponse:
         ended_at=row.ended_at,
         duration_minutes=row.duration_minutes,
         reason_code=row.reason_code,
+        reason_label=getattr(row, "reason_label", None),
+        reason_note=getattr(row, "reason_note", None),
         notes=row.notes,
         is_planned=bool(row.is_planned),
         affected_job_card_ids=affected,
@@ -1229,7 +1229,7 @@ def create_downtime(
 ):
     reason = (payload.reason_code or "").strip().upper()
     if not reason:
-        raise HTTPException(status_code=422, detail="reason_code is required")
+        raise HTTPException(status_code=422, detail="Choose a reason for the downtime from the list (Masters › Reason codes).")
     if payload.ended_at and payload.ended_at < payload.started_at:
         raise HTTPException(status_code=422, detail="ended_at cannot be before started_at")
     # P2.5 — reject far-future starts (operator typos like 2099-01-01). A 1h
@@ -1260,12 +1260,14 @@ def create_downtime(
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail=f"Invalid plant id: {selected_plant}")
 
-    # P2.2 — soft-validate reason_code against masterdata DOWNTIME category.
-    _validate_reason_code(
+    # Strict check against Masters › Reason codes (DOWNTIME, this plant); see _validate_reason_code.
+    downtime_choice = _validate_reason_code(
         token=str(current_user.get("token") or ""),
         plant_id=plant_uuid,
         code=reason,
         category="DOWNTIME",
+        note=(payload.reason_note or payload.notes or None),
+        what="the downtime",
     )
 
     # P2.14 — when downtime affects job cards, flag a reschedule nudge so the
@@ -1281,6 +1283,8 @@ def create_downtime(
         ended_at=payload.ended_at,
         duration_minutes=duration,
         reason_code=reason,
+        reason_label=getattr(downtime_choice, "label", None),
+        reason_note=getattr(downtime_choice, "note", None),
         notes=(payload.notes or None),
         is_planned=bool(payload.is_planned),
         actor_id=str(actor_id),
@@ -1344,8 +1348,20 @@ def update_downtime(
             status_code=422,
             detail="ended_at cannot be before started_at",
         )
-    if "reason_code" in updates and updates["reason_code"] is not None:
-        row.reason_code = str(updates["reason_code"]).strip().upper()
+    # A changed code (or a new note on it) is checked like a new entry: DOWNTIME list, the row's plant.
+    new_code = str(updates.get("reason_code") or "").strip().upper() if "reason_code" in updates and updates["reason_code"] is not None else None
+    if new_code is not None and (new_code != str(row.reason_code or "").upper() or updates.get("reason_note")):
+        edit_choice = _validate_reason_code(
+            token=str(current_user.get("token") or ""),
+            plant_id=row.plant_id,
+            code=new_code,
+            category="DOWNTIME",
+            note=(updates.get("reason_note") or updates.get("notes") or None),
+            what="the downtime",
+        )
+        row.reason_code = new_code
+        row.reason_label = getattr(edit_choice, "label", None)
+        row.reason_note = getattr(edit_choice, "note", None)
     if "notes" in updates:
         row.notes = updates["notes"]
     if "is_planned" in updates and updates["is_planned"] is not None:

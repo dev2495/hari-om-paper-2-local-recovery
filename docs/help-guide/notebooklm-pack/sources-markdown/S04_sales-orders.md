@@ -13,7 +13,8 @@ Screenshots named in this file are in the visual handbook (Hari-Om-TubeOS-Help-G
 - **Maker-checker**: the person who entered an order cannot approve it. Another Sales or Planner user, the Owner or an Admin approves. The Owner and an Admin may approve their own orders; the history records "approved by the same person".
 - **Release** makes one job card per line and parchment colour and puts it in a winder queue. A parchment colour is compulsory at release.
 - **Delivery date is optional** everywhere; a missing date shows as "No date". An **internal order** can be entered before the customer's PO arrives.
-- **Cancel** (nothing released or dispatched), **Short close** (work started, drop the rest) and **Customer hold & close** (reversible) all need a reason from **Order close reasons**.
+- **Cancel** (nothing released or dispatched), **Short close** (work started, drop the rest) and **Customer hold & close** (reversible) all need a reason from **Order close reasons**. Lifting a hold (**Resume**) asks why too, from the list **Order hold lifted**.
+- **Balance returned.** When a job card closes a stage short, is force-closed or cancelled, or keeps leftover boxes as surplus, the pcs it will not make come back to the order line at once as unreleased pcs. Sales then **releases them again** or **short closes** the order with a reason.
 
 ## The flow
 
@@ -23,6 +24,13 @@ Steps: 1. New sales order (done by Sales) -> 2. Approve (done by Planner/Sales/O
 If it goes wrong after 'New sales order': 1. Entered by me - not Owner/Admin -> 2. Send for approval -> 3. Another user approves
 If it goes wrong after 'Approve': 1. Customer not lifting -> 2. Customer hold & close (done by Sales) -> 3. Resume (done by Sales)
 If it goes wrong after 'Release lines': 1. Customer wants no more -> 2. Short close (done by Sales/Plant Manager) - released cards finish
+
+
+
+Flow diagram: Balance returned from a job card
+Steps: 1. Stage closed short (done by Plant Manager) -> 2. Balance on order line - unreleased -> 3. Release lines again (done by Sales) - new job card
+If it goes wrong after 'Balance on order line': 1. Short close (done by Sales) - reason code -> 2. Balance dropped -> 3. Closes after last dispatch
+If it goes wrong after 'Balance on order line': 1. Stage reopened (done by Owner/Admin) -> 2. Pcs back on the card
 
 
 
@@ -44,10 +52,10 @@ What you see:
 2. **KPI tiles**: click to narrow the list; click again to clear. A blue chip shows the active tile.
 3. **Status tabs** with counts (on a phone, one **Status** drop-down).
 4. **Search**: "Search SO no, PO, customer or code, product, colour".
-5. **Filters**: **Source** (Customer PO + internal / Customer PO / Internal order), **Delivery** (Any, Overdue, 3 days, 7 days), **PO / order date** from–to, **Sort** (Newest first, Earliest delivery first, PO date (latest), Oldest first), **PO validity expired**, **Clear**.
+5. **Filters**: **Source** (Customer PO + internal / Customer PO / Internal order), **Delivery** (Any, Overdue, 3 days, 7 days), **PO / order date** from–to, **Sort** (Newest first, Earliest delivery first, PO date (latest), Oldest first), **Close / hold reason** (**Any reason**, or one code of the Order close reasons list, for example "Customer reduced the quantity (SO-QTY-REDUCED)"; it finds orders cancelled, short-closed or put on hold with that reason), **PO validity expired**, **Clear**.
 6. **View: All orders**: saved views. **+ Save current view…** saves the tab, tile, search and filters for **Only me** or **Everyone on the plant**; **Manage views…** removes them.
 7. **Order row**: tick box, expand arrow, SO number, lines and colours ("1 line · colour not decided", "plain"), fulfilment bar "0 dispatched · 0 made · 0 released of 50", customer and code, PO number and date (or "Internal order · waiting for customer PO"), **Due** ("No date", "Overdue 2 d", "Due today", "Tomorrow", "in 5 days"), **Status** chip (with hold or close reason and date), **Next action** and the **⋯** menu.
-8. **Expanded row**: each line (size, colour split, pcs, released) with its job cards: card number, stage dots W · O · P · D, state, plan and QC flag chips, and quick links **Log output**, **Log QC**, **Open card**. Tick lines and press **Release lines…** to release only those.
+8. **Expanded row**: each line (size, colour split, pcs, released) with its job cards: card number, stage dots W · O · P · D, state, plan and QC flag chips, and quick links **Log output**, **Log QC**, **Open card**. Tick lines and press **Release lines…** to release only those. A line with balance returned from a card shows the pcs as not released again, so **Release lines…** offers them.
 
 [Screenshot "order-new": New sales order form with order header and one order line]
 *Figure: New sales order. Order header: Order source (Customer PO / Internal order (no customer PO yet)), Customer, Customer PO number, Customer PO date, SO expiry date 15/12/2026 ("Default: 45 days from the PO date"), Notes. Order lines: Line 1 with Approved specification, Product code, Size (from the spec), Rate per pc (₹), Order qty (pcs), Delivery date (optional, "Leave blank if not known yet — shown as No date"), a Parchment colours table (Colour "Decide at release", Qty, Rate per pc, Amount, Add colour), and the line total. Buttons Add line, Create sales order, Cancel.*
@@ -69,8 +77,18 @@ What you see:
 1. **Header**: SO number, status, customer, PO (with a lock when the PO is locked), delivery, pcs and lines, value ex-GST, dispatched so far.
 2. **Action bar**: buttons are greyed with a hover reason when not allowed (for example Release lines: "Approve the order first"). **Edit** shows only while Draft or Waiting approval. **⋯** has **Copy as new order**, **Full history** and **Trace materials**.
 3. **Overview**: **Fulfilment** (ordered → released → made → dispatched, with "not released", "on customer hold", "dropped by short close", "still to send"), **Lines** (with a **Colours** button to edit colour splits), **What is next** (numbered steps and one main button) and **Order details** (customer, PO and PO history, due, rate, value, valid till, plant, created, approved, released, on hold, notes).
-4. **Job cards**: each line with its cards, made quantity, close reasons and a **Manage** button (split, edit qty or colour, force close, cancel).
+4. **Job cards**: each line with its cards, made quantity, close reasons and a **Manage** button (split, edit qty or colour, force close, cancel). Under a card that closed a stage short, a line reads for example "Winding closed short 1 Nov, 14:20: 30 of 40 bamboo · 100 pcs back to the order · Paper or input short". A force-closed card shows "Force closed … by … · <reason> · 200 pcs back to the order". A box card shows "7 boxes packed (295 pcs) · 4 shipped · 2 QC flagged".
 5. **Deliveries**: customer call-offs per line by date, and the **Delivery challans** list (DC, date, pcs, boxes, vehicle, card, print).
+
+[Screenshot "order-balance-returned": Order page Job cards tab showing a card closed short with pcs back to the order]
+*Figure: The Job cards tab of SO/26/10/412 after card 26/10/315 closed Winding short. Under the card a grey line reads "Winding closed short: 30 of 40 bamboo · 100 pcs back to the order · Paper or input short", and a box line "7 boxes packed (295 pcs) · 4 shipped". The line's fulfilment shows 105 pcs not released, and Release lines and Short close are both offered.*
+
+What you see:
+
+1. **Closed short line** under the card: stage, when, good of target in the stage unit, the pcs back to the order and the reason label.
+2. **Boxes line**: boxes packed and their pcs, boxes shipped, and QC flagged boxes (flags never block shipping).
+3. **Fulfilment**: the returned pcs count as **not released** again until Sales acts.
+4. **Release lines** (release the balance on a new card) and **Short close** (drop it with a reason).
 
 [Screenshot "order-audit": Order History tab with filters and two timeline events]
 *Figure: History tab. "One timeline: order, release, plan, runs, QC, holds, closes, dispatch — who, when, before → after." Search history and Export. Filters All 2, Order 2, Both / Sales 2 / Production 0, Flagged only. Events at 00:07: "Sales order created · internal order" and "Line 1 entered — 50.0 pcs requested for FG-76-81-150; product code FG-76-81-150; parchment required yes; due date No date", by Test Sales.*
@@ -133,7 +151,8 @@ What you see:
 1. Row ⋯ › **Customer hold & close…** or **Hold** on the order (several rows: tick them, **Hold… N**).
 2. The dialog shows SO, PO and "Will hold N pcs". Choose a **Reason**, add a note if needed, confirm.
 3. The undelivered balance becomes hold quantity and the PO closes. Delivered pieces and job cards are not changed.
-4. To lift it, press **Resume**: "Customer hold lifted." The order goes back to its earlier status.
+4. To lift it, press **Resume** (on the order or the row). The dialog **Order hold lifted** asks **Why is the hold lifted?** from the list **Order hold lifted**: RS-CUST-CONFIRMED Customer confirmed to continue, RS-PAYMENT Payment or credit cleared, RS-SPEC-CLEARED Specification or artwork cleared, RS-SCHEDULE New delivery schedule received, RS-HOLD-ERROR Hold placed by mistake, RS-OTHER Other (write a note). Confirm. The message reads "Customer hold lifted on SO/26/10/412 — Customer confirmed to continue." The order goes back to its earlier status.
+5. **Hold history**: every hold and resume stays on the order with who, when, the reason and the held pcs. The History tab shows events "Customer hold — PO closed", "Customer hold lifted", and, when a cancel or short close ends a hold, "Customer hold ended by cancel" or "Customer hold ended by short close".
 
 ### How to cancel an order
 1. Order page › **Cancel order** (or row ⋯ › **Cancel order…**). Only offered when nothing is released or dispatched.
@@ -145,14 +164,28 @@ What you see:
 2. The dialog shows **Drops N pcs** and the effects: job cards already released still finish; the order closes once they are dispatched.
 3. Choose a **Reason** (and note for OTHER). Press **Short close · drop N pcs**. An amber banner shows "Order short-closed · N pcs not released were dropped". Status later reads **Closed · short**.
 
+### How to handle balance returned from a job card (Sales)
+1. You get the balance back when a card closes a stage short, is force-closed or cancelled, or keeps leftover boxes as surplus. The order's History tab shows "Line 1 balance returned" (or "Winding closed short: 100 pcs back to the order — Paper or input short").
+2. Open the order. The fulfilment shows the pcs as **not released**, and the card line on the **Job cards** tab says how many pcs came back and why. If every released pc came back, the order goes back to **Ready to release**; otherwise it reads partly released.
+3. To make them: press **Release lines**. The balance is offered like any unreleased qty; pick colour, qty and winder as usual. A new job card is made.
+4. To drop them: press **Short close**, choose the reason (for example SO-BALANCE-NOT-REQ Customer does not need the balance) and confirm. The order closes after the last dispatch.
+5. If the order was already short-closed when the pcs came back, they are dropped at once (the history says "dropped: order short-closed").
+6. If the Owner or Admin reopens the stage on the card, the pcs go back onto the card ("Stage reopened: 100 pcs taken back from the order onto the job card"). That is refused when you have already released them again or short-closed the order.
+
 ### How to follow partial dispatch
-1. **Partly dispatched** tab, or the fulfilment bar on a row ("893 dispatched · 900 made").
+1. **Partly dispatched** tab, or the fulfilment bar on a row ("192 dispatched · 295 made").
 2. Order page › **Deliveries**: each DC with date, pcs, boxes and vehicle, and a print button.
-3. When pieces are packed, Owner, Admin and Dispatch see **Make challan · N ready**; Sales sees "Waiting for dispatch · N ready".
+3. Boxes ship as soon as they are packed, even while Process is still running. When boxes are ready, Owner, Admin and Dispatch see **Make challan · N ready**; Sales sees "Waiting for dispatch · N ready".
 
 ### How to see the order's history and audit
 1. Order page › **History** (row ⋯ › **History**).
 2. Filter **Order** / **Both · Sales · Production** / **Flagged only**, search, and **Export**.
+3. Reasons show as their label, for example "Customer hold lifted — Payment or credit cleared".
+
+### How to find orders closed or held for one reason
+1. Orders list › **Filters** › **Close / hold reason**. Pick the reason.
+2. The list shows orders cancelled, short-closed or put on hold with that reason.
+3. For counts by reason, customer and month, open Reports › **Sales pulse** › **Cancelled / short-closed by reason**. Clicking a reason there opens this list with the filter set (see "Reports").
 
 ### How to manage order close reasons (Owner, Admin)
 1. Orders › **Order close reasons**.
@@ -168,7 +201,10 @@ What you see:
 - Release on hold is refused: "Lift the customer hold to release" (BLOCKS).
 - Cancel only when nothing is released or dispatched; otherwise the dialog explains "N pcs are released to job cards. Use Short close…" (BLOCKS).
 - Short close only after approval and when something is released or dispatched and some quantity is still not released (BLOCKS, with the reason in words).
-- Cancel, short close and hold need a reason; OTHER codes need a note of at least 5 characters ("Write a short note for the reason 'Other'.") (BLOCKS).
+- Cancel, short close and hold need an **Order close reasons** code; Resume needs an **Order hold lifted** code; OTHER codes need a note of at least 5 characters ("Write a short note for the reason 'Other'."). The server checks the code is active, in the right list and of the order's plant; free text alone is refused (BLOCKS).
+- **Balance returned from a job card** goes back to the line's unreleased qty at once, carrying the card's reason code and label; if the order is short-closed it is dropped (AUTOMATIC).
+- **Reopening a short-closed stage** takes the pcs back only if the line still has them unreleased and the order is not short-closed or cancelled (BLOCKS the reopen otherwise).
+- **Hold history** keeps every hold, resume and end with its reason (AUTOMATIC).
 - After release the customer PO may change once, then locks (BLOCKS further changes).
 - Last rate is shown only as a suggestion (never filled automatically). Delivery date and expiry default are automatic helpers.
 - Cancelled orders are not counted in booked value (automatic).
@@ -187,8 +223,8 @@ Sharma Tubes Pvt Ltd sends PO 4500012345 dated 28 Oct for 76.4 x 81 x 150 tubes.
 1. Priya (Sales) creates it: **SO/26/10/412**, Draft. She presses **Send for approval**.
 2. Ramesh (Planner) presses **Approve**: Ready to release.
 3. Priya releases: BLUE 3,000 on SHARMA_WINDER-1, RED 2,000 on SHARMA_WINDER-2. Two job cards, 26/10/315 and 26/10/316. Status: In production.
-4. 26/10/315 ships 3,000 pcs: **Partly dispatched**, "3,000 of 5,000 dispatched".
-5. The customer now says it does not want the RED pieces. They are already on 26/10/316, so Short close has nothing to drop and explains: "Everything left is already on job cards; the order closes by itself once they are dispatched." To stop the card, the planner force-closes 26/10/316 in the Job card manager. If the order was short-closed first, the balance that card hands back is dropped too instead of becoming releasable again.
+4. On card 26/10/315, Winding closes short at 270 of 300 bamboo (SS-MATERIAL-SHORT). 300 pcs come back to the BLUE line at once; the History tab shows "Winding closed short: 300 pcs back to the order — Paper or input short". Priya releases them again as card 26/10/321. Card 26/10/315 ships its 2,700 pcs in boxes: **Partly dispatched**, "2,700 of 5,000 dispatched".
+5. The customer now says it does not want the RED pieces. They are already on 26/10/316, so Short close has nothing to drop and explains: "Everything left is already on job cards; the order closes by itself once they are dispatched." To stop the card, the planner cancels 26/10/316 in the Job card manager (nothing made yet) with JC-CUST-CANCEL. The 2,000 pcs come back to the line; Priya presses **Short close** with SO-BALANCE-NOT-REQ. If the order had been short-closed first, the balance the card hands back would have been dropped at once.
 
 ## Common questions
 **Q: Why can't I approve my own order?** A: Maker-checker. Press **Send for approval**; another user approves. Only the Owner and Admin may approve their own.
@@ -199,7 +235,11 @@ Sharma Tubes Pvt Ltd sends PO 4500012345 dated 28 Oct for 76.4 x 81 x 150 tubes.
 
 **Q: I want to cancel but only Short close is offered.** A: Something is already released or dispatched. Short close drops the rest; released cards finish.
 
-**Q: The reason I need is not in the list.** A: Ask the Owner or Admin to add it in **Order close reasons**.
+**Q: The reason I need is not in the list.** A: Pick the OTHER code and write a note, and ask the Owner or Admin to add it in **Order close reasons** (for the Resume list, in Masters › Reason codes › Order hold lifted).
+
+**Q: Why does my order show pcs "not released" again after release?** A: A job card gave them back: a stage closed short, or the card was force-closed, cancelled or kept boxes as surplus. Release them again or short close the order.
+
+**Q: Can I undo a Resume?** A: Put the order on customer hold again with a reason. Both steps stay in the hold history.
 
 **Q: Where did the Order tracker, Pending orders and Order audit pages go?** A: They are the Orders list (tiles and tabs) and the Order page's History tab. Old links still work.
 
@@ -215,3 +255,4 @@ Sharma Tubes Pvt Ltd sends PO 4500012345 dated 28 Oct for 76.4 x 81 x 150 tubes.
 - Planner
 - Dashboard and inbox
 - A day in the life
+- Reports (Sales pulse: cancelled / short-closed by reason)

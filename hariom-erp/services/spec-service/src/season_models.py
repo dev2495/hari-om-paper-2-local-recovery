@@ -78,6 +78,10 @@ class SeasonEvent(Base):
     action = Column(String(50), nullable=False)
     actor = Column(String(200), nullable=False)
     note = Column(Text, nullable=False)
+    # Reason picked from Masters › Reason codes when the command asked "why" (owner decision 4).
+    reason_code = Column(String(80), nullable=True)
+    reason_label = Column(String(200), nullable=True)
+    reason_note = Column(Text, nullable=True)
     payload = Column(JSON, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 

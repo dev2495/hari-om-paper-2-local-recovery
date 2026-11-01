@@ -118,6 +118,8 @@ Stock, purchases, receipts, planning and approvals belong to one plant. When the
 - All Visible Plants is read-only; writing needs one plant (BLOCKS the write with a "pick one plant" message).
 - Theme and density are stored in this browser only; another device keeps its own setting (automatic).
 - Each role lands on its own page after sign-in or role switch (automatic).
+- **Reasons are picked, not typed.** Wherever a screen asks why (a short close, a rejection, a hold, a cancel, a correction), you choose a code from a list and may add a note. Codes with OTHER need a note of at least 5 characters. Missing codes are added in Masters › Reason codes by a Plant Manager, Admin or the Owner (BLOCKS a save without a code).
+- **Operators are picked from your department.** Floor forms list only the active employees of the stage's department in Masters › Employees (BLOCKS anyone else).
 
 ### Start page by role
 
@@ -143,8 +145,8 @@ Every role sees **Dashboard**, **Inbox**, **Guide**, **Purchase requisitions** a
 | Role | Extra sidebar pages |
 |---|---|
 | Sales | Orders, Job Cards, QC desk, Holds & inspections, Customer complaints, Dispatch, Intelligence, Sales pulse, Customer 360, Dispatch & SLA |
-| Planner | Orders, Job Cards, Job card manager, Planner, Log output, Purchase orders, RM inward calendar, Expected arrivals, Create purchase order, Purchase reports, Issue history, Inventory, Genealogy, Stock Alerts, Intelligence, Operations command, Throughput, Planning performance, Plan vs actual, Inventory intelligence, Slitting report |
-| Plant Manager | Orders, Job Cards, Job card manager, Planner, Log output, Log QC, Month-end close, QC desk, In-process QC, Holds & inspections, Customer complaints, Purchase orders, RM inward calendar, Expected arrivals, Create purchase order, Invoice differences, Debit notes, Purchase reports, Goods inward, GRN register & labels, Reel & coil issue, Material issue, Issue history, Inventory, Genealogy, Manual FG, Stock alert policies, Stock Alerts, Intelligence, Operations command, Throughput, Planning performance, Plan vs actual, Sales pulse, Inventory intelligence, Supplier & reels, Slitting report, Quality analytics, Tooling ledger |
+| Planner | Orders, Job Cards, Job card manager, Planner, Log output, Purchase orders, RM inward calendar, Expected arrivals, Create purchase order, Purchase reports, Issue history, Inventory, Genealogy, Stock Alerts, Intelligence, Operations command, Throughput, Planning performance, Plan vs actual, Employee performance, Inventory intelligence, Slitting report |
+| Plant Manager | Orders, Job Cards, Job card manager, Planner, Log output, Log QC, Month-end close, QC desk, In-process QC, Holds & inspections, Customer complaints, Purchase orders, RM inward calendar, Expected arrivals, Create purchase order, Invoice differences, Debit notes, Purchase reports, Goods inward, GRN register & labels, Reel & coil issue, Material issue, Issue history, Inventory, Genealogy, Manual FG, Stock alert policies, Stock Alerts, Intelligence, Operations command, Throughput, Planning performance, Plan vs actual, Employee performance, Sales pulse, Inventory intelligence, Supplier & reels, Slitting report, Quality analytics, Tooling ledger |
 | Operator | Job Cards, Log output, Log QC |
 | Quality Control | Job Cards, Log QC, QC desk, Incoming QC, In-process QC, Holds & inspections, Customer complaints, Material standards, Process stage rules, Intelligence, Quality analytics |
 | Inward QC | QC desk, Incoming QC, Holds & inspections, Material standards, GRN register & labels, Quality analytics |
@@ -153,7 +155,7 @@ Every role sees **Dashboard**, **Inbox**, **Guide**, **Purchase requisitions** a
 | GRN / Goods Receipt | RM inward calendar, Expected arrivals, Goods inward, GRN register & labels, Issue history, Inventory, Genealogy |
 | Raw Material Issue | Reel & coil issue, Material issue, Issue history, Inventory, Genealogy, Slitting report |
 | Dispatch | Orders, Job Cards, QC desk, Holds & inspections, Customer complaints, Genealogy, Dispatch, Intelligence, Dispatch & SLA |
-| Owner, Admin | Everything (plus Specifications, Masters, System, Audit, PO approvals, Opening stock, RM Costing, Owner daily pack) |
+| Owner, Admin | Everything (plus Specifications, Packing setup, Masters, System, Audit, PO approvals, Opening stock, RM Costing, Owner daily pack, Employee performance) |
 
 Seeing a page does not always mean you can change everything on it. For example, Sales can open Dispatch but only the Owner, Admin and Dispatch make a challan.
 
@@ -165,6 +167,10 @@ Ramesh is a Planner who also covers Sales on Saturdays, so his login has both ro
 - At 1:30 pm he leaves for lunch. At 1:50 pm the page asks him to sign in again; after signing in he is back on the RM inward calendar.
 
 ## Common questions
+**Q: A form asks "Choose why". What do I pick?** A: The reason that fits best from the list. If none fits, pick the OTHER code and write a short note. Ask a Plant Manager, Admin or the Owner to add a new code if it comes up often.
+
+**Q: I scanned a box label. What opens?** A: The box page: its pcs, where it is (packed, dispatched or kept as surplus), its QC flags and its job card. Phone cameras and the in-app **Scan** both work.
+
 **Q: I cannot find a page my colleague uses.** A: It belongs to a role your login does not have. Ask the Owner or Admin to add the role in System › Users.
 
 **Q: The plant switcher is missing.** A: Only the Owner and Admin can switch plants. Your plant comes from your login.

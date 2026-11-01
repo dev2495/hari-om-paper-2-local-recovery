@@ -275,11 +275,11 @@ def test_send_back_cancel_and_month_end_certificate():
         finish_rack(cid, "unassigned", db, plant, STORE)
         submit_count(NotePayload(), cid, db, plant, STORE)
         # Owner sends rack C back for a recount: the not-found line is taken back, the scan stays.
-        back = send_back_count(SendBackPayload(note="Recount rack C", racks=[key]), cid, db, plant, OWNER)
+        back = send_back_count(SendBackPayload(reason_code="AR-RECOUNT", note="Recount rack C", racks=[key]), cid, db, plant, OWNER)
         assert back["status"] == "DRAFT" and next(r for r in back["racks"] if r["key"] == key)["status"] == "RECOUNT"
         assert {entry["status"] for entry in back["entries"]} == {"FOUND"}
         rack_view = get_rack(cid, key, db, plant, STORE)
-        assert rack_view["rack"]["recount_note"] == "Recount rack C" and any(row["id"] == str(other.id) for row in rack_view["expected"])
+        assert rack_view["rack"]["recount_note"] == "Ar recount — Recount rack C" and any(row["id"] == str(other.id) for row in rack_view["expected"])
         scan_in_count(ScanPayload(rack=key, code=other.reel_code, client_ref="me-2"), cid, db, plant, STORE)
         finish_rack(cid, key, db, plant, STORE)
         submit_count(NotePayload(), cid, db, plant, STORE)
@@ -318,8 +318,8 @@ def test_corrections_wait_for_the_owner_and_post_exact_lots():
         older = _reel(db, plant, paper, 500, at=rack, inward=date(2026, 9, 1))
         drum = _lot(db, plant, glue, 60, at=rack, status="QC_HOLD")
         db.commit()
-        _refused(lambda: raise_correction(CorrectionPayload(code=reel.reel_code, new_qty=480, reason="OTHER"), db, plant, STORE), 422, "Write what happened")
-        draft = raise_correction(CorrectionPayload(code=reel.reel_code, new_qty=480, reason="WRONG_GRN_WEIGHT"), db, plant, STORE)
+        _refused(lambda: raise_correction(CorrectionPayload(code=reel.reel_code, new_qty=480, reason_code="STOCK-OTHER"), db, plant, STORE), 422, "at least 5")
+        draft = raise_correction(CorrectionPayload(code=reel.reel_code, new_qty=480, reason_code="WRONG_GRN_WEIGHT"), db, plant, STORE)
         assert draft["status"] == "DRAFT" and draft["lines"][0]["qty_delta"] == -20 and draft["lines"][0]["lot_code"] == reel.reel_code
         db.expire_all()
         assert db.get(PaperReel, reel.id).current_weight_kg == 500  # nothing changes until the Owner approves
@@ -327,11 +327,12 @@ def test_corrections_wait_for_the_owner_and_post_exact_lots():
         assert posted["status"] == "POSTED" and posted["approved_by"] == OWNER["sub"]
         db.expire_all()
         assert db.get(PaperReel, reel.id).current_weight_kg == 480 and db.get(PaperReel, older.id).current_weight_kg == 500
-        gone = raise_correction(CorrectionPayload(code=drum.batch_no, not_here=True, reason="DAMAGED_IN_STORE"), db, plant, PLANT_HEAD)
+        gone = raise_correction(CorrectionPayload(code=drum.batch_no, not_here=True, reason_code="DAMAGED_IN_STORE"), db, plant, PLANT_HEAD)
         _refused(lambda: reject_correction(uuid.UUID(gone["id"]), CorrectionDecisionPayload(note=""), db, plant, OWNER), 422)
-        rejected = reject_correction(uuid.UUID(gone["id"]), CorrectionDecisionPayload(note="Drum is in the QC bay"), db, plant, OWNER)
-        assert rejected["status"] == "CANCELLED" and rejected["cancel_note"] == "Drum is in the QC bay"
-        found = raise_correction(CorrectionPayload(item_id=glue.id, new_qty=12, reason="LABEL_LOST_FOUND", location_id=rack.id), db, plant, STORE)
+        rejected = reject_correction(uuid.UUID(gone["id"]), CorrectionDecisionPayload(reason_code="AR-WRONG-ITEM", note="Drum is in the QC bay"), db, plant, OWNER)
+        assert rejected["status"] == "CANCELLED" and rejected["cancel_note"] == "Ar wrong item — Drum is in the QC bay"
+        assert rejected["cancel_reason_code"] == "AR-WRONG-ITEM" and rejected["cancel_reason_label"] == "Ar wrong item"
+        found = raise_correction(CorrectionPayload(item_id=glue.id, new_qty=12, reason_code="LABEL_LOST_FOUND", location_id=rack.id), db, plant, STORE)
         approve_correction(uuid.UUID(found["id"]), CorrectionDecisionPayload(), db, plant, OWNER)
         created = db.query(StockBatch).filter(StockBatch.item_id == glue.id, StockBatch.id != drum.id).one()
         assert created.stock_status == "QC_HOLD" and created.location_id == rack.id
@@ -339,7 +340,7 @@ def test_corrections_wait_for_the_owner_and_post_exact_lots():
         assert listing["waiting_count"] == 0 and {row["kind"] for row in listing["items"]} == {"CORRECTION"}
         _floor_issue(db, plant, older, date(2026, 10, 3), section="WINDER_SECTION")
         db.commit()
-        _refused(lambda: raise_correction(CorrectionPayload(code=older.reel_code, new_qty=500, reason="COUNT_EXTRA"), db, plant, STORE), 409, "Nothing comes back from the floor")
+        _refused(lambda: raise_correction(CorrectionPayload(code=older.reel_code, new_qty=500, reason_code="COUNT_EXTRA"), db, plant, STORE), 409, "Nothing comes back from the floor")
 
 
 def test_locations_moves_put_away_and_guards():

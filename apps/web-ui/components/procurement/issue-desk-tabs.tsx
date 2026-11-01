@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils"
 export function IssueDeskTabs() {
   const pathname = usePathname() || ""
   const tabs = [
-    { href: "/inventory/reels/issue", label: "Reels & coils → floor", hint: "Scan the AT label; a reel goes to the slitter, a coil to the winders, by shift." },
+    { href: "/inventory/reels/issue", label: "Reels & coils → floor", hint: "Scan the reel label (AIT / reel number); a reel goes to the slitter, a coil to the winders, by shift." },
     { href: "/inventory/production-issue", label: "Adhesive / parchment / packing → floor", hint: "Issue by the Amigo inward number to the floor, by shift." },
     // Every issue from both desks, with shift, person and rack; filters and CSV (client 2026-10-30).
     { href: "/inventory/issue-history", label: "Issue history", hint: "Every issue to the floor: date, time, shift, material, reel or lot, quantity, who issued it and the rack." },

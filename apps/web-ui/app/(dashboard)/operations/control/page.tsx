@@ -36,12 +36,11 @@ import {
 } from "@/components/reports/primitives"
 import {
   LabeledInput,
-  LabeledTextarea,
   Modal,
 } from "@/components/master/master-cockpit"
+import { ReasonPicker, useReasonChoice } from "@/components/reasons"
 import { useAuth } from "@/context/AuthContext"
 import { useMachines, usePlanningJobCards } from "@/hooks/use-production"
-import { useReasonCodes } from "@/hooks/use-master-data"
 import {
   useDowntime,
   useHolds,
@@ -127,9 +126,9 @@ function OperationsControlPage() {
     }
   }
 
-  // Masters: reasons + machines + open job cards
-  const { data: scReasons } = useReasonCodes("SHORT_CLOSE")
-  const { data: dtReasons } = useReasonCodes("DOWNTIME")
+  // Masters: reasons (Masters › Reason codes of this plant, owner decision 4) + machines + open job cards
+  const scReason = useReasonChoice("SHORT_CLOSE", activePlant)
+  const dtReason = useReasonChoice("DOWNTIME", activePlant)
   const { data: machinesRaw } = useMachines()
   const machines: any[] = Array.isArray(machinesRaw) ? machinesRaw : []
   const { data: jobCardsRaw } = usePlanningJobCards()
@@ -143,9 +142,7 @@ function OperationsControlPage() {
   const [scJobCardId, setScJobCardId] = useState("")
   const [scStageType, setScStageType] = useState<string>("JOB_CARD")
   const [scProduced, setScProduced] = useState("")
-  const [scReason, setScReason] = useState("")
   const [scDecision, setScDecision] = useState<"CARRY_FORWARD" | "SHORT_CLOSE_SO" | "HOLD">("CARRY_FORWARD")
-  const [scNotes, setScNotes] = useState("")
   const [scError, setScError] = useState<string | null>(null)
   const selectedJC = openJobCards.find((j: any) => j.id === scJobCardId)
   const plannedQty = Number(selectedJC?.planned_qty || 0)
@@ -155,7 +152,7 @@ function OperationsControlPage() {
     setScError(null)
     if (!scJobCardId) { setScError("Pick a job card."); return }
     if (!concretePlantSelected) { setScError("Select one concrete plant before writing a short-close."); return }
-    if (!scReason) { setScError("Pick a reason code."); return }
+    if (!scReason.validate()) { setScError(scReason.problem); return }
     if (!scProduced || Number.isNaN(Number(scProduced))) { setScError("Enter produced qty."); return }
     if (gapPreview <= 0) { setScError("Produced qty must be less than planned."); return }
     try {
@@ -164,15 +161,15 @@ function OperationsControlPage() {
         plantId: activePlant || undefined,
         data: {
           produced_qty: Number(scProduced),
-          reason_code: scReason,
+          ...scReason.payload(null),
           decision: scDecision,
           stage_type: scStageType,
-          notes: scNotes || undefined,
+          notes: scReason.value.note.trim() || undefined,
         },
       })
       showToast(`Short-closed: ${scDecision.replace("_", " ").toLowerCase()}`, "success")
       setScOpen(false)
-      setScJobCardId(""); setScStageType("JOB_CARD"); setScProduced(""); setScReason(""); setScDecision("CARRY_FORWARD"); setScNotes("")
+      setScJobCardId(""); setScStageType("JOB_CARD"); setScProduced(""); scReason.reset(); setScDecision("CARRY_FORWARD")
     } catch (err: any) {
       const msg =
         err?.response?.data?.message ??
@@ -188,9 +185,7 @@ function OperationsControlPage() {
   const [dtMachineId, setDtMachineId] = useState("")
   const [dtStartedAt, setDtStartedAt] = useState(new Date().toISOString().slice(0, 16))
   const [dtEndedAt, setDtEndedAt] = useState("")
-  const [dtReason, setDtReason] = useState("")
   const [dtIsPlanned, setDtIsPlanned] = useState(false)
-  const [dtNotes, setDtNotes] = useState("")
   const [dtError, setDtError] = useState<string | null>(null)
   const selectedMachine = machines.find((m: any) => m.id === dtMachineId)
 
@@ -199,7 +194,7 @@ function OperationsControlPage() {
     if (!dtMachineId) { setDtError("Pick a machine."); return }
     if (!concretePlantSelected) { setDtError("Select one concrete plant before logging downtime."); return }
     if (!dtStartedAt) { setDtError("Start time required."); return }
-    if (!dtReason) { setDtError("Pick a reason code."); return }
+    if (!dtReason.validate()) { setDtError(dtReason.problem); return }
     try {
       await logDowntime.mutateAsync({
         plantId: activePlant || undefined,
@@ -208,14 +203,14 @@ function OperationsControlPage() {
           machine_code: selectedMachine?.code,
           started_at: new Date(dtStartedAt).toISOString(),
           ended_at: dtEndedAt ? new Date(dtEndedAt).toISOString() : undefined,
-          reason_code: dtReason,
+          ...dtReason.payload(null),
           is_planned: dtIsPlanned,
-          notes: dtNotes || undefined,
+          notes: dtReason.value.note.trim() || undefined,
         },
       })
       showToast("Downtime logged", "success")
       setDtOpen(false)
-      setDtMachineId(""); setDtEndedAt(""); setDtReason(""); setDtIsPlanned(false); setDtNotes("")
+      setDtMachineId(""); setDtEndedAt(""); dtReason.reset(); setDtIsPlanned(false)
     } catch (err: any) {
       const msg =
         err?.response?.data?.message ??
@@ -315,11 +310,11 @@ function OperationsControlPage() {
           <span className="rounded-md border border-border bg-muted px-2 py-1 text-sm font-semibold">{activePlant || "ALL"}</span>
         </FilterField>
         <span className="ml-auto" />
-        <button onClick={() => setScOpen(true)} className="inline-flex items-center gap-1.5 rounded-full bg-amber-700 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-amber-800">
+        <button onClick={() => { scReason.reset(); setScError(null); setScOpen(true) }}className="inline-flex items-center gap-1.5 rounded-full bg-amber-700 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-amber-800">
           <AlertTriangle className="h-3.5 w-3.5" />
           Short-close job card
         </button>
-        <button onClick={() => setDtOpen(true)} className="inline-flex items-center gap-1.5 rounded-full bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-rose-800">
+        <button onClick={() => { dtReason.reset(); setDtError(null); setDtOpen(true) }}className="inline-flex items-center gap-1.5 rounded-full bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-rose-800">
           <PauseCircle className="h-3.5 w-3.5" />
           Log downtime
         </button>
@@ -368,7 +363,7 @@ function OperationsControlPage() {
                     <td className="py-2 pr-3 text-right">{formatNumber(Number(s.planned_qty || 0))}</td>
                     <td className="py-2 pr-3 text-right">{formatNumber(Number(s.produced_qty || 0))}</td>
                     <td className="py-2 pr-3 text-right font-bold text-signal-rose-ink">{formatNumber(Number(s.gap_qty || 0))}</td>
-                    <td className="py-2 pr-3 font-mono text-xs">{s.reason_code}</td>
+                    <td className={s.reason_label ? "py-2 pr-3 text-xs" : "py-2 pr-3 font-mono text-xs"} title={s.reason_code}>{s.reason_label || s.reason_code}</td>
                     <td className="py-2 pr-3"><Pill tone={s.decision === "CARRY_FORWARD" ? "ok" : s.decision === "SHORT_CLOSE_SO" ? "warn" : "neutral"}>{(s.decision || "").replace("_", " ")}</Pill></td>
                     <td className="py-2 pr-3 font-mono text-xs">{s.carry_forward_job_card_id ? <Link className="text-signal-emerald-ink hover:underline" href={`/production/job-cards/${s.carry_forward_job_card_id}`}>{String(s.carry_forward_job_card_id).slice(0, 8)}</Link> : "—"}</td>
                   </tr>
@@ -405,7 +400,7 @@ function OperationsControlPage() {
                       <td className="py-2 pr-3 text-xs">{d.started_at ? new Date(d.started_at).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}</td>
                       <td className="py-2 pr-3 text-xs">{d.ended_at ? new Date(d.ended_at).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : <Pill tone="warn">ONGOING</Pill>}</td>
                       <td className="py-2 pr-3 text-right font-bold">{d.duration_minutes ? `${Math.round(Number(d.duration_minutes))} m` : "—"}</td>
-                      <td className="py-2 pr-3 font-mono text-xs">{d.reason_code}</td>
+                      <td className={d.reason_label ? "py-2 pr-3 text-xs" : "py-2 pr-3 font-mono text-xs"} title={d.reason_code}>{d.reason_label || d.reason_code}</td>
                       <td className="py-2 pr-3"><Pill tone={d.is_planned ? "ok" : "warn"}>{d.is_planned ? "PLANNED" : "UNPLANNED"}</Pill></td>
                       <td className="py-2 pr-3">
                         <div className="flex items-center justify-end gap-1.5">
@@ -464,7 +459,7 @@ function OperationsControlPage() {
                       </span>
                       <Pill tone={(h.stage_type && h.stage_type !== "JOB_CARD") ? "info" : "neutral"}>{(h.stage_type && h.stage_type !== "JOB_CARD") ? h.stage_type : "Whole card"}</Pill>
                       <span className="text-muted-foreground">Gap <strong className="text-signal-rose-ink">{formatNumber(Number(h.gap_qty || 0))}</strong></span>
-                      <span className="font-mono text-xs text-muted-foreground">{h.reason_code}</span>
+                      <span className="text-xs text-muted-foreground" title={h.reason_code}>{h.reason_label || h.reason_code}</span>
                       <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><Clock className="h-3 w-3" />{relativeAge(h.created_at)} old</span>
                     </div>
                     {!isResolving ? (
@@ -552,7 +547,7 @@ function OperationsControlPage() {
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                           <span className="inline-flex items-center gap-1 font-mono text-xs font-semibold"><Wrench className="h-3 w-3 text-muted-foreground" />{d.machine_code || String(d.machine_id || "").slice(0, 8)}</span>
                           <Pill tone={d.is_planned ? "ok" : "warn"}>{d.is_planned ? "PLANNED" : "UNPLANNED"}</Pill>
-                          <span className="font-mono text-xs text-muted-foreground">{d.reason_code}</span>
+                          <span className="text-xs text-muted-foreground" title={d.reason_code}>{d.reason_label || d.reason_code}</span>
                         </div>
                         <div className="text-xs text-muted-foreground">
                           {d.started_at ? new Date(d.started_at).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}
@@ -645,18 +640,9 @@ function OperationsControlPage() {
             <span className="text-[11.5px] font-semibold text-muted-foreground">Gap (auto)</span>
             <span className="rounded-md border border-border bg-muted px-3 py-2 text-sm font-bold text-signal-rose-ink">{gapPreview > 0 ? formatNumber(gapPreview) : "—"}</span>
           </label>
-          <label className="sm:col-span-2 flex flex-col gap-1 text-sm">
-            <span className="text-[11.5px] font-semibold text-muted-foreground">Reason code *</span>
-            <select value={scReason} onChange={(e) => setScReason(e.target.value)} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
-              <option value="">Choose…</option>
-              {(Array.isArray(scReasons) ? scReasons : []).filter((r: any) => r.is_active !== false).map((r: any) => (
-                <option key={r.id} value={r.code}>{r.code} · {r.label}</option>
-              ))}
-            </select>
-            {(!Array.isArray(scReasons) || scReasons.length === 0) ? (
-              <span className="text-[11px] text-signal-amber-ink">No SHORT_CLOSE reason codes seeded yet. <Link href="/masters/reason-codes" className="underline">Seed them →</Link></span>
-            ) : null}
-          </label>
+          <div className="sm:col-span-2">
+            <ReasonPicker category="SHORT_CLOSE" plantId={activePlant} rows={scReason.list.data} value={scReason.value} onChange={scReason.setValue} showErrors={scReason.touched} compact notePlaceholder="What happened, who's accountable, what's next" testIdPrefix="short-close" />
+          </div>
           <label className="sm:col-span-2 flex flex-col gap-1 text-sm">
             <span className="text-[11.5px] font-semibold text-muted-foreground">Decision *</span>
             <div className="grid grid-cols-3 gap-2">
@@ -671,9 +657,6 @@ function OperationsControlPage() {
               </button>
             </div>
           </label>
-          <div className="sm:col-span-2">
-            <LabeledTextarea label="Notes" value={scNotes} onChange={setScNotes} rows={2} placeholder="What happened, who's accountable, what's next" />
-          </div>
         </div>
         {scError ? <p className="mt-2 text-xs text-signal-rose-ink font-medium">{scError}</p> : null}
       </Modal>
@@ -706,25 +689,13 @@ function OperationsControlPage() {
           </label>
           <LabeledInput label="Started at" required type="datetime-local" value={dtStartedAt} onChange={setDtStartedAt} />
           <LabeledInput label="Ended at (blank = still down)" type="datetime-local" value={dtEndedAt} onChange={setDtEndedAt} />
-          <label className="sm:col-span-2 flex flex-col gap-1 text-sm">
-            <span className="text-[11.5px] font-semibold text-muted-foreground">Reason code *</span>
-            <select value={dtReason} onChange={(e) => setDtReason(e.target.value)} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
-              <option value="">Choose…</option>
-              {(Array.isArray(dtReasons) ? dtReasons : []).filter((r: any) => r.is_active !== false).map((r: any) => (
-                <option key={r.id} value={r.code}>{r.code} · {r.label}</option>
-              ))}
-            </select>
-            {(!Array.isArray(dtReasons) || dtReasons.length === 0) ? (
-              <span className="text-[11px] text-signal-amber-ink">No DOWNTIME reason codes seeded yet. <Link href="/masters/reason-codes" className="underline">Seed them →</Link></span>
-            ) : null}
-          </label>
+          <div className="sm:col-span-2">
+            <ReasonPicker category="DOWNTIME" plantId={activePlant} rows={dtReason.list.data} value={dtReason.value} onChange={dtReason.setValue} showErrors={dtReason.touched} compact testIdPrefix="downtime" />
+          </div>
           <label className="sm:col-span-2 flex items-center gap-2 text-sm">
             <input type="checkbox" checked={dtIsPlanned} onChange={(e) => setDtIsPlanned(e.target.checked)} />
             <span>This was <strong>planned</strong> (scheduled maintenance) — uncheck for unplanned breakdowns</span>
           </label>
-          <div className="sm:col-span-2">
-            <LabeledTextarea label="Notes" value={dtNotes} onChange={setDtNotes} rows={2} />
-          </div>
         </div>
         {dtError ? <p className="mt-2 text-xs text-signal-rose-ink font-medium">{dtError}</p> : null}
       </Modal>

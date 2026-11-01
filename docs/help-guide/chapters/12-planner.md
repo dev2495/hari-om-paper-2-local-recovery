@@ -116,6 +116,7 @@ Drag the placed card back onto the queue ("Drop here to send it back to the queu
 - **Oven after Winding, Process after Oven** for planning. (Blocks the planner action only.)
 - **Run to slot matching** is automatic: same card and stage, same date and shift, same machine first. Results on the floor form: "As planned", "Planned shift, other machine", "Same day, other shift", "N days later than plan", "N days earlier than plan", "Run before planning". A run on another day keeps the plan; only a stage with no slot at all is "before planning". (Automatic.)
 - **Done in slot** = 95% or more of the slot's plan made in it. (Automatic.)
+- **Short close shrinks later slots.** When a stage closes short on the card page, the open slots of the later stages shrink to the new target, latest slots first; reopening the stage puts them back. (Automatic.)
 - **Missed slot**: no floor entry 36 h after the shift ends (Shift A 08:00–20:00, Shift B 20:00–08:00) sends the slot back to the queue. (Automatic.)
 - **Capacity**: Winder in metres per shift, Oven in batch (bamboo) per shift, Process in tubes per shift, from the machine setup. Over-capacity drops ask first and split. (Warns, then splits.)
 - **Bulk move** is all-or-nothing, up to 50 cards. (Blocks if any fails.)

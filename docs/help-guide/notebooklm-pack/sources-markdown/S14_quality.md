@@ -10,10 +10,11 @@ Screenshots named in this file are in the visual handbook (Hari-Om-TubeOS-Help-G
 
 ## At a glance
 - **Incoming lots are held when out of band.** A GRN lot with every reading inside its band is released and can be issued at once. Any reading outside its band holds the lot until QC decides.
-- **Floor readings are flagged, not held.** On Winding, Oven and Process a reading outside its band is saved and flagged; the run moves on. In-process QC traces every flag.
+- **Job card QC never holds or rejects.** On Winding, Oven, Process and final QC a reading outside its band is saved and flagged on the run, the batch, the box and the card; the run moves on and dispatch is never blocked by it. In-process QC traces every flag.
 - **2 readings per required check** make a run "QC done" (moisture optional). The next stage takes only QC-done runs.
 - **QC lists the checks; Masters set the inward bands; QC keeps the seasonal stage rules.** Every change is a new version; lots and cards keep the version they started with.
-- **Holds** on job cards are raised by QC and released only by the plant head, Owner or Admin. An active hold stops the next stage and dispatch.
+- **Holds** on job cards are placed only on purpose (by QC, In-process QC, the plant head, Owner or Admin) and released only by the plant head, Owner or Admin. Such a hold stops the next stage, box postings and dispatch.
+- **Every reason is a code** from Masters › Reason codes: placing a hold (**QC hold placed**), releasing it (**QC hold release**), a concession, a return to the supplier (**Incoming material rejected / returned**) and a customer complaint (**Customer complaints**).
 
 ## The flow
 
@@ -27,8 +28,8 @@ If it goes wrong after 'Lot held': 1. Return to supplier (done by Store) - writt
 
 Flow diagram: In-process QC
 Steps: 1. Run logged (done by Operator) -> 2. Log QC (done by Operator/QC) - 2 readings -> 3. In band -> 4. QC done - next stage takes it
-If it goes wrong after 'Log QC (2 readings)': 1. Out of band -> 2. Flagged, not held -> 3. QC done - next stage takes it
-If it goes wrong after 'Run logged': 1. QC hold raised (done by QC) -> 2. Release hold (done by Plant head/Owner/Admin)
+If it goes wrong after 'Log QC (2 readings)': 1. Out of band -> 2. Flagged, not held -> 3. QC done - next stage takes it -> 4. Boxes show QC flagged - still ship
+If it goes wrong after 'Run logged': 1. Hold placed on purpose (done by QC/Plant head) - reason code -> 2. Release hold (done by Plant head/Owner/Admin) - reason code
 
 
 
@@ -47,7 +48,7 @@ What you see:
 
 1. **Tab row** (on every Quality page): **QC desk**, **Incoming QC**, **In-process QC**, **Holds & inspections**, **Customer complaints**, **Material standards**, **Process stage rules**, **Analytics**.
 2. **Tiles**: **Incoming lots to inspect** (with how many are past the 24-hour deadline), **Runs waiting for QC readings** ("At least 2 readings per check · the next stage takes QC-done runs"), **Flagged QC readings · 7 days** ("allowed, not held"), **On hold — decision needed** (inward lots and older floor holds), **Customer complaints open**.
-3. **Held — waiting for a decision**: inward lots (re-inspect, concession by the plant head, or return by Store) and older floor holds (made before floor readings were flagged instead of held; released, reworked or scrapped by the plant head, Owner or Admin). Each row shows lot, material, supplier, GRN, qty, days waiting and **Decide**.
+3. **Held — waiting for a decision**: inward lots (re-inspect, concession by the plant head, or return by Store) and job-card holds (holds placed on purpose, and older holds made before floor readings were flagged instead of held; released, reworked or scrapped by the plant head, Owner or Admin). Each row shows lot, material, supplier, GRN, qty, days waiting and **Decide**.
 4. Further down: **Incoming lots** (oldest due first, **Inspect**), **Runs waiting for QC readings** (**Log QC**), **Latest flagged readings**, **Latest checks**, and links to standards and analytics.
 
 [Screenshot "qc-incoming": Incoming inspection page with four tiles, the inward list and the three-step help panel]
@@ -61,7 +62,7 @@ What you see:
 4. **Right panel**: "Pick an inward entry from the list" with the three steps **1. Enter readings**, **2. Decide per lot**, **3. Issue to floor**. Picking an entry opens one sheet for all reels, coils or batches that came in together.
 5. **Checked recently** and **Concessions** ("A measured FAIL stays FAIL; a concession only allows a limited use").
 
-The inspection sheet (words only): one row per reel, coil or batch; for each check the **Allowed** band, the **Reading** box and the **Result** (**In band**, **Out of band**, **Not valid**, **Recorded** for checks without a band). Per lot a **Decision**: **By readings** (released only if every check is in band), **Hold** (keep out of issue for review), **Reject**. An out-of-band lot needs **Reason (required)**, for example "Why GSM is out of band". Then **Save N inspections**. The **Resolve a failed lot** box offers re-check, concession or return.
+The inspection sheet (words only): one row per reel, coil or batch; for each check the **Allowed** band, the **Reading** box and the **Result** (**In band**, **Out of band**, **Not valid**, **Recorded** for checks without a band). Per lot a **Decision**: **By readings** (released only if every check is in band), **Hold** (keep out of issue for review), **Reject**. An out-of-band lot needs **Reason (required)**, typed in words, for example "Why GSM is out of band" (the inspection result itself is a reading, not a reason code). Then **Save N inspections**. The **Resolve a failed lot** box offers re-check, concession ("Why it is still fit for use", list **Concession**: CN-MINOR, CN-URGENT, CN-CUST-OK, CN-NON-CRITICAL, CN-SUPPLIER-CREDIT, CN-OTHER) or return ("Reason for the return", list **Incoming material rejected / returned**: RM-GSM, RM-MOISTURE, RM-DAMAGED, RM-WRONG-ITEM, RM-WEIGHT, RM-STRENGTH, RM-NO-DOCS, RM-OTHER).
 
 [Screenshot "qc-stage": In-process QC with Flagged readings tab, period and stage filters, tiles and charts]
 *Figure: In-process QC, Flagged readings tab, last 30 days. 66 flagged readings on 40 runs of 27 cards, shown by stage and by check.*
@@ -83,7 +84,7 @@ What you see:
 1. **Tiles**: **Inward lots on hold**, **Job-card holds**, **Inspections loaded**, **Pass rate (loaded)**.
 2. **Tabs**: **Inward lots on hold**, **Job cards on hold**, **All inspections**.
 3. **Inward lots on hold** table: Lot / material, Supplier · GRN, Quantity, **Outside band** (which check, when, by whom), **State** ("Out of tolerance — held" or "Rejected"), **Next step** and **Decide** (opens Incoming QC on that lot).
-4. **Job cards on hold**: each hold with its reason and **Release**; and **Put a job card on hold** (choose the card, write the reason, **Hold**).
+4. **Job cards on hold**: each hold with its reason label and **Decide…**. The release form has **Why it can be released** (list **QC hold release**: QR-RETEST-OK Retest passed, QR-REWORKED Reworked and checked, QR-SORTED Sorted, bad pieces removed, QR-CUST-OK Customer accepted as is, QR-MGMT-OK Plant head approved use, QR-HOLD-ERROR Hold placed by mistake, QR-OTHER), **Decision** (**Release as is (use it)**, **Reworked, now OK**, **Sorted / segregated, good part released**, **Part scrapped, rest released**), **Qty affected** (optional) and **Record decision & release**. **Put a job card on hold**: choose the card and pick the reason from **QC hold placed** (QH-SUSPECT Suspected quality problem, QH-CUST-COMPLAINT, QH-MOISTURE, QH-SIZE, QH-STRENGTH, QH-LABEL, QH-RETEST, QH-OTHER), then **Hold**.
 
 [Screenshot "qc-complaints": Customer complaints register with tiles, filters and a table of complaints]
 *Figure: Customer complaints. Tiles for open, waiting for QC, in rework, overdue and closed; a register table with date, customer, batch, size, qty, reason, status and next step.*
@@ -92,7 +93,7 @@ What you see:
 
 1. **New complaint** button.
 2. **Tiles**: **Open complaints**, **Waiting for QC decision**, **In rework / sorting**, **Corrective action overdue**, **Closed**.
-3. **Open / Closed / All**, search ("Customer, batch, size, product…") and **Every reason**.
+3. **Open / Closed / All**, search ("Customer, batch, size, product…") and **Every reason** (the codes of the list **Customer complaints**).
 4. **Table**: Date, Customer (with finished good), Batch (job card), Size, Qty, Reason, **Status** (**Open · with QC**, **On hold**, **Blocked**, **In rework**, **Sorting**, **Closed · scrapped**, **Closed · accepted back**), **Next step**. "Action overdue" shows in red when the corrective action date has passed.
 5. Selecting a row opens its **Timeline** and **Record the next decision**.
 
@@ -130,27 +131,28 @@ Roles: QC, Inward QC, Owner, Admin (Store and Plant Manager can open the page).
 ### How to resolve a held lot
 1. Open the lot (**Decide** on the QC desk or Holds & inspections).
 2. **Re-check**: enter new readings in the sheet.
-3. **Concession**: plant head, Owner or Admin (never the inspector) writes "Why this material is still fit for use". The FAIL stays on record; the released qty can be issued. Critical checks cannot be conceded.
-4. **Return to supplier**: Store, Plant Manager, Owner or Admin writes the reason (for example "GSM 150 against 291–309") and optional return challan or vehicle no. The lot is written out of stock and the inward line marked rejected; with an invoice attached, a quality claim opens for the debit note.
+3. **Concession**: plant head, Owner or Admin (never the inspector) picks **Why it is still fit for use** from the **Concession** list (for example CN-MINOR Minor deviation, safe to use) and may add a note. The FAIL stays on record; the released qty can be issued. Critical checks cannot be conceded.
+4. **Return to supplier**: Store, Plant Manager, Owner or Admin picks **Reason for the return** (for example RM-GSM GSM out of range, note "GSM 150 against 291–309") and adds the optional return challan or vehicle no. The lot is written out of stock and the inward line marked rejected; with an invoice attached, a quality claim opens for the debit note.
 
 ### How to follow up flagged floor readings
 Roles: QC, In-process QC, Plant Manager, Owner, Admin.
 
 1. Open **In-process QC** > **Flagged readings**. Pick the period and stage.
 2. Use **By check** to see which check goes out most and by how much.
-3. Open a card to see its flagged runs. Talk to the line; no action is needed in the system for the run to continue.
+3. Open a card to see its flagged runs and the boxes marked **QC flagged**. Talk to the line; no action is needed in the system for the run, its boxes or their dispatch to continue.
+4. If you decide the goods must stop, place a hold on purpose (next task).
 
 ### How to clear runs waiting for readings
 1. **In-process QC** > **Waiting for readings** (or the QC desk tile).
 2. Click **Log QC** on a run. Type at least 2 readings per required check and save. See "Log output and QC entry".
 
 ### How to put a job card on hold and release it
-1. Raise: QC, In-process QC, Plant Manager, Owner or Admin. **Holds & inspections** > **Job cards on hold** > **Put a job card on hold**: choose the card, give the reason, **Hold**. Switch to the card's plant first if asked.
-2. The card shows **On hold**; the next stage cannot take it and no challan can be sealed.
-3. Release: Plant Manager (plant head), Owner or Admin only. Click **Release** and say why and what was done with the material.
+1. Raise: QC, In-process QC, Plant Manager, Owner or Admin. **Holds & inspections** > **Job cards on hold** > **Put a job card on hold**: choose the card, pick the reason code from **QC hold placed**, add a note if useful, **Hold**. Switch to the card's plant first if asked.
+2. The card shows **On hold**; the next stage cannot take it, new boxes wait to go into stock, and no challan can be sealed ("N hold(s) placed on this card stop all movement. Release them in Quality before sealing.").
+3. Release: Plant Manager (plant head), Owner or Admin only. Click **Decide…**, pick **Why it can be released** from **QC hold release**, choose the **Decision**, type **Qty affected** if part was scrapped, and click **Record decision & release**.
 
 ### How to record and close a customer complaint
-1. Record: Owner, Admin, Plant Manager, QC, Store, Sales or Dispatch. Click **New complaint**. Choose the customer (or "Not in customer master…"), the batch on the goods (job card / batch number), the finished good, the quantity and the reason from the Customer complaints master (CC codes, for example "Low crushing strength", "Size out of tolerance (I.D. / O.D. / length)"). Add what the customer said and, under **More details**, the DC no., invoice, location, date and documents.
+1. Record: Owner, Admin, Plant Manager, QC, Store, Sales or Dispatch. Click **New complaint**. Choose the customer (or "Not in customer master…"), the batch on the goods (job card / batch number, or the box code on the label), the finished good, the quantity and the **Reason** from the list **Customer complaints** (CC-DAMAGE Crushed / damaged tubes, CC-SIZE Size out of tolerance (I.D. / O.D. / length), CC-STRENGTH Low crushing strength, CC-MOISTURE Moisture / soft tubes, CC-QTY Short or wrong quantity, CC-FINISH Finish, colour or print issue, CC-PACKING Packing issue, CC-OTHER). Add what the customer said and, under **More details**, the DC no., invoice, location, date and documents.
 2. Save. "Complaint recorded; goods held for QC. QC, the plant head and Sales are notified." If the DC number is not found, it is still logged but marked unverified; the qty cannot exceed what can still come back on that dispatch.
 3. Decide: Owner, Admin, Plant Manager, QC or Store. Select the complaint, **Record the next decision**: **Rework**, **Sort / segregate**, **Keep on hold**, **Block**, **Accept to stock**, or **Scrap**. Fill **What QC found and why**, **Root-cause department**, **Action owner**, **Corrective action**, **Corrective action due**, and rework or scrap cost in ₹.
 4. Rework and sort keep the complaint open until re-inspection. **Accept to stock** and **Scrap** close it. Accepting held goods needs an Owner or Admin who did not record the complaint.
@@ -174,9 +176,10 @@ Roles: QC, Owner, Admin.
 - **Inward: out of band holds the lot**; all in band releases it. A numeric check with no band is recorded only. A held lot cannot be issued. (Blocks issue.)
 - **Inward deadline**: 24 hours from inward; late lots show **Overdue**. (Warns.)
 - **Concession** only by plant head, Owner or Admin, never the inspector; not for critical checks; the FAIL stays on record. (Blocks others.)
-- **Floor: out of band is flagged, never held**; FAIL with the minimum readings counts as QC done. (Flag only.)
+- **Job card QC: out of band is flagged, never held or rejected** (in-process and final QC, old-form cards too). The inspection keeps FAIL and a flag; FAIL with the minimum readings counts as QC done. No automatic hold is ever made on a job card, and dispatch no longer needs a passed final QC. (Flag only.)
+- **Reason codes everywhere.** Holds, releases, concessions, returns and complaints each need an active code of the right list and plant; OTHER codes need a note of at least 5 characters; free text alone is refused. Records keep the code, its label at that time and the note. (Blocks.)
 - **2 readings per required check** for QC done, the next stage and every stage close; moisture optional. (Blocks.)
-- **Job-card hold** stops the next stage and dispatch ("N quality hold(s) are open on this card. Clear them in Quality before sealing."). Release only by Plant Manager, Owner or Admin, with a reason. (Blocks.)
+- **Job-card hold** (placed on purpose) stops the next stage, box postings and dispatch ("N hold(s) placed on this card stop all movement. Release them in Quality before sealing."). Release only by Plant Manager, Owner or Admin, with a **QC hold release** code. (Blocks.)
 - **Frozen versions**: inward bands and stage rules are versioned with who, when and why; lots and job cards keep the version they started with. (Automatic.)
 - **Season**: the Owner alone switches the plant season (Quality > Production season); a card freezes its season's rules at release. (Owner only.)
 - **Complaints**: returned goods arrive under QC hold; nothing is sellable until QC decides. (Blocks.)
@@ -193,12 +196,16 @@ Bharat Paper Mills delivers 6 reels of Kraft 300 GSM (P/26/014). The paper band 
 | R2 | 298 | 6.8 | By readings | Released |
 | R3 | 285 | 7.4 | By readings, reason "GSM low on two sheets" | Held |
 
-R3 is on hold. The plant head grants a concession for outer plies ("still fit for use"); the FAIL stays on record. Later, card 26/10/315 has a Winding I.D. reading of 76.9 mm against 76.2–76.5: flagged, not held; it appears in In-process QC under I.D., High.
+R3 is on hold. The plant head grants a concession with CN-NON-CRITICAL, note "use on outer plies"; the FAIL stays on record. Later, card 26/10/315 has a Process I.D. reading of 76.9 mm against 76.2–76.5: flagged, not held; it appears in In-process QC under I.D., High, and the two boxes holding that run's pcs show **QC flagged**. They ship on the next challan. A week later the customer reports soft tubes in box B2610315-003; Sales records a complaint with CC-MOISTURE.
 
 ## Common questions
 **Q: Why can't Store issue this reel?** A: Its lot is held: a reading was out of band. QC must re-check, the plant head concede, or Store return it.
 
-**Q: A floor reading is out of band. Must I hold the card?** A: No. It is flagged, not held. Raise a hold only if you decide the material must stop.
+**Q: A floor reading is out of band. Must I hold the card?** A: No. It is flagged, not held, and the boxes still ship. Place a hold only if you decide the material must stop.
+
+**Q: Why did no hold appear when final QC failed?** A: Job card QC only flags. Holds on job cards are placed by people, on purpose. Incoming (GRN) lots are still held automatically when out of band.
+
+**Q: The hold reason I need is not in the list.** A: Pick QH-OTHER and write a note, and ask a Plant Manager, Admin or the Owner to add the code in Masters › Reason codes.
 
 **Q: Who can release a job-card hold?** A: Only the plant head (Plant Manager), Owner or Admin.
 

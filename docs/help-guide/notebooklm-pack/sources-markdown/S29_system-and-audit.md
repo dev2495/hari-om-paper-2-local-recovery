@@ -64,7 +64,16 @@ The Quality group (Quality Control, Inward QC, In-process QC) and the Stores gro
 [Screenshot "system-plants": Plants page with challan details per plant]
 *Figure: The Plants page with an **Add plant** button. Each plant card shows its code and name, Legal name, Address, GSTIN with state, the number of users, and a chip: "Ready for challan" (Plant A: AMIGO UNIT - II, Plot 41, GIDC Phase 2, Vapi, Gujarat - 396195, GSTIN 24AABCA1234K1Z5 · Gujarat, 40 users) or "Challan details missing" with "Add the address and GSTIN so challans from this plant can be sealed." Each card has **Edit plant**.*
 
-The plant form has **Plant code** and **Plant name** (both required), **Legal name (prints on the challan)**, **Address** and **GSTIN**. Inside the edit dialog, **Disable this plant…** switches a plant off after a "Yes, disable" confirmation.
+The plant form has **Plant code** and **Plant name** (both required), **Legal name (prints on the challan)**, **Address**, **GSTIN** and **Label heading (prints on reel and coil labels)**: "The first line of every reel and coil label, e.g. AMIGO INDUSTRIES UNIT II. Blank prints <the legal name in capitals>." The same heading is the top line of finished-goods box labels. Inside the edit dialog, **Disable this plant…** switches a plant off after a "Yes, disable" confirmation. The page note reads: "The legal name, address and GSTIN of each plant print on the delivery challan. Fill all three before sealing a challan. The label heading and the AIT reel numbers are for reel and coil labels."
+
+[Screenshot "plant-label-serial": Plant card with the label heading and the Reel numbers box showing the next AIT serial]
+*Figure: A plant card on the Plants page with its legal name, address, GSTIN, the Label heading line (AMIGO INDUSTRIES UNIT II), and a grey box "Reel numbers 2026-27": "Next new reel gets AIT 06280", "Last given AIT 06279. Starts again at AIT 00001 on 1 April. Coils slit from a reel get its number plus -1, -2…", with a Change next number button for the Owner or Admin.*
+
+What you see on each plant card:
+
+1. **Label heading**: what prints as the first line of reel, coil and box labels.
+2. **Reel numbers <year>** (for example 2026-27): "Next new reel gets AIT 06280"; "Last given AIT 06279." (or "No reel has a number this year yet."); "Starts again at AIT 00001 on 1 April. Coils slit from a reel get its number plus -1, -2…".
+3. **Set next number** / **Change next number** (Owner and Admin only): a small form with **Next number** and a reason (for example "Carry on from the plant's printed series"), **Save next number** and **Cancel**. Before the first reel of the year: "Set this once, before the first reel of this year is received in the system." After reels have numbers: "Reels already have numbers up to AIT 06279: the next number can only go up." Earlier changes are listed with who, when and why.
 
 [Screenshot "system-machines": Machines list with department, capacity and status]
 *Figure: The Machines page with **Add machine**, a search box and Active 12 / Disabled 0 / All 12 filters. Rows show Code, Name, Department and Capacity, for example "10 batch cycles/shift · 100 bamboo/batch · 6h cycle · 1000 bamboo/shift · 2000 bamboo/day" for an oven, or "1000 tubes/shift · 2000 tubes/day" for packing. Each row has Status (Running) and actions: a wrench (Send to maintenance), Disable machine and **Edit**.*
@@ -132,7 +141,17 @@ Owner or Admin.
 ### How to add or edit a plant
 1. Open **System** > **Plants** and click **Add plant** (or **Edit plant**).
 2. Fill **Plant code** and **Plant name**, then **Legal name**, **Address** and **GSTIN**. The card turns **Ready for challan** when all three are filled.
-3. Save. To stop using a plant, open **Edit plant** > **Disable this plant…** > **Yes, disable**.
+3. Type the **Label heading** exactly as the plant's labels print it (for example AMIGO INDUSTRIES UNIT II), or leave it blank to print the legal name in capitals.
+4. Save. To stop using a plant, open **Edit plant** > **Disable this plant…** > **Yes, disable**.
+
+### How to set the next AIT reel number (Owner or Admin)
+Do this once per plant, before the first reel of the year is received in the system, so the system carries on from the plant's own printed series.
+
+1. Open **System** > **Plants**. On the plant card, find **Reel numbers 2026-27**.
+2. Click **Set next number** (or **Change next number**).
+3. Type the **Next number**, for example 6280 when the last label printed by hand was AIT 06279. Pick a **Reel serial number set** reason code (an OTHER code needs a note of at least 5 characters).
+4. Click **Save next number**. The card now says "Next new reel gets AIT 06280". The next reel received (GRN, receipt without PO or opening stock) gets it.
+5. Later, the number can only be raised above the highest given, never lowered, so no number is used twice in a year. On 1 April the series starts again at AIT 00001 by itself.
 
 ### How to add or edit a machine
 1. Open **System** > **Machines** and click **Add machine** (or **Edit**).
@@ -174,7 +193,8 @@ Owner or Admin.
 - **Changing roles, plants, activation or password signs the user out** (automatic). Each change is kept in the user's history with a before and after.
 - **Deactivating a user keeps their history** and ends their sessions; they cannot sign in (automatic).
 - **Sign-in is limited after 5 failed attempts within 15 minutes** (BLOCKS for a while).
-- **Plants**: the code must be unique ("Plant code already exists") and the name is required. The GSTIN must be 15 characters with a valid state code (BLOCKS). "ALL" is a reporting scope, not a plant. The page asks for legal name, address and GSTIN before sealing a challan (WARNS on the card).
+- **Plants**: the code must be unique ("Plant code already exists") and the name is required. The GSTIN must be 15 characters with a valid state code (BLOCKS). "ALL" is a reporting scope, not a plant. The page asks for legal name, address and GSTIN before sealing a challan (WARNS on the card). A blank label heading prints the legal name, else the plant name, in capitals (AUTOMATIC).
+- **AIT reel serial**: "AIT" + a space + 5 digits, one series per plant and financial year, restarting at 00001 on 1 April (AUTOMATIC). Only the Owner or Admin sets the next number; it must be 1 to 99999 and needs a reason ("Say why the reel number is being set (at least 3 characters)"). Once a reel of the year has a number, the next number can only be raised ("AIT 06279 is already on a reel this year. The next number can only be raised above 06279, never lowered.") (BLOCKS). Every change is kept with who, when and why (AUTOMATIC). Coils carry the parent serial plus -1, -2; old AT numbers stay valid.
 - **Machines**: capacity is per shift and the daily figure is calculated for two shifts (automatic). Where capacity and load units differ, reports say "Not comparable" (WARNS).
 - **Production season**: only an Owner with all-plant access can preview, switch or read the history (BLOCKS). A reason is required ("Season switch note is required"). If the specs changed after you opened the preview, the switch is refused ("Season preview changed; review it again"). If specs are blocked, the switch needs the acknowledgement (BLOCKS). After the switch, new releases using a blocked spec are refused until its seasonal recipe and QC setup are ready. Released cards keep their season (automatic).
 - **Audit** records sign-ins, changes and approvals across modules; it is read-only.
@@ -204,6 +224,10 @@ Owner or Admin.
 **Q: The daily summary did not arrive.** A: Check **Background jobs**. If it says "Run by the server's timer", the server sends it at 6:30 am. If an error shows under **What went wrong**, tell the Admin.
 
 **Q: Where is the latest guide?** A: The Guide page in the app (Full handbook tab) and the same handbook on the sign-in screen link. The book icon on any page opens the guide for that page.
+
+**Q: Our hand-printed labels reached AIT 06279. How do we carry on?** A: The Owner or Admin opens System > Plants, clicks **Set next number** on the plant card, types 6280 with a reason and saves. The next reel received gets AIT 06280.
+
+**Q: Can we start the AIT series again mid-year?** A: No. After reels of the year have numbers, the next number can only go up. The series restarts at AIT 00001 by itself on 1 April.
 
 ## Related chapters
 - Dashboard and Inbox

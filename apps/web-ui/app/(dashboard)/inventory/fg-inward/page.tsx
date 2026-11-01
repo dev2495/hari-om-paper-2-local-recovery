@@ -15,13 +15,7 @@ import { ExecutiveHero, Panel } from "@/components/erp/shell"
 import { useAuth } from "@/context/AuthContext"
 import { useInventoryItems, useInventoryTransactions, useManualFgInward } from "@/hooks/use-inventory"
 import { cn } from "@/lib/utils"
-
-const REASONS = [
-  { value: "REWORK", label: "Rework yield (re-introduce into stock)" },
-  { value: "ADJUSTMENT", label: "Manual adjustment (positive)" },
-  { value: "OPENING", label: "Opening / go-live adjustment" },
-  { value: "OTHER", label: "Other reason" },
-] as const
+import { ReasonPicker, useReasonChoice } from "@/components/reasons"
 
 const STATUS_OPTIONS = ["UNRESTRICTED", "WIP", "QC_HOLD", "DISPATCH_STAGING", "BLOCKED"]
 
@@ -38,11 +32,12 @@ export default function ManualFgInwardPage() {
   const recentTxns = useInventoryTransactions({ transaction_type: "FG_INWARD" })
   const recent = (Array.isArray(recentTxns.data) ? recentTxns.data : []).slice(0, 10)
   const manualInward = useManualFgInward()
+  // The reason is a MANUAL_FG code from Masters › Reason codes (owner decision 4, 1 Nov 2026).
+  const reason = useReasonChoice("MANUAL_FG")
 
   const [form, setForm] = useState({
     item_id: "",
     qty: "",
-    reason_code: "REWORK",
     notes: "",
     reference: "",
     batch_no: "",
@@ -55,12 +50,13 @@ export default function ManualFgInwardPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!form.item_id || !form.qty || writeBlocked) return
+    if (!reason.validate()) return
     manualInward.mutate(
       {
         data: {
           item_id: form.item_id,
           qty: Number(form.qty),
-          reason_code: form.reason_code,
+          ...reason.payload(null),
           notes: form.notes || undefined,
           reference: form.reference || undefined,
           batch_no: form.batch_no || undefined,
@@ -72,6 +68,7 @@ export default function ManualFgInwardPage() {
       {
         onSuccess: () => {
           setForm((prev) => ({ ...prev, qty: "", notes: "", reference: "", batch_no: "" }))
+          reason.reset()
         },
       },
     )
@@ -141,18 +138,9 @@ export default function ManualFgInwardPage() {
                   className="h-10 w-full rounded-xl border border-border bg-card px-3 text-sm shadow-sm"
                 />
               </Field>
-              <Field label="Reason *">
-                <select
-                  value={form.reason_code}
-                  onChange={(e) => setForm({ ...form, reason_code: e.target.value })}
-                  disabled={writeBlocked}
-                  className="h-10 w-full rounded-xl border border-border bg-card px-3 text-sm shadow-sm"
-                >
-                  {REASONS.map((r) => (
-                    <option key={r.value} value={r.value}>{r.label}</option>
-                  ))}
-                </select>
-              </Field>
+              <div className="sm:col-span-2">
+                <ReasonPicker category="MANUAL_FG" plantId={activePlant} value={reason.value} onChange={reason.setValue} showErrors={reason.touched} disabled={writeBlocked} compact testIdPrefix="manual-fg-reason" />
+              </div>
             </div>
 
             <Field label="Reference (idempotency key)">
@@ -232,7 +220,7 @@ export default function ManualFgInwardPage() {
           <ul className="space-y-3">
             <ReasonHelp
               icon={<RotateCcw className="h-4 w-4" />}
-              title="REWORK"
+              title="Rework"
               detail="When a batch was reworked and the resulting yield re-enters FG stock. Use the original FG item code; reference the rework slip."
             />
             <ReasonHelp
@@ -242,12 +230,12 @@ export default function ManualFgInwardPage() {
             />
             <ReasonHelp
               icon={<FilePlus2 className="h-4 w-4" />}
-              title="ADJUSTMENT"
+              title="Adjustment"
               detail="Positive cycle-count adjustment, scrap reversal, or one-off correction. Always include a note."
             />
             <ReasonHelp
               icon={<PackageCheck className="h-4 w-4" />}
-              title="OPENING"
+              title="Opening"
               detail="One-time go-live or year carry-forward FG opening. Prefer the Stock Control 'Post opening from CF' flow for cert-driven openings."
             />
           </ul>
@@ -286,7 +274,7 @@ export default function ManualFgInwardPage() {
                     <td className="px-3 py-2.5">
                       {row.movement_metadata?.manual ? (
                         <span className="inline-flex items-center gap-1 rounded-full border border-signal-violet-line bg-signal-violet-soft px-2 py-0.5 text-[11.5px] font-semibold text-signal-violet-ink">
-                          Manual · {row.movement_metadata.reason_code || ""}
+                          Manual · {row.movement_metadata.reason_label || row.movement_metadata.reason_code || ""}
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1 rounded-full border border-signal-cyan-line bg-signal-cyan-soft px-2 py-0.5 text-[11.5px] font-semibold text-signal-cyan-ink">

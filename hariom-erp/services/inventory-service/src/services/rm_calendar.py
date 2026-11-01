@@ -13,7 +13,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Any, Iterable, Optional
+from typing import Any, Callable, Iterable, Optional
 
 from fastapi import HTTPException
 from sqlalchemy import func, text
@@ -970,13 +970,20 @@ def _take_off_draft(db: Session, order: PurchaseOrder, entry: ProcurementPlanEnt
     db.flush()
 
 
-def cancel_entry(db: Session, plant_id: str, entry_id: Any, actor: str, *, is_owner: bool, reason: Optional[str] = None) -> ProcurementPlanEntry:
+def cancel_entry(db: Session, plant_id: str, entry_id: Any, actor: str, *, is_owner: bool, reason: Optional[str] = None,
+                 choose_reason: Optional[Callable[[], Any]] = None) -> ProcurementPlanEntry:
+    """``choose_reason`` (owner decision 4, 1 Nov 2026) checks the SUPPLIER_SCHEDULE code once the caller may
+    cancel; its choice is stored on the entry and its text becomes the cancel note."""
     entry = _load_entry(db, plant_id, entry_id)
     if entry.approval_status == "CANCELLED":
         return entry
     now = datetime.utcnow()
     if entry.approval_status != "PROPOSED" and not is_owner:
         raise HTTPException(403, "Only the Owner can cancel an approved arrival.")
+    if choose_reason is not None:
+        choice = choose_reason()
+        reason = choice.text
+        entry.cancel_reason_code, entry.cancel_reason_label, entry.cancel_reason_note = choice.code, choice.label, choice.note
     if entry.approval_status == "ON_PO" and entry.po_id:
         order = _lock_order(db, entry.po_id)
         if order.status != "DRAFT":

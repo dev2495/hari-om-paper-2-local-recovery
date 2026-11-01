@@ -12,7 +12,12 @@ export type GapStatus = "OK" | "OVER" | "UNDER" | "NOT_KNOWN"
 export type MonthState = "RUNNING" | "OPEN" | "CLOSED"
 export type StepState = "done" | "now" | "todo"
 
-export type MonthEndNote = { note: string; noted_by?: string | null; noted_at?: string | null }
+/** `note` is "Label — note" (or the old free text); new notes also carry the MONTH_END_VARIANCE code. */
+export type MonthEndNote = { note: string; reason_code?: string | null; reason_label?: string | null; reason_note?: string | null; noted_by?: string | null; noted_at?: string | null }
+/** Save a note: a MONTH_END_VARIANCE code + optional note; no code and no note removes it. */
+export type MonthEndNoteBody = { month: string; item_code: string; item_id?: string | null; item_name?: string | null; reason_code?: string; reason_note?: string; note?: string }
+/** Re-open a closed month: a BOOKS_UNLOCK code + optional note (`reason` = legacy "Label — note"). */
+export type MonthEndReopenBody = { month: string; reason_code?: string; reason_note?: string; reason?: string }
 
 export type MonthEndItem = {
   item_id: string | null
@@ -309,11 +314,11 @@ export const monthEndApi = {
       ...onPlant(plantId),
       params: { month, item_code: itemCode, ...(itemId ? { item_id: itemId } : {}) },
     }),
-  saveNote: (body: { month: string; item_code: string; item_id?: string | null; item_name?: string | null; note: string }, plantId: string) =>
+  saveNote: (body: MonthEndNoteBody, plantId: string) =>
     api.put("/api/production/month-end/notes", body, onPlant(plantId)),
   close: (body: { month: string; note?: string | null; accept_count_changes?: boolean }, plantId: string) =>
     api.post<MonthEndOverview>("/api/production/month-end/close", body, onPlant(plantId)),
-  reopen: (body: { month: string; reason: string }, plantId: string) =>
+  reopen: (body: MonthEndReopenBody, plantId: string) =>
     api.post<MonthEndOverview>("/api/production/month-end/reopen", body, onPlant(plantId)),
   limits: (plantId: string) => api.get<UsageLimitsResponse>("/api/production/month-end/limits", onPlant(plantId)),
   saveLimits: (limits: Array<Pick<MonthEndLimit, "material_type" | "normal_wastage_pct" | "allowed_gap_pct" | "min_gap">>, plantId: string) =>

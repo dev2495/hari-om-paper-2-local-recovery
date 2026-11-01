@@ -13,6 +13,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowRight, Ban, CalendarClock, Check, ChevronLeft, ExternalLink, Eye, Flame, LoaderCircle, Pencil, Printer, Scissors, ShoppingCart, Undo2, type LucideIcon } from "lucide-react"
 
+import { ReasonPicker, useReasonChoice } from "@/components/reasons"
 import { useApp } from "@/context/AppContext"
 import { useParchments } from "@/hooks/use-master-data"
 import { apiErrorText, newRequestId, useAmendJobCard, useEmergencyInsert, useForceCloseJobCard, useSplitJobCard, type JobCardLifecycle } from "@/hooks/use-lifecycle"
@@ -118,13 +119,16 @@ export function actionAvailability(data: JobCardLifecycle, entryModel?: string |
   ]
 }
 
-/** Quick reasons per action (one click fills the reason; it can still be edited). */
-export const REASON_PRESETS: Record<LifecycleAction, string[]> = {
-  split: ["Customer call-off earlier", "Second machine free", "Urgent part dispatch", "Colour / print change on part"],
-  edit: ["Customer changed the PO", "Entry mistake at release", "Colour per customer artwork"],
-  emergency: ["Customer line down", "Truck booked today", "Rush order from the owner"],
-  force_close: ["Material short", "Customer reduced the PO", "Machine down, re-plan on a new card", "Quality: rest scrapped"],
-  cancel: ["Released by mistake", "Customer cancelled the line", "Merged into another card"],
+/**
+ * Reason list per action (owner decision 4, 1 Nov 2026): codes from Masters › Reason codes, never free text.
+ * Close early / cancel use JOB_CARD_CLOSE; split, edit and emergency insert use JOB_CARD_CHANGE.
+ */
+export const REASON_CATEGORY: Record<LifecycleAction, string> = {
+  split: "JOB_CARD_CHANGE",
+  edit: "JOB_CARD_CHANGE",
+  emergency: "JOB_CARD_CHANGE",
+  force_close: "JOB_CARD_CLOSE",
+  cancel: "JOB_CARD_CLOSE",
 }
 
 const SHIFT_ORDER = ["SHIFT_A", "SHIFT_B"]
@@ -330,35 +334,23 @@ export function DonePanel({ title, lines, links, onDone, tone = "ok" }: { title:
   )
 }
 
-function ReasonField({ value, onChange, placeholder, rows = 1, presets = [] }: { value: string; onChange: (value: string) => void; placeholder: string; rows?: number; presets?: string[] }) {
+type ActionReason = ReturnType<typeof useReasonChoice>
+
+/** The reason for one action: a master code (searchable list) plus a note, required for Other. */
+function ReasonField({ reason, plantId, notePlaceholder }: { reason: ActionReason; plantId?: string | null; notePlaceholder?: string }) {
   return (
-    <div className="space-y-1.5">
-      <Field label="Reason" required hint="Goes into the card history and the order history, with your name.">
-        {rows > 1 ? (
-          <textarea className={cn(inputClass, "h-auto py-2")} rows={rows} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} data-testid="action-reason" />
-        ) : (
-          <input className={inputClass} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} data-testid="action-reason" />
-        )}
-      </Field>
-      {presets.length ? (
-        <div className="flex flex-wrap gap-1.5" aria-label="Quick reasons">
-          {presets.map((preset) => {
-            const on = value.trim() === preset
-            return (
-              <button
-                key={preset}
-                type="button"
-                onClick={() => onChange(on ? "" : preset)}
-                aria-pressed={on}
-                className={cn("inline-flex h-7 items-center rounded-full border px-2.5 text-[12px] font-medium transition-colors", on ? "border-primary/50 bg-primary/10 text-primary" : "border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-foreground")}
-                data-testid="action-reason-preset"
-              >
-                {on ? <Check className="mr-1 h-3 w-3" aria-hidden="true" /> : null}{preset}
-              </button>
-            )
-          })}
-        </div>
-      ) : null}
+    <div className="space-y-1">
+      <ReasonPicker
+        category={reason.category}
+        plantId={plantId}
+        value={reason.value}
+        onChange={reason.setValue}
+        showErrors={reason.touched}
+        notePlaceholder={notePlaceholder}
+        compact
+        testIdPrefix="action-reason"
+      />
+      <p className="text-[11.5px] text-muted-foreground">Goes into the card history and the order history, with your name.</p>
     </div>
   )
 }
@@ -403,8 +395,6 @@ export type ActionProps = {
   wide?: boolean
 }
 
-const REASON_MIN = 3
-
 /** After a refusal the card may have changed under us (another planner, the floor): reload it so the preview tells the truth. */
 function useRefreshCard() {
   const queryClient = useQueryClient()
@@ -426,7 +416,7 @@ export function SplitAction({ data, machines = [], onDone, onOpenCard, wide }: A
     const half = ppb > 1 ? Math.max(ppb, Math.floor(max / 2 / ppb) * ppb) : Math.floor(max / 2)
     return String(Math.min(max, Math.max(1, half)))
   })
-  const [reason, setReason] = useState("")
+  const reason = useReasonChoice(REASON_CATEGORY.split, data.plant_id)
   const [step, setStep] = useState<Step>("form")
   const [refusal, setRefusal] = useState<string | null>(null)
   // Snapshot at submit time: the card refetches after the split, so the success text must not move with it.
@@ -435,7 +425,7 @@ export function SplitAction({ data, machines = [], onDone, onOpenCard, wide }: A
   const typed = Number(qty)
   const valid = qty.trim() !== "" && Number.isInteger(typed) && typed >= 1 && typed <= max
   const value = valid ? typed : Math.min(max, Math.max(1, Math.round(typed) || 1))
-  const reasonOk = reason.trim().length >= REASON_MIN
+  const reasonOk = reason.complete
   const requestId = useRef<string | null>(null)
   const changes = useMemo(() => splitSlotChanges(data, value), [data, value])
   const childNo = nextChildNumber(data)
@@ -463,7 +453,7 @@ export function SplitAction({ data, machines = [], onDone, onOpenCard, wide }: A
     if (!valid || !reasonOk) return
     requestId.current ||= newRequestId()
     try {
-      const response = await split.mutateAsync({ jobCardId: data.id, qty: value, reason: reason.trim(), requestId: requestId.current })
+      const response = await split.mutateAsync({ jobCardId: data.id, qty: value, ...reason.payload("reason"), requestId: requestId.current })
       requestId.current = null
       const no = String(response?.data?.child_job_card_no || childNo)
       setResult({ id: String(response?.data?.child_job_card_id || ""), no, qty: value, keeps })
@@ -524,7 +514,7 @@ export function SplitAction({ data, machines = [], onDone, onOpenCard, wide }: A
               </div>
               {!valid ? <p className="mt-2 text-[12.5px] text-signal-rose-ink" aria-live="polite">Type how many pcs the new card gets: a whole number from 1 to {fmt(max)} (what is not started yet, leaving at least 1 pc on {data.job_card_no}).</p> : null}
             </div>
-            <ReasonField value={reason} onChange={setReason} placeholder="e.g. second winder free · customer wants part by Friday" presets={REASON_PRESETS.split} />
+            <ReasonField reason={reason} plantId={data.plant_id} notePlaceholder="e.g. second winder free · customer wants part by Friday" />
           </>
         ) : (
           <ConfirmPanel
@@ -534,7 +524,7 @@ export function SplitAction({ data, machines = [], onDone, onOpenCard, wide }: A
               <>{childNo}: <strong>{fmt(value)} pcs</strong>, planner queue, unplaced.</>,
               ...changes.map((change) => <>Slot {slotText(change.segment, machines)}: {fmt(change.from)} → {change.to > 0 ? `${fmt(change.to)} pcs` : "taken off the board"}</>),
             ]}
-            reason={reason.trim()}
+            reason={reason.text}
           />
         )}
         preview={(
@@ -587,7 +577,7 @@ export function EditAction({ data, machines = [], onDone, wide }: ActionProps) {
   const options = (Array.isArray(parchments) ? parchments : []).filter((row: any) => row?.color_name && row?.id && !String(row.id).startsWith("vendor:"))
   const [qty, setQty] = useState(String(Math.round(data.planned_qty)))
   const [colorId, setColorId] = useState("")
-  const [reason, setReason] = useState("")
+  const reason = useReasonChoice(REASON_CATEGORY.edit, data.plant_id)
   const [step, setStep] = useState<Step>("form")
   const [refusal, setRefusal] = useState<string | null>(null)
   // Snapshot at submit time: the card refetches after the edit, so the success text must not move with it.
@@ -599,7 +589,7 @@ export function EditAction({ data, machines = [], onDone, wide }: ActionProps) {
   const qtyChanged = qtyOk && qtyNum !== Math.round(data.planned_qty)
   const colourChanged = Boolean(colorId) && colorName !== (data.parchment_color || "")
   const changed = qtyChanged || colourChanged
-  const reasonOk = reason.trim().length >= REASON_MIN
+  const reasonOk = reason.complete
   const delta = qtyOk ? qtyNum - data.planned_qty : 0
   const queueSlot = unstartedSlots(data)[0]
 
@@ -611,7 +601,7 @@ export function EditAction({ data, machines = [], onDone, wide }: ActionProps) {
         data: {
           ...(qtyChanged ? { planned_qty: qtyNum } : {}),
           ...(colourChanged ? { parchment_color: colorName, parchment_color_id: colorId } : {}),
-          reason: reason.trim(),
+          ...reason.payload("reason"),
         },
       })
       setResult(snapshot)
@@ -663,7 +653,7 @@ export function EditAction({ data, machines = [], onDone, wide }: ActionProps) {
               )}
             </div>
             {!qtyOk ? <p className="text-[12.5px] text-signal-rose-ink" aria-live="polite">Quantity must be a whole number of at least 1.</p> : null}
-            <ReasonField value={reason} onChange={setReason} placeholder="e.g. customer changed the colour to red" presets={REASON_PRESETS.edit} />
+            <ReasonField reason={reason} plantId={data.plant_id} notePlaceholder="e.g. customer changed the colour to red" />
           </>
         ) : (
           <ConfirmPanel
@@ -673,7 +663,7 @@ export function EditAction({ data, machines = [], onDone, wide }: ActionProps) {
               colourChanged ? <>Colour {data.parchment_color || "plain"} → <strong>{colorName}</strong></> : <>Colour stays {data.parchment_color || "plain"}</>,
               <>Release lot on the order: {fmt(data.released_qty)} → <strong>{fmt(qtyChanged ? qtyNum : data.released_qty)} pcs</strong></>,
             ]}
-            reason={reason.trim()}
+            reason={reason.text}
           />
         )}
         preview={(
@@ -715,26 +705,29 @@ export function ForceCloseAction({ data, machines = [], onDone, wide }: ActionPr
   const { showToast } = useApp()
   const close = useForceCloseJobCard()
   const refresh = useRefreshCard()
-  const [reason, setReason] = useState("")
+  const reason = useReasonChoice(REASON_CATEGORY.force_close, data.plant_id)
   const [step, setStep] = useState<Step>("form")
   const [refusal, setRefusal] = useState<string | null>(null)
   // Snapshot at submit time: after the close the card's planned qty becomes what was made.
-  const [result, setResult] = useState<{ made: number; back: number; cancel: boolean } | null>(null)
+  const [result, setResult] = useState<{ made: number; back: number; cancel: boolean; dropped: boolean } | null>(null)
   const live = { made: Math.min(data.made_qty, data.planned_qty), back: Math.max(0, data.planned_qty - Math.min(data.made_qty, data.planned_qty)) }
   const made = result ? result.made : live.made
   const back = result ? result.back : live.back
   const cancel = result ? result.cancel : made <= 0
-  const reasonOk = reason.trim().length >= REASON_MIN
+  const reasonOk = reason.complete
   const freed = unstartedSlots(data)
   const laterStages = data.stages.filter((row) => row.stage !== data.first_stage && row.status !== "COMPLETED").map((row) => stageWord(row.stage).toLowerCase().replace("qc", "QC"))
 
+  const dropped = Boolean(result?.dropped)
   const submit = async () => {
-    const snapshot = { made: live.made, back: live.back, cancel: live.made <= 0 }
     try {
-      await close.mutateAsync({ jobCardId: data.id, reason: reason.trim() })
+      const response = await close.mutateAsync({ jobCardId: data.id, reason_code: reason.value.code, ...reason.payload("reason") })
+      // The order was short-closed or cancelled: Sales dropped the pcs instead of putting them back (issue #8).
+      const snapshot = { made: live.made, back: live.back, cancel: live.made <= 0, dropped: Boolean(response?.data?.balance_dropped) }
       setResult(snapshot)
       setStep("done")
-      showToast(cancel ? `${data.job_card_no} cancelled — ${fmt(back)} pcs back on the sales order.` : `${data.job_card_no} closed at ${fmt(made)} pcs — ${fmt(back)} pcs back on the sales order.`, "success")
+      const where = snapshot.dropped ? `${fmt(snapshot.back)} pcs dropped (the order is closed)` : `${fmt(snapshot.back)} pcs back on the sales order`
+      showToast(snapshot.cancel ? `${data.job_card_no} cancelled — ${where}.` : `${data.job_card_no} closed at ${fmt(snapshot.made)} pcs — ${where}.`, "success")
     } catch (error: any) {
       if (error?.response) refresh()
       setRefusal(apiErrorText(error)) // shown inline (role=alert also mirrors it as a toast)
@@ -747,11 +740,13 @@ export function ForceCloseAction({ data, machines = [], onDone, wide }: ActionPr
         tone="closed"
         title={cancel ? `${data.job_card_no} cancelled` : `${data.job_card_no} force-closed at ${fmt(made)} pcs`}
         lines={[
-          <><strong>{fmt(back)} pcs</strong> are back on the sales order as not released. Re-release them as a new card (new colour or qty if needed).</>,
+          dropped
+            ? <><strong>{fmt(back)} pcs</strong> were dropped: the sales order is short-closed or cancelled, so they do not go back on it and cannot be released again.</>
+            : <><strong>{fmt(back)} pcs</strong> are back on the sales order as not released. Re-release them as a new card (new colour or qty if needed).</>,
           cancel ? "All its planner slots are freed." : <>The {fmt(made)} pcs made keep going through {laterStages.length ? laterStages.join(", ") : "the remaining stages"} on this card.</>,
         ]}
         links={[
-          { label: "Sales order (re-release)", href: `/sales-orders/${data.sales_order_id}`, icon: ShoppingCart, primary: true },
+          { label: dropped ? "Sales order" : "Sales order (re-release)", href: `/sales-orders/${data.sales_order_id}`, icon: ShoppingCart, primary: true },
           { label: "Open card page", href: `/production/job-cards/${data.id}`, icon: ExternalLink },
         ]}
         onDone={onDone}
@@ -772,7 +767,7 @@ export function ForceCloseAction({ data, machines = [], onDone, wide }: ActionPr
       <ActionBody
         wide={wide}
         main={step === "form" ? (
-          <ReasonField value={reason} onChange={setReason} placeholder={cancel ? "e.g. customer cancelled the PO" : "e.g. customer changed colour to red; rest re-released"} rows={2} presets={REASON_PRESETS[cancel ? "cancel" : "force_close"]} />
+          <ReasonField reason={reason} plantId={data.plant_id} notePlaceholder={cancel ? "e.g. customer cancelled the PO" : "e.g. customer changed colour to red; rest re-released"} />
         ) : (
           <ConfirmPanel
             title={cancel ? `Cancel ${data.job_card_no}` : `Force close ${data.job_card_no} at ${fmt(made)} pcs`}
@@ -781,7 +776,7 @@ export function ForceCloseAction({ data, machines = [], onDone, wide }: ActionPr
               freed.length ? <>{freed.length} unstarted slot{freed.length > 1 ? "s" : ""} freed on the planner.</> : <>No planner slots to free.</>,
               <>The card shows <strong>{cancel ? "Cancelled" : "Closed early"}</strong>.</>,
             ]}
-            reason={reason.trim()}
+            reason={reason.text}
           />
         )}
         preview={(
@@ -840,14 +835,14 @@ export function EmergencyAction({ data, machines = [], onDone, wide }: ActionPro
   const [machineId, setMachineId] = useState(String(stageMachines[0]?.id || ""))
   const [planDate, setPlanDate] = useState(today)
   const [shift, setShift] = useState("SHIFT_A")
-  const [reason, setReason] = useState("")
+  const reason = useReasonChoice(REASON_CATEGORY.emergency, data.plant_id)
   const [step, setStep] = useState<Step>("form")
   const [refusal, setRefusal] = useState<string | null>(null)
   const [result, setResult] = useState<any[] | null>(null)
   useEffect(() => {
     if (!machineId && stageMachines[0]?.id) setMachineId(String(stageMachines[0].id))
   }, [machineId, stageMachines])
-  const reasonOk = reason.trim().length >= REASON_MIN
+  const reasonOk = reason.complete
   const dateOk = Boolean(planDate) && planDate >= today
   const machineName = machineLabelOf(machines, machineId)
 
@@ -878,7 +873,7 @@ export function EmergencyAction({ data, machines = [], onDone, wide }: ActionPro
 
   const submit = async () => {
     try {
-      const response = await insert.mutateAsync({ job_card_id: data.id, machine_id: machineId, plan_date: planDate, shift_code: shift, reason: reason.trim() })
+      const response = await insert.mutateAsync({ job_card_id: data.id, machine_id: machineId, plan_date: planDate, shift_code: shift, reason_code: reason.value.code, ...reason.payload("reason") })
       const bumped = response?.data?.bumped || []
       setResult(bumped)
       setStep("done")
@@ -941,7 +936,7 @@ export function EmergencyAction({ data, machines = [], onDone, wide }: ActionPro
               </Field>
             </div>
             {!dateOk ? <p className="text-[12.5px] text-signal-rose-ink" aria-live="polite">Pick today or a later date.</p> : null}
-            <ReasonField value={reason} onChange={setReason} placeholder="e.g. customer line-down, truck at 6 pm" presets={REASON_PRESETS.emergency} />
+            <ReasonField reason={reason} plantId={data.plant_id} notePlaceholder="e.g. customer line-down, truck at 6 pm" />
           </>
         ) : (
           <ConfirmPanel
@@ -950,7 +945,7 @@ export function EmergencyAction({ data, machines = [], onDone, wide }: ActionPro
               <>Whole card ({unitWord(data, data.open_first_stage_qty)}) goes first in that shift and is marked <strong>Emergency</strong>.</>,
               slotJobs.length ? <>{slotJobs.length} card{slotJobs.length > 1 ? "s" : ""} already in the slot may move one shift later if it goes over capacity.</> : "The slot is empty right now.",
             ]}
-            reason={reason.trim()}
+            reason={reason.text}
           />
         )}
         preview={(

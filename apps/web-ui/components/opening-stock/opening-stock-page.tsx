@@ -24,6 +24,7 @@ import { dayText, errorCode, errorText, isWholeUnit, plural, qtyText, rupees, ti
 import { businessDate } from "@/lib/business-date"
 import { personLabel } from "@/lib/people"
 import { cn } from "@/lib/utils"
+import { OTHER_NOTE_MIN, ReasonPicker, reasonNeedsNote, useReasonList } from "@/components/reasons"
 
 import { openingApi, useOpeningOverview, usePostOpening, type CheckedLine, type OpeningBatch, type OpeningOverview, type OpeningPreview } from "./api"
 import { blankRow, duplicateRow, isBlank, kindOf, matchProblems, parsePaste, rowProblems, toLine, type DraftRow, type ItemOption, type PlaceOption, type RowKind } from "./rows"
@@ -189,7 +190,7 @@ function EntryPanel({ data, plant, onPosted }: { data: OpeningOverview; plant: s
     return map
   }, [preview, check])
 
-  const localProblems = filled.map((row, index) => ({ row, index, problems: [...rowProblems(row, itemById.get(row.item_id)?.uom), ...(!row.item_id && !row.item_text ? [{ field: "item", message: "Choose the material." }] : []), ...(!row.qty.trim() ? [{ field: "qty", message: row.kind === "REEL" ? "Enter the weight in kg." : "Enter the quantity." }] : []), ...(row.on_hold && !row.hold_reason.trim() ? [{ field: "hold_reason", message: "Say why this lot is on hold." }] : [])] }))
+  const localProblems = filled.map((row, index) => ({ row, index, problems: [...rowProblems(row, itemById.get(row.item_id)?.uom), ...(!row.item_id && !row.item_text ? [{ field: "item", message: "Choose the material." }] : []), ...(!row.qty.trim() ? [{ field: "qty", message: row.kind === "REEL" ? "Enter the weight in kg." : "Enter the quantity." }] : []), ...(row.on_hold && !row.hold_reason_code.trim() ? [{ field: "hold_reason", message: "Choose why this lot is on hold." }] : []), ...(row.on_hold && reasonNeedsNote(row.hold_reason_code) && row.hold_reason_note.trim().length < OTHER_NOTE_MIN ? [{ field: "hold_reason", message: `Write a short note (at least ${OTHER_NOTE_MIN} characters) when the reason is Other.` }] : [])] }))
   const errorRows = localProblems.map(({ row, index, problems }) => {
     const server = checkedByKey.get(row.key)?.errors || []
     const all = [...problems]
@@ -324,6 +325,8 @@ function RowsEditor({ rows, items, itemById, places, defaultPlace, checked, onCh
   rows: DraftRow[]; items: ItemOption[]; itemById: Map<string, ItemOption>; places: PlaceOption[]; defaultPlace: string; checked: Map<string, CheckedLine>
   onChange: (key: string, patch: Partial<DraftRow>) => void; onRemove: (key: string) => void; onDuplicate: (key: string) => void; loading: boolean
 }) {
+  // A row put on hold picks a QC_HOLD code from Masters › Reason codes (owner decision 4, 1 Nov 2026).
+  const holdReasons = useReasonList("QC_HOLD").data
   const reelItems = items.filter((item) => kindOf(item) === "REEL")
   const bulkItems = items.filter((item) => kindOf(item) === "BULK")
   const head = "text-[11.5px] font-semibold uppercase tracking-[.06em] text-muted-foreground"
@@ -437,10 +440,9 @@ function RowsEditor({ rows, items, itemById, places, defaultPlace, checked, onCh
                 <input className={cn(fieldClass, "mt-1 text-[13px] lg:mt-0.5")} value={row.vendor_ref} maxLength={120} placeholder="Vendor ref / bill" aria-label={`Row ${index + 1} vendor reference`} onChange={(event) => onChange(row.key, { vendor_ref: event.target.value })} />
               </label>
               {row.on_hold ? (
-                <label className="col-span-2 block lg:col-span-1">
-                  <span className={caption}>Why on hold</span>
-                  <input className={cn(fieldClass, "mt-1 text-[13px] lg:mt-0.5", bad("hold_reason") && errorCls)} value={row.hold_reason} maxLength={300} placeholder="Why on hold? (needed)" aria-label={`Row ${index + 1} reason for the hold`} aria-invalid={bad("hold_reason") || undefined} data-testid="opening-row-hold-reason" onChange={(event) => onChange(row.key, { hold_reason: event.target.value })} />
-                </label>
+                <div className="col-span-2 lg:col-span-1">
+                  <ReasonPicker category="QC_HOLD" rows={holdReasons} label="Why on hold" value={{ code: row.hold_reason_code, note: row.hold_reason_note }} onChange={(value) => onChange(row.key, { hold_reason_code: value.code, hold_reason_note: value.note })} showErrors={bad("hold_reason")} compact testIdPrefix={`opening-row-${index + 1}-hold-reason`} />
+                </div>
               ) : null}
               {/* Duplicate / remove sit at the end of the second line on desktop, so the material gets the room. */}
               <div className="hidden items-end justify-end gap-1 lg:flex">

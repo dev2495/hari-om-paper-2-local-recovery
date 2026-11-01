@@ -144,14 +144,14 @@ def test_a_case_decided_before_the_invoice_keeps_the_grn_pending_and_its_decisio
         po = _po(db, paper)
         posted = post_governed_receipt(_pending(po, rate=32), db, PLANT, MAKER)
         case = _cases(db, posted["id"])[0]
-        accepted = act_on_discrepancy(uuid.UUID(case["id"]), DiscrepancyAction(action="ACCEPT_VARIANCE", expected_version=case["version"], reason="Agreed with mill"), db, PLANT, HEAD)
+        accepted = act_on_discrepancy(uuid.UUID(case["id"]), DiscrepancyAction(action="ACCEPT_VARIANCE", expected_version=case["version"], reason_code="ID-RATE", reason_note="Agreed with mill"), db, PLANT, HEAD)
         assert accepted["status"] == "ACCEPTED"
         receipt = db.get(PurchaseReceipt, uuid.UUID(posted["id"]))
         db.refresh(receipt)
         assert receipt.invoice_pending is True and receipt.commercial_status == "INVOICE_PENDING"
 
         with pytest.raises(HTTPException) as refused:
-            create_debit_note(DebitNoteCreate(request_id=uuid.uuid4(), note_date=date(2026, 10, 30), discrepancy_ids=[uuid.UUID(case["id"])], reason="Claim the rate"), db, PLANT, HEAD)
+            create_debit_note(DebitNoteCreate(request_id=uuid.uuid4(), note_date=date(2026, 10, 30), discrepancy_ids=[uuid.UUID(case["id"])], reason_code="DN-RATE", reason_note="Claim the rate"), db, PLANT, HEAD)
         assert refused.value.status_code == 409
 
         attached = _attach(db, posted, 32)
@@ -168,15 +168,17 @@ def test_backdated_grn_lots_are_dated_and_coded_by_the_received_date():
         february = date(2026, 2, 5)
         posted = post_governed_receipt(_pending(po, on=february), db, PLANT, MAKER)
         reel = db.get(PaperReel, uuid.UUID(posted["lots"][0]["id"]))
-        assert reel.reel_code.startswith("AT-260205-") and reel.inward_date == february
+        # Owner decision 6 (1 Nov 2026): the AIT serial of the received date's financial year (Feb 2026 = 2025-26).
+        assert reel.inward_metadata["amigo_no"].startswith("AIT ") and reel.inward_metadata["serial_fy"] == 2025
+        assert reel.inward_date == february
         assert lot_row(reel, paper, reel.current_weight_kg)["in_since"] == "2026-02-05"
-        # Today's receipts keep today's code, in their own sequence.
+        # Today's receipts take the 2026-27 series, its own sequence.
         today = post_governed_receipt(_pending(po, on=date(2026, 10, 30)), db, PLANT, MAKER)
-        assert db.get(PaperReel, uuid.UUID(today["lots"][0]["id"])).reel_code.startswith("AT-261030-")
+        assert db.get(PaperReel, uuid.UUID(today["lots"][0]["id"])).inward_metadata["serial_fy"] == 2026
 
         glue = _item(db, "ADHESIVE")
         manual = post_manual_receipt(ManualReceiptCreate(
-            request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name="Glue works", reason="Local purchase",
+            request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name="Glue works", reason_code="MR-URGENT", reason_note="Local purchase",
             received_date=february, supplier_challan_no="DC 77", invoice_pending=True,
             lines=[{"item_id": glue.id, "quantity": 120, "invoice_rate": 88}],
         ), db, PLANT, MAKER)
@@ -185,11 +187,11 @@ def test_backdated_grn_lots_are_dated_and_coded_by_the_received_date():
         assert manual["lines"][0]["invoice_rate"] == 88 and manual["lots"][0]["entity_type"] == "BATCH"
 
         manual_paper = post_manual_receipt(ManualReceiptCreate(
-            request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name="Paper co", reason="Local purchase",
+            request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name="Paper co", reason_code="MR-URGENT", reason_note="Local purchase",
             received_date=february, supplier_challan_no="DC 78", invoice_pending=True,
             lines=[{"item_id": paper.id, "lots": [{"source_reel_no": f"M-{uuid.uuid4().hex[:5]}", "net_weight_kg": 300, "width_mm": 900, "physical_form": "REEL"}]}],
         ), db, PLANT, MAKER)
-        assert db.get(PaperReel, uuid.UUID(manual_paper["lots"][0]["id"])).reel_code.startswith("AT-260205-")
+        assert db.get(PaperReel, uuid.UUID(manual_paper["lots"][0]["id"])).inward_metadata["serial_fy"] == 2025
 
 
 def test_goods_inward_refuses_the_scrap_area_but_takes_a_store_rack_or_the_qc_bay():

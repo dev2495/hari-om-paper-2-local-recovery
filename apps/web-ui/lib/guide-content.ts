@@ -142,7 +142,7 @@ const guides: GuideContent[] = [
     primaryActions: [
       "Point the phone camera at the QR and tap the link.",
       "Or press Scan with the camera on this page.",
-      "If a label cannot be read, type its AT, lot, rack or card number and press Find.",
+      "If a label cannot be read, type its AIT / reel, lot, rack or card number and press Find.",
     ],
     controlChecks: [
       "Issue desks still refuse lots not cleared by incoming QC.",
@@ -970,7 +970,7 @@ const guides: GuideContent[] = [
       { label: "Open the PO", detail: "Make GRN on Expected arrivals (or Receive goods (GRN) on the PO) fills vendor, PO and line. Or pick the Vendor and Approved purchase order yourself." },
       { label: "Challan, invoice", detail: "Type the Supplier challan number, then Invoice number and Invoice date, or tick Challan received · invoice pending. Check the Invoice rate." },
       { label: "Weigh every reel", detail: "One row per reel or coil: Vendor reel / coil no., Net kg, Width and Form. Bulk material takes a Received quantity. Add another material for more PO lines." },
-      { label: "Validate, post", detail: "Validate receipt, read the result, then Post goods inward. The inward number is given (for example P/26/021) with one AT number per reel." },
+      { label: "Validate, post", detail: "Validate receipt, read the result, then Post goods inward. The inward number is given (for example P/26/021) with one AIT reel number per reel." },
       { label: "Print labels", detail: "Pick the Label sheet (A4 with 8 labels, or 4 × 2 inch thermal) and Copies, press Prepare N labels, open the PDF and print at actual size." },
     ],
     fieldRules: [
@@ -991,7 +991,7 @@ const guides: GuideContent[] = [
       "New lots show Waiting for QC and cannot be issued until incoming QC passes them. A pending invoice or a different rate never holds them.",
       "A rate different from the PO opens a case in Invoice differences for the plant head or Accounts.",
     ],
-    outputs: ["Inward number (P, A or IN series)", "One AT number and QR label per reel or coil", "Incoming QC task per lot"],
+    outputs: ["Inward number (P, A or IN series)", "One AIT reel number and QR label per reel or coil", "Incoming QC task per lot"],
     relatedRoutes: ["/purchase/supplier-deliveries", "/purchase/receipts", "/quality/incoming", "/purchase/discrepancies", "/inventory/locations"],
   },
   {
@@ -1037,7 +1037,7 @@ const guides: GuideContent[] = [
       { label: "Post once", detail: "Validate receipt, then Post goods inward. Every lot waits for incoming QC." },
     ],
     fieldRules: [
-      "The inward number and AT numbers are automatic; you never type them.",
+      "The inward number and AIT reel numbers are automatic; you never type them.",
       "The vendor and rate come from the approved PO; the invoice rate is checked at inward.",
     ],
     primaryActions: ["Open Goods inward.", "Print the QR labels after posting."],
@@ -1050,11 +1050,11 @@ const guides: GuideContent[] = [
     route: "/inventory/reels/issue",
     chapter: "ch-24",
     title: "Reel and Coil Issue Guide",
-    eyebrow: "Store to floor, by AT label",
-    summary: "Send reels and coils to the floor for the shift, whole, by their AT label. A reel goes to the slitter and gets a slitting card; a coil goes straight to the winders.",
+    eyebrow: "Store to floor, by reel label",
+    summary: "Send reels and coils to the floor for the shift, whole, by their reel label (AIT / reel number). A reel goes to the slitter and gets a slitting card; a coil goes straight to the winders.",
     flowTitle: "Reel and coil issue",
     steps: [
-      { label: "Scan reel", detail: "Scan the QR with the scanner or Camera, or type the AT number, vendor reel number or old mark and press Add. Or tap rows in Ready for the floor." },
+      { label: "Scan reel", detail: "Scan the QR with the scanner or Camera, or type the AIT / reel number (older AT numbers too), vendor reel number or old mark and press Add. Or tap rows in Ready for the floor." },
       { label: "Issue to floor", detail: "Check the shift strip and press Issue N to floor. Each reel goes out at its full weight; shift and date come from the clock." },
       { label: "Reel to slitter", detail: "A reel goes to the slitter and appears under Slitting cards to write. A coil goes straight to the winders." },
       { label: "Slitting card", detail: "Write card: Coils made and Wastage kg, and if known Coil width mm, Slitter operator and Notes. Save slitting card." },
@@ -1250,7 +1250,7 @@ const guides: GuideContent[] = [
       "Opening stock is cleared at once (no incoming QC) unless put on hold.",
       "Once the go-live month is closed, opening stock is closed: use a stock count.",
     ],
-    outputs: ["Opening loads in the stock book", "AT numbers for reels and RM-<item> numbers for lots", "QR labels"],
+    outputs: ["Opening loads in the stock book", "AIT reel numbers for reels and RM-<item> numbers for lots", "QR labels"],
     relatedRoutes: ["/inventory/stock-control", "/inventory/locations", "/inventory"],
   },
   {
@@ -1527,6 +1527,7 @@ const routeGuideMap: Array<{ pattern: RegExp; guideId: string }> = [
   { pattern: /^\/production\/job-cards\/time-reconciliation(?:\/.*)?$/, guideId: "month-end-close" },
   { pattern: /^\/job-cards(?:\/.*)?$/, guideId: "job-cards" },
   { pattern: /^\/production\/job-cards(?:\/.*)?$/, guideId: "job-cards" },
+  { pattern: /^\/production\/boxes(?:\/.*)?$/, guideId: "job-cards" },
   { pattern: /^\/production\/entry(?:\/.*)?$/, guideId: "floor-entry" },
   { pattern: /^\/production\/eod-entry(?:\/.*)?$/, guideId: "floor-entry" },
   { pattern: /^\/production\/supervisor-entry(?:\/.*)?$/, guideId: "floor-entry" },

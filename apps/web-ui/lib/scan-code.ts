@@ -8,10 +8,13 @@
  *   - `HARIOM|LOC|<plant>|<location id>|<CODE>` (rack / location labels, client 2026-10-28)
  *   - `hariom://tool/<asset no>` (tool labels)
  *   - `/production/entry/<id>`, `/production/job-cards/<id>`, `…supervisor-entry?job_card_id=<id>` (job cards)
+ *   - `/production/boxes/<code>` or a bare box code `B261014-001` (finished-goods box labels, 2026-11-01)
  *   - a bare AT / lot / card number typed by hand.
  */
 
-export type ScanKind = "JOB_CARD" | "REEL" | "BATCH" | "LOCATION" | "TOOL" | "CODE"
+import { boxCodeFrom } from "./boxes"
+
+export type ScanKind = "JOB_CARD" | "REEL" | "BATCH" | "LOCATION" | "TOOL" | "BOX" | "CODE"
 
 export type ParsedScan = {
   kind: ScanKind
@@ -19,7 +22,7 @@ export type ParsedScan = {
   id: string
   /** Plant the label was printed for (lot and location labels only). */
   plantId: string
-  /** Human code: AT number, lot number, rack code, tool asset number, or the typed text. */
+  /** Human code: AT number, lot number, rack code, tool asset number, box code, or the typed text. */
   code: string
   raw: string
 }
@@ -86,9 +89,13 @@ export function parseScanCode(value: string | null | undefined, depth = 0): Pars
     if (card) return result("JOB_CARD", raw, { id: card[1].toLowerCase() })
     const legacyId = url.searchParams.get("job_card_id")
     if (legacyId && LEGACY_ENTRY.test(url.pathname) && UUID.test(legacyId)) return result("JOB_CARD", raw, { id: legacyId.toLowerCase() })
+    const box = boxCodeFrom(url.pathname)
+    if (box) return result("BOX", raw, { code: box })
     return result("CODE", raw, { code: raw })
   }
 
+  const box = boxCodeFrom(raw)
+  if (box) return result("BOX", raw, { code: box })
   return result("CODE", raw, { code: raw })
 }
 

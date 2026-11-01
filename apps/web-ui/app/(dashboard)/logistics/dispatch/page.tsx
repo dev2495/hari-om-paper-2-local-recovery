@@ -13,12 +13,49 @@ import { usePlants } from "@/hooks/use-system"
 import { errorText } from "@/lib/season-api"
 import { RetainSurplusButton } from "@/components/production/RetainSurplusButton"
 
-const handoffLabels: Record<string, string> = { AWAITING_PACKING: "Waiting for Process to close", AWAITING_QC: "Waiting for Process to close", AWAITING_FG: "Waiting for the stock posting", QC_HOLD: "On QC hold", REJECTED_QC: "Nothing accepted at final QC", RETAINED_FG: "Extra pieces kept in stock", UNSEALED: "Ready for a challan", SEALED: "Challan sealed" }
+const handoffLabels: Record<string, string> = { AWAITING_PACKING: "Waiting for Process to close", AWAITING_QC: "Waiting for Process to close", AWAITING_FG: "Waiting for the stock posting", QC_HOLD: "On QC hold", REJECTED_QC: "Nothing accepted at final QC", RETAINED_FG: "Extra pieces kept in stock", UNSEALED: "Ready for a challan", SEALED: "Challan sealed", BOXES_READY: "Boxes ready for a challan", PACKING: "Packing boxes" }
 const STAGE_WORDS: Record<string, string> = { SLITTING: "Slitting", WINDER: "Winding", OVEN: "Oven", PROCESS: "Process", PACKING: "Packing", QC: "Final QC", DISPATCH: "Dispatch", DONE: "Done" }
 const PAGE_SIZE = 25
 const pcs = (value: unknown) => Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })
 // Only a card whose stock is posted can get a new challan; the server refuses the seal otherwise.
-const canStartChallan = (job: any) => job.dispatch_status === "DRAFT" || job.handoff_state === "UNSEALED"
+// A box card can get one as soon as a packed box is in stock, even while Process is still running.
+const canStartChallan = (job: any) => job.dispatch_status === "DRAFT" || job.handoff_state === "UNSEALED" || job.handoff_state === "BOXES_READY"
+const PROCESS_OPEN = new Set(["SLITTING", "WINDER", "OVEN", "PROCESS"])
+const plural = (count: number, one: string, many: string) => `${count.toLocaleString("en-IN")} ${count === 1 ? one : many}`
+
+/** Box card state in plain words: "4 boxes ready · 120 pcs", "2 of 5 boxes shipped". */
+function boxLines(job: any): string[] {
+    const b = job.boxes || {}
+    const total = Number(b.total || 0)
+    const ready = Number(b.ready || 0)
+    const shipped = Number(b.dispatched || 0)
+    const waiting = Math.max(0, Number(b.packed || 0) - ready)
+    const lines = [ready ? `${plural(ready, "box", "boxes")} ready · ${pcs(b.ready_pcs)} pcs` : "No box in stock yet"]
+    if (shipped) lines.push(`${shipped} of ${plural(total, "box", "boxes")} shipped`)
+    else lines.push(`${plural(total, "box", "boxes")} packed · ${pcs(b.boxed_pcs)} pcs`)
+    if (waiting) lines.push(`${plural(waiting, "box", "boxes")} waiting for the stock posting`)
+    if (Number(b.retained || 0)) lines.push(`${plural(Number(b.retained), "box", "boxes")} kept as surplus`)
+    return lines
+}
+
+function FlaggedChip({ job }: { job: any }) {
+    const flagged = Number(job.boxes?.flagged || 0)
+    if (!job.box_mode || !flagged) return null
+    return <span className="inline-flex items-center rounded-full border border-signal-amber-line bg-signal-amber-soft px-2 py-0.5 text-xs font-semibold text-signal-amber-ink" title="A QC reading was out of band when these boxes were packed. Shipping is not blocked.">{plural(flagged, "box", "boxes")} QC flagged</span>
+}
+
+/**
+ * Retain surplus on a box card: Process closed, boxes still packed, and no box fits in the released qty left
+ * (the server checks the exact boxes). For a box card remaining_qty is the pcs in packed boxes — the amount the
+ * settlement expects.
+ */
+const canRetainBoxes = (job: any) => {
+    if (!job.box_mode || !(Number(job.remaining_qty) > 0) || job.handoff_state === "QC_HOLD" || job.dispatch_status === "SEALED") return false
+    if (PROCESS_OPEN.has(String(job.current_stage || "").toUpperCase())) return false
+    const room = Number(job.shipping_allowance || 0) - Number(job.dispatched_qty || 0)
+    const perBox = Number(job.boxes?.qty_per_box || 0)
+    return Number(job.max_ship_qty || 0) <= 0 || room <= 0 || (perBox > 0 && room < perBox && Number(job.boxes?.ready_pcs || 0) > room)
+}
 
 export default function DispatchSelectionPage() {
     const { activePlant, user } = useAuth()
@@ -130,7 +167,7 @@ export default function DispatchSelectionPage() {
                 {filteredJobs.slice(0, shown).map((job: any) => {
                     const maxShipQty = Number(job.max_ship_qty || 0)
                     const latestShipment = job.shipments?.[0]
-                    const status = job.dispatch_status === "SEALED" ? "Sealed" : job.dispatch_status === "DRAFT" ? "Draft challan" : handoffLabels[job.handoff_state] || "Ready for a challan"
+                    const status = job.dispatch_status === "SEALED" ? (job.box_mode ? "All boxes done" : "Sealed") : job.dispatch_status === "DRAFT" ? "Draft challan" : handoffLabels[job.handoff_state] || "Ready for a challan"
                     return (
                         <li key={job.id} className="rounded-xl border border-border bg-card p-3">
                             <div className="flex items-start justify-between gap-2">
@@ -140,9 +177,16 @@ export default function DispatchSelectionPage() {
                                 </div>
                                 <span className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold ${job.dispatch_status === "SEALED" ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink" : job.dispatch_status === "DRAFT" ? "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink" : "border-border bg-muted text-muted-foreground"}`}>{status}</span>
                             </div>
-                            <p className="mt-1.5 text-xs text-muted-foreground">{pcs(job.dispatchable_qty)} accepted · {pcs(job.dispatched_qty)} shipped · {pcs(maxShipQty)} pcs can ship now</p>
+                            {job.box_mode ? (
+                                <div className="mt-1.5 space-y-0.5 text-xs text-muted-foreground" data-testid="dispatch-box-state">
+                                    {boxLines(job).map((line, index) => <p key={line} className={index === 0 ? "font-medium text-foreground" : undefined}>{line}</p>)}
+                                    <p>{pcs(job.dispatched_qty)} pcs shipped · {pcs(maxShipQty)} pcs can ship now{PROCESS_OPEN.has(String(job.current_stage || "").toUpperCase()) ? ` · ${STAGE_WORDS[String(job.current_stage).toUpperCase()]} still running` : ""}</p>
+                                    <FlaggedChip job={job} />
+                                </div>
+                            ) : <p className="mt-1.5 text-xs text-muted-foreground">{pcs(job.dispatchable_qty)} accepted · {pcs(job.dispatched_qty)} shipped · {pcs(maxShipQty)} pcs can ship now</p>}
                             {(job.shipments || []).map((shipment: any, index: number) => <Link key={shipment.id} href={`/logistics/dispatch/${job.id}/print?dispatch_id=${shipment.id}`} className="mt-1 flex min-h-11 items-center text-sm text-signal-teal-ink underline">Challan {job.shipments.length - index}: {pcs(shipment.qty)} pcs</Link>)}
-                            {canPrepare && maxShipQty > 0 && canStartChallan(job) ? <Button asChild className="mt-2 min-h-11 w-full"><Link href={`/logistics/dispatch/new?job_card_id=${job.id}`}>{job.dispatch_status === "DRAFT" ? "Edit draft challan" : "Make challan"}</Link></Button> : !latestShipment ? <p className="mt-2 text-xs text-muted-foreground">{handoffLabels[job.handoff_state] || "Not ready to ship"}</p> : null}
+                            {canPrepare && maxShipQty > 0 && canStartChallan(job) ? <Button asChild className="mt-2 min-h-11 w-full"><Link href={`/logistics/dispatch/new?job_card_id=${job.id}`}>{job.dispatch_status === "DRAFT" ? "Edit draft challan" : job.box_mode ? "Make challan from boxes" : "Make challan"}</Link></Button> : !latestShipment ? <p className="mt-2 text-xs text-muted-foreground">{handoffLabels[job.handoff_state] || "Not ready to ship"}</p> : null}
+                            {canRetain && canRetainBoxes(job) && <RetainSurplusButton job={job} />}
                         </li>
                     )
                 })}
@@ -211,24 +255,35 @@ export default function DispatchSelectionPage() {
                                                 <p className="break-words text-xs text-muted-foreground">{specDisplay}</p>
                                             </td>
                                             <td className="px-4 py-3 align-top text-muted-foreground" title={`Released ${pcs(job.released_qty ?? job.planned_qty)} pcs · up to ${pcs(job.shipping_allowance)} pcs may ship (with the allowed extra)`}>
+                                                {job.box_mode ? (
+                                                    <div className="space-y-0.5 text-xs tabular-nums" data-testid="dispatch-box-state">
+                                                        {boxLines(job).map((line, index) => <p key={line} className={index === 0 ? "text-sm text-foreground" : undefined}>{line}</p>)}
+                                                        <p>{pcs(job.dispatched_qty)} pcs shipped · {pcs(maxShipQty)} can ship now</p>
+                                                        <FlaggedChip job={job} />
+                                                    </div>
+                                                ) : <>
                                                 <p className="tabular-nums text-foreground">{pcs(job.dispatchable_qty)} accepted · {pcs(job.remaining_qty)} left to ship</p>
                                                 <p className="text-xs tabular-nums">{pcs(job.dispatched_qty)} shipped · {pcs(maxShipQty)} can ship now{Number(job.qc_rejected_qty || 0) > 0 ? ` · ${pcs(job.qc_rejected_qty)} rejected at QC` : ""}{Number(job.qc_uninspected_qty || 0) > 0 ? ` · ${pcs(job.qc_uninspected_qty)} not inspected` : ""}{job.retained_qty > 0 ? ` · ${pcs(job.retained_qty)} kept in stock` : ""}</p>
+                                                </>}
                                             </td>
                                             <td className="px-4 py-3 align-top">
                                                 {job.dispatch_status === "SEALED" ? (
-                                                    <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors border-none bg-signal-emerald-soft text-signal-emerald-ink hover:bg-signal-emerald-line">Sealed</span>
+                                                    <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors border-none bg-signal-emerald-soft text-signal-emerald-ink hover:bg-signal-emerald-line">{job.box_mode ? "All boxes done" : "Sealed"}</span>
+                                                ) : job.box_mode && job.handoff_state === "BOXES_READY" && job.dispatch_status !== "DRAFT" ? (
+                                                    <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold text-signal-teal-ink border-signal-teal-line bg-signal-teal-soft">{handoffLabels.BOXES_READY}</span>
                                                 ) : job.dispatch_status === "DRAFT" ? (
                                                     <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors text-signal-amber-ink border-signal-amber-line bg-signal-amber-soft">Draft challan</span>
                                                 ) : (
                                                     <span className="text-muted-foreground text-xs">{handoffLabels[job.handoff_state] || "Ready for a challan"}</span>
                                                 )}
-                                                {job.dispatch_status === "DRAFT" && job.handoff_state !== "UNSEALED" && <p className="mt-1 text-xs text-muted-foreground">{handoffLabels[job.handoff_state]}</p>}
+                                                {job.dispatch_status === "DRAFT" && !["UNSEALED", "BOXES_READY"].includes(job.handoff_state) && <p className="mt-1 text-xs text-muted-foreground">{handoffLabels[job.handoff_state]}</p>}
                                                 {job.current_stage && !["DISPATCH", "DONE"].includes(String(job.current_stage).toUpperCase()) ? <p className="mt-1 text-xs text-muted-foreground">Now at {STAGE_WORDS[String(job.current_stage).toUpperCase()] || String(job.current_stage).toLowerCase()}</p> : null}
                                             </td>
                                             <td className="px-4 py-3 align-top text-right">
                                                 {(job.shipments || []).map((shipment: any, index: number) => <Link key={shipment.id} href={`/logistics/dispatch/${job.id}/print?dispatch_id=${shipment.id}`} className="mr-3 block text-xs text-signal-teal-ink underline">Challan {job.shipments.length - index}: {pcs(shipment.qty)} pcs</Link>)}
-                                                {canPrepare && maxShipQty > 0 && canStartChallan(job) ? <Button asChild size="sm"><Link href={`/logistics/dispatch/new?job_card_id=${job.id}`}>{job.dispatch_status === "DRAFT" ? "Edit draft challan" : "Make challan"}</Link></Button> : latestShipment ? <Button asChild size="sm" variant="outline"><Link href={`/logistics/dispatch/${job.id}/print?dispatch_id=${latestShipment.id}`}>View challan</Link></Button> : null}
-                                                {canRetain && job.entry_model === "V2" && job.remaining_qty > 0 && job.dispatched_qty >= job.shipping_allowance && job.handoff_state === "UNSEALED" && <RetainSurplusButton job={job} />}
+                                                {canPrepare && maxShipQty > 0 && canStartChallan(job) ? <Button asChild size="sm"><Link href={`/logistics/dispatch/new?job_card_id=${job.id}`}>{job.dispatch_status === "DRAFT" ? "Edit draft challan" : job.box_mode ? "Make challan from boxes" : "Make challan"}</Link></Button> : latestShipment ? <Button asChild size="sm" variant="outline"><Link href={`/logistics/dispatch/${job.id}/print?dispatch_id=${latestShipment.id}`}>View challan</Link></Button> : null}
+                                                {canRetain && !job.box_mode && job.entry_model === "V2" && job.remaining_qty > 0 && job.dispatched_qty >= job.shipping_allowance && job.handoff_state === "UNSEALED" && <RetainSurplusButton job={job} />}
+                                                {canRetain && canRetainBoxes(job) && <RetainSurplusButton job={job} />}
                                             </td>
                                         </tr>
                                     )

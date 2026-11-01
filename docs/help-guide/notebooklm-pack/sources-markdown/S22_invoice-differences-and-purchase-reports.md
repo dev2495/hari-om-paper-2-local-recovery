@@ -19,7 +19,7 @@ Screenshots named in this file are in the visual handbook (Hari-Om-TubeOS-Help-G
 
 Flow diagram: From invoice difference to settled claim
 Steps: 1. GRN posted or invoice attached (done by Store/GRN) -> 2. Case opens - Rate, Quantity, Specification -> 3. Review (done by Plant Manager/Accounts) -> 4. Open debit note (done by Plant Manager/Accounts) - Draft -> 5. Submit -> 6. Approve (done by another person) -> 7. Issue immutable note -> 8. Record settlement - Settled
-If it goes wrong after 'Review': 1. Accept difference (done by Plant Manager/Accounts) - with reason -> 2. Case closed as Accepted
+If it goes wrong after 'Review': 1. Accept difference (done by Plant Manager/Accounts) - with reason code -> 2. Case closed as Accepted
 If it goes wrong after 'Case opens': 1. QC rejects and goods returned to vendor -> 2. Quality claim opens -> 3. Open debit note
 
 
@@ -43,7 +43,7 @@ What you see:
    - **Difference**: per kg for rate (+₹2/kg), kg for quantity, mm for specification, "kg returned" for quality.
    - **Exposure**: the rupee effect (red when you pay more, green when less), or "Review quantity".
    - **Status**: **Open**, **Under review**, **Accepted**, **Claim drafted**, **Claimed**, **Resolved**.
-   - **Review reason**: the **Decision record** box (required).
+   - **Review reason**: the **Decision reason** picker (list **Invoice difference**; required), with the reason already saved shown above it.
    - **Actions**: **Accept difference** and **Release, keep case**.
 4. When opened from a GRN (the rate-case link on the GRN page), a line says "Showing the cases of GRN P/26/011 (2 of 12)" with **Show all cases**.
 
@@ -78,15 +78,15 @@ Roles: Plant Manager, Accounts, Owner, Admin (not the person who made the GRN).
 
 1. Open **Invoice differences**, or click "Rate differs from the PO · review case open in Invoice differences" on a GRN.
 2. Read the row: PO rate, invoice rate, difference and exposure. Open the GRN if you need the details.
-3. Decide one of the three actions below. Every action needs a **Decision record** of at least 3 characters.
+3. Decide one of the three actions below. Accept and Release need a **Decision reason** from **Invoice difference** (ID-RATE Rate difference agreed, ID-FREIGHT Freight or loading charges, ID-TAX Tax rounding / GST difference, ID-QTY Quantity difference, ID-WRONG-INVOICE Wrong invoice from the supplier, ID-OTHER); opening a debit note needs a **Debit note reason**.
 
 ### How to accept a difference
-1. Type the reason, for example "Mill price rise agreed by Owner on call".
+1. Pick the **Decision reason** (for example ID-RATE Rate difference agreed) and add a note such as "Mill price rise agreed by Owner on call".
 2. Click **Accept difference**. The case becomes **Accepted**. For a rate case, the stock cost of that receipt line changes to the invoice rate. The PO is not changed.
 
 ### How to claim from the vendor (open a debit note)
 1. Tick the **Claim** box on each positive rate or quality row of **one vendor**. The **Selected for claim** tile counts them.
-2. Click **Open debit note**. The message says, for example, "DN-261031-001 created as a governed draft." The cases become **Claim drafted**.
+2. Pick the **Debit note reason** (list **Debit note**: DN-SHORT Short supply, DN-REJECT Material rejected / returned, DN-RATE Rate difference, DN-QUALITY Quality deduction, DN-DAMAGE Transit damage, DN-OTHER) and click **Open debit note**. The message says, for example, "DN-261031-001 created as a governed draft." The cases become **Claim drafted**.
 3. Open **Debit notes**, check the lines and click **Submit**.
 4. A different person (Plant Manager, Accounts, Owner or Admin) clicks **Approve**.
 5. Click **Issue immutable note**. The cases become **Claimed**. Use **Saved PDF** to print or send the note.
@@ -97,7 +97,7 @@ Roles: Plant Manager, Accounts, Owner, Admin (not the person who made the GRN).
 3. The note becomes **Partially settled**, then **Settled** when the open amount reaches ₹0.
 
 ### How to release stock while a case stays open
-1. After a case is **Accepted**, or its debit note is issued, type a reason and click **Release, keep case**.
+1. After a case is **Accepted**, or its debit note is issued, pick a **Decision reason** and click **Release, keep case**.
 2. The decision is recorded and the receipt shows **Released with claim**. Every other open case on the same receipt line must be decided first.
 
 ### How to export or print a purchase register
@@ -109,6 +109,7 @@ Roles: Plant Manager, Accounts, Owner, Admin (not the person who made the GRN).
 ## Rules the system enforces
 - **AUTOMATIC:** a **Rate** case opens for any difference between invoice (or challan) rate and PO rate, with the claimable amount = received kg × difference when the vendor charged more. A **Quantity** case opens when invoice quantity is not the weighed quantity. A **Specification** case opens when a measured reel width is outside the width and tolerance saved on an older PO line. A **Quality** claim opens when QC-rejected goods are returned to the vendor.
 - **BLOCKS:** "The receipt maker cannot approve or release their own commercial exception."
+- **BLOCKS:** every decision needs a reason code: **Invoice difference** for accept and release, **Debit note** for opening (or voiding) a debit note. Codes with OTHER need a note of at least 5 characters; free text alone is refused.
 - **BLOCKS:** only open positive amounts can go on a debit note ("Only open positive claim amounts can create a debit note"), one vendor per note ("A debit note cannot mix vendors"), and only after the invoice is attached ("A debit note needs the supplier invoice. Attach the invoice to the GRN first; the rate case stays open.").
 - **BLOCKS:** "A different person must approve the debit note." Steps must go in order (Submit, Approve, Issue).
 - **BLOCKS:** a settlement cannot be more than the open amount ("Settlement exceeds the open debit-note amount"), and only issued notes can be settled.
@@ -129,7 +130,7 @@ Bharat Paper Mills delivers Kraft 230 GSM on GRN P/26/021 against RP-PM/54. PO r
 The Plant Manager (not the Store user who made the GRN) ticks the row and clicks **Open debit note**: **DN-261106-001**, Draft, ₹1,509. He clicks **Submit**; Accounts clicks **Approve** and **Issue immutable note**. On 20 Nov the vendor gives a credit of ₹1,509; Accounts types 1509 and clicks **Record settlement**. The note shows "₹1,509 / ₹1,509 / ₹0" and status **Settled**.
 
 ## Common questions
-**Q: The vendor's rate is ₹0.10 higher. Do I really need a case?** A: Yes. Any rate difference opens a case. Accept it with a reason if the extra is agreed.
+**Q: The vendor's rate is ₹0.10 higher. Do I really need a case?** A: Yes. Any rate difference opens a case. Accept it with a reason code (for example ID-TAX for GST rounding) if the extra is agreed.
 
 **Q: Why is the Claim box greyed out on my row?** A: Only positive **Rate** or **Quality** rows that are still open and have the invoice attached can be claimed. Rows with "Invoice pending" become claimable after the invoice is attached in the GRN register.
 

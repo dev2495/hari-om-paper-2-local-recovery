@@ -12,15 +12,7 @@ import { useRaiseCorrection } from "@/hooks/use-stock"
 import { dayText, errorCode, errorText, qtyText, signedQty, stockApi, unitWord, type Correction, type LocationBrief, type LotLookup } from "@/lib/api-stock"
 import { parseScanCode } from "@/lib/scan-code"
 import { cn } from "@/lib/utils"
-
-const REASONS: Array<[string, string]> = [
-  ["COUNT_SHORT", "Count short"],
-  ["COUNT_EXTRA", "Count extra"],
-  ["DAMAGED_IN_STORE", "Damaged in store"],
-  ["WRONG_GRN_WEIGHT", "Wrong GRN weight"],
-  ["LABEL_LOST_FOUND", "Label lost / found"],
-  ["OTHER", "Other"],
-]
+import { ReasonPicker, reasonPayload, reasonProblem, useReasonChoice } from "@/components/reasons"
 
 /**
  * Raise a stock correction (spec 2.4): a lot or reel with the quantity really there (or "not here /
@@ -36,8 +28,8 @@ export function CorrectionSheet({ open, onOpenChange, location, initialCode, onD
   const [code, setCode] = useState(initialCode || "")
   const [qty, setQty] = useState("")
   const [notHere, setNotHere] = useState(false)
-  const [reason, setReason] = useState("")
-  const [note, setNote] = useState("")
+  // The reason is a STOCK_CORRECTION code from Masters › Reason codes (owner decision 4, 1 Nov 2026).
+  const reason = useReasonChoice("STOCK_CORRECTION")
   const [item, setItem] = useState("")
   const [error, setError] = useState("")
   const [saved, setSaved] = useState<Correction | null>(null)
@@ -69,23 +61,23 @@ export function CorrectionSheet({ open, onOpenChange, location, initialCode, onD
   const delta = lot && newQty !== null && Number.isFinite(newQty) ? Math.round((newQty - lot.qty) * 1000) / 1000 : null
   const unit = lot ? unitWord(lot.uom) : ""
 
-  const reset = () => { setCode(initialCode || ""); setTyped(""); setQty(""); setNotHere(false); setReason(""); setNote(""); setItem(""); setError(""); setSaved(null); setScanning(false) }
+  const reset = () => { setCode(initialCode || ""); setTyped(""); setQty(""); setNotHere(false); reason.reset(); setItem(""); setError(""); setSaved(null); setScanning(false) }
   const close = (next: boolean) => { if (!next) reset(); onOpenChange(next) }
   // What is still needed, said in the sheet instead of a silently disabled button.
   const missing = mode === "LOT"
-    ? [!code.trim() ? "the lot or reel" : "", !notHere && qty === "" ? "the quantity really there" : "", !reason ? "a reason" : "", reason === "OTHER" && note.trim().length < 3 ? "what happened" : ""].filter(Boolean)
-    : [!item ? "the material" : "", !(Number(qty) > 0) ? "the quantity found" : "", !reason ? "a reason" : "", reason === "OTHER" && note.trim().length < 3 ? "what happened" : ""].filter(Boolean)
+    ? [!code.trim() ? "the lot or reel" : "", !notHere && qty === "" ? "the quantity really there" : "", !reason.value.code ? "a reason" : "", reason.value.code && reasonProblem(reason.value) ? "a note saying what happened" : ""].filter(Boolean)
+    : [!item ? "the material" : "", !(Number(qty) > 0) ? "the quantity found" : "", !reason.value.code ? "a reason" : "", reason.value.code && reasonProblem(reason.value) ? "a note saying what happened" : ""].filter(Boolean)
   const noChange = mode === "LOT" && delta !== null && Math.abs(delta) < 0.0005
   const tooHeavy = mode === "LOT" && lot?.entity_type === "REEL" && newQty !== null && lot.inward_qty !== null && newQty > lot.inward_qty + 0.0005
   const ready = !missing.length && !blocked && !noChange && !tooHeavy && (mode !== "LOT" || Boolean(lot))
   const submit = async () => {
     setError("")
-    if (reason === "OTHER" && note.trim().length < 3) return setError("Write what happened when the reason is Other.")
+    if (!reason.validate()) return setError(reason.problem || "Choose a reason.")
     try {
       const parsed = parseScanCode(code)
       const body = mode === "LOT"
-        ? { code: parsed.kind === "REEL" || parsed.kind === "BATCH" ? parsed.raw : parsed.code || code.trim(), new_qty: notHere ? undefined : Number(qty), not_here: notHere, reason, note: note.trim() || undefined }
-        : { item_id: item, new_qty: Number(qty), location_id: location?.id, reason, note: note.trim() || undefined }
+        ? { code: parsed.kind === "REEL" || parsed.kind === "BATCH" ? parsed.raw : parsed.code || code.trim(), new_qty: notHere ? undefined : Number(qty), not_here: notHere, ...reasonPayload(reason.rows, reason.value, null) }
+        : { item_id: item, new_qty: Number(qty), location_id: location?.id, ...reasonPayload(reason.rows, reason.value, null) }
       const row = await raise.mutateAsync(body)
       setSaved(row)
       onDone?.(row)
@@ -109,7 +101,7 @@ export function CorrectionSheet({ open, onOpenChange, location, initialCode, onD
           <Segmented label="What to correct" value={mode} onChange={(value) => { setMode(value); setError("") }} options={[{ value: "LOT", label: "A lot or reel" }, { value: "FOUND", label: "Found without a label" }]} />
           {mode === "LOT" ? (
             <>
-              <Field label="Lot or reel" hint={canCamera ? "Scan its label with the camera or a handheld scanner, or type the AT / lot number." : "Scan its label with a handheld scanner, or type the AT / lot number."}>
+              <Field label="Lot or reel" hint={canCamera ? "Scan its label with the camera or a handheld scanner, or type the AIT / reel or lot number." : "Scan its label with a handheld scanner, or type the AIT / reel or lot number."}>
                 <div className="flex gap-2">
                   <input className={cn(fieldClass, "min-w-0 flex-1")} value={code} onChange={(event) => setCode(event.target.value)} placeholder="AT-261027-026 or IN/26/005-5" autoCapitalize="characters" data-testid="correction-code" />
                   {canCamera ? (
@@ -172,15 +164,7 @@ export function CorrectionSheet({ open, onOpenChange, location, initialCode, onD
               {chosen && Number(qty) > 0 ? <p className="text-[12.5px] text-muted-foreground">Will add {qtyText(Number(qty), chosen.uom)} of {chosen.name}.</p> : null}
             </>
           )}
-          <Field label="Reason">
-            <select className={fieldClass} value={reason} onChange={(event) => setReason(event.target.value)} data-testid="correction-reason">
-              <option value="" disabled>Choose a reason</option>
-              {REASONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </select>
-          </Field>
-          <Field label={reason === "OTHER" ? "What happened (needed)" : "Note (optional)"}>
-            <textarea className={`${fieldClass} !h-20 py-2`} value={note} onChange={(event) => setNote(event.target.value)} maxLength={500} data-testid="correction-note" />
-          </Field>
+          <ReasonPicker category="STOCK_CORRECTION" value={reason.value} onChange={reason.setValue} showErrors={reason.touched} compact testIdPrefix="correction-reason" />
           {error ? <Notice tone="rose" testId="correction-error">{error}</Notice> : null}
           {missing.length && !error ? <p className="text-[12.5px] text-muted-foreground" data-testid="correction-needed">Still needed: {missing.join(", ")}.</p> : null}
         </div>

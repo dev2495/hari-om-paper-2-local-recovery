@@ -18,20 +18,42 @@ export const stageLabel = (stage: string) => STAGE_LABEL[stage] || (stage ? stag
 /** Stages the floor logs runs on. Slitting has its own record, Final QC and Dispatch are system steps. */
 export const LOGGABLE_STAGES = new Set(["WINDER", "OVEN", "PROCESS", "PACKING"])
 
-export const REJECT_CODES: [string, string][] = [
-  ["WL", "Winding loose"],
-  ["PG", "Pasting / glue"],
-  ["ID", "I.D. out"],
-  ["OD", "O.D. out"],
-  ["LN", "Length out"],
-  ["WT", "Weight out"],
-  ["CS", "C.S. low"],
-  ["DM", "Damage / dent"],
-  ["MS", "Moisture"],
-  ["NT", "Notch"],
-  ["OT", "Other"],
-]
-export const rejectCodeText = (code: string) => REJECT_CODES.find(([c]) => c === code)?.[1] || ""
+// Floor rejection reasons are the SCRAP list in Masters › Reason codes (owner decision 4, 1 Nov 2026); the
+// two-letter codes are seeded there with the same letters. This fixed list only names runs saved before
+// the label was stored with the code (the old "OT" is RJ-OTHER now).
+const OLD_REJECT_LABELS: Record<string, string> = {
+  WL: "Winding loose",
+  PG: "Pasting / glue",
+  ID: "I.D. out",
+  OD: "O.D. out",
+  LN: "Length out",
+  WT: "Weight out",
+  CS: "C.S. low",
+  DM: "Damage / dent",
+  MS: "Moisture",
+  NT: "Notch",
+  OT: "Other",
+}
+export const rejectCodeText = (code: string) => OLD_REJECT_LABELS[String(code || "").toUpperCase()] || ""
+/** A run's rejection reason in words: the label saved with the code (+ note), else the old fixed list or text. */
+export function rejectReasonText(details: any): string {
+  if (!details) return ""
+  const code = String(details.reject_code || "").trim()
+  const label = String(details.reject_label || "").trim()
+  const note = String(details.reject_note || "").trim()
+  if (label) return [label, note].filter(Boolean).join(" — ")
+  if (code) return [rejectCodeText(code) || code, details.reject_reason && !String(details.reject_reason).startsWith(`${code} ·`) ? String(details.reject_reason) : ""].filter(Boolean).join(" — ")
+  return String(details.reject_reason || "").trim()
+}
+/**
+ * Entry `details` keys for one reason on a run (owner decision 4): the code, the note and the old text key
+ * ("Label — note"), e.g. reasonDetailKeys("reject_reason", "reject_code", "reject_note", choice) or, for an
+ * override key K, reasonDetailKeys(K, `${K}_code`, `${K}_note`, choice). The server checks the code.
+ */
+export function reasonDetailKeys(textKey: string, codeKey: string, noteKey: string, choice: { value: { code: string; note: string }; text: string }) {
+  if (!choice.value.code) return {}
+  return { [codeKey]: choice.value.code, [noteKey]: String(choice.value.note || "").trim() || null, [textKey]: choice.text }
+}
 
 export const machineLabelFor = (stage: string) => (stage === "WINDER" ? "Winder no." : stage === "OVEN" ? "Oven no." : stage === "PROCESS" ? "Line no." : stage === "PACKING" ? "Packing table" : "Machine")
 export const helperLabelFor = (stage: string) => (stage === "WINDER" ? "Pattiwala" : stage === "PROCESS" ? "Packing name" : "Helper")
@@ -44,6 +66,17 @@ export const fmt = (value: any, digits = 1) => Number(value || 0).toLocaleString
 export const waitingRunsBadge = (n: number) => (n > 0 ? `${n} with supervisor` : undefined)
 export const waitingRunsTitle = (n: number) => (n > 0 ? `${n} run${n === 1 ? "" : "s"} waiting for the supervisor to submit` : undefined)
 /** Plain words for runs still with the supervisor, with a count ("1 run", "2 runs"). */
+/** The department in Masters › Employees that runs each floor stage (owner decision 7, 1 Nov 2026). */
+export const STAGE_DEPARTMENT: Record<string, string> = { WINDER: "WINDER", OVEN: "OVEN", PROCESS: "PROCESS", PACKING: "PACKING" }
+
+/** Operators a floor log may name: active employees of the stage's department, operators first, then by name. */
+export function stageOperators(employees: any[], stage: string): any[] {
+  const department = STAGE_DEPARTMENT[stage]
+  return (employees || [])
+    .filter((e: any) => e && e.active !== false && e.is_active !== false && (!department || String(e.department || "").trim().toUpperCase() === department))
+    .sort((a: any, b: any) => (String(a.role || "").toLowerCase() === "operator" ? 0 : 1) - (String(b.role || "").toLowerCase() === "operator" ? 0 : 1) || String(a.name || "").localeCompare(String(b.name || "")))
+}
+
 export const runsWord = (n: number) => `${n} run${n === 1 ? "" : "s"}`
 export const count = (value: string) => (value === "" ? 0 : Math.max(0, Math.floor(Number(value) || 0)))
 export const dayLabel = (value: any) => (value ? new Date(`${String(value).slice(0, 10)}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "—")
@@ -317,7 +350,9 @@ export function cardFacts(card: any) {
   const snap = card?.spec_snapshot || {}
   const qty = Number(card?.released_qty || card?.planned_qty || 0)
   const pcsPerBamboo = Number(header.pcs_per_bamboo || snap.pcs_per_bamboo || 0)
-  const bamboo = Number(header.target_bamboo_count || (pcsPerBamboo ? Math.ceil(qty / pcsPerBamboo) : 0))
+  // After a stage short close the card holds fewer pcs than its frozen plan: work the bamboo out from what it holds.
+  const shortened = Number(card?.returned_qty || 0) > 0
+  const bamboo = Number((!shortened && header.target_bamboo_count) || (pcsPerBamboo ? Math.ceil(qty / pcsPerBamboo) : 0))
   return {
     no: card?.job_card_no || card?.job_card_ref || (card?.id ? `JC-${String(card.id).slice(0, 8).toUpperCase()}` : "—"),
     customer: header.customer_name || snap.customer_name_snapshot || card?.customer_name || "—",

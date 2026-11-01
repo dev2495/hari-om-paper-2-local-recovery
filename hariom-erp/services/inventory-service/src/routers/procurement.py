@@ -20,6 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..reasons import ReasonChoice, reason_input, resolve_reason, token_of
 from ..models import (
     CostSource,
     DocumentSeries,
@@ -64,6 +65,7 @@ from ..models import (
 )
 from ..quality_task_queue import enqueue_incoming_qc_task
 from ..services.labels import reel_label_payload, batch_label_payload, with_reel_facts
+from ..services.reel_serial import next_reel_serial
 from ..services.receipt_quality import initial_quality, inward_stock_status, refresh_receipt_stock
 from ..services.procurement import (
     ProcurementRuleError,
@@ -148,6 +150,11 @@ class GovernedReceiptCreate(BaseModel):
     currency: str = Field(default="INR", pattern="^[A-Z]{3}$")
     # Receiving more than the PO line still has open needs a reason (client 2026-10-26).
     over_receipt_reason: Optional[str] = Field(default=None, max_length=500)
+    # ... picked from Masters › Reason codes, OVER_RECEIPT (owner decision 4, 1 Nov 2026).
+    over_receipt_reason_code: Optional[str] = Field(default=None, max_length=80)
+    over_receipt_reason_note: Optional[str] = Field(default=None, max_length=500)
+    # The vendor's short / mill name printed on reel labels (vendor master "Mill / short name"), e.g. AKSHAT.
+    mill_name: Optional[str] = Field(default=None, max_length=60)
     lines: list[GovernedReceiptLineInput] = Field(min_length=1)
 
     @field_validator("invoice_no", "over_receipt_reason")
@@ -178,7 +185,7 @@ def _receipt_payload(receipt: PurchaseReceipt, db: Session) -> dict[str, Any]:
                 label = db.query(LotLabelRecord).filter(LotLabelRecord.reel_id == reel.id).first()
                 lots.append({
                     "id": str(reel.id), "entity_type": "REEL", "receipt_line_id": str(allocation.receipt_line_id),
-                    "at_no": reel.reel_code, "source_reel_no": reel.source_reel_no,
+                    "at_no": (reel.inward_metadata or {}).get("amigo_no") or reel.reel_code, "source_reel_no": reel.source_reel_no,
                     "physical_form": reel.physical_form, "net_weight_kg": float(reel.inward_weight_kg or 0),
                     "current_weight_kg": float(reel.current_weight_kg or 0), "width_mm": reel.width_mm,
                     "stock_status": reel.stock_status, "commercial_status": reel.commercial_status,
@@ -315,19 +322,19 @@ def _next_grn_no(db: Session, plant_id: str, item_types: list[Any], on_date: dat
     return candidate
 
 
-def _next_receipt_reel_code(db: Session, plant_id: Any, received_date: date) -> str:
-    """AT number of a received reel, dated by the GRN's received date (AT-260205-001), not today.
+def _next_receipt_reel_code(db: Session, plant_id: Any, received_date: date) -> dict[str, Any]:
+    """The plant's AIT serial for a received reel or coil (owner decision 6, 1 Nov 2026): ``AIT 06243``, the
+    series of the financial year of the GRN's received date (a backdated GRN keeps its own year).
 
-    A backdated GRN keeps the date the goods came in on its labels (problem "Backdated GRN lots show
-    today as their date"). Same advisory lock as ``_next_doc_no``, so both never hand out one number.
+    Returns ``{"serial", "reel_code", "metadata"}`` (see ``services.reel_serial.next_reel_serial``). Older reels
+    keep their AT-yymmdd-nnn numbers.
     """
-    db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": f"document:{plant_id}:AT"})
-    base = f"AT-{received_date.strftime('%y%m%d')}"
-    for seq in range(1, 10000):
-        candidate = f"{base}-{seq:03d}"
-        if not db.query(PaperReel.id).filter(PaperReel.plant_id == plant_id, PaperReel.reel_code == candidate).first():
-            return candidate
-    raise HTTPException(status_code=500, detail="Unable to generate AT number")
+    return next_reel_serial(db, plant_id, received_date)
+
+
+def _mill_name(value: Optional[str]) -> Optional[str]:
+    cleaned = " ".join(str(value or "").split()).upper()
+    return cleaned or None
 
 
 # A GRN whose invoice is still to come (challan received · invoice pending) may still carry the
@@ -419,7 +426,14 @@ def _challan_warnings(db: Session, plant_id: str, supplier_id: Any, challan_no: 
 def _over_receipt_text(index: int, item_code: str, received: Decimal, open_qty: Decimal, uom: str) -> str:
     unit = str(uom or "KG").lower()
     return (f"Line {index} ({item_code}): {float(received):g} {unit} is more than the {float(max(open_qty, Decimal('0'))):g} {unit} "
-            f"still open on the PO. Enter a reason to receive more than the PO.")
+            f"still open on the PO. Choose a reason to receive more than the PO.")
+
+
+def _over_receipt_choice(payload: Any, plant_id: Any, current_user: dict) -> ReasonChoice:
+    """The OVER_RECEIPT reason picked from the master; free text alone is refused (owner decision 4)."""
+    code, note = reason_input(payload, code_key="over_receipt_reason_code", note_keys=("over_receipt_reason_note",))
+    return resolve_reason(category="OVER_RECEIPT", code=code, note=note, plant_id=plant_id,
+                          token=token_of(current_user), what="receiving more than the PO")
 
 
 def _width_variance(lots: list[Any], specification: dict[str, Any]) -> Optional[dict[str, Any]]:
@@ -467,7 +481,7 @@ def preview_receipt(
             raise HTTPException(status_code=422, detail=f"Receipt line {index} needs physical lots or a positive quantity")
         open_qty = Decimal(str(po_line.qty_ordered)) - Decimal(str(po_line.qty_received)) - Decimal(str(po_line.qty_short_closed or 0))
         extra = over_receipt(received, open_qty)
-        if extra > 0 and not payload.over_receipt_reason:
+        if extra > 0 and not payload.over_receipt_reason_code:
             raise HTTPException(status_code=422, detail=_over_receipt_text(index, po_line.item.item_code, received, open_qty, po_line.uom))
         invoice_qty = received if requested.invoice_quantity is None else Decimal(str(requested.invoice_quantity))
         # Invoice pending: a rate typed from the challan is still compared with the PO (client 2026-10-30).
@@ -557,6 +571,7 @@ def post_governed_receipt(
     receipt_statuses: list[str] = []
     commercial_states: list[str] = []
     over_lines: list[dict[str, Any]] = []
+    over_choice: Optional[ReasonChoice] = None
     rate_cases: list[dict[str, Any]] = []
     for index, requested in enumerate(payload.lines, start=1):
         po_line = order_lines.get(requested.po_line_id)
@@ -572,8 +587,10 @@ def post_governed_receipt(
         remaining = Decimal(str(po_line.qty_ordered)) - Decimal(str(po_line.qty_received)) - Decimal(str(po_line.qty_short_closed or 0))
         extra = over_receipt(qty, remaining)
         if extra > 0:
-            if not payload.over_receipt_reason:
+            if not payload.over_receipt_reason_code:
                 raise HTTPException(status_code=422, detail=_over_receipt_text(index, po_line.item.item_code, qty, remaining, po_line.uom))
+            if over_choice is None:
+                over_choice = _over_receipt_choice(payload, plant_id, current_user)
             over_lines.append({"po_line_id": str(po_line.id), "item_code": po_line.item.item_code, "uom": po_line.uom,
                 "open_qty": float(max(remaining, Decimal("0"))), "received_qty": float(qty), "over_qty": float(extra)})
         invoice_qty = qty if requested.invoice_quantity is None else Decimal(str(requested.invoice_quantity))
@@ -612,7 +629,8 @@ def post_governed_receipt(
                 form = lot.physical_form or ("COIL" if _enum(po_line.item.type) == "PARCHMENT" else physical_form(lot.width_mm))
                 if _enum(po_line.item.type) == "PARCHMENT" and form != "COIL":
                     raise HTTPException(422, "Parchment is received as production-ready coils")
-                at_no = _next_receipt_reel_code(db, _plant_uuid(plant_id), payload.received_date)
+                serial = _next_receipt_reel_code(db, _plant_uuid(plant_id), payload.received_date)
+                at_no = serial["reel_code"]
                 # Quality specification is no longer typed on the PO (client 2026-10-26): the
                 # material master's nominal values describe the reel when the PO line has none.
                 spec = po_line.metadata_json or {}
@@ -634,7 +652,8 @@ def post_governed_receipt(
                         "po_line_id": str(po_line.id), "receipt_id": str(receipt.id), "grn_no": receipt.grn_no,
                         "challan_no": payload.supplier_challan_no, "invoice_no": payload.invoice_no, "invoice_date": payload.invoice_date.isoformat() if payload.invoice_date else None,
                         "po_rate": str(revision_line.unit_rate), "invoice_rate": requested.invoice_rate,
-                        "source_reel_no": source_no, "physical_form": form},
+                        "source_reel_no": source_no, "physical_form": form, **serial["metadata"],
+                        **({"mill_name": _mill_name(payload.mill_name)} if _mill_name(payload.mill_name) else {})},
                 )
                 db.add(reel)
                 db.flush()
@@ -649,7 +668,7 @@ def post_governed_receipt(
                 db.add(LotLabelRecord(plant_id=plant_id, reel_id=reel.id, label_code=at_no, content_snapshot=label_snapshot))
                 db.add(ReelScanEvent(plant_id=_plant_uuid(plant_id), reel_id=reel.id, event_type=ReelScanEventType.INWARD_SCAN,
                     source=ReelScanSource.INVENTORY, event_metadata={"receipt_id": str(receipt.id), "at_no": at_no, "source_reel_no": source_no}))
-                result_lots.append({"id": str(reel.id), "at_no": at_no, "source_reel_no": source_no,
+                result_lots.append({"id": str(reel.id), "at_no": serial["serial"], "source_reel_no": source_no,
                     "physical_form": form, "width_mm": lot.width_mm, "net_weight_kg": lot.net_weight_kg, "stock_status": stock_status,
                     "label": with_reel_facts(db, label_snapshot, reel, po_line.item)})
         else:
@@ -732,7 +751,9 @@ def post_governed_receipt(
     order.status = "RECEIVED" if all(line.line_status == "CLOSED" for line in order.lines or []) else "PARTIALLY_RECEIVED"
     if over_lines:
         receipt.approval_history = [*(receipt.approval_history or []), {"action": "OVER_RECEIPT", "actor": _actor(current_user),
-            "at": datetime.utcnow().isoformat(), "reason": payload.over_receipt_reason, "lines": over_lines}]
+            "at": datetime.utcnow().isoformat(), "reason": over_choice.text if over_choice else payload.over_receipt_reason,
+            "reason_code": over_choice.code if over_choice else None, "reason_label": over_choice.label if over_choice else None,
+            "reason_note": over_choice.note if over_choice else None, "lines": over_lines}]
     receipt.status = "QC_PENDING" if "PENDING" in receipt_statuses else "POSTED"
     receipt.commercial_status = (
         "INVOICE_PENDING" if "INVOICE_PENDING" in commercial_states
@@ -1109,7 +1130,11 @@ class DiscrepancyAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
     action: str = Field(pattern="^(ASSIGN|ACCEPT_VARIANCE|REJECT_INVOICE|RELEASE_STOCK)$")
     expected_version: int = Field(gt=0)
-    reason: str = Field(min_length=3, max_length=1000)
+    # Accept / reject / release pick an INVOICE_DIFF code from Masters › Reason codes (owner decision 4,
+    # 1 Nov 2026); ASSIGN needs none.
+    reason: Optional[str] = Field(default=None, max_length=1000)
+    reason_code: Optional[str] = Field(default=None, max_length=80)
+    reason_note: Optional[str] = Field(default=None, max_length=1000)
     assignee: Optional[str] = Field(default=None, max_length=200)
 
 
@@ -1158,6 +1183,17 @@ def act_on_discrepancy(
     receipt_line = db.query(PurchaseReceiptLine).filter(PurchaseReceiptLine.id == allocation.receipt_line_id).first()
     if payload.action in {"ACCEPT_VARIANCE", "RELEASE_STOCK"} and receipt_line.receipt.created_by == _actor(current_user):
         raise HTTPException(status_code=409, detail="The receipt maker cannot approve or release their own commercial exception")
+    coded: dict[str, Any] = {}
+    if payload.action == "ASSIGN":
+        reason_text = str(payload.reason_note or payload.reason or "").strip() or f"Assigned to {str(payload.assignee or '').strip()}"
+    else:
+        code, note = reason_input(payload)
+        choice = resolve_reason(category="INVOICE_DIFF", code=code, note=note, plant_id=row.plant_id or plant_id,
+                                token=token_of(current_user), what="this invoice difference")
+        reason_text = choice.text
+        coded = {"reason_code": choice.code, "reason_label": choice.label, "reason_note": choice.note}
+        row.evidence_json = {**dict(row.evidence_json or {}), "resolution_reason_code": choice.code,
+                             "resolution_reason_label": choice.label, "resolution_reason_note": choice.note}
     if payload.action == "ASSIGN":
         if not payload.assignee:
             raise HTTPException(status_code=422, detail="Assignee is required")
@@ -1173,14 +1209,14 @@ def act_on_discrepancy(
                 if target:
                     target.unit_cost = float(row.invoice_rate)
         row.status = "ACCEPTED"
-        row.resolution_reason = payload.reason
+        row.resolution_reason = reason_text
         row.resolved_at = datetime.utcnow()
         db.flush()
         _refresh_receipt_commercial_status(db, receipt_line)
         _refresh_receipt_line_stock(db, receipt_line)
     elif payload.action == "REJECT_INVOICE":
         row.status = "UNDER_REVIEW"
-        row.resolution_reason = payload.reason
+        row.resolution_reason = reason_text
     elif payload.action == "RELEASE_STOCK":
         if receipt_line.receipt.receipt_kind == "MANUAL" and not any(event.get("action") == "MANUAL_RECEIPT_APPROVED" for event in (receipt_line.receipt.approval_history or [])):
             raise HTTPException(409, "Approve the manual purchase before releasing its stock")
@@ -1197,14 +1233,14 @@ def act_on_discrepancy(
         ).count()
         if unresolved_siblings:
             raise HTTPException(status_code=409, detail="Resolve every other discrepancy on this receipt line before releasing stock")
-        row.resolution_reason = payload.reason
+        row.resolution_reason = reason_text
         if not receipt_line.receipt.invoice_pending:
             receipt_line.commercial_status = "RELEASED_WITH_CLAIM"
             receipt_line.receipt.commercial_status = "RELEASED_WITH_CLAIM"
         _refresh_receipt_line_stock(db, receipt_line)
     receipt_line.receipt.approval_history = [*(receipt_line.receipt.approval_history or []), {
         "action": payload.action, "discrepancy_id": str(row.id), "actor": _actor(current_user),
-        "reason": payload.reason, "at": datetime.utcnow().isoformat(), "invoice_rate": str(row.invoice_rate), "po_rate": str(row.po_rate),
+        "reason": reason_text, **coded, "at": datetime.utcnow().isoformat(), "invoice_rate": str(row.invoice_rate), "po_rate": str(row.po_rate),
     }]
     row.version += 1
     db.commit()
@@ -1217,12 +1253,17 @@ class DebitNoteCreate(BaseModel):
     request_id: uuid.UUID
     note_date: date
     discrepancy_ids: list[uuid.UUID] = Field(min_length=1)
-    reason: str = Field(min_length=3, max_length=1000)
+    # A DEBIT_NOTE code from Masters › Reason codes (owner decision 4, 1 Nov 2026); old free text alone is refused.
+    reason: Optional[str] = Field(default=None, max_length=1000)
+    reason_code: Optional[str] = Field(default=None, max_length=80)
+    reason_note: Optional[str] = Field(default=None, max_length=1000)
 
 
 def _debit_payload(note: PurchaseDebitNote) -> dict[str, Any]:
     return {"id": str(note.id), "debit_note_no": note.debit_note_no, "supplier_id": str(note.supplier_id),
         "supplier_name": note.supplier_name_snapshot, "note_date": note.note_date.isoformat(), "reason": note.reason,
+        "reason_code": note.reason_code, "reason_label": note.reason_label, "reason_note": note.reason_note,
+        "void_reason": note.void_reason, "void_reason_code": note.void_reason_code, "void_reason_label": note.void_reason_label,
         "status": note.status, "version": note.version, "total_amount": float(note.total_amount),
         "settled_amount": float(note.settled_amount), "open_amount": float(note.total_amount - note.settled_amount),
         "created_by": note.created_by, "approved_by": note.approved_by,
@@ -1241,6 +1282,9 @@ def create_debit_note(
         if existing.request_fingerprint != request_fingerprint:
             raise HTTPException(status_code=409, detail="This debit-note request key already exists with different details")
         return _debit_payload(existing)
+    code, note_text = reason_input(payload)
+    choice = resolve_reason(category="DEBIT_NOTE", code=code, note=note_text, plant_id=plant_id,
+                            token=token_of(current_user), what="the debit note")
     rows = db.query(PurchaseDiscrepancy).filter(PurchaseDiscrepancy.plant_id == plant_id, PurchaseDiscrepancy.id.in_(payload.discrepancy_ids)).with_for_update().all()
     if len(rows) != len(set(payload.discrepancy_ids)):
         raise HTTPException(status_code=404, detail="One or more discrepancies were not found")
@@ -1255,7 +1299,8 @@ def create_debit_note(
     note = PurchaseDebitNote(plant_id=plant_id, request_id=payload.request_id, request_fingerprint=request_fingerprint,
         debit_note_no=_next_doc_no(db, PurchaseDebitNote, plant_id, "debit_note_no", "DN"),
         supplier_id=uuid.UUID(next(iter(supplier_ids))), supplier_name_snapshot=source[0]["supplier_name"],
-        note_date=payload.note_date, reason=payload.reason, status="DRAFT",
+        note_date=payload.note_date, reason=choice.text, status="DRAFT",
+        reason_code=choice.code, reason_label=choice.label, reason_note=choice.note,
         total_amount=sum((row.claimable_amount for row in rows), Decimal("0")), created_by=_actor(current_user))
     db.add(note)
     db.flush()
@@ -1306,6 +1351,9 @@ class DebitNoteAction(BaseModel):
     action: str = Field(pattern="^(SUBMIT|APPROVE|ISSUE|VOID)$")
     expected_version: int = Field(gt=0)
     reason: Optional[str] = Field(default=None, max_length=1000)
+    # VOID picks a DEBIT_NOTE code (owner decision 4, 1 Nov 2026).
+    reason_code: Optional[str] = Field(default=None, max_length=80)
+    reason_note: Optional[str] = Field(default=None, max_length=1000)
 
 
 @router.post("/debit-notes/{note_id}/action")
@@ -1332,16 +1380,18 @@ def act_on_debit_note(
             if discrepancy:
                 discrepancy.status = "CLAIMED"; discrepancy.version += 1
     elif payload.action == "VOID" and note.status in {"DRAFT", "SUBMITTED", "APPROVED", "ISSUED"}:
-        if not payload.reason:
-            raise HTTPException(status_code=422, detail="Void reason is required")
         if Decimal(note.settled_amount or 0) > 0:
             raise HTTPException(status_code=409, detail="A debit note with settlement history cannot be voided; record a controlled adjustment")
+        code, note_text = reason_input(payload)
+        void = resolve_reason(category="DEBIT_NOTE", code=code, note=note_text, plant_id=note.plant_id or plant_id,
+                              token=token_of(current_user), what="voiding the debit note")
+        note.void_reason, note.void_reason_code, note.void_reason_label, note.void_reason_note = void.text, void.code, void.label, void.note
         note.status = "VOID"
         for line in note.lines or []:
             discrepancy = db.query(PurchaseDiscrepancy).filter(PurchaseDiscrepancy.id == line.discrepancy_id).first()
             if discrepancy and discrepancy.status in {"CLAIM_DRAFTED", "CLAIMED"}:
                 discrepancy.status = "OPEN"
-                discrepancy.resolution_reason = f"Debit note {note.debit_note_no} voided: {payload.reason.strip()}"
+                discrepancy.resolution_reason = f"Debit note {note.debit_note_no} voided: {void.text}"
                 discrepancy.version += 1
     else:
         raise HTTPException(status_code=409, detail=f"{payload.action} is not valid from {note.status}")
@@ -1524,6 +1574,9 @@ class PlanStatusAction(BaseModel):
     action: str = Field(pattern="^(SUBMIT|APPROVE|REJECT|LOCK)$")
     expected_version: int = Field(gt=0)
     reason: Optional[str] = Field(default=None, max_length=1000)
+    # REJECT picks a PURCHASE_REJECT code from Masters › Reason codes (owner decision 4, 1 Nov 2026).
+    reason_code: Optional[str] = Field(default=None, max_length=80)
+    reason_note: Optional[str] = Field(default=None, max_length=1000)
 
 
 @router.post("/plans/{plan_id}/action")
@@ -1545,8 +1598,12 @@ def act_on_plan(plan_id: uuid.UUID, payload: PlanStatusAction, db: Session = Dep
             raise HTTPException(status_code=403, detail="A different person must approve the procurement plan")
         plan.status = "APPROVED"
     elif payload.action == "REJECT" and plan.status == "SUBMITTED":
-        if not payload.reason:
-            raise HTTPException(status_code=422, detail="Rejection reason is required")
+        code, note = reason_input(payload)
+        choice = resolve_reason(category="PURCHASE_REJECT", code=code, note=note, plant_id=plan.plant_id or plant_id,
+                                token=token_of(current_user), what="rejecting this plan")
+        plan.working_calendar = {**dict(plan.working_calendar or {}), "rejection": {
+            "reason": choice.text, "reason_code": choice.code, "reason_label": choice.label, "reason_note": choice.note,
+            "by": actor, "at": datetime.utcnow().isoformat()}}
         plan.status = "REJECTED"
     elif payload.action == "LOCK" and plan.status == "APPROVED":
         plan.status = "LOCKED"
@@ -1701,6 +1758,9 @@ class CalendarEntryUpdate(BaseModel):
 class CalendarEntryCancel(BaseModel):
     model_config = ConfigDict(extra="forbid")
     reason: Optional[str] = Field(default=None, max_length=500)
+    # Cancelling an arrival needs a SUPPLIER_SCHEDULE code (owner decision 4, 1 Nov 2026).
+    reason_code: Optional[str] = Field(default=None, max_length=80)
+    reason_note: Optional[str] = Field(default=None, max_length=500)
 
 
 class CalendarApprove(BaseModel):
@@ -1757,7 +1817,11 @@ def calendar_update(entry_id: uuid.UUID, payload: CalendarEntryUpdate, db: Sessi
 @router.post("/schedule/entries/{entry_id}/cancel")
 def calendar_cancel(entry_id: uuid.UUID, payload: CalendarEntryCancel, db: Session = Depends(get_db),
                     plant_id: str = Depends(get_current_plant), current_user: dict = Depends(calendar_proposer)):
-    entry = rm_calendar.cancel_entry(db, plant_id, entry_id, _actor(current_user), is_owner=is_actual_owner(current_user), reason=payload.reason)
+    code, note = reason_input(payload)
+    entry = rm_calendar.cancel_entry(
+        db, plant_id, entry_id, _actor(current_user), is_owner=is_actual_owner(current_user),
+        choose_reason=lambda: resolve_reason(category="SUPPLIER_SCHEDULE", code=code, note=note, plant_id=plant_id,
+                                             token=token_of(current_user), what="cancelling this arrival"))
     db.commit(); db.refresh(entry)
     return {"plant_id": plant_id, **rm_calendar.entry_payload(entry)}
 
@@ -1914,7 +1978,11 @@ class StockPolicyCreate(BaseModel):
     order_multiple_kg: float = Field(default=0, ge=0)
     recipients: list[str] = Field(default_factory=list)
     cooldown_hours: int = Field(default=24, ge=1, le=720)
-    change_reason: str = Field(min_length=3, max_length=1000)
+    # A STOCK_POLICY code from Masters › Reason codes (owner decision 4, 1 Nov 2026); `change_reason` is the old
+    # free text, never enough on its own.
+    change_reason: Optional[str] = Field(default=None, max_length=1000)
+    change_reason_code: Optional[str] = Field(default=None, max_length=80)
+    change_reason_note: Optional[str] = Field(default=None, max_length=1000)
 
     @field_validator("target_stock_kg")
     @classmethod
@@ -1932,6 +2000,7 @@ def _policy_payload(policy: StockAlertPolicy) -> dict[str, Any]:
         "lead_time_days": policy.lead_time_days, "minimum_order_kg": float(policy.minimum_order_kg),
         "order_multiple_kg": float(policy.order_multiple_kg), "recipients": policy.recipients or [],
         "cooldown_hours": policy.cooldown_hours, "change_reason": policy.change_reason,
+        "change_reason_code": getattr(policy, "change_reason_code", None), "change_reason_label": getattr(policy, "change_reason_label", None),
         "activation_reason": policy.activation_reason, "version": policy.version, "created_by": policy.created_by,
         "activated_by": policy.activated_by, "activated_at": policy.activated_at.isoformat() if policy.activated_at else None}
 
@@ -1947,6 +2016,9 @@ def create_stock_policy(payload: StockPolicyCreate, db: Session = Depends(get_db
                         current_user: dict = Depends(require_role(["PlantManager", "Store"]))):
     if not (payload.target_stock_kg >= payload.reorder_point_kg >= payload.safety_stock_kg):
         raise HTTPException(status_code=422, detail="Target stock must be at least reorder point, which must be at least safety stock")
+    code, note = reason_input(payload, code_key="change_reason_code", note_keys=("change_reason_note",))
+    why = resolve_reason(category="STOCK_POLICY", code=code, note=note, plant_id=plant_id, token=token_of(current_user),
+                         what="this stock policy change")
     request_fingerprint = canonical_hash(payload.model_dump(mode="json", exclude={"request_id"}))
     existing_request = db.query(StockAlertPolicy).filter(StockAlertPolicy.plant_id == plant_id, StockAlertPolicy.request_id == payload.request_id).first()
     if existing_request:
@@ -1966,7 +2038,8 @@ def create_stock_policy(payload: StockPolicyCreate, db: Session = Depends(get_db
         recovery_margin_kg=payload.recovery_margin_kg, lead_time_days=payload.lead_time_days,
         minimum_order_kg=payload.minimum_order_kg, order_multiple_kg=payload.order_multiple_kg,
         recipients=payload.recipients, cooldown_hours=payload.cooldown_hours, version=int(latest) + 1,
-        change_reason=payload.change_reason.strip(), created_by=_actor(current_user))
+        change_reason=why.text, change_reason_code=why.code, change_reason_label=why.label, change_reason_note=why.note,
+        created_by=_actor(current_user))
     db.add(policy); db.commit(); db.refresh(policy)
     return _policy_payload(policy)
 
@@ -2096,7 +2169,11 @@ class CostDraftCreate(BaseModel):
     currency: str = Field(default="INR", pattern="^[A-Z]{3}$")
     base_cost: float = Field(ge=0)
     effective_from: date
-    change_reason: str = Field(min_length=3, max_length=1000)
+    # An RM_COST_CHANGE code from Masters › Reason codes (owner decision 4, 1 Nov 2026); `change_reason` is the
+    # old free text, never enough on its own.
+    change_reason: Optional[str] = Field(default=None, max_length=1000)
+    change_reason_code: Optional[str] = Field(default=None, max_length=80)
+    change_reason_note: Optional[str] = Field(default=None, max_length=1000)
     source: Optional[str] = Field(default=None, max_length=80)
     expected_sheet_version: Optional[int] = Field(default=None, gt=0)
     components: list[CostComponentInput] = Field(default_factory=list)
@@ -2107,6 +2184,7 @@ def _cost_version_payload(version: RmCostVersion) -> dict[str, Any]:
         "status": version.status, "base_cost": float(version.base_cost), "landed_cost": float(version.landed_cost),
         "effective_from": version.effective_from.isoformat(), "effective_to": version.effective_to.isoformat() if version.effective_to else None,
         "change_reason": version.change_reason, "activation_reason": version.activation_reason,
+        "change_reason_code": getattr(version, "change_reason_code", None), "change_reason_label": getattr(version, "change_reason_label", None),
         "source": version.source, "content_hash": version.content_hash,
         "created_by": version.created_by, "activated_by": version.activated_by,
         "activated_at": version.activated_at.isoformat() if version.activated_at else None,
@@ -2149,6 +2227,9 @@ def create_cost_draft(payload: CostDraftCreate, db: Session = Depends(get_db), p
     item = db.query(ItemMaster).filter(ItemMaster.id == payload.item_id, ItemMaster.plant_id == plant_id).first()
     if not item or _enum(item.type) == "FINISHED_GOOD":
         raise HTTPException(status_code=404, detail="Raw material not found")
+    code, note = reason_input(payload, code_key="change_reason_code", note_keys=("change_reason_note",))
+    why = resolve_reason(category="RM_COST_CHANGE", code=code, note=note, plant_id=plant_id, token=token_of(current_user),
+                         what="this cost change")
     request_fingerprint = canonical_hash(payload.model_dump(mode="json", exclude={"request_id", "expected_sheet_version"}))
     sheet = db.query(RmCostSheet).filter(RmCostSheet.plant_id == plant_id, RmCostSheet.item_id == item.id,
         RmCostSheet.currency == payload.currency).with_for_update().first()
@@ -2171,11 +2252,12 @@ def create_cost_draft(payload: CostDraftCreate, db: Session = Depends(get_db), p
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     latest_no = db.query(func.coalesce(func.max(RmCostVersion.version_no), 0)).filter(RmCostVersion.sheet_id == sheet.id).scalar() or 0
     snapshot = {"item_id": str(item.id), "base_cost": payload.base_cost, "landed_cost": str(landed),
-        "effective_from": payload.effective_from.isoformat(), "components": components, "reason": payload.change_reason}
+        "effective_from": payload.effective_from.isoformat(), "components": components, "reason": why.text}
     version = RmCostVersion(sheet_id=sheet.id, version_no=int(latest_no) + 1, request_id=payload.request_id,
         request_fingerprint=request_fingerprint,
         status="DRAFT", base_cost=payload.base_cost, landed_cost=landed, effective_from=payload.effective_from,
-        change_reason=payload.change_reason, source=payload.source, content_hash=canonical_hash(snapshot), created_by=_actor(current_user))
+        change_reason=why.text, change_reason_code=why.code, change_reason_label=why.label, change_reason_note=why.note,
+        source=payload.source, content_hash=canonical_hash(snapshot), created_by=_actor(current_user))
     db.add(version); db.flush()
     for index, component in enumerate(components):
         original = payload.components[index]
@@ -2261,7 +2343,11 @@ class LabelJobCreate(BaseModel):
     lot_ids: list[uuid.UUID] = Field(min_length=1)
     copies: int = Field(default=1, gt=0, le=20)
     profile: str = Field(default="PAPER_LOT_4X2", pattern="^(PAPER_LOT_4X2|PAPER_LOT_A4)$")
+    # A reprint picks a LABEL_REPRINT code from Masters › Reason codes (owner decision 4, 1 Nov 2026);
+    # `reprint_reason` is the old free text, never enough on its own.
     reprint_reason: Optional[str] = Field(default=None, max_length=1000)
+    reprint_reason_code: Optional[str] = Field(default=None, max_length=80)
+    reprint_reason_note: Optional[str] = Field(default=None, max_length=1000)
 
 
 def _saved_lot_labels(db, plant_id, lot_ids):
@@ -2288,11 +2374,14 @@ def create_label_job(payload: LabelJobCreate, db: Session = Depends(get_db), pla
         raise HTTPException(status_code=404, detail="One or more saved lot labels were not found")
     prior = db.query(LabelPrintJob).filter(LabelPrintJob.plant_id == plant_id).all()
     previously_printed = any(set(row.lot_ids or []) & {str(value) for value in payload.lot_ids} for row in prior)
-    if previously_printed and not payload.reprint_reason:
-        raise HTTPException(status_code=422, detail="A reprint reason is required for previously printed lots")
+    code, note = reason_input(payload, code_key="reprint_reason_code", note_keys=("reprint_reason_note",))
+    reprint = resolve_reason(category="LABEL_REPRINT", code=code, note=note, plant_id=plant_id, token=token_of(current_user),
+                             required=previously_printed, what="printing these labels again")
     job = LabelPrintJob(plant_id=plant_id, request_id=payload.request_id, request_fingerprint=request_fingerprint, profile=payload.profile,
         lot_ids=[str(value) for value in payload.lot_ids], copies=payload.copies, status="GENERATED",
-        reprint_reason=payload.reprint_reason, created_by=_actor(current_user))
+        reprint_reason=reprint.text if reprint else None, reprint_reason_code=reprint.code if reprint else None,
+        reprint_reason_label=reprint.label if reprint else None, reprint_reason_note=reprint.note if reprint else None,
+        created_by=_actor(current_user))
     db.add(job); db.commit(); db.refresh(job)
     return {"id": str(job.id), "lot_ids": job.lot_ids, "copies": job.copies, "profile": job.profile,
         "status": job.status, "labels": list(records.values()), "idempotent": False}
@@ -2320,7 +2409,12 @@ def label_job_pdf(job_id: uuid.UUID, db: Session = Depends(get_db), plant_id: st
             # worked out at print time: QC averages, else the spec marked "(spec)" (client 2026-10-30).
             label = with_reel_facts(db, label, reel)
         labels.append(label)
-    return StreamingResponse(BytesIO(build_lot_label_pdf(labels, job.copies, job.profile)), media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="lot-labels-{job.id}.pdf"'})
+    # The plant's label heading (plant master, owner decision 6); best effort like the PO print's buyer block.
+    from .purchase import _plant_master
+    plant = _plant_master(current_user.get("token", ""), plant_id) if any(label.get("facts") for label in labels) else {}
+    heading = str(plant.get("label_heading") or plant.get("legal_name") or plant.get("name") or "").strip()
+    pdf = build_lot_label_pdf(labels, job.copies, job.profile, heading=heading)
+    return StreamingResponse(BytesIO(pdf), media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="lot-labels-{job.id}.pdf"'})
 
 
 @router.get("/lots/{lot_id}")

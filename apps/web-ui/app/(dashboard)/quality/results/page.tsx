@@ -6,6 +6,7 @@ import { FormEvent, Suspense, useMemo, useState } from "react"
 import { ArrowUpRight, ChevronDown, Factory, LockKeyhole, PackageX, Search, ShieldCheck } from "lucide-react"
 
 import { QualityDeskNav } from "@/components/qc/QualityDeskNav"
+import { ReasonPicker, storedReasonText, useReasonChoice } from "@/components/reasons"
 import { Field, fieldClass } from "@/components/procurement/procurement-shell"
 import { PageHeader } from "@/components/workspace/page-header"
 import { RoleGate } from "@/components/workspace/role-gate"
@@ -32,7 +33,7 @@ const LOT_STATE: Record<string, { label: string; next: string; tone: string }> =
   REJECTED: { label: "Rejected", next: "Return to supplier or accept under concession", tone: "bg-signal-rose-soft text-signal-rose-ink ring-signal-rose-line" },
   COMMERCIAL_HOLD: { label: "QC passed · commercial hold", next: "Purchase clears the invoice / rate difference", tone: "bg-signal-amber-soft text-signal-amber-ink ring-signal-amber-line" },
 }
-const EMPTY_RELEASE = { reason: "", disposition: "RELEASE_AS_IS", affected_qty: "" }
+const EMPTY_RELEASE = { disposition: "RELEASE_AS_IS", affected_qty: "" }
 
 export default function HoldsAndInspectionsPage() {
   return <Suspense fallback={<LoadingState label="Loading holds…" />}><HoldsAndInspections /></Suspense>
@@ -58,7 +59,7 @@ function HoldsAndInspections() {
   const [releasing, setReleasing] = useState<string | null>(null)
   const [release, setRelease] = useState(EMPTY_RELEASE)
   const [manualOpen, setManualOpen] = useState(false)
-  const [manual, setManual] = useState({ job: "", stage: "WINDER", reason: "" })
+  const [manual, setManual] = useState({ job: "", stage: "WINDER" })
 
   const pending = usePendingInventoryQuality()
   const incoming = useInventoryQualityInspections({ limit: 100 })
@@ -91,24 +92,31 @@ function HoldsAndInspections() {
     if (value && value.toUpperCase() !== "ALL") return value
     return activePlant && activePlant.toUpperCase() !== "ALL" ? activePlant : undefined
   }
+  // Reasons come from Masters › Reason codes of the card's plant (owner decision 4, 1 Nov 2026).
+  const releasingHold = jobHolds.find((hold: any) => String(hold.id) === releasing)
+  const releasePlant = releasingHold ? plantFor(String(releasingHold.job_card_id || "")) : undefined
+  const releaseReason = useReasonChoice("QC_RELEASE", releasePlant)
+  const holdPlant = manual.job ? plantFor(manual.job) : activePlant
+  const holdReason = useReasonChoice("QC_HOLD", holdPlant)
   const doRelease = async (hold: any) => {
     const plantId = plantFor(String(hold.job_card_id || ""))
     if (!plantId) return showToast("Switch to the job card's plant before releasing its hold.", "error")
-    if (release.reason.trim().length < 3) return showToast("Say why the hold can be released and what was done with the material.", "error")
+    if (!releaseReason.validate()) return
     try {
-      await releaseHold.mutateAsync({ holdId: String(hold.id), plantId, data: { reason: release.reason.trim(), disposition: release.disposition, affected_qty: release.affected_qty ? Number(release.affected_qty) : undefined } })
-      setReleasing(null); setRelease(EMPTY_RELEASE)
+      await releaseHold.mutateAsync({ holdId: String(hold.id), plantId, data: { ...releaseReason.payload("reason"), disposition: release.disposition, affected_qty: release.affected_qty ? Number(release.affected_qty) : undefined } })
+      setReleasing(null); setRelease(EMPTY_RELEASE); releaseReason.reset()
       showToast("Hold released.", "success")
     } catch (error: any) { showToast(errorText(error, "Hold release failed."), "error") }
   }
   const doManualHold = async (event: FormEvent) => {
     event.preventDefault()
     const plantId = plantFor(manual.job)
-    if (!manual.job || !manual.reason.trim()) return showToast("Choose the job card and give the reason for the hold.", "error")
+    if (!manual.job) return showToast("Choose the job card to hold.", "error")
+    if (!holdReason.validate()) return
     if (!plantId) return showToast("Switch to the job card's plant first.", "error")
     try {
-      await createHold.mutateAsync({ plantId, data: { job_card_id: manual.job, stage_type: manual.stage, reason: manual.reason.trim() } })
-      setManual({ job: "", stage: "WINDER", reason: "" }); setManualOpen(false)
+      await createHold.mutateAsync({ plantId, data: { job_card_id: manual.job, stage_type: manual.stage, ...holdReason.payload("reason") } })
+      setManual({ job: "", stage: "WINDER" }); holdReason.reset(); setManualOpen(false)
       showToast("Job card put on QC hold.", "success")
     } catch (error: any) { showToast(errorText(error, "Hold could not be created."), "error") }
   }
@@ -179,14 +187,14 @@ function HoldsAndInspections() {
           <section className="overflow-hidden rounded-xl border border-border bg-card" data-testid="job-holds">
             <header className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-4 py-3">
               <div><h2 className="font-semibold">Job cards on hold</h2><p className="text-[12.5px] text-muted-foreground">Cards put on hold by hand by QC, the plant head, Admin or Owner; only the plant head, Admin or Owner can release them. An out-of-band stage reading is only flagged (see In-process QC); it does not hold the card. A held card cannot move to the next stage; other batches on the card keep moving.</p></div>
-              {canRaiseHolds ? <button type="button" className="erp-btn-secondary !h-9" onClick={() => setManualOpen(!manualOpen)}><LockKeyhole className="h-4 w-4" />Put a job card on hold</button> : null}
+              {canRaiseHolds ? <button type="button" className="erp-btn-secondary !h-9" onClick={() => { if (!manualOpen) holdReason.reset(); setManualOpen(!manualOpen) }}><LockKeyhole className="h-4 w-4" />Put a job card on hold</button> : null}
             </header>
             {manualOpen ? (
-              <form className="grid gap-3 border-b border-border bg-muted/30 p-4 md:grid-cols-[minmax(0,1.3fr)_10rem_minmax(0,1.5fr)_auto] md:items-end" onSubmit={doManualHold}>
+              <form className="grid gap-3 border-b border-border bg-muted/30 p-4 md:grid-cols-[minmax(0,1.3fr)_10rem_minmax(0,1.5fr)_auto] md:items-start" onSubmit={doManualHold}>
                 <Field label="Job card"><select className={fieldClass} value={manual.job} onChange={(e) => setManual({ ...manual, job: e.target.value })}><option value="">Choose</option>{jobs.filter((job: any) => !["COMPLETED", "CLOSED", "CANCELLED"].includes(String(job.status))).slice(0, 150).map((job: any) => <option key={job.id} value={job.id}>{jobLabel(String(job.id))}</option>)}</select></Field>
                 <Field label="Stage"><select className={fieldClass} value={manual.stage} onChange={(e) => setManual({ ...manual, stage: e.target.value })}>{["WINDER", "OVEN", "PROCESS", "QC"].map((stage) => <option key={stage} value={stage}>{stageLabel(stage)}</option>)}</select></Field>
-                <Field label="Reason"><input className={fieldClass} value={manual.reason} onChange={(e) => setManual({ ...manual, reason: e.target.value })} /></Field>
-                <button type="submit" className="erp-btn-primary" disabled={createHold.isPending}>Hold</button>
+                <ReasonPicker category="QC_HOLD" plantId={holdPlant} value={holdReason.value} onChange={holdReason.setValue} showErrors={holdReason.touched} compact testIdPrefix="qc-hold" />
+                <button type="submit" className="erp-btn-primary md:mt-6" disabled={createHold.isPending}>Hold</button>
               </form>
             ) : null}
             {holdsQuery.isLoading ? <LoadingState label="Loading holds…" /> : holdsQuery.isError ? <ErrorState message="Holds could not be loaded. This is not an empty list." onRetry={() => holdsQuery.refetch()} /> : jobHolds.length ? (
@@ -196,20 +204,20 @@ function HoldsAndInspections() {
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="font-semibold">{stageLabel(hold.stage_type)} · <Link className="text-primary hover:underline" href={`/production/job-cards/${hold.job_card_id}`}>{jobLabel(String(hold.job_card_id))}</Link></p>
-                        <p className="text-[12.5px] text-muted-foreground">{hold.reason} · since {stamp(hold.created_at)}{hold.created_by ? ` · ${hold.created_by}` : ""}</p>
+                        <p className="text-[12.5px] text-muted-foreground">{storedReasonText(hold)} · since {stamp(hold.created_at)}{hold.created_by ? ` · ${hold.created_by}` : ""}</p>
                         <p className="mt-1 text-[12.5px] font-medium text-signal-amber-ink">{canDecideHolds ? "Your decision: release as is, after rework or sorting, or with part scrapped." : "Waiting for the plant head / Admin / Owner to decide."}</p>
                       </div>
                       <div className="flex gap-2">
                         <Link className="erp-btn-secondary !h-9" href={`/production/job-cards/${hold.job_card_id}`}>Open card<ArrowUpRight className="h-3.5 w-3.5" /></Link>
-                        {canDecideHolds ? <button type="button" className={releasing === String(hold.id) ? "erp-btn-secondary !h-9" : "erp-btn-primary !h-9"} onClick={() => { setRelease(EMPTY_RELEASE); setReleasing(releasing === String(hold.id) ? null : String(hold.id)) }}>{releasing === String(hold.id) ? "Cancel" : "Decide…"}</button> : null}
+                        {canDecideHolds ? <button type="button" className={releasing === String(hold.id) ? "erp-btn-secondary !h-9" : "erp-btn-primary !h-9"} onClick={() => { setRelease(EMPTY_RELEASE); releaseReason.reset(); setReleasing(releasing === String(hold.id) ? null : String(hold.id)) }}>{releasing === String(hold.id) ? "Cancel" : "Decide…"}</button> : null}
                       </div>
                     </div>
                     {releasing === String(hold.id) ? (
-                      <div className="mt-3 grid gap-3 rounded-lg border border-border bg-muted/30 p-3 md:grid-cols-[minmax(0,1fr)_12rem_8rem_auto] md:items-end" data-testid="hold-release-form">
-                        <Field label="Why it can be released"><input className={fieldClass} value={release.reason} onChange={(e) => setRelease({ ...release, reason: e.target.value })} /></Field>
+                      <div className="mt-3 grid gap-3 rounded-lg border border-border bg-muted/30 p-3 md:grid-cols-[minmax(0,1fr)_12rem_8rem_auto] md:items-start" data-testid="hold-release-form">
+                        <ReasonPicker category="QC_RELEASE" plantId={releasePlant} label="Why it can be released" value={releaseReason.value} onChange={releaseReason.setValue} showErrors={releaseReason.touched} compact testIdPrefix="qc-release" />
                         <Field label="Decision"><select className={fieldClass} value={release.disposition} onChange={(e) => setRelease({ ...release, disposition: e.target.value })}><option value="RELEASE_AS_IS">Release as is (use it)</option><option value="REWORKED">Reworked, now OK</option><option value="SORTED">Sorted / segregated, good part released</option><option value="PARTLY_SCRAPPED">Part scrapped, rest released</option></select></Field>
                         <Field label="Qty affected" hint="optional"><input className={fieldClass} type="number" min={0} value={release.affected_qty} onChange={(e) => setRelease({ ...release, affected_qty: e.target.value })} /></Field>
-                        <button type="button" className="erp-btn-primary" disabled={releaseHold.isPending} onClick={() => void doRelease(hold)}>Record decision &amp; release</button>
+                        <button type="button" className="erp-btn-primary md:mt-6" disabled={releaseHold.isPending} onClick={() => void doRelease(hold)}>Record decision &amp; release</button>
                       </div>
                     ) : null}
                   </li>

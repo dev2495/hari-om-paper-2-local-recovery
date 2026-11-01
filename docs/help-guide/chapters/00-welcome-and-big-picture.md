@@ -7,7 +7,10 @@
 ## At a glance
 - TubeOS runs two loops that meet on the floor: **SELL → MAKE → SHIP** (customer order to dispatch) and **BUY → STORE → FEED** (raw material planning to issue on the floor).
 - The **job card** is the floor's truth. Planning is only the plan: nothing in planning stops the floor from logging a run.
-- Quality has two different rules. **Incoming QC** holds a lot whose reading is outside its band, and a held lot cannot be issued. **In-process QC** (winding, oven, process) only **flags** an out-of-band reading; it never holds the card.
+- Quality has two different rules. **Incoming QC** holds a lot whose reading is outside its band, and a held lot cannot be issued. **Job card QC** (winding, oven, process and final) only **flags** an out-of-band reading; it never holds or rejects the card and never blocks dispatch. Only a hold that the plant head, QC, Owner or Admin places on purpose stops a card.
+- **Finished tubes are packed in boxes.** Process good pcs fill boxes of the spec's qty per box; each box has a code and a QR label, goes into stock on its own, and ships whole on a challan. The last pcs go into a **part box**.
+- **Any stage can close short.** The pcs not made go back to the sales order at once; Sales releases them again or short closes the order.
+- **Every "why" is a reason code** picked from Masters › Reason codes, with an optional note.
 - Numbers are made by the system: SO numbers, job card numbers, PO numbers, GRN (inward) numbers and reel labels. You never type them.
 - Every page shows plain status words (for example **Ready to release**, **Running**, **Waiting for QC**). The cheat sheet below lists them.
 
@@ -18,9 +21,10 @@ title: SELL → MAKE → SHIP
 Customer PO [Sales] -> Sales order [Sales] -> Approve [Sales/Planner/Owner/Admin] -> Release lines [Sales/Planner] (job cards are made) -> Plan [Planner] -> Winder, Oven, Process [Operator] -> QC readings [Operator/QC] -> Dispatch challan [Dispatch]
 after Approve: Hold or Cancel [Sales/Owner] -> Short close [Sales/Plant Manager]
 after Winder, Oven, Process: Reading out of band [Operator] -> Flagged, card continues
+after Winder, Oven, Process: Stage closed short [Plant Manager] -> Balance back to the order [Sales]
 ```
 
-The customer's PO becomes a **sales order**. A second person approves it (the Owner and Admin may approve their own). Releasing a line makes one **job card per line and parchment colour** in the winder queue. The planner places the cards on machines and shifts; the floor logs runs and at least two QC readings per check at each stage. When Process closes, packing and the final check close with it, and the pieces wait for a delivery challan.
+The customer's PO becomes a **sales order**. A second person approves it (the Owner and Admin may approve their own). Releasing a line makes one **job card per line and parchment colour** in the winder queue. The planner places the cards on machines and shifts; the floor logs runs and at least two QC readings per check at each stage. As Process good pcs get their readings, they are packed into labelled boxes that go into stock and can ship at once, even while Process runs. When Process closes, packing and the final check close with it and the pcs left become a part box. A stage that cannot reach its target closes short; its balance goes back to the order.
 
 ```flow
 title: BUY → STORE → FEED
@@ -92,10 +96,10 @@ What you see:
 |---|---|
 | In queue | Released, not on the calendar yet. |
 | Scheduled | Placed on a machine and shift. |
-| Running | The floor is logging runs. |
-| Ready to dispatch | Process closed; packed pieces wait for a challan. |
-| Completed (tab **Done**) | All stages done. |
-| Force-closed (tab **Closed early**) | Closed at the quantity made; the balance went back to the order. |
+| Running | The floor is logging runs. A card with a stage closed short, or force-closed, whose made pcs are still moving stays here with a "closed early" chip. |
+| Ready to dispatch | Process closed; its boxes are packed and labelled and wait for a challan. |
+| Completed (tab **Done**) | Process closed and every box shipped or kept as surplus. |
+| Force-closed (tab **Closed early** once nothing is left to make or ship) | Closed at the quantity made; the balance went back to the order. |
 | Cancelled | Nothing made; the whole quantity went back to the order. |
 
 **Plan status** words: "planned 30 Oct · Shift A", "running · planned …", "plan in 2 parts · next …", "slot … passed", "slot passed with nothing logged, back in the queue", "not planned yet", "waiting for the winding plan", "follows Process", "Finished".
@@ -116,7 +120,8 @@ What you see:
 | Job card | YY/MM/NN | 26/10/315 | Restarts every month (India time). A split or top-up card keeps the root and adds a letter: 26/10/315-A. |
 | Purchase order | RP-PM/NN or OT/NN | RP-PM/68 | RP-PM for raw and packing material, OT for other items; per plant. |
 | GRN (inward) | P/YY/NNN, A/YY/NNN, IN/YY/NNN | P/26/001 | P paper, A adhesive, IN everything else. Restarts on 1 April: P/26/… is financial year 2026-27, so January to March 2027 is still P/26/…; 1 April 2027 starts P/27/001. |
-| Reel / coil label | AT number | one per physical reel or coil | Printed at inward; reprints never create stock. |
+| Reel / coil label | AIT serial | AIT 06243; coil AIT 06243-1 | One series per plant and financial year, restarting at AIT 00001 on 1 April. Printed at inward; reprints never create stock. Older reels keep AT-yymmdd-nnn numbers. |
+| Finished-goods box | B + card number + 3 digits | B2610315-001 | One per box packed on a job card; the part box is the last one. Label reprints never create stock. |
 
 ## How the pages connect
 
@@ -136,7 +141,9 @@ What you see:
 - Every release needs a parchment colour; one job card is one colour (BLOCKS release).
 - Planning never blocks the floor. A run logged with no plan is placed on its date and shift and flagged "before planning" (FLAG only).
 - Each winding, oven and process run needs at least 2 readings per required check before the stage can close and before the next stage takes it (BLOCKS stage close).
-- Out-of-band in-process readings are saved and flagged (FLAG only). Out-of-band incoming readings hold the lot (BLOCKS issue).
+- Out-of-band job card readings are saved and flagged, never held (FLAG only). Out-of-band incoming readings hold the lot (BLOCKS issue). Only holds placed on purpose block a card's next stage and dispatch.
+- Every reason is a code from Masters › Reason codes; free text alone is refused, and OTHER codes need a note (BLOCKS).
+- A stage short close returns (stage target − stage good) pcs to the order at once; returns + pcs in boxes always equal the pcs released (AUTOMATIC).
 - Only QC-cleared stock can be issued; nothing returns from the floor.
 - A closed month refuses stock and floor entries dated in it until the Owner re-opens it.
 
@@ -146,14 +153,18 @@ Sharma Tubes Pvt Ltd sends PO GOLIVE-PO-118 for 5,000 pcs of 76.4 x 81 x 150 at 
 2. Sales releases it: two job cards, **26/10/315** (BLUE, 3,000 pcs) and **26/10/316** (RED, 2,000 pcs), go to the winder queue.
 3. The planner places 26/10/315 on a winder, Shift A, 31 Oct. Operators log Winding, Oven and Process runs with two QC readings each.
 4. Meanwhile the RM inward calendar shows Kraft 300 GSM running short on 4 Nov. The Owner approves an arrival; PO **RP-PM/68** goes to Bharat Paper Mills, arrives as **P/26/014** with 12 reels, passes incoming QC and is issued to the floor.
-5. When 26/10/315 closes Process, Dispatch makes the challan for 3,000 pcs; the order shows **Partly dispatched** until 26/10/316 ships too.
+5. As 26/10/315's Process runs get their readings, its pcs are packed in boxes of 48. Dispatch ships the first 40 boxes (1,920 pcs) while Process is still running. Process then closes with 2,990 good pcs (10 short of 3,000, reason SS-HIGH-REJECT): 62 full boxes and a part box of 14, and 10 pcs go back to the order. The second challan takes the other 23 boxes (1,070 pcs). The order shows **Partly dispatched** until 26/10/316 ships too.
 
 ## Common questions
 **Q: Why does my sidebar look different from my colleague's?** A: Each role sees only its pages. See the role table in Getting started.
 
 **Q: The plan says "not planned yet" but the operator already logged a run. Is that wrong?** A: No. Planning never blocks. The run is kept and flagged as before planning.
 
-**Q: A reading was outside the band at Oven. Is the card stopped?** A: No. In-process readings are flagged, not held. The card carries on; managers see the flag.
+**Q: A reading was outside the band at Oven. Is the card stopped?** A: No. Job card readings are flagged, not held. The card carries on and its boxes still ship; managers see the flag.
+
+**Q: What is a part box?** A: The last box of a job card, packed when Process closes, holding the pcs that did not fill a full box. Its label says PART BOX.
+
+**Q: Winding could not make the full quantity. What happens to the order?** A: The plant manager closes Winding short with a reason. The unmade pcs go back to the order line at once, and Sales releases them again or short closes the order.
 
 **Q: A reel failed incoming QC. Can the store issue it?** A: No. A held lot cannot be issued until QC re-checks it or the plant head concedes it.
 

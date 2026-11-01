@@ -1,6 +1,7 @@
 """Find a lot, reel or coil by the number a person types (client 2026-10-30, issue desks).
 
-A typed number must work as well as a scan: the Amigo inward / lot number, the AT number, the vendor reel
+A typed number must work as well as a scan: the Amigo inward / lot number, the AIT serial (``ait 6243`` finds
+``AIT 06243``) or older AT number, the vendor reel
 number, an opening-stock old mark or a GRN number, in any case, with or without spaces, slashes or dashes,
 or a unique part of one. Read only; the caller scopes the plants and checks the role.
 
@@ -20,6 +21,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from ..models import InventoryLocation, ItemMaster, PaperReel, StockBatch
+from .reel_serial import normal_serial
 from .stock_lots import _enum, _unwrap, batch_balances, lot_row
 
 KINDS = {"ALL", "LOT", "REEL"}
@@ -143,6 +145,8 @@ def find_by_number(db: Session, plants: list[str], code: Any, *, kind: str = "AL
     kind = str(kind or "ALL").upper()
     kind = kind if kind in KINDS else "ALL"
     typed = typed_number(code)
+    # The plant's serial typed any way (``ait 6243``, ``AIT-06243-1``) reads as printed: ``AIT 06243(-1)``.
+    typed = normal_serial(typed) or typed
     wanted_chars = compact(typed)
     empty = {"code": typed, "match": "NONE", "count": 0, "truncated": False, "rows": []}
     if not wanted_chars or not plants:

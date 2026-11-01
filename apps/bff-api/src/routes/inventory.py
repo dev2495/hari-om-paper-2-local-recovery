@@ -1509,3 +1509,9 @@ async def return_production_material(request: Request, token: str = Depends(get_
     body = await request.json()
     await assert_not_backdated(token, request.headers.get("X-Plant-ID", ""), effective_date=body.get("effective_date"))
     return await proxy_to_service(INVENTORY_SERVICE_URL, "/issue/returns", request, token, json_body=body)
+
+
+# The plant's AIT reel serial (owner decision 6, 1 Nov 2026): this year's next number; Owner / Admin set it once.
+@router.api_route("/reel-serial", methods=["GET", "PUT"])
+async def reel_serial_setting(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/reel-serial", request, token)

@@ -84,6 +84,8 @@ export type Discrepancy = {
   signed_amount: number
   claimable_amount: number
   assignee?: string | null
+  /** The decision text ("Label — note" of the INVOICE_DIFF reason, owner decision 4, 1 Nov 2026). */
+  resolution_reason?: string | null
 }
 
 export type ProcurementPlanEntry = {

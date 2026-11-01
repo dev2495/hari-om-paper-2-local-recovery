@@ -16,7 +16,7 @@ import {
 import { CorrectionSheet } from "@/components/inventory/correction-sheet"
 import { ChangedAfterCountNotice } from "@/components/inventory/changed-after-count"
 import { CountStartSheet } from "@/components/inventory/count-start-sheet"
-import { Chip, Count, EmptyBlock, Field, Notice, Panel, PickPlant, SegmentBar, Segmented, Sheet, TONE, fieldClass } from "@/components/inventory/stock-ui"
+import { Chip, Count, EmptyBlock, Notice, Panel, PickPlant, SegmentBar, Segmented, Sheet, TONE, fieldClass } from "@/components/inventory/stock-ui"
 import { PageHeader } from "@/components/workspace/page-header"
 import { ErrorState, LoadingState } from "@/components/workspace/query-state"
 import { useOpeningLoads } from "@/hooks/use-inventory"
@@ -30,6 +30,7 @@ import {
 } from "@/lib/api-stock"
 import { businessDate } from "@/lib/business-date"
 import { cn } from "@/lib/utils"
+import { ReasonPicker, reasonPayload, useReasonChoice } from "@/components/reasons"
 
 type Tab = "counts" | "corrections" | "book"
 const TABS: Tab[] = ["counts", "corrections", "book"]
@@ -250,7 +251,8 @@ function CorrectionCard({ row, canApprove }: { row: Correction; canApprove: bool
   const approve = useApproveCorrection()
   const reject = useRejectCorrection()
   const [rejecting, setRejecting] = useState(false)
-  const [note, setNote] = useState("")
+  // Rejecting picks an APPROVAL_REJECT code from Masters › Reason codes (owner decision 4, 1 Nov 2026).
+  const rejectWhy = useReasonChoice("APPROVAL_REJECT")
   const [error, setError] = useState("")
   const tone = row.status === "DRAFT" ? "amber" : row.status === "POSTED" ? "emerald" : "slate"
   const statusWord = row.status === "DRAFT" ? "Waiting for the Owner" : row.status === "POSTED" ? "Approved" : "Rejected"
@@ -297,8 +299,8 @@ function CorrectionCard({ row, canApprove }: { row: Correction; canApprove: bool
       {row.status === "CANCELLED" && row.cancel_note ? <p className="mt-1.5 text-[12.5px] text-muted-foreground">Rejected by {who(row.cancelled_by)}: {row.cancel_note}</p> : null}
       {error ? <Notice tone="rose" className="mt-2">{error}</Notice> : null}
       <Sheet open={rejecting} onOpenChange={setRejecting} title="Reject this correction?" description="Stock does not change. The person who raised it sees your note."
-        footer={<><button type="button" className="erp-btn-secondary !h-11" onClick={() => setRejecting(false)}>Cancel</button><button type="button" className="erp-btn-primary !h-11" disabled={note.trim().length < 3 || reject.isPending} onClick={() => reject.mutateAsync({ id: row.id, note: note.trim() }).then(() => setRejecting(false)).catch((cause) => setError(errorText(cause)))} data-testid="correction-reject-confirm">Reject</button></>}>
-        <Field label="Why (needed)"><textarea className={`${fieldClass} !h-20 py-2`} value={note} onChange={(event) => setNote(event.target.value)} maxLength={500} /></Field>
+        footer={<><button type="button" className="erp-btn-secondary !h-11" onClick={() => setRejecting(false)}>Cancel</button><button type="button" className="erp-btn-primary !h-11" disabled={reject.isPending} onClick={() => { if (!rejectWhy.validate()) return; reject.mutateAsync({ id: row.id, ...reasonPayload(rejectWhy.rows, rejectWhy.value, null) }).then(() => { setRejecting(false); rejectWhy.reset() }).catch((cause) => setError(errorText(cause))) }} data-testid="correction-reject-confirm">Reject</button></>}>
+        <ReasonPicker category="APPROVAL_REJECT" label="Why" value={rejectWhy.value} onChange={rejectWhy.setValue} showErrors={rejectWhy.touched} compact testIdPrefix="correction-reject" />
       </Sheet>
     </li>
   )

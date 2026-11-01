@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { ReasonPicker } from "@/components/reasons"
 import { useApp } from "@/context/AppContext"
 import { apiErrorText } from "@/hooks/use-lifecycle"
 import { useCloseSalesOrder } from "@/hooks/use-sales"
@@ -53,8 +54,9 @@ export function useOrderCloseReasons(plantId: string | undefined, enabled: boole
 export const closeReasonNeedsNote = (code: string) => /(^|[^A-Z0-9])OTHERS?($|[^A-Z0-9])/.test(String(code || "").trim().toUpperCase())
 export const closeReasonComplete = (code: string, note: string) => Boolean(code) && (!closeReasonNeedsNote(code) || note.trim().length >= 5)
 
-/** Reason code + note fields shared by every way an order is closed. */
-export function OrderCloseReasonFields({ reasons, reasonCode, note, onReasonCodeChange, onNoteChange, testIdPrefix = "sales-order:closure", notePlaceholder }: {
+/** Reason code + note fields shared by every way an order is closed: the shared ReasonPicker
+ * (searchable, note required for OTHER) over the plant's SO_CLOSE list (owner decision 4, 1 Nov 2026). */
+export function OrderCloseReasonFields({ reasons, reasonCode, note, onReasonCodeChange, onNoteChange, testIdPrefix = "sales-order:closure", notePlaceholder, showErrors = false }: {
   reasons: ReturnType<typeof useOrderCloseReasons>
   reasonCode: string
   note: string
@@ -62,58 +64,43 @@ export function OrderCloseReasonFields({ reasons, reasonCode, note, onReasonCode
   onNoteChange: (value: string) => void
   testIdPrefix?: string
   notePlaceholder?: string
+  showErrors?: boolean
 }) {
   const rows: any[] = reasons.data || []
-  const needsNote = closeReasonNeedsNote(reasonCode)
+  if (reasons.isLoading) return <span role="status" className="text-[12.5px] text-muted-foreground">Loading reasons…</span>
+  if (reasons.isError) {
+    return (
+      <span role="alert" className="text-[12.5px] text-signal-rose-ink">
+        Reasons could not be loaded: {apiErrorText(reasons.error)}.{" "}
+        <button type="button" className="font-semibold underline" onClick={() => void reasons.refetch()}>Try again</button>
+      </span>
+    )
+  }
+  if (!rows.length) {
+    return (
+      <span className="text-[12.5px] text-muted-foreground">
+        No order cancel / short close reasons are set up for this plant.{" "}
+        <Link href="/masters/order-close-reasons" className="font-semibold text-primary underline">Add them in Masters › Order close reasons</Link> (Owner or Admin).
+      </span>
+    )
+  }
   return (
-    <>
-      <label className="grid gap-1.5 text-[13px] font-medium">
-        Reason *
-        {reasons.isLoading ? (
-          <span role="status" className="text-[12.5px] font-normal text-muted-foreground">Loading reasons…</span>
-        ) : reasons.isError ? (
-          <span role="alert" className="text-[12.5px] font-normal text-signal-rose-ink">
-            Reasons could not be loaded: {apiErrorText(reasons.error)}.{" "}
-            <button type="button" className="font-semibold underline" onClick={() => void reasons.refetch()}>Try again</button>
-          </span>
-        ) : rows.length ? (
-          <select
-            data-testid={`${testIdPrefix}-reason`}
-            value={reasonCode}
-            onChange={(event) => onReasonCodeChange(event.target.value)}
-            className="h-11 w-full min-w-0 rounded-lg border border-input bg-card px-3 text-[14px] font-normal sm:h-10 sm:text-[13px]"
-          >
-            <option value="">Choose why</option>
-            {rows.map((row) => <option key={row.id || row.code} value={row.code}>{row.label} ({row.code})</option>)}
-          </select>
-        ) : null}
-        {!reasons.isLoading && !reasons.isError && rows.length ? (
-          <span className="text-[12px] font-normal text-muted-foreground">
-            Reason not in the list?{" "}
-            <Link href="/masters/order-close-reasons" className="inline-flex min-h-11 items-center font-semibold text-primary underline sm:min-h-0" data-testid={`${testIdPrefix}-manage-reasons`}>Order close reasons</Link>{" "}
-            (the Owner or an Admin adds them there).
-          </span>
-        ) : null}
-        {reasons.isLoading || reasons.isError || rows.length ? null : (
-          <span className="text-[12.5px] font-normal text-muted-foreground">
-            No order cancel / short close reasons are set up for this plant.{" "}
-            <Link href="/masters/order-close-reasons" className="font-semibold text-primary underline">Add them in Masters › Order close reasons</Link> (Owner or Admin).
-          </span>
-        )}
-      </label>
-      <label className="grid gap-1.5 text-[13px] font-medium">
-        <span>Note {needsNote ? "*" : <span className="font-normal text-muted-foreground">(optional)</span>}</span>
-        <textarea
-          data-testid={`${testIdPrefix}-note`}
-          value={note}
-          onChange={(event) => onNoteChange(event.target.value)}
-          rows={2}
-          maxLength={1000}
-          placeholder={needsNote ? "Say what happened (needed for Other)" : notePlaceholder || "e.g. Confirmed by the customer on call, 20 Oct"}
-          className="w-full min-w-0 rounded-lg border border-input bg-card px-3 py-2 text-[14px] font-normal sm:text-[13px]"
-        />
-      </label>
-    </>
+    <div className="grid gap-1">
+      <ReasonPicker
+        category="SO_CLOSE"
+        rows={rows}
+        value={{ code: reasonCode, note }}
+        onChange={(value) => { if (value.code !== reasonCode) onReasonCodeChange(value.code); if (value.note !== note) onNoteChange(value.note) }}
+        showErrors={showErrors}
+        notePlaceholder={notePlaceholder || "e.g. Confirmed by the customer on call, 20 Oct"}
+        testIdPrefix={testIdPrefix}
+      />
+      <span className="text-[12px] font-normal text-muted-foreground">
+        Reason not in the list?{" "}
+        <Link href="/masters/order-close-reasons" className="inline-flex min-h-11 items-center font-semibold text-primary underline sm:min-h-0" data-testid={`${testIdPrefix}-manage-reasons`}>Order close reasons</Link>{" "}
+        (the Owner or an Admin adds them there).
+      </span>
+    </div>
   )
 }
 

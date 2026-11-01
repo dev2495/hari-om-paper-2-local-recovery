@@ -11,6 +11,7 @@ import { usePeopleVersion } from "@/hooks/use-people"
 import { personLabel } from "@/lib/people"
 import { relativeLimitText } from "@/lib/qc-measurement"
 import { displayStageRule } from "@/lib/qc-measurement"
+import { rejectReasonText } from "./card/model"
 
 const stageName = (stage: string) =>
   stage === "WINDER" ? "Winding" : stage === "QC" ? "Final QC" : stage.charAt(0) + stage.slice(1).toLowerCase()
@@ -232,7 +233,8 @@ export function SeasonPrintLog({ card, machineLabel }: { card: any; machineLabel
               <td className="num">
                 {e.rejected ? qty(e.rejected) : ""}
                 {e.details?.reject_code ? ` ${e.details.reject_code}` : ""}
-                {e.details?.reject_reason && !String(e.details.reject_reason).startsWith(`${e.details?.reject_code} ·`) ? <span className="sub">{e.details.reject_reason}</span> : null}
+                {/* The label saved with the code (owner decision 4); older runs show the old code list or text. */}
+                {rejectReasonText(e.details) ? <span className="sub">{rejectReasonText(e.details)}</span> : null}
               </td>
               <td>{[clock(e.details?.start_time), clock(e.details?.end_time)].filter(Boolean).join(" – ")}</td>
               <td>

@@ -33,6 +33,7 @@ from ..quality_eval import (
 )
 from ..quality_metrics import quality_pass_rate
 from ..lifecycle_rules import plant_today
+from ..reasons import reason_input, resolve_reason, token_of
 from ..utils.auth import get_current_plant, get_current_plant_scope, require_role
 
 router = APIRouter(prefix="/quality", tags=["quality"])
@@ -1054,6 +1055,8 @@ def inspection_from_adapter_body(body: dict[str, Any], *, default_mode: str) -> 
         final_submission=bool(payload.get("final_submission") or False),
         entry_mode=_normalize_entry_mode(payload.get("entry_mode"), default_mode),
         correction_reason=payload.get("correction_reason"),
+        correction_reason_code=payload.get("correction_reason_code"),
+        correction_reason_note=payload.get("correction_reason_note"),
         expected_revision=expected_revision,
         expected_context_version=expected_context_version,
         signed_profile_fingerprint=str(fingerprint).strip() if fingerprint not in (None, "") else None,
@@ -1227,6 +1230,8 @@ def record_stage_inspection(
     final_submission: bool = False,
     entry_mode: Optional[str] = None,
     correction_reason: Optional[str] = None,
+    correction_reason_code: Optional[str] = None,
+    correction_reason_note: Optional[str] = None,
     expected_revision: Optional[int] = None,
     expected_context_version: Optional[int] = None,
     signed_profile_fingerprint: Optional[str] = None,
@@ -1353,11 +1358,20 @@ def record_stage_inspection(
     )
     changed_values = _changed_measured_values(prior_same.readings if prior_same else {}, sanitized_readings)
     correction_text = _correction_reason_text(stored_reasons, correction_reason)
+    correction_choice = None
     correction_revision: Optional[int] = None
     original_status: Optional[str] = None
     if changed_values:
-        if not correction_text:
+        # A correction is a reason from Masters › Reason codes (owner decision 4): an ENTRY_CORRECTION code,
+        # with the old free text (if any) as its note. Free text alone is refused.
+        if not correction_reason_code and not correction_text and not str(correction_reason_note or "").strip():
             raise HTTPException(status_code=400, detail=CORRECTION_INCOMPLETE_DETAIL)
+        correction_choice = resolve_reason(
+            category="ENTRY_CORRECTION", code=correction_reason_code,
+            note=str(correction_reason_note or "").strip() or correction_text or None,
+            plant_id=plant_id, token=token_of(current_user), what="correcting a recorded QC reading",
+        )
+        correction_text = correction_choice.text
         if prior_same is None:
             raise HTTPException(status_code=400, detail=CORRECTION_INCOMPLETE_DETAIL)
         current_revision = _measurement_revision(prior_same)
@@ -1448,6 +1462,10 @@ def record_stage_inspection(
         recorded_at = datetime.utcnow().isoformat()
         evaluation_payload["correction"] = True
         evaluation_payload["correction_reason"] = correction_text
+        if correction_choice is not None:
+            evaluation_payload["correction_reason_code"] = correction_choice.code
+            evaluation_payload["correction_reason_label"] = correction_choice.label
+            evaluation_payload["correction_reason_note"] = correction_choice.note
         evaluation_payload["correction_actor"] = actor
         evaluation_payload["correction_at"] = recorded_at
         evaluation_payload["correction_revision"] = correction_revision
@@ -1514,31 +1532,11 @@ def record_stage_inspection(
         and str(prior_same.status or "").upper() in {"FAIL", "INVALID"}
     )
     if evaluation.status in {"FAIL", "INVALID"} and not correcting_existing_fail:
-        hold = _active_hold_for_inspection(db, inspection) or _active_hold_for_sample_scope(
-            db,
-            job_card_id=job_card.id,
-            stage_type=stage_type,
-            sample_id=eval_sample_id,
-        )
-        if hold is None:
-            hold_reason = evaluation.issue_summary() or f"{stage_type} inspection {evaluation.verdict}"
-            if evaluation_payload.get("late_quality_exception"):
-                hold_reason = (
-                    f"{LATE_EXCEPTION_LABEL} on {stage_type}; remaining stock traced. "
-                    "Earlier shipment was not retroactively prevented."
-                )
-            hold = QualityHold(
-                plant_id=plant_uuid,
-                job_card_id=job_card.id,
-                stage_type=stage_type,
-                reason=hold_reason,
-                status="HOLD",
-                source_inspection_id=inspection.id,
-                created_by=current_user.get("sub"),
-            )
-            db.add(hold)
-            db.flush()
-            if (job_card.spec_snapshot or {}).get("entry_model")=="V2":queue_continuous_stock_state(db,job_card,hold.id,stage_type,True)
+        # Owner decision 3 (2026-11-01): job-card QC never holds or rejects. A reading out of band is flagged
+        # on the inspection (and the card, run and box) and never opens an automatic hold; only holds a plant
+        # head / Admin / Owner places on purpose stop movement. GRN (incoming) QC lives in inventory, unchanged.
+        inspection.evaluation = {**dict(inspection.evaluation or {}), "flagged": True, "gating": "advisory", "auto_hold": False}
+        db.flush()
 
     _record_audit_event(
         db=db,
@@ -1640,7 +1638,11 @@ class InspectionCreate(BaseModel):
     parent_inspection_id: Optional[uuid.UUID] = None
     final_submission: bool = False
     entry_mode: Optional[str] = None
+    # Correcting a recorded reading picks an ENTRY_CORRECTION code from Masters › Reason codes (owner
+    # decision 4, 1 Nov 2026); `correction_reason` is the old free text, kept as the note next to a code.
     correction_reason: Optional[str] = None
+    correction_reason_code: Optional[str] = Field(default=None, max_length=40)
+    correction_reason_note: Optional[str] = Field(default=None, max_length=1000)
     expected_revision: Optional[int] = None
     expected_context_version: Optional[int] = None
     signed_profile_fingerprint: Optional[str] = None
@@ -1769,7 +1771,11 @@ class HoldCreate(BaseModel):
 
     job_card_id: uuid.UUID
     stage_type: str
-    reason: str = Field(min_length=1)
+    # QC_HOLD code from Masters › Reason codes (owner decision 4); `reason` is the old free text and
+    # is no longer enough on its own.
+    reason_code: Optional[str] = Field(default=None, max_length=40)
+    reason_note: Optional[str] = Field(default=None, max_length=1000)
+    reason: Optional[str] = Field(default=None, max_length=1000)
     batch_id: Optional[str] = None
     source_inspection_id: Optional[uuid.UUID] = None
 
@@ -1787,12 +1793,42 @@ class HoldResponse(BaseModel):
     stage_type: str
     batch_id: Optional[str] = None
     reason: str
+    reason_code: Optional[str] = None
+    reason_label: Optional[str] = None
+    reason_note: Optional[str] = None
     status: str
     source_inspection_id: Optional[uuid.UUID] = None
     created_by: Optional[str] = None
     released_by: Optional[str] = None
     created_at: datetime
     released_at: Optional[datetime] = None
+    release_reason_code: Optional[str] = None
+    release_reason_label: Optional[str] = None
+    release_reason_note: Optional[str] = None
+    release_disposition: Optional[str] = None
+
+
+def _hold_response(row: QualityHold) -> HoldResponse:
+    return HoldResponse(
+        id=row.id,
+        job_card_id=row.job_card_id,
+        stage_type=row.stage_type,
+        batch_id=row.batch_id,
+        reason=row.reason,
+        reason_code=getattr(row, "reason_code", None),
+        reason_label=getattr(row, "reason_label", None),
+        reason_note=getattr(row, "reason_note", None),
+        status=row.status,
+        source_inspection_id=row.source_inspection_id,
+        created_by=row.created_by,
+        released_by=row.released_by,
+        created_at=row.created_at,
+        released_at=row.released_at,
+        release_reason_code=getattr(row, "release_reason_code", None),
+        release_reason_label=getattr(row, "release_reason_label", None),
+        release_reason_note=getattr(row, "release_reason_note", None),
+        release_disposition=getattr(row, "release_disposition", None),
+    )
 
 
 class QualitySummaryResponse(BaseModel):
@@ -1836,6 +1872,10 @@ class HoldReleaseResponse(BaseModel):
     stage_type: Optional[str] = None
     reason: Optional[str] = None
     plant_id: Optional[str] = None
+    release_reason_code: Optional[str] = None
+    release_reason_label: Optional[str] = None
+    release_reason_note: Optional[str] = None
+    release_disposition: Optional[str] = None
 
 
 @router.get("/summary", response_model=QualitySummaryResponse)
@@ -2147,6 +2187,8 @@ def create_inspection(
         final_submission=payload.final_submission,
         entry_mode=_normalize_entry_mode(payload.entry_mode, "DEDICATED_QC"),
         correction_reason=payload.correction_reason,
+        correction_reason_code=payload.correction_reason_code,
+        correction_reason_note=payload.correction_reason_note,
         expected_revision=payload.expected_revision,
         expected_context_version=payload.expected_context_version,
         signed_profile_fingerprint=payload.signed_profile_fingerprint,
@@ -2179,6 +2221,8 @@ def create_supervisor_inspection(
         final_submission=body.final_submission,
         entry_mode="SUPERVISOR",
         correction_reason=body.correction_reason,
+        correction_reason_code=body.correction_reason_code,
+        correction_reason_note=body.correction_reason_note,
         expected_revision=body.expected_revision,
         expected_context_version=body.expected_context_version,
         signed_profile_fingerprint=body.signed_profile_fingerprint,
@@ -2208,6 +2252,8 @@ def create_eod_inspection(
         final_submission=body.final_submission,
         entry_mode="EOD",
         correction_reason=body.correction_reason,
+        correction_reason_code=body.correction_reason_code,
+        correction_reason_note=body.correction_reason_note,
         expected_revision=body.expected_revision,
         expected_context_version=body.expected_context_version,
         signed_profile_fingerprint=body.signed_profile_fingerprint,
@@ -2246,6 +2292,8 @@ def import_inspections(
                 final_submission=body.final_submission,
                 entry_mode="IMPORT",
                 correction_reason=body.correction_reason,
+                correction_reason_code=body.correction_reason_code,
+                correction_reason_note=body.correction_reason_note,
                 expected_revision=body.expected_revision,
                 expected_context_version=body.expected_context_version,
                 signed_profile_fingerprint=body.signed_profile_fingerprint,
@@ -2278,6 +2326,8 @@ def create_legacy_inspection(
         final_submission=body.final_submission,
         entry_mode="LEGACY",
         correction_reason=body.correction_reason,
+        correction_reason_code=body.correction_reason_code,
+        correction_reason_note=body.correction_reason_note,
         expected_revision=body.expected_revision,
         expected_context_version=body.expected_context_version,
         signed_profile_fingerprint=body.signed_profile_fingerprint,
@@ -2651,6 +2701,13 @@ def create_hold(
     if not job_card:
         raise HTTPException(status_code=404, detail="Job card not found")
 
+    # A deliberate hold needs a QC_HOLD code from the master (owner decision 4); checked before any lock.
+    hold_code, hold_note = reason_input(payload)
+    choice = resolve_reason(
+        category="QC_HOLD", code=hold_code, note=hold_note, plant_id=job_card.plant_id,
+        token=token_of(current_user), what="the QC hold",
+    )
+
     if (job_card.spec_snapshot or {}).get("entry_model")=="V2":lock_card_transaction(db,job_card.id)
 
     hold = QualityHold(
@@ -2658,7 +2715,10 @@ def create_hold(
         job_card_id=job_card.id,
         stage_type=payload.stage_type,
         batch_id=payload.batch_id,
-        reason=payload.reason,
+        reason=choice.text,
+        reason_code=choice.code,
+        reason_label=choice.label,
+        reason_note=choice.note,
         status="HOLD",
         source_inspection_id=payload.source_inspection_id,
         created_by=current_user.get("sub"),
@@ -2674,24 +2734,12 @@ def create_hold(
         action="created",
         current_user=current_user,
         job_card_id=job_card.id,
-        payload={"reason": payload.reason, "stage_type": payload.stage_type},
+        payload={**choice.as_dict(), "stage_type": payload.stage_type},
         after_payload={"status": hold.status},
     )
     db.commit()
     db.refresh(hold)
-    return HoldResponse(
-        id=hold.id,
-        job_card_id=hold.job_card_id,
-        stage_type=hold.stage_type,
-        batch_id=hold.batch_id,
-        reason=hold.reason,
-        status=hold.status,
-        source_inspection_id=hold.source_inspection_id,
-        created_by=hold.created_by,
-        released_by=hold.released_by,
-        created_at=hold.created_at,
-        released_at=hold.released_at,
-    )
+    return _hold_response(hold)
 
 
 @router.get("/holds", response_model=list[HoldResponse])
@@ -2721,28 +2769,17 @@ def list_holds(
     if status:
         query = query.filter(QualityHold.status == status.strip().upper())
     rows = query.order_by(QualityHold.created_at.desc()).offset(offset).limit(limit).all()
-    return [
-        HoldResponse(
-            id=row.id,
-            job_card_id=row.job_card_id,
-            stage_type=row.stage_type,
-            batch_id=row.batch_id,
-            reason=row.reason,
-            status=row.status,
-            source_inspection_id=row.source_inspection_id,
-            created_by=row.created_by,
-            released_by=row.released_by,
-            created_at=row.created_at,
-            released_at=row.released_at,
-        )
-        for row in rows
-    ]
+    return [_hold_response(row) for row in rows]
 
 
 class HoldReleasePayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    reason: str = Field(min_length=3, max_length=1000)
+    # QC_RELEASE code from Masters › Reason codes (owner decision 4); `reason` is the old free text,
+    # still accepted next to a code but never enough on its own.
+    reason_code: Optional[str] = Field(default=None, max_length=40)
+    reason_note: Optional[str] = Field(default=None, max_length=1000)
+    reason: Optional[str] = Field(default=None, max_length=1000)
     # What was done to the held material before release.
     disposition: str = Field(default="RELEASE_AS_IS", pattern="^(RELEASE_AS_IS|REWORKED|SORTED|PARTLY_SCRAPPED)$")
     affected_qty: Optional[float] = Field(default=None, ge=0)
@@ -2764,6 +2801,15 @@ def release_hold(
     )
     if not hold:
         raise HTTPException(status_code=404, detail="Quality hold not found")
+    # Every release needs a QC_RELEASE code from the master (owner decision 4); a release with no body
+    # is refused. Checked before the card lock so the master call never holds it.
+    if not isinstance(payload, HoldReleasePayload):
+        raise HTTPException(status_code=422, detail="Choose a reason for the hold release from the list (Masters › Reason codes).")
+    release_code, release_note = reason_input(payload)
+    release_choice = resolve_reason(
+        category="QC_RELEASE", code=release_code, note=release_note, plant_id=hold.plant_id,
+        token=token_of(current_user), what="the hold release",
+    )
     job_card=db.get(JobCard,hold.job_card_id)
     continuous=job_card and (job_card.spec_snapshot or {}).get("entry_model")=="V2"
     if continuous:
@@ -2788,6 +2834,10 @@ def release_hold(
     hold.status = "RELEASED"
     hold.released_by = current_user.get("sub")
     hold.released_at = datetime.utcnow()
+    hold.release_reason_code = release_choice.code
+    hold.release_reason_label = release_choice.label
+    hold.release_reason_note = release_choice.note
+    hold.release_disposition = payload.disposition
     remaining_holds = (
         db.query(QualityHold)
         .filter(
@@ -2830,7 +2880,7 @@ def release_hold(
         action="released",
         current_user=current_user,
         job_card_id=hold.job_card_id,
-        payload=payload.model_dump() if isinstance(payload, HoldReleasePayload) else {},
+        payload={**payload.model_dump(), **release_choice.as_dict()},
         before_payload=before_payload,
         after_payload={"status": hold.status, "released_at": hold.released_at.isoformat()},
     )
@@ -2844,4 +2894,8 @@ def release_hold(
         stage_type=hold.stage_type,
         reason=hold.reason,
         plant_id=str(hold.plant_id) if hold.plant_id else None,
+        release_reason_code=hold.release_reason_code,
+        release_reason_label=hold.release_reason_label,
+        release_reason_note=hold.release_reason_note,
+        release_disposition=hold.release_disposition,
     )

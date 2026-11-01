@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert"
-import { EMPTY_ENTRY, cellVerdict, groupIncomingQueue, incomingReadingsPayload, incomingReasonsPayload, previewIncomingLot } from "../lib/incoming-qc"
+import { EMPTY_ENTRY, cellVerdict, groupIncomingQueue, incomingReadingsPayload, incomingReasonFields, incomingReasonsPayload, previewIncomingLot } from "../lib/incoming-qc"
 
 const rules: any[] = [
   { code: "gsm", label: "GSM", unit: "g/m²", min: 291, max: 309, required: true },
@@ -32,11 +32,18 @@ const partial = previewIncomingLot(rules, entry({ gsm: "300" }))
 assert.equal(partial.kind, "incomplete")
 assert.deepEqual(partial.missing, ["Paper width", "Seal"])
 
-// Out of band fails and needs a reason; the reason goes on every failing check.
-const fail = entry({ gsm: "150", width_mm: "1200", seal: "NG" }, { reason: "Light paper" })
+// Out of band fails and needs a reason code (INCOMING_QC, owner decision 4); it goes on every failing check.
+const fail = entry({ gsm: "150", width_mm: "1200", seal: "NG" }, { reasonCode: "IQ-GSM", reason: "Light paper" })
 assert.equal(previewIncomingLot(rules, fail).kind, "fail")
 assert.equal(previewIncomingLot(rules, fail).needsReason, true)
 assert.deepEqual(incomingReasonsPayload(rules, fail), { gsm: "Light paper", seal: "Light paper" })
+assert.deepEqual(incomingReasonFields(fail, true), { reason_code: "IQ-GSM", reason_note: "Light paper" })
+// Free text alone is never sent as a reason: no code, no per-check reasons.
+const typedOnly = entry({ gsm: "150" }, { reason: "Light paper" })
+assert.deepEqual(incomingReasonsPayload(rules, typedOnly), {})
+assert.deepEqual(incomingReasonFields(typedOnly, true), { reason_code: undefined, reason_note: "Light paper" })
+// When nothing asks why, the text is a plain note.
+assert.deepEqual(incomingReasonFields(entry({ gsm: "300" }, { reason: "Edges dusty" }), false), { notes: "Edges dusty" })
 
 // Hold / Reject override the readings and need a reason.
 assert.equal(previewIncomingLot(rules, entry({}, { decision: "HOLD" })).kind, "hold")

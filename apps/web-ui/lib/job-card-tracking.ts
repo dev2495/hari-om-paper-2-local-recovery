@@ -26,21 +26,32 @@ export const TRACK_STATUSES: Array<{ key: TrackStatus; label: string; tone: Trac
   { key: "SCHEDULED", label: "Scheduled", tone: "blue", open: true, hint: "On the board with a date, shift and machine" },
   { key: "RUNNING", label: "Running", tone: "violet", open: true, hint: "The floor is logging runs on the current stage" },
   { key: "ON_HOLD", label: "On hold", tone: "rose", open: true, hint: "An active quality hold stops the next stage" },
-  { key: "READY_DISPATCH", label: "Ready to dispatch", tone: "emerald", open: true, hint: "Process closed: packed with its two QC readings; waiting for a DC" },
-  { key: "CLOSED_EARLY", label: "Closed early", tone: "rose", open: false, hint: "Force-closed or cancelled; the balance went back to the order" },
+  { key: "READY_DISPATCH", label: "Ready to dispatch", tone: "emerald", open: true, hint: "Process closed: its boxes are packed and labelled; waiting for a DC" },
+  { key: "CLOSED_EARLY", label: "Closed early", tone: "rose", open: false, hint: "Cancelled, or force-closed with nothing left to make; the balance went back to the order" },
   { key: "DONE", label: "Done", tone: "emerald", open: false, hint: "All stages done" },
 ]
 
 export function trackStatus(job: any, onHold = false): TrackStatus {
   const life = lifecycleStateOf(job)
   const stage = floorStage(job?.current_stage)
-  if (life === "FORCE_CLOSED" || life === "CANCELLED") return "CLOSED_EARLY"
+  if (life === "CANCELLED") return "CLOSED_EARLY"
   if (life === "COMPLETED" || stage === "DONE") return "DONE"
+  // Force-closed (or closed short) but its made pcs are still in Oven / Process / Dispatch: it stays in an open
+  // tab with a "closed early" chip until it is done (owner decision 1, 1 Nov 2026).
+  if (life === "FORCE_CLOSED") {
+    if (onHold) return "ON_HOLD"
+    return stage === "DISPATCH" ? "READY_DISPATCH" : "RUNNING"
+  }
   if (onHold) return "ON_HOLD"
   if (stage === "DISPATCH") return "READY_DISPATCH"
   if (life === "RUNNING") return "RUNNING"
   if (life === "SCHEDULED") return "SCHEDULED"
   return "QUEUE"
+}
+
+/** A card closed early or short on some stage: force close, or a stage short close that gave pcs back to the order. */
+export function closedEarly(job: any): boolean {
+  return job?.close_mode === "FORCE" || Number(job?.returned_qty || 0) > 0
 }
 
 export function trackMeta(key: TrackStatus) {
@@ -78,7 +89,7 @@ export function stageWord(stage?: string | null) {
 export function stageTrack(job: any): Array<{ stage: string; short: string; label: string; state: "done" | "current" | "pending" }> {
   const current = floorStage(job?.current_stage)
   const life = lifecycleStateOf(job)
-  const closed = life === "FORCE_CLOSED" || life === "CANCELLED"
+  const closed = life === "CANCELLED"
   const route = STAGE_TRACK.filter((row) => row.stage !== "SLITTING" || current === "SLITTING" || job?.requires_slitting)
   const index = route.findIndex((row) => row.stage === current)
   return route.map((row, position) => {

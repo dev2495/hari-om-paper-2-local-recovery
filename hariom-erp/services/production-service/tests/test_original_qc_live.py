@@ -25,8 +25,12 @@ CARD_TIMES = {"start_time": _dt.now(_tz.utc) - _td(hours=2), "end_time": _dt.now
 from src.database import Base, engine
 from src.models import JobCard, JobCardStage, PLANT_A_UUID, QualityHold, QualityInspection, SalesOrder
 from src.routers.planning import _ensure_job_card_stages, _routing_stages_from_snapshot, capture_stage_output
-from src.routers.quality import InspectionCreate, create_inspection, release_hold
+from src.routers.quality import InspectionCreate, create_inspection, release_hold, HoldReleasePayload
 from src.schemas.planning import StageOutputPayload
+
+# Owner decision 4 (1 Nov 2026): a hold release always carries a QC_RELEASE reason code.
+RELEASE_REASON = HoldReleasePayload(reason_code="QR-RETEST-OK", reason_note="Retest passed")
+
 
 
 Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
@@ -281,7 +285,9 @@ def test_qc07_historical_revision_stays_on_old_inspection():
         db.close()
 
 
-def test_qc08_fail_blocks_movement_retest_does_not_release_and_old_pass_cannot_clear_new_hold():
+def test_qc08_fail_is_flagged_never_held_and_the_card_keeps_moving():
+    """Owner decision 3 (1 Nov 2026): a job-card QC reading out of band is flagged on the record, never an
+    automatic hold, and the card keeps moving; only a hold placed on purpose stops it."""
     db = Session()
     try:
         job = _job(db, uuid.uuid4().hex[:6])
@@ -311,46 +317,10 @@ def test_qc08_fail_blocks_movement_retest_does_not_release_and_old_pass_cannot_c
             current_user={"sub": "qc-1", "roles": ["QC"]},
         )
         assert failed.status == "FAIL"
-        assert failed.hold_id is not None
-        _ensure_stages(db, job)
-        db.commit()
-        recorded = capture_stage_output(
-            job.id,
-            StageOutputPayload(
-                stage="WINDER",
-                output_qty=1,
-                save_mode="complete", **CARD_TIMES,
-                actuals={"stock_status": "UNRESTRICTED", "disposition": "RELEASED"},
-            ),
-            db=db,
-            plant_id=str(PLANT_A_UUID),
-            current_user={"sub": "pm-1", "roles": ["PlantManager"]},
-        )
-        assert recorded.entry_saved is True
-        assert recorded.job_card_status == "IN_PROGRESS"
-        assert recorded.current_stage == "WINDER"
-        assert recorded.stage_status != "COMPLETED"
-        assert recorded.quality_hold_ids
-        db.expire_all()
-        winder = (
-            db.query(JobCardStage)
-            .filter(JobCardStage.job_card_id == job.id, JobCardStage.stage_type == "WINDER")
-            .one()
-        )
-        assert winder.output_qty == 1
-        assert (winder.actuals_snapshot or {}).get("stock_status") == "QC_HOLD"
-        assert (winder.actuals_snapshot or {}).get("failed_qty_labelled_good") is False
-        assert winder.status != "COMPLETED"
-        with pytest.raises(HTTPException) as blocked:
-            capture_stage_output(
-                job.id,
-                StageOutputPayload(stage="OVEN", output_qty=1, save_mode="complete", **CARD_TIMES),
-                db=db,
-                plant_id=str(PLANT_A_UUID),
-                current_user={"sub": "pm-1", "roles": ["PlantManager"]},
-            )
-        assert blocked.value.status_code == 409
-        assert blocked.value.detail["code"] == "JOB_HAS_ACTIVE_QC_HOLD"
+        assert failed.hold_id is None
+        assert (failed.evaluation or {}).get("flagged") is True
+        assert db.query(QualityHold).filter(QualityHold.job_card_id == job.id).count() == 0
+        # A retest that passes is recorded as a normal reading; there is no hold to release.
         retest = create_inspection(
             InspectionCreate(
                 job_card_id=job.id,
@@ -363,26 +333,10 @@ def test_qc08_fail_blocks_movement_retest_does_not_release_and_old_pass_cannot_c
             plant_id=str(PLANT_A_UUID),
             current_user={"sub": "qc-1", "roles": ["QC"]},
         )
-        assert retest.status == "PASS"
-        hold = db.query(QualityHold).filter(QualityHold.id == failed.hold_id).one()
-        assert hold.status == "HOLD"
-        with pytest.raises(HTTPException) as inspector:
-            release_hold(
-                failed.hold_id,
-                db=db,
-                plant_id=str(PLANT_A_UUID),
-                current_user={"sub": "qc-1", "roles": ["QC"]},
-            )
-        assert inspector.value.status_code == 403
-        released = release_hold(
-            failed.hold_id,
-            db=db,
-            plant_id=str(PLANT_A_UUID),
-            current_user={"sub": "owner-1", "roles": ["Owner"]},
-        )
-        assert released.status == "RELEASED"
-        db.refresh(hold)
-        assert hold.status == "RELEASED"
+        assert retest.status == "PASS" and retest.hold_id is None
+        stored = db.query(QualityInspection).filter(QualityInspection.id == failed.id).one()
+        assert stored.status == "FAIL" and (stored.evaluation or {}).get("flagged") is True
+        assert db.query(QualityHold).filter(QualityHold.job_card_id == job.id).count() == 0
         assert first_pass.status == "PASS"
     finally:
         db.close()

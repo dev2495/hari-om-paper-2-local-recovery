@@ -191,12 +191,12 @@ def test_po_to_nine_physical_lots_invoice_variance_claim_and_retry():
         assert qty_case.delta == Decimal("10.000000") and qty_case.claimable_amount == Decimal("0.00")
 
         note_request = DebitNoteCreate(request_id=uuid.uuid4(), note_date=date(2026, 9, 20),
-            discrepancy_ids=[rate_case.id], reason="Vendor rate above approved PO")
+            discrepancy_ids=[rate_case.id], reason_code="DN-RATE", reason_note="Vendor rate above approved PO")
         note = create_debit_note(note_request, db, PLANT, ACCOUNTS)
         note_replay = create_debit_note(note_request, db, PLANT, ACCOUNTS)
         assert note_replay["id"] == note["id"]
         with pytest.raises(HTTPException) as changed_note_retry:
-            create_debit_note(note_request.model_copy(update={"reason": "Vendor rate changed after PO approval"}), db, PLANT, ACCOUNTS)
+            create_debit_note(note_request.model_copy(update={"reason_note": "Vendor rate changed after PO approval"}), db, PLANT, ACCOUNTS)
         assert changed_note_retry.value.status_code == 409
         note = act_on_debit_note(uuid.UUID(note["id"]), DebitNoteAction(action="SUBMIT", expected_version=note["version"]), db, PLANT, ACCOUNTS)
         with pytest.raises(HTTPException) as self_approval:
@@ -209,25 +209,25 @@ def test_po_to_nine_physical_lots_invoice_variance_claim_and_retry():
         assert note["status"] == "PARTIALLY_SETTLED" and note["open_amount"] == 3000
         assert db.query(PurchaseDebitNote).filter_by(plant_id=PLANT).count() == 1
         with pytest.raises(HTTPException) as settled_void:
-            act_on_debit_note(uuid.UUID(note["id"]), DebitNoteAction(action="VOID", expected_version=note["version"], reason="Cannot void settled history"), db, PLANT, CHECKER)
+            act_on_debit_note(uuid.UUID(note["id"]), DebitNoteAction(action="VOID", expected_version=note["version"], reason_code="DN-VOID-ERROR"), db, PLANT, CHECKER)
         assert settled_void.value.status_code == 409
 
         with pytest.raises(HTTPException) as unresolved_release:
             act_on_discrepancy(
-                rate_case.id, DiscrepancyAction(action="RELEASE_STOCK", expected_version=rate_case.version, reason="Claim issued; stock approved for use"),
+                rate_case.id, DiscrepancyAction(action="RELEASE_STOCK", expected_version=rate_case.version, reason_code="ID-QTY", reason_note="Claim issued; stock approved for use"),
                 db, PLANT, CHECKER,
             )
         assert unresolved_release.value.status_code == 409
         act_on_discrepancy(
-            qty_case.id, DiscrepancyAction(action="ACCEPT_VARIANCE", expected_version=qty_case.version, reason="Vendor quantity confirmed"),
+            qty_case.id, DiscrepancyAction(action="ACCEPT_VARIANCE", expected_version=qty_case.version, reason_code="ID-QTY", reason_note="Vendor quantity confirmed"),
             db, PLANT, CHECKER,
         )
         act_on_discrepancy(
-            spec_case.id, DiscrepancyAction(action="ACCEPT_VARIANCE", expected_version=spec_case.version, reason="Measured width accepted by quality review"),
+            spec_case.id, DiscrepancyAction(action="ACCEPT_VARIANCE", expected_version=spec_case.version, reason_code="ID-QTY", reason_note="Measured width accepted by quality review"),
             db, PLANT, CHECKER,
         )
         released = act_on_discrepancy(
-            rate_case.id, DiscrepancyAction(action="RELEASE_STOCK", expected_version=rate_case.version, reason="Claim issued; stock approved for use"),
+            rate_case.id, DiscrepancyAction(action="RELEASE_STOCK", expected_version=rate_case.version, reason_code="ID-QTY", reason_note="Claim issued; stock approved for use"),
             db, PLANT, CHECKER,
         )
         assert released["status"] == "CLAIMED"
@@ -266,7 +266,7 @@ def test_concurrent_series_allocation_produces_distinct_ot_numbers():
     def create_one(index):
         session = SessionLocal()
         try:
-            request = create_requisition(RequisitionCreate(request_id=uuid.uuid4(), pr_date=date.today(), item_id=paper_id, quantity=1, reason="Concurrent series test"), session, PLANT, MAKER)
+            request = create_requisition(RequisitionCreate(request_id=uuid.uuid4(), pr_date=date.today(), item_id=paper_id, quantity=1, reason_code="PN-REORDER", reason_note="Concurrent series test"), session, PLANT, MAKER)
             decide_requisition(uuid.UUID(request["id"]), RequisitionDecision(expected_version=1, decision="APPROVED", reason="Reviewed request"), session, PLANT, CHECKER)
             payload = PurchaseOrderCreate(
                 request_id=uuid.uuid4(), requisition_id=uuid.UUID(request["id"]), category="OT", supplier_id=supplier_id,
@@ -292,7 +292,7 @@ def test_owner_cost_history_stock_policy_mrp_and_plan_conversion():
         original_actual_cost = item.unit_cost
         first_cost_request = CostDraftCreate(
             request_id=uuid.uuid4(), item_id=item.id, base_cost=30, effective_from=date(2026, 9, 1),
-            change_reason="Initial governed planning cost", source="Owner assumption",
+            change_reason_code="RC-NEW-ITEM", change_reason_note="Initial governed planning cost", source="Owner assumption",
             components=[
                 {"component_type": "DISCOUNT", "label": "Discount", "calculation_mode": "PERCENT_BASE", "entered_value": 2},
                 {"component_type": "FREIGHT", "label": "Freight", "calculation_mode": "PER_KG", "entered_value": 0.8},
@@ -312,7 +312,7 @@ def test_owner_cost_history_stock_policy_mrp_and_plan_conversion():
         sheet = db.query(RmCostSheet).filter_by(id=sheet.id).one()
         second = create_cost_draft(CostDraftCreate(
             request_id=uuid.uuid4(), item_id=item.id, base_cost=32, effective_from=date(2026, 9, 1),
-            change_reason="Reviewed paper base increase", source="Owner assumption", expected_sheet_version=sheet.version,
+            change_reason_code="RC-SUPPLIER-RATE", change_reason_note="Reviewed paper base increase", source="Owner assumption", expected_sheet_version=sheet.version,
             components=[
                 {"component_type": "DISCOUNT", "label": "Discount", "calculation_mode": "PERCENT_BASE", "entered_value": 2},
                 {"component_type": "FREIGHT", "label": "Freight", "calculation_mode": "PER_KG", "entered_value": 0.8},
@@ -334,7 +334,7 @@ def test_owner_cost_history_stock_policy_mrp_and_plan_conversion():
             reorder_point_kg=1000, target_stock_kg=10000, recovery_margin_kg=100,
             lead_time_days=7, minimum_order_kg=10000, order_multiple_kg=5000,
             recipients=["planner@example.com"], cooldown_hours=24,
-            change_reason="Reviewed paper safety and replenishment levels",
+            change_reason_code="SP-FIRST", change_reason_note="Reviewed paper safety and replenishment levels",
         )
         policy = create_stock_policy(policy_request, db, PLANT, MAKER)
         assert create_stock_policy(policy_request, db, PLANT, MAKER)["id"] == policy["id"]
@@ -393,7 +393,7 @@ def test_owner_cost_history_stock_policy_mrp_and_plan_conversion():
         )
         closed = short_close_purchase_order(
             generated.id,
-            ShortClosePayload(expected_version=approved["version"], reason="Supplier cannot deliver scheduled balance", lines=[]),
+            ShortClosePayload(expected_version=approved["version"], reason_code="PC-SUPPLIER-CANNOT", reason_note="Supplier cannot deliver scheduled balance", lines=[]),
             db, PLANT, CHECKER,
         )
         schedule = db.query(PurchaseDeliverySchedule).filter_by(source_plan_entry_id=uuid.UUID(plan["entries"][0]["id"])).one()
@@ -410,7 +410,7 @@ def test_manual_multi_material_receipt_labels_and_independent_approval():
         item = _paper(db)
         supplier = uuid.uuid4()
         payload = ManualReceiptCreate(supplier_challan_no=f"CH-{uuid.uuid4().hex[:8]}", request_id=uuid.uuid4(), supplier_id=supplier, supplier_name="Manual mill",
-            reason="Urgent material received without PO", received_date=date(2026, 9, 15), invoice_no=f"MAN-{uuid.uuid4().hex[:8]}", invoice_date=date(2026, 9, 15),
+            reason_code="MR-URGENT", reason_note="Urgent material received without PO", received_date=date(2026, 9, 15), invoice_no=f"MAN-{uuid.uuid4().hex[:8]}", invoice_date=date(2026, 9, 15),
             lines=[{"item_id": item.id, "invoice_rate": 31, "incoming_qc_required": False,
                     "lots": [{"source_reel_no": "M001", "net_weight_kg": 650, "width_mm": 850, "physical_form": "REEL"},
                              {"source_reel_no": "M002", "net_weight_kg": 350, "width_mm": 100, "physical_form": "COIL"}]}])
@@ -441,7 +441,7 @@ def test_manual_invoice_pending_attach_and_qc_remains_independent():
     from src.routers.procurement import AttachInvoiceRequest, attach_invoice_to_receipt
     with SessionLocal() as db:
         payload = ManualReceiptCreate(supplier_challan_no=f"CH-{uuid.uuid4().hex[:8]}", request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name="Challan mill",
-            reason="Invoice arriving later", received_date=date(2026, 9, 15), invoice_pending=True,
+            reason_code="MR-URGENT", reason_note="Invoice arriving later", received_date=date(2026, 9, 15), invoice_pending=True,
             lines=[{"item_id": _paper(db).id, "lots": [{"source_reel_no": "WAIT-01", "net_weight_kg": 100, "width_mm": 800, "physical_form": "REEL"}]}])
         result = post_manual_receipt(payload, db, PLANT, MAKER)
         attached = attach_invoice_to_receipt(uuid.UUID(result["id"]), AttachInvoiceRequest(expected_version=1, invoice_no=f"LATE-{uuid.uuid4().hex[:8]}", invoice_date=date(2026, 9, 15), lines=[{"receipt_line_id": result["lines"][0]["id"], "invoice_rate": 35, "invoice_quantity": 100}]), db, PLANT, MAKER)
@@ -464,7 +464,7 @@ def test_manual_receipt_http_auth_roles_retry_and_cross_plant():
         return {"Authorization": f"Bearer {token}", "X-Plant-ID": plant}
     with SessionLocal() as db:
         item_id = str(_paper(db).id)
-    body = {"request_id": str(uuid.uuid4()), "supplier_id": str(uuid.uuid4()), "supplier_name": "HTTP verified vendor", "reason": "Urgent manual purchase",
+    body = {"request_id": str(uuid.uuid4()), "supplier_id": str(uuid.uuid4()), "supplier_name": "HTTP verified vendor", "reason_code": "MR-URGENT", "reason_note": "Urgent manual purchase",
         "received_date": "2026-09-15", "supplier_challan_no": f"CH-{uuid.uuid4().hex[:8]}", "invoice_no": f"HTTP-{uuid.uuid4().hex[:8]}", "invoice_date": "2026-09-15",
         "lines": [{"item_id": item_id, "invoice_rate": 31, "incoming_qc_required": False, "lots": [{"source_reel_no": "HTTP-R1", "net_weight_kg": 725, "width_mm": 500, "physical_form": "REEL"}]}]}
     assert client.post("/inventory/procurement/manual-receipts", json=body).status_code == 401
@@ -474,7 +474,7 @@ def test_manual_receipt_http_auth_roles_retry_and_cross_plant():
     assert response.status_code == 200, response.text
     saved = response.json(); assert saved["lots"][0]["stock_status"] == "QC_HOLD"
     assert client.post("/inventory/procurement/manual-receipts", json=body, headers=headers("Store", "maker")).json()["idempotent"]
-    changed = {**body, "reason": "Changed request contents"}
+    changed = {**body, "reason_note": "Changed request contents"}
     assert client.post("/inventory/procurement/manual-receipts", json=changed, headers=headers("Store", "maker")).status_code == 409
     receipt_path = f"/inventory/procurement/receipts/{saved['id']}"
     assert client.get(receipt_path, headers=headers("Store", "maker")).json()["id"] == saved["id"]
@@ -500,20 +500,20 @@ def test_manual_quantity_discrepancy_cannot_bypass_purchase_approval():
     from src.models import ReceiptInvoiceAllocation, PurchaseReceiptLine
     with SessionLocal() as db:
         result = post_manual_receipt(ManualReceiptCreate(supplier_challan_no=f"CH-{uuid.uuid4().hex[:8]}", request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name="Quantity review mill",
-            reason="Urgent non-PO receipt", received_date=date(2026, 9, 15), invoice_no=f"QTY-{uuid.uuid4().hex[:8]}", invoice_date=date(2026, 9, 15),
+            reason_code="MR-URGENT", reason_note="Urgent non-PO receipt", received_date=date(2026, 9, 15), invoice_no=f"QTY-{uuid.uuid4().hex[:8]}", invoice_date=date(2026, 9, 15),
             lines=[{"item_id": _paper(db).id, "incoming_qc_required": False, "invoice_rate": 30, "invoice_quantity": 105,
                     "lots": [{"source_reel_no": "MAN-QTY-01", "net_weight_kg": 100, "width_mm": 800, "physical_form": "REEL"}]}]), db, PLANT, MAKER)
         case = db.query(PurchaseDiscrepancy).join(ReceiptInvoiceAllocation, ReceiptInvoiceAllocation.id == PurchaseDiscrepancy.allocation_id).join(PurchaseReceiptLine, PurchaseReceiptLine.id == ReceiptInvoiceAllocation.receipt_line_id).filter(PurchaseReceiptLine.receipt_id == result["id"]).one()
         assert case.discrepancy_type == "QUANTITY" and case.claimable_amount == Decimal("150")
         with pytest.raises(HTTPException, match="Resolve invoice quantity"):
             approve_manual_receipt(uuid.UUID(result["id"]), VersionAction(expected_version=1, reason="Received weight checked"), db, PLANT, CHECKER)
-        decision = act_on_discrepancy(case.id, DiscrepancyAction(action="ACCEPT_VARIANCE", expected_version=case.version, reason="Weight tolerance accepted"), db, PLANT, CHECKER)
+        decision = act_on_discrepancy(case.id, DiscrepancyAction(action="ACCEPT_VARIANCE", expected_version=case.version, reason_code="ID-QTY", reason_note="Weight tolerance accepted"), db, PLANT, CHECKER)
         assert decision["supplier_name"] == "Quantity review mill"
         saved = db.get(PurchaseReceipt, uuid.UUID(result["id"]))
         assert saved.commercial_status == "MANUAL_REVIEW"
         assert db.get(PaperReel, uuid.UUID(result["lots"][0]["id"])).stock_status == "QC_HOLD"
         with pytest.raises(HTTPException, match="Approve the manual purchase"):
-            act_on_discrepancy(case.id, DiscrepancyAction(action="RELEASE_STOCK", expected_version=case.version, reason="Release reviewed lot"), db, PLANT, CHECKER)
+            act_on_discrepancy(case.id, DiscrepancyAction(action="RELEASE_STOCK", expected_version=case.version, reason_code="ID-QTY", reason_note="Release reviewed lot"), db, PLANT, CHECKER)
         approved = approve_manual_receipt(saved.id, VersionAction(expected_version=1, reason="Manual invoice authorized"), db, PLANT, CHECKER)
         assert approved["lots"][0]["stock_status"] == "QC_HOLD"
 
@@ -522,7 +522,7 @@ def test_delayed_invoice_retry_must_match_rates_and_quantities():
     from src.routers.manual_receipts import ManualReceiptCreate, post_manual_receipt
     from src.routers.procurement import AttachInvoiceRequest, attach_invoice_to_receipt
     with SessionLocal() as db:
-        result = post_manual_receipt(ManualReceiptCreate(supplier_challan_no=f"CH-{uuid.uuid4().hex[:8]}", request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name="Retry mill", reason="Invoice pending delivery",
+        result = post_manual_receipt(ManualReceiptCreate(supplier_challan_no=f"CH-{uuid.uuid4().hex[:8]}", request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name="Retry mill", reason_code="MR-URGENT", reason_note="Invoice pending delivery",
             received_date=date(2026, 9, 15), invoice_pending=True, lines=[{"item_id": _paper(db).id, "lots": [{"source_reel_no": "RETRY-01", "net_weight_kg": 120, "width_mm": 850, "physical_form": "REEL"}]}]), db, PLANT, MAKER)
         body = dict(expected_version=1, invoice_no=f"EXACT-{uuid.uuid4().hex[:8]}", invoice_date=date(2026, 9, 15), lines=[{"receipt_line_id": result["lines"][0]["id"], "invoice_rate": 32}])
         payload = AttachInvoiceRequest(**body)

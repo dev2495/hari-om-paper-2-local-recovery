@@ -5,6 +5,7 @@ import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, 
 
 import { ChartTooltip } from "@/components/erp/charts"
 
+import { ClosuresByReason } from "@/components/sales/closures-by-reason"
 import { RoleGate } from "@/components/workspace/role-gate"
 import {
   DrillLink,
@@ -149,6 +150,8 @@ function SalesPulsePage() {
           <p className="mt-2 text-[12px] text-muted-foreground">{formatNumber(dispatchedPcs)} pcs dispatched in the window.</p>
         </Panel>
       </div>
+
+      <ClosuresByReason />
 
       <Panel eyebrow="Lead-time anatomy" title="Where the lead-time days are going" description="From order-created to dispatched, broken into the major stages.">
         {leadStages.length ? <LeadTimeAnatomy stages={leadStages.map((s: any) => ({ label: s.label, days: Number(s.days || 0) }))} /> : <NoteCallout tone="neutral">Not enough closed orders for a lead-time breakdown yet.</NoteCallout>}

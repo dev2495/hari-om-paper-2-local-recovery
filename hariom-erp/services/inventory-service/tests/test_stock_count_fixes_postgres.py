@@ -162,9 +162,9 @@ def test_count_and_correction_on_one_lot_post_the_difference_once():
         scan_in_count(ScanPayload(rack=str(rack.id), code=lot.batch_no, counted_qty=4, client_ref="cc-1"), cid, db, plant, OPERATOR)
         scan_in_count(ScanPayload(rack=str(rack.id), code=bulk.batch_no, counted_qty=298, client_ref="cc-2"), cid, db, plant, OPERATOR)
         _count_rack(db, plant, cid, rack)
-        fix = raise_correction(CorrectionPayload(code=lot.batch_no, new_qty=4, reason="COUNT_SHORT"), db, plant, STORE)
+        fix = raise_correction(CorrectionPayload(code=lot.batch_no, new_qty=4, reason_code="COUNT_SHORT"), db, plant, STORE)
         # A second waiting correction on the same lot is refused.
-        _refused(lambda: raise_correction(CorrectionPayload(code=lot.batch_no, new_qty=3, reason="COUNT_SHORT"), db, plant, GRN), 409, "already has a correction waiting")
+        _refused(lambda: raise_correction(CorrectionPayload(code=lot.batch_no, new_qty=3, reason_code="COUNT_SHORT"), db, plant, GRN), 409, "already has a correction waiting")
         lookup = correction_lookup(lot.batch_no, db, plant, STORE)
         assert lookup["qty"] == 5 and lookup["waiting"]["voucher_no"] == fix["voucher_no"] and lookup["location_code"] == "CC-A-01"
         approve_correction(uuid.UUID(fix["id"]), CorrectionDecisionPayload(), db, plant, OWNER)
@@ -173,7 +173,7 @@ def test_count_and_correction_on_one_lot_post_the_difference_once():
         assert batch_balances(db, [lot.id])[str(lot.id)] == 4  # counted 4: never 3
 
         # A correction raised before a count posted the same difference has nothing left to post.
-        late = raise_correction(CorrectionPayload(code=bulk.batch_no, new_qty=297, reason="COUNT_SHORT"), db, plant, STORE)
+        late = raise_correction(CorrectionPayload(code=bulk.batch_no, new_qty=297, reason_code="COUNT_SHORT"), db, plant, STORE)
         recount = start_count(CountCreate(kind="SPOT", location_ids=[rack.id], item_ids=[boxes.id]), db, plant, OPERATOR)
         rid = uuid.UUID(recount["id"])
         scan_in_count(ScanPayload(rack=str(rack.id), code=bulk.batch_no, counted_qty=297, client_ref="cc-3"), rid, db, plant, OPERATOR)

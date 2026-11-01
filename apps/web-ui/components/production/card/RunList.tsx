@@ -2,19 +2,21 @@
 
 // Runs of a card: one row per run with who / when / machine, made · good · rejected and the reason, its QC
 // state (flagged runs stay accepted, with the reading and its band in words) and whether it matched the plan.
-// Drafts can be edited and submitted, submitted runs can be voided by a supervisor with a reason, and each
+// Drafts can be edited and submitted, submitted runs can be voided by a supervisor with a reason code
+// (Masters › Reason codes › Entry correction, owner decision 4), and each
 // run keeps its revision history; a closed card shows its runs read-only. A table on a wide screen, one
 // card per run on a phone or narrow screen.
 
 import { CheckCircle2, Clock3, Flag, History, Pencil, Send, X } from "lucide-react"
 import { useMemo, useState } from "react"
 
+import { ReasonPicker, useReasonChoice } from "@/components/reasons"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { errorText } from "@/lib/season-api"
 import { useCardMasters, useCardMutation, useEntryApi, useStableCommand } from "./data"
-import { clockOf, flagText, fmt, rejectCodeText, runDay, runNo, runQcState, savedRunPlanMatch, shiftLabel, stageLabel, stageParameters, stampLabel, toneClass, useCardRoles, type RunQcState } from "./model"
+import { clockOf, flagText, fmt, rejectReasonText, runDay, runNo, runQcState, savedRunPlanMatch, shiftLabel, stageLabel, stageParameters, stampLabel, toneClass, useCardRoles, type RunQcState } from "./model"
 
 export function QcChip({ qc, compact }: { qc: RunQcState; compact?: boolean }) {
   const Icon = qc.flags.length || qc.key === "flagged" ? Flag : qc.key === "done" || qc.key === "qc_only" || qc.key === "no_qc" ? CheckCircle2 : qc.key === "due" || qc.key === "short" || qc.key === "draft" ? Clock3 : null
@@ -88,6 +90,8 @@ export function RunRows({
   const { mutation, error, setError } = useCardMutation(String(card.id))
   const { stableCommand, reset } = useStableCommand()
   const [history, setHistory] = useState<{ entry: any; rows: any[] } | null>(null)
+  const [voiding, setVoiding] = useState<any | null>(null)
+  const voidReason = useReasonChoice("ENTRY_CORRECTION", card.plant_id, { enabled: Boolean(voiding) })
   const stateOf = (stage: string) => (flow?.stages || []).find((s: any) => s.stage === stage)
   // Drafts carry the operator's id only (the name is stamped when the supervisor submits): show the name from Masters.
   const employeeName = useMemo(() => {
@@ -96,6 +100,7 @@ export function RunRows({
     return by
   }, [employees.data])
 
+  // A system note, not a reason anyone is asked for: submitting a reviewed draft needs no reason code.
   const submit = (e: any) =>
     mutation.mutate(async () => {
       const result = await entryApi.submit(card.id, e.id, stableCommand({ expected_version: e.row_version, reason: "Reviewed draft" }, `submit:${e.id}`))
@@ -103,11 +108,17 @@ export function RunRows({
       return result
     })
   const voidRun = (e: any) => {
-    const reason = window.prompt(`Reason to void ${stageLabel(e.stage)} run ${runNo(e)} (output already used by the next stage cannot be voided)`)
-    if (!reason?.trim()) return
+    voidReason.reset()
+    setError("")
+    setVoiding(e)
+  }
+  const confirmVoid = () => {
+    const e = voiding
+    if (!e || !voidReason.validate()) return
     mutation.mutate(async () => {
-      const result = await entryApi.void(card.id, e.id, stableCommand({ expected_version: e.row_version, reason: reason.trim() }, `void:${e.id}`))
+      const result = await entryApi.void(card.id, e.id, stableCommand({ expected_version: e.row_version, ...voidReason.payload("reason") }, `void:${e.id}`))
       reset()
+      setVoiding(null)
       return result
     })
   }
@@ -123,13 +134,14 @@ export function RunRows({
   const logged = (e: any) => `${stampLabel(e.created_at)}${e.created_by ? ` · ${String(e.created_by).split("@")[0]}` : ""}`
   const reason = (e: any) => {
     const parts: string[] = []
-    if (e.rejected && e.details?.reject_code) parts.push(`${e.details.reject_code} ${rejectCodeText(e.details.reject_code).toLowerCase()}`)
-    else if (e.rejected && e.details?.reject_reason) parts.push(e.details.reject_reason)
-    if (e.cutting_loss_pcs) parts.push(`cutting loss ${fmt(e.cutting_loss_pcs)}${e.details?.cutting_loss_reason ? `: ${e.details.cutting_loss_reason}` : ""}`)
+    // Labels saved with the codes (owner decision 4); runs saved before show the old code list or text.
+    if (e.rejected && (e.details?.reject_code || e.details?.reject_reason)) parts.push(rejectReasonText(e.details))
+    if (e.cutting_loss_pcs) parts.push(`cutting loss ${fmt(e.cutting_loss_pcs)}${e.details?.cutting_loss_reason && !e.rejected ? `: ${e.details.cutting_loss_reason}` : ""}`)
     if (e.carry_in_pcs) parts.push(`held in ${fmt(e.carry_in_pcs)}`)
     if (e.carry_out_pcs) parts.push(`held out ${fmt(e.carry_out_pcs)}`)
+    if ((e.carry_in_pcs || e.carry_out_pcs) && e.details?.carryover_reason) parts.push(`held: ${e.details.carryover_reason}`)
     if (e.details?.overproduction_reason) parts.push(`over plan: ${e.details.overproduction_reason}`)
-    if (e.qc_gate_override) parts.push("taken before upstream QC (override)")
+    if (e.qc_gate_override) parts.push(`taken before upstream QC (override${e.details?.qc_gate_override_reason ? `: ${e.details.qc_gate_override_reason}` : ""})`)
     if (e.details?.material_prep_pending) parts.push("before the slitting record")
     return parts.join(" · ")
   }
@@ -382,6 +394,41 @@ export function RunRows({
         </ul>
       ) : null}
 
+      <Dialog open={Boolean(voiding)} onOpenChange={(open) => (open ? undefined : setVoiding(null))}>
+        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-md" data-testid="run-void-dialog">
+          <DialogHeader>
+            <DialogTitle>
+              Void {stageLabel(voiding?.stage || "")} run {voiding ? runNo(voiding) : ""}
+            </DialogTitle>
+            <DialogDescription>Output already used by the next stage cannot be voided. The reason is kept in the run&apos;s history.</DialogDescription>
+          </DialogHeader>
+          <ReasonPicker
+            category="ENTRY_CORRECTION"
+            plantId={card.plant_id}
+            rows={voidReason.rows}
+            value={voidReason.value}
+            onChange={voidReason.setValue}
+            showErrors={voidReason.touched}
+            compact
+            label="Why is it voided?"
+            testIdPrefix="run-void"
+          />
+          {error && voiding ? (
+            <p role="alert" className="rounded-lg border border-signal-rose-line bg-signal-rose-soft p-3 text-sm text-signal-rose-ink">
+              {error}
+            </p>
+          ) : null}
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" className="min-h-11" onClick={() => setVoiding(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" className="min-h-11" disabled={mutation.isPending} onClick={confirmVoid} data-testid="run-void-confirm">
+              {mutation.isPending ? "Voiding…" : "Void run"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={Boolean(history)} onOpenChange={(open) => (open ? undefined : setHistory(null))}>
         <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl">
           <DialogHeader>
@@ -402,7 +449,7 @@ export function RunRows({
                       Revision {r.version ?? r.row_version} · {String(r.actor || "").split("@")[0] || "—"}
                       {r.created_at || r.at ? <span className="font-normal text-muted-foreground"> · {stampLabel(r.created_at || r.at)}</span> : null}
                     </p>
-                    <p className="text-muted-foreground">{r.reason || "—"}</p>
+                    <p className="text-muted-foreground">{r.reason || r.reason_label || "—"}</p>
                     {p.kind !== "QC_ONLY" ? (
                       <p className="mt-1 tabular-nums">
                         {fmt(p.produced)} made · {fmt(p.accepted)} good · {fmt(p.rejected)} rejected · {String(p.status || "").toLowerCase()} · {(p.samples || []).length} QC sample{(p.samples || []).length === 1 ? "" : "s"}

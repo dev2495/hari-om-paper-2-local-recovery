@@ -20,6 +20,8 @@ from ..database import get_db, engine
 from ..models import Dispatch, DispatchIdempotency, JobCard, JobCardStage, PackingRecord, QualityHold, SalesOrder
 from ..card_lock import card_posting_lease
 from ..dispatch_quantities import dispatchable_quantity, shipping_allowance, qc_excluded_quantities
+from .. import boxes as box_rules
+from ..entry_models import FgBox
 from ..utils.auth import get_current_plant, get_current_plant_scope, require_role
 
 router = APIRouter(prefix="/dispatch", tags=["dispatch"])
@@ -200,14 +202,89 @@ def _existing_inventory_dispatch_id(snapshot: dict[str, Any]) -> Optional[str]:
 
 
 def _active_hold_count(db: Session, job_card_id: uuid.UUID) -> int:
-    return int(
-        db.query(QualityHold)
-        .filter(
-            QualityHold.job_card_id == job_card_id,
-            QualityHold.status.in_(list(QC_BLOCKING_STATUSES)),
-        )
-        .count()
-    )
+    """Holds that stop a shipment: only holds placed on purpose that block movement (owner decision 3,
+    2026-11-01). QC out of band is a flag, never a hold; advisory holds show as a warning only."""
+    from .planning import _movement_blocking_holds
+    holds = db.query(QualityHold).filter(QualityHold.job_card_id == job_card_id, QualityHold.status.in_(list(QC_BLOCKING_STATUSES))).all()
+    return len(_movement_blocking_holds(db, holds))
+
+
+def _box_ids(snapshot: dict[str, Any]) -> list[uuid.UUID]:
+    raw = snapshot.get("box_ids") or []
+    if not isinstance(raw, list):
+        raise HTTPException(status_code=422, detail="Pick the boxes for this challan (a list of box ids).")
+    try:
+        return list(dict.fromkeys(uuid.UUID(str(value)) for value in raw))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="A box id on this challan is not valid") from exc
+
+
+def _challan_boxes(db: Session, job_card: JobCard, snapshot: dict[str, Any], dispatch: Dispatch) -> list[FgBox]:
+    """The boxes on this challan: the card's own, packed (or already on this same challan on a retry), in stock."""
+    ids = _box_ids(snapshot)
+    if not ids:
+        raise HTTPException(status_code=422, detail="Tick or scan the boxes going on this challan.")
+    boxes = db.query(FgBox).filter(FgBox.id.in_(ids)).with_for_update().all()
+    found = {box.id: box for box in boxes}
+    missing = [str(value) for value in ids if value not in found]
+    if missing:
+        raise HTTPException(status_code=404, detail="Some boxes on this challan do not exist; refresh and pick them again.")
+    problems = []
+    for box in (found[value] for value in ids):
+        if box.job_card_id != job_card.id:
+            problems.append(f"{box.box_code} belongs to another job card")
+        elif box.status == "DISPATCHED" and box.dispatch_id != dispatch.id:
+            problems.append(f"{box.box_code} is already dispatched")
+        elif box.status in ("RETAINED", "VOID"):
+            problems.append(f"{box.box_code} is {box.status.lower()}")
+        elif box.fg_status != "POSTED":
+            problems.append(f"{box.box_code} is not in stock yet (posting {box.fg_status.lower()})")
+    if problems:
+        raise HTTPException(status_code=409, detail="These boxes cannot go on the challan: " + "; ".join(problems) + ".")
+    return [found[value] for value in ids]
+
+
+def _box_packing_block(job_card: JobCard, boxes: list[FgBox]) -> dict[str, Any]:
+    """The challan's packing block from the spec (box code, qty per box, plastic / fadda per box) and the boxes."""
+    snap = job_card.spec_snapshot or {}
+    full = [box for box in boxes if not box.is_part]
+    part = [box for box in boxes if box.is_part]
+    return {
+        "box_code": snap.get("box_code") or snap.get("box"),
+        "box_size": snap.get("box_size"),
+        "qty_per_box": box_rules.qty_per_box(job_card),
+        "plastic_sku": snap.get("plastic_sku"), "plastic_per_box": snap.get("plastic_per_box"),
+        "fadda_sku": snap.get("fadda_sku"), "fadda_per_box": snap.get("fadda_per_box"),
+        "box_count": len(boxes), "full_boxes": len(full), "part_boxes": len(part),
+        "total_pcs": sum(int(box.qty) for box in boxes),
+    }
+
+
+def _post_inventory_box_dispatch(*, job_card: JobCard, boxes: list[FgBox], snapshot: dict[str, Any], dispatch_ref: str, token: str, plant_id: str) -> dict[str, Any]:
+    """One stock-out per box batch, idempotent per box (a retry re-sends the same box keys)."""
+    posted = dict(snapshot.get("inventory_box_transactions") or {})
+    for box in boxes:
+        if posted.get(str(box.id)):
+            continue
+        payload = {
+            "item_id": str(box.fg_item_id), "batch_id": str(box.inventory_batch_id), "qty": float(box.qty),
+            "effective_date": snapshot.get("date") or plant_today().isoformat(), "dispatch_ref": dispatch_ref[:100],
+            "external_ref": f"PROD-DISPATCH-BOX-{box.id}", "production_job_id": str(job_card.id),
+            "sales_order_id": str(job_card.sales_order_id) if job_card.sales_order_id else None,
+            "sales_order_line_id": str(job_card.sales_order_line_id) if job_card.sales_order_line_id else None,
+        }
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                response = client.post(f"{settings.INVENTORY_SERVICE_URL}/dispatch/", headers={"Authorization": f"Bearer {token}", "X-Plant-ID": plant_id}, json=payload)
+        except httpx.RequestError as exc:
+            raise HTTPException(status_code=502, detail=f"Stores could not be reached to move box {box.box_code} out of stock. Nothing was sealed; try again.") from exc
+        if response.status_code not in (200, 201):
+            raise HTTPException(status_code=response.status_code, detail=f"Box {box.box_code} could not be moved out of stock: {_downstream_detail(response)}")
+        posted[str(box.id)] = str(response.json().get("transaction_id"))
+        snapshot["inventory_box_transactions"] = dict(posted)
+    snapshot["inventory_dispatch_status"] = "POSTED"
+    snapshot["inventory_dispatch_transaction_id"] = next(iter(posted.values()), None)
+    return snapshot
 
 
 def _require_final_qc(db: Session, plant_id: uuid.UUID, job_card: JobCard) -> None:
@@ -584,11 +661,17 @@ def _create_or_update_dispatch(payload,db,plant_id,current_user):
 
     active_holds = _active_hold_count(db, job_card.id)
     if active_holds:
-        raise HTTPException(status_code=409, detail=f"{active_holds} quality hold(s) are open on this card. Clear them in Quality before sealing.")
+        raise HTTPException(status_code=409, detail=f"{active_holds} hold(s) placed on this card stop all movement. Release them in Quality before sealing.")
+
+    if box_rules.box_mode(db, job_card):
+        return _seal_box_challan(db=db, job_card=job_card, dispatch=dispatch, idem=idem, payload=payload, plant_id=plant_id, plant_uuid=plant_uuid,
+                                 current_user=current_user, dispatch_snapshot=dispatch_snapshot, request_id=request_id, request_hash=request_hash,
+                                 persisted_snapshot=persisted_snapshot)
 
     qc_stage = None
     if (getattr(job_card,"spec_snapshot",None) or {}).get("entry_model")!="V2":
-        _require_final_qc(db, plant_uuid, job_card)
+        # Owner decision 3 (2026-11-01): QC never holds or blocks dispatch; final QC out of band is a flag only.
+        pass
     else:
         # Batch-entry card: final QC is the closed QC stage. On a Process-last card that is the Process
         # QC — every good batch QC-accepted before Process closes (client rule 2026-10-18).
@@ -746,6 +829,101 @@ def _create_or_update_dispatch(payload,db,plant_id,current_user):
         )
         raise
 
+def _seal_box_challan(*, db, job_card, dispatch, idem, payload, plant_id, plant_uuid, current_user, dispatch_snapshot, request_id, request_hash, persisted_snapshot):
+    """Seal a challan built from boxes (owner decision 2, 2026-11-01): the boxes are the shipment."""
+    from .entries import complete_if_shipped
+    boxes = _challan_boxes(db, job_card, dispatch_snapshot, dispatch)
+    dispatch_qty = float(sum(int(box.qty) for box in boxes))
+    sealed = db.query(Dispatch).filter(Dispatch.job_card_id == job_card.id, Dispatch.status == "SEALED").all()
+    previously_shipped = sum(float((row.dispatch_snapshot or {}).get("dispatch_qty") or (row.dispatch_snapshot or {}).get("qty") or 0) for row in sealed)
+    dispatch_stage = db.query(JobCardStage).filter_by(job_card_id=job_card.id, stage_type="DISPATCH").first()
+    boxed = float(box_rules.boxed_pcs(db, job_card.id))
+    allowance = shipping_allowance(job_card, boxed, dispatch_stage)
+    max_ship_qty = max(0.0, allowance - previously_shipped)
+    if dispatch_qty > max_ship_qty + 0.0001:
+        raise HTTPException(status_code=409, detail=f"These {len(boxes)} boxes hold {dispatch_qty:g} pcs, but only {max_ship_qty:g} pcs of this card's released quantity are left to ship. Leave the extra box(es) off; keep them with Retain surplus once the rest is shipped.")
+    dispatch_snapshot = _require_challan_document(db=db, job_card=job_card, snapshot=dispatch_snapshot, plant_id=plant_id, token=current_user.get("token", ""))
+    dispatch_snapshot.setdefault("date", plant_today().isoformat())
+    try:
+        dispatch_snapshot["date"] = date.fromisoformat(str(dispatch_snapshot["date"])).isoformat()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Dispatch date must be YYYY-MM-DD") from exc
+    dispatch_ref = _dispatch_ref(dispatch_snapshot, dispatch.id, request_id)
+    sales_ref = persisted_snapshot.get("sales_dispatch_ref") or "DISPATCH-REQUEST:" + hashlib.sha256(request_id.encode()).hexdigest()
+    token = current_user.get("token", "")
+    if job_card.sales_order_line_id:
+        _post_sales_request(path=f"/sales-orders/lines/{job_card.sales_order_line_id}/validate-dispatch", token=token, plant_id=plant_id,
+                            payload={"qty": dispatch_qty, "approved_spec_id": str(job_card.spec_id) if job_card.spec_id else None, "dispatch_line_ref": sales_ref},
+                            action="The sales order check")
+    dispatch_snapshot.update({
+        "qty": dispatch_qty, "dispatch_qty": dispatch_qty, "dispatch_ref": dispatch_ref, "challan_no": dispatch_snapshot.get("challan_no") or dispatch_ref,
+        "dispatch_request_id": request_id, "orchestration_state": "PENDING", "orchestration_error": None, "sales_dispatch_ref": sales_ref,
+        "sales_validation_status": "VALIDATED" if job_card.sales_order_line_id else None,
+        "box_ids": [str(box.id) for box in boxes],
+        "boxes": [{"id": str(box.id), "box_code": box.box_code, "qty": int(box.qty), "is_part": bool(box.is_part), "qc_flagged": bool(box.qc_flagged)} for box in boxes],
+        "box_packing": _box_packing_block(job_card, boxes),
+        "packing_type": "Box", "units": len(boxes),
+    })
+    if idem is None:
+        dispatch_snapshot["seal_request"] = payload.model_dump(mode="json")
+    dispatch.dispatch_snapshot = dict(dispatch_snapshot)
+    _safe_flag_modified(dispatch, "dispatch_snapshot")
+    if idem is None:
+        idem = DispatchIdempotency(plant_id=plant_uuid, request_id=request_id, job_card_id=payload.job_card_id, request_hash=request_hash, status="PENDING", response_snapshot=dict(dispatch_snapshot))
+        db.add(idem)
+    else:
+        idem.status = "PENDING"; idem.error_message = None; idem.response_snapshot = dict(dispatch_snapshot)
+    db.commit()
+    try:
+        dispatch_snapshot = _post_inventory_box_dispatch(job_card=job_card, boxes=boxes, snapshot=dispatch_snapshot, dispatch_ref=dispatch_ref, token=token, plant_id=plant_id)
+        dispatch.dispatch_snapshot = dict(dispatch_snapshot)
+        _safe_flag_modified(dispatch, "dispatch_snapshot")
+        idem.response_snapshot = dict(dispatch_snapshot)
+        db.commit()
+        if job_card.sales_order_line_id:
+            _post_sales_request(path=f"/sales-orders/lines/{job_card.sales_order_line_id}/record-dispatch", token=token, plant_id=plant_id,
+                                payload={"qty": dispatch_qty, "dispatch_line_ref": sales_ref}, action="The sales order update")
+            dispatch_snapshot["sales_dispatch_status"] = "POSTED"
+        dispatch_snapshot["orchestration_state"] = "SUCCESS"
+        dispatch_snapshot["orchestration_error"] = None
+        dispatch.dispatch_snapshot = dict(dispatch_snapshot)
+        _safe_flag_modified(dispatch, "dispatch_snapshot")
+        dispatch.status = "SEALED"
+        now = datetime.utcnow()
+        for box in db.query(FgBox).filter(FgBox.id.in_([box.id for box in boxes])).all():
+            box.status = "DISPATCHED"; box.dispatch_id = dispatch.id; box.dispatched_at = box.dispatched_at or now; box.row_version = int(box.row_version or 1) + 1
+        shipped = previously_shipped + dispatch_qty
+        if dispatch_stage is not None:
+            dispatch_stage.output_qty = shipped; dispatch_stage.input_qty = shipped
+            if dispatch_stage.status != "COMPLETED":
+                dispatch_stage.status = "RUNNING"
+            dispatch_stage.actuals_snapshot = {**(dispatch_stage.actuals_snapshot or {}), "produced_total": shipped, "accepted_total": shipped,
+                                               "row_version": int((dispatch_stage.actuals_snapshot or {}).get("row_version", 1)) + 1, "last_dispatch_id": str(dispatch.id)}
+        db.flush()
+        complete_if_shipped(db, job_card)
+        idem.status = "SUCCESS"; idem.error_message = None; idem.response_snapshot = dict(dispatch_snapshot)
+        db.commit()
+        db.refresh(dispatch)
+        return dispatch
+    except HTTPException as exc:
+        _persist_dispatch_failure(db=db, dispatch=dispatch, idem=idem, snapshot=dispatch_snapshot, error=exc)
+        raise
+
+
+@router.get("/job-cards/{job_card_id}/boxes")
+def dispatch_card_boxes(
+    job_card_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(DISPATCH_VIEW_ROLES)),
+):
+    """The card's boxes for building a challan (tick or scan)."""
+    job = _apply_job_plant_scope(db.query(JobCard).filter(JobCard.id == job_card_id), plant_scope).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job card not found")
+    return {"summary": box_rules.box_summary(db, job), "boxes": [box_rules.box_dict(box) for box in box_rules.card_boxes(db, job.id)], **box_rules.label_fields(job)}
+
+
 @router.get("/{dispatch_id}", response_model=DispatchResponse)
 def get_dispatch(
     dispatch_id: uuid.UUID,
@@ -777,6 +955,18 @@ def get_dispatch_by_job_card(
     dispatch = query.order_by(Dispatch.created_at.desc()).first()
     return dispatch
 
+@router.get("/by-job/{job_card_id}/sealed", response_model=list[DispatchResponse])
+def list_sealed_dispatches_by_job_card(
+    job_card_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(DISPATCH_VIEW_ROLES))
+):
+    """Every sealed challan of a card, oldest first: a box card can ship in several challans (issue #9)."""
+    return _apply_job_plant_scope(db.query(Dispatch).join(JobCard, JobCard.id == Dispatch.job_card_id).filter(
+        Dispatch.job_card_id == job_card_id, Dispatch.status == "SEALED"), plant_scope).order_by(Dispatch.created_at.asc()).all()
+
+
 @router.get("/ready-jobs/", response_model=list[dict])
 def get_ready_jobs_for_dispatch(
     db: Session = Depends(get_db),
@@ -792,7 +982,9 @@ def get_ready_jobs_for_dispatch(
         .join(SalesOrder, JobCard.sales_order_id == SalesOrder.id)
         .outerjoin(Dispatch, JobCard.id == Dispatch.job_card_id)
         .filter(
-            or_(and_(JobCard.status != "CANCELLED", JobCard.current_stage.in_(["PACKING", "QC", "DISPATCH", "DONE"])), Dispatch.status == "SEALED"),
+            or_(and_(JobCard.status != "CANCELLED", JobCard.current_stage.in_(["PACKING", "QC", "DISPATCH", "DONE"])), Dispatch.status == "SEALED",
+                # Box cards are on the register as soon as one box is packed, Process may still be running (2026-11-01).
+                and_(JobCard.status != "CANCELLED", JobCard.id.in_(db.query(FgBox.job_card_id).filter(FgBox.status != "VOID")))),
         ), plant_scope
     )
         .order_by(JobCard.created_at.desc())
@@ -818,7 +1010,11 @@ def get_ready_jobs_for_dispatch(
     qc = {s.job_card_id: s for s in closing_stages if s.stage_type == "QC"}
     dispatch_stages = {s.job_card_id: s for s in closing_stages if s.stage_type == "DISPATCH"}
     retained = {s.job_card_id: float((s.actuals_snapshot or {}).get("retained_fg_qty") or 0) for s in closing_stages if s.stage_type == "DISPATCH"}
-    held = {row[0] for row in db.query(QualityHold.job_card_id).filter(QualityHold.job_card_id.in_(ids), QualityHold.status.in_(list(QC_BLOCKING_STATUSES))).distinct().all()} if ids else set()
+    held = {key for key in ids if _active_hold_count(db, key)} if ids else set()
+    box_rows = db.query(FgBox).filter(FgBox.job_card_id.in_(ids), FgBox.status != "VOID").all() if ids else []
+    boxes_by_card: dict = {}
+    for box in box_rows:
+        boxes_by_card.setdefault(box.job_card_id, []).append(box)
     for key, entry in grouped.items():
         entry["shipments"].sort(key=lambda row: row["created_at"], reverse=True)
         entry["dispatched_qty"] = sum(row["qty"] for row in entry["shipments"])
@@ -835,6 +1031,28 @@ def get_ready_jobs_for_dispatch(
         entry["remaining_qty"] = max(0, entry["physical_remaining_qty"] - entry["retained_qty"])
         entry["dispatch_id"] = entry["draft"] or (entry["shipments"][0]["id"] if entry["shipments"] else None)
         entry["dispatch_status"] = "DRAFT" if entry.pop("draft") else ("SEALED" if entry["shipments"] and entry["remaining_qty"] <= 0.0001 else None)
+        card_boxes = boxes_by_card.get(key)
+        if card_boxes:
+            # Box card: what can ship is the packed boxes already in stock, within the released quantity left.
+            boxed = float(sum(b.qty for b in card_boxes))
+            ready = [b for b in card_boxes if b.status == "PACKED" and b.fg_status == "POSTED"]
+            entry["box_mode"] = True
+            entry["boxes"] = {"total": len(card_boxes), "boxed_pcs": boxed, "packed": sum(1 for b in card_boxes if b.status == "PACKED"),
+                              "ready": len(ready), "ready_pcs": float(sum(b.qty for b in ready)), "dispatched": sum(1 for b in card_boxes if b.status == "DISPATCHED"),
+                              "retained": sum(1 for b in card_boxes if b.status == "RETAINED"), "flagged": sum(1 for b in card_boxes if b.qc_flagged),
+                              "qty_per_box": box_rules.qty_per_box(jobs[key])}
+            entry["packed_qty"] = boxed
+            entry["dispatchable_qty"] = boxed
+            entry["shipping_allowance"] = shipping_allowance(jobs[key], boxed, dispatch_stages.get(key))
+            entry["max_ship_qty"] = max(0, min(entry["boxes"]["ready_pcs"], entry["shipping_allowance"] - entry["dispatched_qty"]))
+            entry["retained_qty"] = float(sum(b.qty for b in card_boxes if b.status == "RETAINED"))
+            entry["physical_remaining_qty"] = float(sum(b.qty for b in card_boxes if b.status == "PACKED"))
+            entry["remaining_qty"] = entry["physical_remaining_qty"]
+            done = jobs[key].status == "COMPLETED"
+            entry["dispatch_status"] = "DRAFT" if entry["dispatch_status"] == "DRAFT" else ("SEALED" if done else None)
+            entry["handoff_state"] = ("SEALED" if done else "QC_HOLD" if key in held else "BOXES_READY" if ready else
+                                      "AWAITING_FG" if entry["boxes"]["packed"] else "PACKING")
+            continue
         entry["handoff_state"] = (
             "REJECTED_QC" if entry["entry_model"] == "V2" and final_qc_closed and entry["packed_qty"] > 0 and entry["dispatchable_qty"] <= 0 else
             "RETAINED_FG" if entry["retained_qty"] > 0 else

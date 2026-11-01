@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { monthEndApi, type MonthEndLimit } from "@/lib/api-month-end"
+import { monthEndApi, type MonthEndLimit, type MonthEndNoteBody, type MonthEndReopenBody } from "@/lib/api-month-end"
 
 const isPlant = (plantId?: string | null) => Boolean(plantId && plantId !== "ALL")
 
@@ -50,7 +50,7 @@ function useRefreshMonthEnd() {
 export function useSaveMonthNote(plantId?: string | null) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (body: { month: string; item_code: string; item_id?: string | null; item_name?: string | null; note: string }) =>
+    mutationFn: (body: MonthEndNoteBody) =>
       monthEndApi.saveNote(body, String(plantId)),
     onSuccess: (_data, body) => {
       queryClient.invalidateQueries({ queryKey: ["month-end", "overview", plantId, body.month] })
@@ -70,7 +70,7 @@ export function useCloseMonth(plantId?: string | null) {
 export function useReopenMonth(plantId?: string | null) {
   const refresh = useRefreshMonthEnd()
   return useMutation({
-    mutationFn: (body: { month: string; reason: string }) => monthEndApi.reopen(body, String(plantId)).then((response) => response.data),
+    mutationFn: (body: MonthEndReopenBody) => monthEndApi.reopen(body, String(plantId)).then((response) => response.data),
     onSuccess: refresh,
   })
 }

@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from sqlalchemy import text
 from .database import engine, Base
 from .routers import sales_orders
+from .routers import release_returns
 
 Base.metadata.create_all(bind=engine)
 
@@ -68,6 +69,10 @@ def _ensure_schema_compatibility():
             "ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS closure_note TEXT",
             "ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS closure_by VARCHAR(200)",
             "ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS closure_at TIMESTAMP",
+            # Reasons are master codes (owner decision 4, 1 Nov 2026): every customer hold, resume and
+            # hold ended by a cancel / short close is kept here (code, label, note, who, when) for the timeline.
+            "ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS hold_history JSONB",
+            "CREATE INDEX IF NOT EXISTS ix_sales_orders_closure_reason_code ON sales_orders (closure_reason_code)",
             "CREATE INDEX IF NOT EXISTS ix_sales_orders_closure_kind ON sales_orders (closure_kind)",
             "ALTER TABLE sales_order_lines ADD COLUMN IF NOT EXISTS short_closed_qty DOUBLE PRECISION NOT NULL DEFAULT 0",
             "CREATE INDEX IF NOT EXISTS ix_sales_orders_expiry_date ON sales_orders (expiry_date)",
@@ -76,6 +81,17 @@ def _ensure_schema_compatibility():
             "ALTER TABLE sales_order_release_lots ADD COLUMN IF NOT EXISTS parchment_color_id UUID",
             "ALTER TABLE sales_order_release_lots ADD COLUMN IF NOT EXISTS returned_qty DOUBLE PRECISION NOT NULL DEFAULT 0",
             "ALTER TABLE sales_order_release_lots ADD COLUMN IF NOT EXISTS source_release_lot_id UUID",
+            # Balance returned by a job card force close / stage short close carries the master reason that
+            # production checked (owner decision 4, 1 Nov 2026): code, label at the time, note, "Label — note".
+            "ALTER TABLE sales_order_release_lots ADD COLUMN IF NOT EXISTS returned_reason TEXT",
+            "ALTER TABLE sales_order_release_lots ADD COLUMN IF NOT EXISTS returned_reason_code VARCHAR(40)",
+            "ALTER TABLE sales_order_release_lots ADD COLUMN IF NOT EXISTS returned_reason_label VARCHAR(200)",
+            "ALTER TABLE sales_order_release_lots ADD COLUMN IF NOT EXISTS returned_reason_note TEXT",
+            "ALTER TABLE sales_order_release_lot_returns ADD COLUMN IF NOT EXISTS reason_code VARCHAR(40)",
+            "ALTER TABLE sales_order_release_lot_returns ADD COLUMN IF NOT EXISTS reason_label VARCHAR(200)",
+            "ALTER TABLE sales_order_release_lot_returns ADD COLUMN IF NOT EXISTS reason_note TEXT",
+            "ALTER TABLE sales_order_release_lot_returns ADD COLUMN IF NOT EXISTS reverse_reason_code VARCHAR(40)",
+            "ALTER TABLE sales_order_release_lot_returns ADD COLUMN IF NOT EXISTS reverse_reason_label VARCHAR(200)",
             "CREATE INDEX IF NOT EXISTS ix_sales_order_line_colors_line ON sales_order_line_colors (sales_order_line_id)",
             # Colour-wise commercial rate (NULL = the line rate applies).
             "ALTER TABLE sales_order_line_colors ADD COLUMN IF NOT EXISTS rate_per_pc DOUBLE PRECISION",
@@ -237,6 +253,7 @@ app = FastAPI(
 from .parchment_master import RequestContextMiddleware  # noqa: E402
 
 app.add_middleware(RequestContextMiddleware)
+app.include_router(release_returns.router)
 app.include_router(sales_orders.router)
 
 

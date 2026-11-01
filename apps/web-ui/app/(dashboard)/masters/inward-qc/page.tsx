@@ -10,6 +10,7 @@ import { Field, MessageBar, ProcurementShell, fieldClass } from "@/components/pr
 import { BAND_MODES, bandLineFrom, bandPayload, blankBand, previewBand, type BandLine } from "@/lib/qc-bands"
 import { ErrorState, LoadingState } from "@/components/workspace/query-state"
 import { RoleGate } from "@/components/workspace/role-gate"
+import { ReasonPicker, useReasonChoice } from "@/components/reasons"
 import { useAdhesives, usePapers, useParchments } from "@/hooks/use-master-data"
 import { useQualityStandardTolerances, useSaveQualityStandardItem, useSaveQualityStandardTolerances } from "@/hooks/use-inventory"
 import { cn } from "@/lib/utils"
@@ -65,7 +66,8 @@ function ToleranceWorkspace() {
   const [nominals, setNominals] = useState<Record<string, string>>({})
   const [group, setGroup] = useState("")
   const [subgroup, setSubgroup] = useState("")
-  const [note, setNote] = useState("")
+  // Why (optional): a QC_RULE_CHANGE code from Masters › Reason codes (owner decision 4, 1 Nov 2026).
+  const why = useReasonChoice("QC_RULE_CHANGE", undefined, { required: false })
   const [search, setSearch] = useState("")
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
@@ -128,7 +130,7 @@ function ToleranceWorkspace() {
     setNominals(Object.fromEntries(parameters.map((p) => [p.parameter_key, num(selectedItem?.qc_nominals?.[p.parameter_key])])))
     setGroup(selectedItem?.material_group || "")
     setSubgroup(selectedItem?.material_subgroup || "")
-    setNote("")
+    why.reset()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature, parameters.length])
 
@@ -150,6 +152,7 @@ function ToleranceWorkspace() {
   }
 
   const save = async () => {
+    if (!why.validate()) return
     setError(""); setNotice("")
     try {
       let itemChanged = false
@@ -159,7 +162,7 @@ function ToleranceWorkspace() {
         itemChanged = Boolean(result.data?.changed)
       }
       const result = await saveBands.mutateAsync({
-        material_type: materialType, scope: selected.scope, scope_key: selected.key, note,
+        material_type: materialType, scope: selected.scope, scope_key: selected.key, ...(why.value.code ? { reason_code: why.value.code, reason_note: why.value.note.trim() || undefined } : {}),
         lines: parameters.map((p) => bandPayload(p.parameter_key, lines[p.parameter_key] || blankBand)),
       })
       const changed = result.data?.changed?.length || 0
@@ -305,7 +308,7 @@ function ToleranceWorkspace() {
               </table>
             </div>
             <footer className="flex flex-wrap items-end gap-3 border-t border-border bg-muted/30 px-4 py-3">
-              <div className="min-w-[240px] flex-1"><Field label="Reason for the change" hint="optional, kept in history"><input className={fieldClass} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. supplier agreed GSM ±4%" /></Field></div>
+              <div className="min-w-[240px] flex-1"><ReasonPicker category="QC_RULE_CHANGE" label="Reason for the change" required={false} value={why.value} onChange={why.setValue} showErrors={why.touched} compact testIdPrefix="inward-qc-reason" /></div>
               <button type="button" className="erp-btn-primary" disabled={saveBands.isPending || saveItem.isPending} onClick={save}><Save className="h-4 w-4" />Save bands</button>
             </footer>
           </section>

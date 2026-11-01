@@ -1,6 +1,7 @@
 """Manual procurement receipts are real documents, never fabricated purchase orders."""
 from datetime import datetime
 from decimal import Decimal
+from typing import Optional
 import uuid
 
 from fastapi import Depends, HTTPException
@@ -11,10 +12,11 @@ from sqlalchemy.orm import Session
 from .procurement import (
     router, GovernedReceiptCreate, GovernedReceiptLineInput, _validate_receipt,
     _enum, _plant_uuid, _receipt_payload, _refresh_receipt_line_stock,
-    _challan_key, _challan_warnings, _next_grn_no, _next_receipt_reel_code,
+    _challan_key, _challan_warnings, _mill_name, _next_grn_no, _next_receipt_reel_code,
 )
 from .purchase import _actor
 from ..database import get_db
+from ..reasons import reason_input, resolve_reason, token_of
 from ..models import (
     ItemMaster, PurchaseReceipt, PurchaseReceiptLine, PaperReel, StockBatch,
     StockTransaction, ReceiptStockAllocation, SupplierInvoice, SupplierInvoiceLine,
@@ -40,16 +42,25 @@ class ManualReceiptCreate(GovernedReceiptCreate):
     purchase_order_id: None = None
     supplier_id: uuid.UUID
     supplier_name: str = Field(min_length=1, max_length=200)
-    reason: str = Field(min_length=3, max_length=1000)
+    # A MANUAL_RECEIPT code from Masters › Reason codes (owner decision 4, 1 Nov 2026); old free text alone is refused.
+    reason: Optional[str] = Field(default=None, max_length=1000)
+    reason_code: Optional[str] = Field(default=None, max_length=80)
+    reason_note: Optional[str] = Field(default=None, max_length=1000)
     lines: list[ManualReceiptLine] = Field(min_length=1, max_length=100)
 
-    @field_validator("reason", "supplier_name")
+    @field_validator("supplier_name")
     @classmethod
     def clean_required_text(cls, value):
         value = value.strip()
         if not value:
             raise ValueError("A non-blank value is required")
         return value
+
+
+def _manual_reason(payload, plant_id, current_user):
+    code, note = reason_input(payload)
+    return resolve_reason(category="MANUAL_RECEIPT", code=code, note=note, plant_id=plant_id,
+                          token=token_of(current_user), what="receiving without a PO")
 
 
 def _manual_checks(payload, db, plant_id):
@@ -89,6 +100,7 @@ def _manual_checks(payload, db, plant_id):
 def preview_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(require_role(["Store", "PlantManager", "GRN"]))):
     rows = _manual_checks(payload, db, plant_id)
     assert_books_open(db, plant_id, payload.received_date)
+    _manual_reason(payload, plant_id, current_user)
     return {"receipt_kind": "MANUAL", "commercial_status": "INVOICE_PENDING" if payload.invoice_pending else "MANUAL_REVIEW",
             "warnings": _challan_warnings(db, plant_id, payload.supplier_id, payload.supplier_challan_no),
             "lines": [{"item_code": item.item_code, "uom": _enum(item.uom), "quantity_kg": float(qty), "physical_unit_count": len(requested.lots), "invoice_rate": requested.invoice_rate} for requested, item, qty, _ in rows],
@@ -113,6 +125,7 @@ def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_
         return {**_receipt_payload(existing, db), "idempotent": True}
     rows = _manual_checks(payload, db, plant_id)
     assert_books_open(db, plant_id, payload.received_date)
+    choice = _manual_reason(payload, plant_id, current_user)
     invoice = None
     if not payload.invoice_pending:
         normalized = normalize_invoice_number(payload.invoice_no)
@@ -128,12 +141,13 @@ def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_
     # Same inward series as PO receipts (P / A / IN per financial year from April, client 2026-10-27).
     grn_no = _next_grn_no(db, plant_id, [item.type for _, item, _, _ in rows], payload.received_date)
     receipt = PurchaseReceipt(plant_id=plant_id, receipt_kind="MANUAL", supplier_id=payload.supplier_id,
-        supplier_name_snapshot=payload.supplier_name.strip(), manual_reason=payload.reason.strip(), request_id=payload.request_id,
+        supplier_name_snapshot=payload.supplier_name.strip(), manual_reason=choice.text, request_id=payload.request_id,
         request_fingerprint=fingerprint, supplier_invoice_id=invoice.id if invoice else None, invoice_pending=payload.invoice_pending,
         commercial_status=state, grn_no=grn_no, supplier_challan_no=payload.supplier_challan_no,
         supplier_challan_key=_challan_key(payload.supplier_challan_no), received_date=payload.received_date,
         status="QC_PENDING", created_by=_actor(current_user),
-        approval_history=[{"action": "MANUAL_RECEIPT_CREATED", "actor": _actor(current_user), "at": datetime.utcnow().isoformat(), "reason": payload.reason}])
+        approval_history=[{"action": "MANUAL_RECEIPT_CREATED", "actor": _actor(current_user), "at": datetime.utcnow().isoformat(), "reason": choice.text,
+                          "reason_code": choice.code, "reason_label": choice.label, "reason_note": choice.note}])
     db.add(receipt)
     db.flush()
     # A line or reel with no location goes to the plant's receiving default, the RM store (spec 2.7).
@@ -148,12 +162,13 @@ def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_
         db.add(line)
         db.flush()
         metadata = {**metadata, "receipt_id": str(receipt.id), "grn_no": receipt.grn_no, "challan_no": payload.supplier_challan_no,
-            "receipt_kind": "MANUAL", "manual_reason": payload.reason, "invoice_no": payload.invoice_no, "invoice_rate": requested.invoice_rate,
+            "receipt_kind": "MANUAL", "manual_reason": choice.text, "invoice_no": payload.invoice_no, "invoice_rate": requested.invoice_rate,
             # "In since": a backdated GRN's lot came in on its received date, not on the day it was typed.
             "received_date": payload.received_date.isoformat()}
         if is_reel:
             for lot in requested.lots:
-                at_no = _next_receipt_reel_code(db, _plant_uuid(plant_id), payload.received_date)
+                serial = _next_receipt_reel_code(db, _plant_uuid(plant_id), payload.received_date)
+                at_no = serial["reel_code"]
                 nominals = item.qc_nominals or {}
                 reel = PaperReel(plant_id=_plant_uuid(plant_id), reel_code=at_no, purchase_receipt_line_id=line.id,
                     paper_id=item.id, gsm=nominals.get("gsm"), bf=nominals.get("bf"),
@@ -164,7 +179,8 @@ def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_
                     width_mm=lot.width_mm, physical_form=lot.physical_form,
                     location_id=lot.location_id or requested.location_id or default_location_id,
                     unit_cost=rate, cost_source=CostSource.SUPPLIER, status=ReelStatus.IN_STOCK, stock_status=lot_status,
-                    commercial_status=state, inward_date=payload.received_date, inward_metadata=metadata)
+                    commercial_status=state, inward_date=payload.received_date,
+                    inward_metadata={**metadata, **serial["metadata"], **({"mill_name": _mill_name(payload.mill_name)} if _mill_name(payload.mill_name) else {})})
                 db.add(reel)
                 db.flush()
                 if qc_status == "PENDING":

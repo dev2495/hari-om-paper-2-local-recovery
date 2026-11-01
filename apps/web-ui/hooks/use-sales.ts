@@ -200,7 +200,9 @@ export function useHoldSalesOrder() {
 export function useResumeSalesOrder() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ orderId, plantId }: { orderId: string; plantId?: string }) => salesApi.resumeOrder(orderId, plantId),
+    // Lifting a hold asks why (ORDER_RESUME, owner decision 4, 1 Nov 2026).
+    mutationFn: ({ orderId, plantId, reasonCode, note }: { orderId: string; plantId?: string; reasonCode: string; note?: string }) =>
+      salesApi.resumeOrder(orderId, { reason_code: reasonCode, reason_note: note?.trim() || undefined }, plantId),
     onSuccess: (_response, variables) => invalidateSalesQueries(queryClient, variables.orderId),
   })
 }

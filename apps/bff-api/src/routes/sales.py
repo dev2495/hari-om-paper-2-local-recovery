@@ -18,6 +18,12 @@ async def list_orders(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(SALES_SERVICE_URL, "/sales-orders", request, token)
 
 
+@router.get("/orders/reports/closures-by-reason")
+async def closures_by_reason(request: Request, token: str = Depends(get_token)):
+    """Cancelled / short-closed orders by reason, customer and month (1 Nov 2026)."""
+    return await proxy_to_service(SALES_SERVICE_URL, "/sales-orders/reports/closures-by-reason", request, token)
+
+
 @router.get("/orders/aggregates")
 async def get_order_aggregates(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(SALES_SERVICE_URL, "/sales-orders/aggregates", request, token)
@@ -287,14 +293,17 @@ async def hold_order(order_id: str, request: Request, token: str = Depends(get_t
 
 @router.post("/orders/{order_id}/resume")
 async def resume_order(order_id: str, request: Request, token: str = Depends(get_token)):
-    response = await proxy_to_service(SALES_SERVICE_URL, f"/sales-orders/{order_id}/resume", request, token)
+    # Lifting a hold asks why (ORDER_RESUME); the sales service checks the code (1 Nov 2026).
+    body = await _order_close_body(request, token)
+    response = await proxy_to_service(SALES_SERVICE_URL, f"/sales-orders/{order_id}/resume", request, token, json_body=body)
     payload = response_body_json(response) or {}
     await emit_from_response(
         response,
         token=token,
         event_type="SALES_ORDER_HOLD_LIFTED",
         title=f"Customer hold lifted: {payload.get('po_number') or payload.get('order_no') or order_id}",
-        message="The order is open again with its previous status. Releases and dispatch can continue.",
+        message="The order is open again with its previous status. Releases and dispatch can continue."
+        + (f" Reason: {_last_hold_reason(payload)}" if _last_hold_reason(payload) else ""),
         href=f"/sales-orders/{order_id}",
         recipient_roles=["Owner", "Admin", "Sales", "Planner", "PlantManager", "Dispatch"],
         payload={"order_id": order_id},
@@ -302,9 +311,16 @@ async def resume_order(order_id: str, request: Request, token: str = Depends(get
     return response
 
 
+def _last_hold_reason(order: dict) -> str:
+    history = order.get("hold_history") if isinstance(order, dict) else None
+    entry = history[-1] if isinstance(history, list) and history and isinstance(history[-1], dict) else {}
+    return " — ".join(str(part) for part in (entry.get("reason_label") or entry.get("reason_code"), entry.get("reason_note")) if part)
+
+
 async def _order_close_body(request: Request, token: str) -> dict:
-    """The reason code must be an active "Order cancel / short close" code of this plant (Masters ›
-    Reason codes); its name is stored with the order so the record reads the same later."""
+    """Pass the reason choice on to the sales service, which checks it against Masters › Reason codes
+    (active code of the right list and of the order's plant, OTHER needs a note) and stores the label at
+    that moment (owner decision 4, 1 Nov 2026: the owning service validates, not only the BFF)."""
     try:
         body = await request.json()
     except Exception:
@@ -313,22 +329,9 @@ async def _order_close_body(request: Request, token: str) -> dict:
         body = {}
     code = str(body.get("reason_code") or "").strip().upper()
     if not code:
-        raise HTTPException(status_code=422, detail="Choose a reason code.")
-    headers = {"Authorization": f"Bearer {token}"}
-    if request.headers.get("X-Plant-ID"):
-        headers["X-Plant-ID"] = request.headers["X-Plant-ID"]
-    try:
-        response = await http_client.get(f"{MASTER_SERVICE_URL}/master/reason-codes/", params={"category": ORDER_CLOSE_CATEGORY}, headers=headers)
-    except httpx.RequestError as exc:
-        raise HTTPException(status_code=503, detail="Reason codes could not be checked right now. Try again.") from exc
-    if response.status_code >= 400:
-        raise HTTPException(status_code=503, detail="Reason codes could not be checked right now. Try again.")
-    data = response.json()
-    rows = data if isinstance(data, list) else []
-    match = next((row for row in rows if str(row.get("code") or "").upper() == code and row.get("category") == ORDER_CLOSE_CATEGORY), None)
-    if not match:
-        raise HTTPException(status_code=422, detail=f"{code} is not an active order close reason. Pick one from the list, or ask the Owner or an Admin to add it on Masters › Order close reasons.")
-    return {"reason_code": code, "reason_label": match.get("label") or code, "note": str(body.get("note") or "").strip() or None}
+        raise HTTPException(status_code=422, detail="Choose a reason from the list.")
+    note = str(body.get("reason_note") or body.get("note") or "").strip() or None
+    return {"reason_code": code, "reason_note": note, "note": note}
 
 
 @router.post("/orders/{order_id}/cancel")

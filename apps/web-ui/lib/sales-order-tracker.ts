@@ -260,11 +260,19 @@ export function nextAction(order: any, cards: CardSummary, meEmail?: string | nu
 }
 
 /** Short reading of where the order is, for the Order page header. */
+/** "3 cards · 1 running · 1 waiting for dispatch · 1 done" (the card mix chips in words). */
+export function cardMixText(cards: Pick<CardSummary, "total" | "chips">): string {
+  const words: Record<string, string> = { READY: "waiting for dispatch" }
+  const parts = (cards.chips || []).map((chip) => `${chip.count} ${words[chip.key] || chip.label}`)
+  return [`${cards.total} card${cards.total === 1 ? "" : "s"}`, ...parts].join(" · ")
+}
+
 export function orderHealth(order: any, totals: OrderTotals, cards: CardSummary, due: OrderDue): Array<{ text: string; tone: "blue" | "emerald" | "teal" | "amber" | "rose" | "slate" }> {
   const items: Array<{ text: string; tone: "blue" | "emerald" | "teal" | "amber" | "rose" | "slate" }> = []
   const fmt = (value: number) => value.toLocaleString("en-IN", { maximumFractionDigits: 0 })
   const status = String(order?.status || "")
-  if (cards.total) items.push({ text: `${cards.running} of ${cards.total} card${cards.total === 1 ? "" : "s"} running`, tone: "blue" })
+  // Issue #9: the cards in words by where they are ("1 card · 1 waiting for dispatch"), not "0 of 1 running".
+  if (cards.total) items.push({ text: cardMixText(cards), tone: "blue" })
   else if (!["draft", "submitted", "cancelled"].includes(status)) items.push({ text: "No job card yet", tone: "slate" })
   items.push({ text: `${fmt(totals.dispatched)} of ${fmt(totals.ordered)} dispatched`, tone: "emerald" })
   if (cards.readyQty > 0) items.push({ text: `${fmt(cards.readyQty)} ready to dispatch`, tone: "teal" })

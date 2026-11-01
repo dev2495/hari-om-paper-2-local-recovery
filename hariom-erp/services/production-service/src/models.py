@@ -133,7 +133,10 @@ class JobCard(Base):
     parchment_color = Column(String(100), nullable=True)
     is_emergency = Column(Boolean, nullable=False, default=False)
     close_mode = Column(String(20), nullable=True)  # FORCE | CANCELLED
-    close_reason = Column(Text, nullable=True)
+    close_reason = Column(Text, nullable=True)  # "Label — note" (legacy text)
+    close_reason_code = Column(String(40), nullable=True)  # JOB_CARD_CLOSE master code
+    close_reason_label = Column(String(200), nullable=True)  # label at the time
+    close_reason_note = Column(Text, nullable=True)
     returned_qty = Column(Float, nullable=False, default=0.0)
     closed_at = Column(DateTime, nullable=True)
     closed_by = Column(String(200), nullable=True)
@@ -385,12 +388,21 @@ class QualityHold(Base):
     stage_type = Column(String(20), nullable=False)
     batch_id = Column(UUID(as_uuid=True), nullable=True)
     reason = Column(Text, nullable=False)
+    # Reason master (owner decision 4, 1 Nov 2026): code + label at the time + note; `reason` keeps
+    # "Label — note" for older screens. Automatic (system) holds leave the code columns empty.
+    reason_code = Column(String(40), nullable=True)
+    reason_label = Column(String(200), nullable=True)
+    reason_note = Column(Text, nullable=True)
     status = Column(String(20), nullable=False, default="HOLD")
     source_inspection_id = Column(UUID(as_uuid=True), nullable=True)
     created_by = Column(String(200), nullable=True)
     released_by = Column(String(200), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     released_at = Column(DateTime, nullable=True)
+    release_reason_code = Column(String(40), nullable=True)
+    release_reason_label = Column(String(200), nullable=True)
+    release_reason_note = Column(Text, nullable=True)
+    release_disposition = Column(String(30), nullable=True)
 
 
 class QcInstrument(Base):
@@ -531,6 +543,11 @@ class MonthlyMaterialNote(Base):
     item_code = Column(String(120), nullable=False)
     item_name = Column(String(255), nullable=True)
     note = Column(Text, nullable=False)
+    # MONTH_END_VARIANCE reason (owner decision 4): code + label at the time + note; `note` keeps
+    # "Label — note". Notes written before 1 Nov 2026 have only `note`.
+    reason_code = Column(String(40), nullable=True)
+    reason_label = Column(String(200), nullable=True)
+    reason_note = Column(Text, nullable=True)
     noted_by = Column(String(200), nullable=True)
     noted_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
@@ -705,6 +722,9 @@ class JobCardShortClose(Base):
     produced_qty = Column(Float, nullable=False)
     gap_qty = Column(Float, nullable=False)
     reason_code = Column(String(40), nullable=False)
+    # Label at the time + optional note (owner decision 4); old rows keep only the code.
+    reason_label = Column(String(200), nullable=True)
+    reason_note = Column(Text, nullable=True)
     decision = Column(String(20), nullable=False, default="HOLD")
     # CARRY_FORWARD | SHORT_CLOSE_SO | HOLD
     carry_forward_job_card_id = Column(UUID(as_uuid=True), nullable=True)
@@ -734,6 +754,9 @@ class MachineDowntime(Base):
     ended_at = Column(DateTime, nullable=True)  # NULL = still down
     duration_minutes = Column(Float, nullable=True)
     reason_code = Column(String(40), nullable=False)
+    # Label at the time + optional note (owner decision 4); old rows keep only the code.
+    reason_label = Column(String(200), nullable=True)
+    reason_note = Column(Text, nullable=True)
     notes = Column(Text, nullable=True)
     is_planned = Column(Boolean, nullable=False, default=False)
     actor_id = Column(String(200), nullable=True)

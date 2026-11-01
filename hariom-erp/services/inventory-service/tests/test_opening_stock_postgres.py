@@ -81,27 +81,27 @@ def test_batches_on_the_go_live_date_new_numbers_labels_and_month_figures():
             {"item_id": glue.id, "qty": 120, "unit_cost": 85},
         ])
         assert [line.get("reel_code") or line.get("batch_no") for line in first["lines"]] == [
-            "AT-261028-001", "AT-261028-002", "RM-GLUE-PVA-261028-001"]
+            "AIT 00001", "AIT 00002", "RM-GLUE-PVA-261028-001"]  # the plant's AIT series (owner decision 6)
         # Stores enter rack by rack: a second batch on the same go-live date is fine.
         second = _post(db, plant, [
             {"item_id": paper.id, "qty": 700},
-            {"item_id": boxes.id, "qty": 400, "on_hold": True, "hold_reason": "Damp corner, check before use"},
+            {"item_id": boxes.id, "qty": 400, "on_hold": True, "hold_reason_code": "QH-SUSPECT", "hold_reason_note": "Damp corner, check before use"},
         ], who=ADMIN)
-        assert second["lines"][0]["reel_code"] == "AT-261028-003"
+        assert second["lines"][0]["reel_code"] == "AIT 00003"
 
-        reel = db.query(PaperReel).filter_by(plant_id=uuid.UUID(plant), reel_code="AT-261028-001").one()
+        reel = db.query(PaperReel).filter_by(plant_id=uuid.UUID(plant), reel_code="AIT 00001").one()
         assert reel.inward_date == GO_LIVE and reel.stock_status == "UNRESTRICTED" and reel.location_id == rack.id
         assert reel.source_reel_no == "OLD-77" and reel.supplier_name == "Shree Mills"
         assert reel.genealogy_metadata["source_document_type"] == "OPENING_LOAD"
         assert reel.inward_metadata["source_label"] == "Opening stock (28 Oct 2026)"
-        unplaced = db.query(PaperReel).filter_by(plant_id=uuid.UUID(plant), reel_code="AT-261028-002").one()
+        unplaced = db.query(PaperReel).filter_by(plant_id=uuid.UUID(plant), reel_code="AIT 00002").one()
         store = db.query(InventoryLocation).filter_by(plant_id=plant, is_receiving_default=True).one()
         assert unplaced.location_id == store.id and store.code == "RM-STORE"
         glue_lot = db.query(StockBatch).filter_by(plant_id=plant, batch_no="RM-GLUE-PVA-261028-001").one()
         txn = db.query(StockTransaction).filter_by(batch_id=glue_lot.id).one()
         assert txn.transaction_type.value == "OPENING" and txn.effective_date == GO_LIVE and txn.movement_metadata["source"] == "Opening load"
         held = db.query(StockBatch).filter_by(item_id=boxes.id).one()
-        assert held.stock_status == "QC_HOLD" and held.inward_metadata["hold_reason"].startswith("Damp")
+        assert held.stock_status == "QC_HOLD" and held.inward_metadata["hold_reason_note"].startswith("Damp") and held.inward_metadata["hold_reason_code"] == "QH-SUSPECT"
 
         overview = get_opening_stock(db, plant, OWNER)
         assert overview["opening"]["state"] == "OPEN" and overview["opening"]["go_live_date"] == "2026-10-28"
@@ -115,8 +115,10 @@ def test_batches_on_the_go_live_date_new_numbers_labels_and_month_figures():
         labels = opening_load_labels(uuid.UUID(first["id"]), db, plant, STORE)
         assert labels["batch_no"] == 1 and len(labels["labels"]) == 3
         label = labels["labels"][0]
-        assert label["code"] == "AT-261028-001" and label["old_mark"] == "OLD-77" and label["created_at"] == "2026-10-28"
-        assert label["qr_value"] == f"HARIOM|REEL|{plant}|{reel.id}|AT-261028-001" and label["location_code"] == "RACK-A1"
+        assert label["code"] == "AIT 00001" and label["old_mark"] == "OLD-77" and label["created_at"] == "2026-10-28"
+        assert label["qr_value"] == f"HARIOM|REEL|{plant}|{reel.id}|AIT 00001" and label["location_code"] == "RACK-A1"
+        # The plant's label lines: the opening vendor as mill, the go-live date, the old mark as roll no.
+        assert (label["facts"]["vendor"], label["facts"]["received_date"], label["facts"]["roll_no"]) == ("Shree Mills", "28-Oct-26", "OLD-77")
 
         figures = month_figures("2026-10", db, plant, OWNER)
         rows = {row["item_code"]: row for row in figures["items"]}
@@ -165,8 +167,8 @@ def test_cleared_stock_is_issued_without_incoming_qc_and_a_hold_is_respected():
         glue = _item(db, plant, "ADHESIVE", tracking="BULK")
         _post(db, plant, [
             {"item_id": paper.id, "qty": 500},
-            {"item_id": paper.id, "qty": 450, "on_hold": True, "hold_reason": "Edge damage"},
-            {"item_id": glue.id, "qty": 30, "on_hold": True, "hold_reason": "Lid open"},
+            {"item_id": paper.id, "qty": 450, "on_hold": True, "hold_reason_code": "QH-SUSPECT", "hold_reason_note": "Edge damage"},
+            {"item_id": glue.id, "qty": 30, "on_hold": True, "hold_reason_code": "QH-SUSPECT", "hold_reason_note": "Lid open"},
         ])
         cleared = db.query(PaperReel).filter_by(paper_id=paper.id, stock_status="UNRESTRICTED").one()
         held = db.query(PaperReel).filter_by(paper_id=paper.id, stock_status="QC_HOLD").one()
@@ -412,7 +414,7 @@ def test_a_reused_request_key_with_changed_rows_is_refused_and_the_same_rows_in_
         for changed in (
             [*rows, {"item_id": boxes.id, "qty": 7, "old_mark": "IDEM-2"}],          # a row added
             [{**rows[0], "qty": 3}, rows[1]],                                      # a qty changed
-            [rows[0], {**rows[1], "on_hold": True, "hold_reason": "Damp"}],        # put on hold
+            [rows[0], {**rows[1], "on_hold": True, "hold_reason_code": "QH-SUSPECT", "hold_reason_note": "Damp"}],        # put on hold
         ):
             with pytest.raises(HTTPException) as refused:
                 _post(db, plant, changed, key=key)
@@ -447,7 +449,7 @@ def test_a_held_opening_lot_cleared_by_incoming_qc_is_usable_in_the_ledger():
                           quality_profile={"status": "approved", "revision": 1, "parameters": [{"code": "viscosity", "unit": "cP", "min": 100, "max": 900}]})
         db.add(glue)
         db.commit()
-        _post(db, plant, [{"item_id": glue.id, "qty": 100, "on_hold": True, "hold_reason": "Drum seal broken"}])
+        _post(db, plant, [{"item_id": glue.id, "qty": 100, "on_hold": True, "hold_reason_code": "QH-SUSPECT", "hold_reason_note": "Drum seal broken"}])
         lot = db.query(StockBatch).filter_by(item_id=glue.id).one()
         create_quality_inspection(QualityInspectionCreate(entity_type="BATCH", entity_id=lot.id, readings={"viscosity": 500}, disposition="ACCEPT"), db, plant, qc)
         db.expire_all()

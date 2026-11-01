@@ -18,6 +18,29 @@ async def continuous_flow(card_id: str, request: Request, token: str = Depends(g
     return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{card_id}/flow", request, token)
 
 
+@router.get("/job-cards/{card_id}/boxes")
+async def card_boxes(card_id: str, request: Request, token: str = Depends(get_token)):
+    """The card's packed boxes (box code, pcs, part box, QC flags, stock posting, challan)."""
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{card_id}/boxes", request, token)
+
+
+@router.get("/boxes/labels")
+async def box_labels(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/boxes/labels", request, token)
+
+
+@router.post("/boxes/labels/printed")
+async def box_labels_printed(request: Request, token: str = Depends(get_token)):
+    """Counts a label print / reprint on each box (audit only; never stock)."""
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/boxes/labels/printed", request, token)
+
+
+@router.get("/boxes/by-code/{box_code}")
+async def box_by_code(box_code: str, request: Request, token: str = Depends(get_token)):
+    """The box page behind a box label's QR code."""
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/boxes/by-code/{box_code}", request, token)
+
+
 @router.get("/entries/qc-due")
 async def in_process_qc_due(request: Request, token: str = Depends(get_token)):
     """QC's in-process queue: batches whose stage QC is not accepted yet."""
@@ -757,3 +780,9 @@ async def put_downtime_reschedule_status(
 @router.get("/operations/data-entry-lag")
 async def get_data_entry_lag(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/operations/data-entry-lag", request, token)
+
+
+@router.get("/reports/employees")
+async def employee_performance(request: Request, token: str = Depends(get_token)):
+    """Per operator: runs, made, good, rejected, reject %, flagged QC readings, shifts (owner decision 7)."""
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/reports/employees", request, token)

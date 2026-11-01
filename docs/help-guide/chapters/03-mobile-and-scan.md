@@ -5,9 +5,10 @@
 > **Where:** Any page in the phone browser; Scan page (route /scan); Sidebar > Operations > Log output (/production/entry) and Log QC (/production/entry?mode=qc); Sidebar > Stores & inventory > Reel & coil issue (/inventory/reels/issue)
 
 ## At a glance
-- Every new job card, reel/coil/lot label, rack label and tool label carries a QR that is a **web link**. The phone's own **Camera** app (iPhone too) opens it; no special app is needed.
+- Every new job card, reel/coil/lot label, finished-goods box label, rack label and tool label carries a QR that is a **web link**. The phone's own **Camera** app (iPhone too) opens it; no special app is needed.
 - After sign-in, the QR opens **the page your role works on** for that item: a job card opens floor entry, a cleared reel opens Reel & coil issue for the store, a held lot opens Incoming QC for QC.
-- If a label cannot be read, type its **AT, lot, rack or card number** on the Scan page.
+- If a label cannot be read, type its **AIT or AT, lot, rack, box or card number** on the Scan page (for example AIT 06243, B2610315-001 or 26/10/315).
+- A **box label** opens the box page: pcs, part box or not, where the box is, QC flags and its job card.
 - Floor forms save a **draft on the phone** as you type, for your login only, for 7 days.
 - The phone shows the same pages as a PC, stacked in one column. Nothing is left out.
 
@@ -27,6 +28,7 @@ after Scan label: Lot on QC hold [QC/Inward QC/Store/Plant Manager] -> Incoming 
 after Scan label: Cleared reel or coil [Store/RM issue/Plant Manager] -> Reel & coil issue, reel picked
 after Scan label: Cleared adhesive, parchment or packing lot [Store/RM issue/Plant Manager] -> Material issue, lot picked
 after Scan label: Rack label [Any role] -> The rack's location page
+after Scan label: Box label [Any role] -> The box page (/production/boxes/<code>)
 after Scan label: Anything else -> Lot card with status and next step
 ```
 
@@ -39,7 +41,7 @@ The QR link always goes through the Scan page, which checks the item, its plant 
 
 What you see:
 1. **Scan with the camera**: opens the camera inside TubeOS. Point it at the QR. The browser may ask for camera permission the first time; allow it.
-2. **AT, lot, rack or card number** and **Find**: type the number printed under the QR (for example AT-26-0412, 26/10/315 or a rack code).
+2. **AT, lot, rack or card number** and **Find**: type the number printed under the QR (for example AIT 06243, an older AT-26-0412, a box code such as B2610315-001, 26/10/315 or a rack code). "ait 6243" is read as AIT 06243. If nothing matches: "No reel, coil, lot, rack, box or job card has this number in your plant."
 3. After a scan you see "Opening the job card…" or "Opening Reel & coil issue for AT-…", then the page.
 
 ![Alt: Phone floor entry page with a Scan the card's QR button and a list of open cards](../screens/m-log-output.jpg)

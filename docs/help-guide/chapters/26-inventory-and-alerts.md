@@ -7,7 +7,8 @@
 ## At a glance
 - **Stock overview** is a read-and-jump page: value, kg on hand, held stock, rack use, charts and quick links to the desks that change stock.
 - **Material items** is the stock item list. Each master record (paper, adhesive, parchment, packing, tool) gets its stock item automatically. You set the unit, the tracking (reel or bulk) and the reorder, safety and lead-time numbers here.
-- **Manual FG** adds finished tubes to stock without a job card: rework yield, a positive adjustment, or go-live FG. Customer returns are **not** entered here; they go through Quality > Customer complaints.
+- **Manual FG** adds finished tubes to stock without a job card: rework yield, a positive adjustment, or go-live FG, with a reason code from the list **Manual FG inward**. Customer returns are **not** entered here; they go through Quality > Customer complaints.
+- **Finished goods from job cards arrive box by box.** On batch-entry cards each packed box is posted to stock as its own FG lot named by its box code (for example B2610315-001), with the box code and a part-box flag on the movement. It leaves stock when its challan is sealed. Boxes kept as surplus stay in stock as their own lots.
 - **Stock alerts** work in two steps. A **policy** (safety, reorder and target in kg) is saved as a draft by one person and activated by a different person. **Evaluate** then opens one alert "episode" per material that falls below its line.
 - **RM costing** is a planning (standard) cost per raw material. It is versioned, and activating it never changes PO rates, invoice rates or the cost of lots already received.
 
@@ -25,7 +26,7 @@ after Activate: Restore draft (any old version) -> Save audited draft
 
 ```flow
 title: Manual FG inward
-Choose FG item [Plant Manager/Owner/Admin] -> Qty and reason -> Optional reference -> Post manual FG -> FG lot in stock (ledger updated)
+Choose FG item [Plant Manager/Owner/Admin] -> Qty and reason code -> Optional reference -> Post manual FG -> FG lot in stock (ledger updated)
 ```
 
 Alert policies are a maker-checker control: the person who drafts the numbers cannot switch them on. Cost versions are never edited after activation; a change is always a new version.
@@ -59,11 +60,11 @@ What you see:
 
 What you see:
 1. **FG item**: only finished-goods items (one per spec) are listed.
-2. **Qty** in the item's unit (usually PCS) and **Reason**: **Rework yield (re-introduce into stock)**, **Manual adjustment (positive)**, **Opening / go-live adjustment** or **Other reason**.
+2. **Qty** in the item's unit (usually PCS) and **Reason**: a picker for the list **Manual FG inward**: FG-REWORK Reworked pieces taken back, FG-ADJUSTMENT Stock adjustment, FG-OPENING Opening stock, FG-OTHER Other (write a note).
 3. **Reference (idempotency key)**: optional, for example REWORK-2026-10-15. Posting the same reference twice adds stock only once.
 4. **Batch no (auto if blank)**: left blank, the lot number is made as FG-<item code>-yymmdd-nnn.
 5. **Stock status**: UNRESTRICTED (default), WIP, QC HOLD, DISPATCH STAGING or BLOCKED. Then **Notes** and **Post manual FG**.
-6. **Recent FG inward (latest 10)** at the bottom: When, Item, Qty, Source (**Manual · REWORK** or **Job close**), Ref and Stock status.
+6. **Recent FG inward (latest 10)** at the bottom: When, Item, Qty, Source (**Manual · Reworked pieces taken back** (the reason label), or the job card posting), Ref and Stock status. Boxes posted from job cards appear with the box code as the batch.
 
 ![Stock alert policies with summary tiles, draft form and version register](../screens/stock-alert-policies.jpg)
 *Figure: The Stock alert policies page. Tiles show Active policies 1, Draft versions 0 and Precedence "Item → plant". The **Draft policy version** form has Material, Safety kg, Reorder kg, Target kg, Recovery margin kg, Lead days, Minimum order kg, Order multiple kg, Cooldown hours (24), Recipient roles (Owner,Planner) and Required change reason. The **Policy version register** shows one active policy: Safety 1600 kg, Reorder 1700 kg, Target 2000 kg.*
@@ -120,9 +121,9 @@ Store, Owner or Admin.
 Plant Manager, Owner or Admin. One plant must be selected; the "all plants" view is read-only.
 1. Open **Manual FG**.
 2. Choose the **FG item** and enter **Qty**.
-3. Choose the **Reason**. Use **Rework yield** when a reworked batch comes back into stock (quote the rework slip in the reference). Use **Manual adjustment (positive)** for a one-off correction, always with a note. Use **Opening / go-live adjustment** for go-live FG.
+3. Choose the **Reason**. Use **FG-REWORK** when a reworked batch comes back into stock (quote the rework slip in the reference). Use **FG-ADJUSTMENT** for a one-off correction, with a note. Use **FG-OPENING** for go-live FG. **FG-OTHER** needs a note of at least 5 characters.
 4. Optionally type a **Reference**, a **Batch no** (blank = automatic) and a **Stock status**, and write **Notes**.
-5. Click **Post manual FG**. The message "FG inward posted. Stock ledger updated, balance reflected immediately." appears and the row shows in **Recent FG inward** as **Manual · REWORK** (or the reason you chose).
+5. Click **Post manual FG**. The message "FG inward posted. Stock ledger updated, balance reflected immediately." appears and the row shows in **Recent FG inward** as **Manual · Reworked pieces taken back** (the label of the reason you chose).
 
 ### How to set up a stock alert policy
 Draft: Store or Plant Manager (or Owner/Admin). Activate: Plant Manager (or Owner/Admin), and it must be a different person.
@@ -155,7 +156,7 @@ Owner or Admin, in their own Owner or Admin role.
 - **Creating an item**: Admin or Owner. **Editing the policy**: Store, Admin or Owner. **Deleting**: Store, Admin or Owner, and it is a soft delete only.
 - **An item with stock cannot be deleted** (BLOCKS, ITEM_HAS_OPEN_BALANCE).
 - **Master records create their stock items automatically**, matched by code. Existing items are never changed. A code already used by another type of material is reported, not overwritten.
-- **Manual FG** is only for finished-goods items (BLOCKS). Qty must be greater than zero (BLOCKS). The reason must be REWORK, ADJUSTMENT, OPENING or OTHER. **Customer returns are refused here** and sent to Quality > Customer complaints, so the goods are held for QC. A repeated **Reference** posts once (automatic). Posting needs Plant Manager, Owner or Admin, and one selected plant.
+- **Manual FG** is only for finished-goods items (BLOCKS). Qty must be greater than zero (BLOCKS). The reason must be an active **Manual FG inward** code of the plant; OTHER needs a note; free text alone is refused (BLOCKS). **Customer returns are refused here** and sent to Quality > Customer complaints, so the goods are held for QC. A repeated **Reference** posts once (automatic). Posting needs Plant Manager, Owner or Admin, and one selected plant.
 - **Stock alert policy**: target ≥ reorder ≥ safety (BLOCKS: "Target stock must be at least reorder point, which must be at least safety stock"). A reason of at least 3 characters is required. Paper policies need a KG material. **The person who drafted a policy cannot activate it** (BLOCKS: "A different person must activate the stock alert policy").
 - **Severity** (automatic): CRITICAL when free stock ≤ safety; WARNING when free stock ≤ reorder. Free stock is cleared (usable) stock minus stock reserved for orders, so held lots are not counted.
 - **One open episode per material**. Repeated evaluations update it and never duplicate it. An episode recovers only when stock goes above reorder + recovery margin. After a recovery, no new episode opens within the cooldown hours.
@@ -183,6 +184,8 @@ Owner or Admin, in their own Owner or Admin role.
 **Q: I am the Plant Manager and drafted the policy myself. Why can't I activate it?** A: Policies use maker-checker. Ask another Plant Manager, the Owner or the Admin to activate it.
 
 **Q: Stock went up but the alert is still open.** A: It recovers only above reorder + recovery margin, and only when Evaluate runs again. Held lots do not count as free stock until QC clears them.
+
+**Q: Why do finished goods show many small lots like B2610315-001?** A: Each box from a job card is its own FG lot, named by its box code. That is how a challan takes exact boxes out of stock. Reprinting a box label never adds stock.
 
 **Q: A customer sent back 500 tubes. Do I enter them in Manual FG?** A: No. The system refuses customer returns here. Record them in Quality > Customer complaints, so they are held for QC and linked to the customer and dispatch.
 

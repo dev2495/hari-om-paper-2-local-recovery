@@ -187,11 +187,12 @@ def test_reel_label_lines_come_from_qc_averages_else_spec_and_blanks_stay_blank(
         db.commit()
         result = reel_label_facts(db, reel, paper)
         facts, sources = result["facts"], result["fact_sources"]
+        # Owner decision 6 (1 Nov 2026): the plant's own label lines; GSM averaged from QC, else the variety.
         assert (facts["gsm"], sources["gsm"]) == ("231.5", "QC")          # average of the two samples
-        assert (facts["bf"], sources["bf"]) == ("18 (spec)", "SPEC")      # no reading: the master value, marked
-        assert (facts["ply_bond"], sources["ply_bond"]) == ("", None)     # nobody gave it: blank, never 0
-        assert (facts["width_mm"], facts["weight_kg"], facts["reel_no"], facts["vendor"]) == ("1,020", "1,000", "C-100", "Shree Mills")
-        assert facts["received_date"] == "02 Oct 2026" and facts["item"].startswith(paper.item_code)
+        assert (facts["plybond"], sources["plybond"]) == ("", None)       # nobody gave it: blank, never 0
+        assert (facts["weight_kg"], facts["roll_no"], facts["vendor"]) == ("1000", "C-100", "Shree Mills")
+        assert facts["received_date"] == "02-Oct-26" and facts["variety"] == paper.item_code
+        assert "bf" not in facts and "width_mm" not in facts             # nothing more than the plant prints
 
         label = get_reel_label(reel.id, db, _scope(plant), STORE)
         assert label["qr_value"] == f"HARIOM|REEL|{plant}|{reel.id}|{reel.reel_code}"  # QR payload unchanged

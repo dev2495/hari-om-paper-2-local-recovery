@@ -10,7 +10,8 @@ const SELECTOR = '[role="alert"],[role="status"]'
  * Mirrors what a page tells the user into the bottom-right banner (client 2026-10-18: "errors at the
  * top need a scroll"). Any error that appears ([role=alert]) is shown; a result message
  * ([role=status]) is shown when it follows the user's own click or key press. Loading states,
- * hidden live regions and the banner itself are ignored; the same text is not repeated for 15 s.
+ * hidden live regions, the banner itself and inline field errors marked data-no-mirror (the reason
+ * picker) are ignored; the same text is not repeated for 15 s.
  */
 export function MessageMirror() {
   const { showToast } = useApp()

@@ -116,8 +116,8 @@ def test_a_waiting_correction_names_its_raiser_as_a_field():
         glue = _item(db, plant, "ADHESIVE", tracking="BULK")
         lot = _lot(db, plant, glue, 10, at=_rack(db, plant, "R5-W-01"))
         db.commit()
-        first = raise_correction(CorrectionPayload(code=lot.batch_no, new_qty=8, reason="COUNT_SHORT"), db, plant, GRN)
-        error = _refused(lambda: raise_correction(CorrectionPayload(code=lot.batch_no, new_qty=7, reason="COUNT_SHORT"), db, plant, STORE), 409, "already has a correction waiting")
+        first = raise_correction(CorrectionPayload(code=lot.batch_no, new_qty=8, reason_code="COUNT_SHORT"), db, plant, GRN)
+        error = _refused(lambda: raise_correction(CorrectionPayload(code=lot.batch_no, new_qty=7, reason_code="COUNT_SHORT"), db, plant, STORE), 409, "already has a correction waiting")
         assert error.detail["code"] == "CORRECTION_WAITING" and error.detail["raised_by"] == "grn.desk@example.com"
         assert error.detail["voucher_no"] == first["voucher_no"]
 
@@ -128,7 +128,7 @@ def test_a_correction_whose_reel_was_issued_since_posts_nothing_and_says_why():
         paper = _item(db, plant)
         reel = _reel(db, plant, paper, 100, at=_rack(db, plant, "R5-I-01"))
         db.commit()
-        draft = raise_correction(CorrectionPayload(code=reel.reel_code, new_qty=98, reason="COUNT_SHORT"), db, plant, STORE)
+        draft = raise_correction(CorrectionPayload(code=reel.reel_code, new_qty=98, reason_code="COUNT_SHORT"), db, plant, STORE)
         # The reel goes to the floor before the Owner looks: the book is 0, nothing is left to correct.
         db.get(PaperReel, reel.id).current_weight_kg = 0
         db.commit()

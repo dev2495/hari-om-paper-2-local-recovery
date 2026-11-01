@@ -2,6 +2,7 @@
 
 import { businessDate } from "@/lib/business-date"
 import { formatKg } from "@/lib/dispatch-challan"
+import { challanBoxView, type ChallanBoxView } from "@/lib/dispatch-document"
 import { stateCodeFor } from "@/lib/party-formats"
 
 import React from "react"
@@ -43,6 +44,44 @@ export function packingUnitsText(items: any[], count: number) {
     return `${count.toLocaleString("en-IN")} ${count === 1 ? noun : plural}`
 }
 
+/** Boxes on a box-card challan: every box code with its pcs, then the packing from the spec (A4-friendly grid). */
+function BoxBlock({ view }: { view: ChallanBoxView }) {
+    const packingRows = [
+        { label: "Box", value: view.packing.box },
+        { label: "Qty per box", value: view.packing.qtyPerBox ? `${view.packing.qtyPerBox.toLocaleString("en-IN")} pcs` : "Not in the spec" },
+        { label: "Plastic per box", value: view.packing.plastic || "Not in the spec" },
+        { label: "Fadda per box", value: view.packing.fadda || "Not in the spec" },
+    ]
+    return (
+        <section className="mb-8 break-inside-avoid rounded border border-border p-4 print:p-3" data-testid="challan-boxes">
+            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-border pb-1">
+                <h3 className="text-xs font-semibold uppercase text-muted-foreground">Boxes on this challan ({view.units.toLocaleString("en-IN")})</h3>
+                <p className="text-sm font-semibold" data-testid="challan-box-line">{view.packing.line}</p>
+            </div>
+            <ul className="grid grid-cols-1 gap-x-4 gap-y-0.5 text-xs min-[420px]:grid-cols-2 sm:grid-cols-3 md:grid-cols-4 print:grid-cols-5" data-testid="challan-box-list">
+                {view.boxes.map((box, index) => (
+                    <li key={box.id || `${box.code}-${index}`} className="flex min-w-0 items-baseline justify-between gap-2 border-b border-dashed border-border py-0.5 tabular-nums">
+                        <span className="truncate font-mono">{box.code}</span>
+                        <span className="shrink-0">{box.qty.toLocaleString("en-IN")}{box.part ? <span className="ml-1 rounded-sm border border-border px-1 text-[10px] uppercase text-muted-foreground">part</span> : null}</span>
+                    </li>
+                ))}
+            </ul>
+            <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2 print:grid-cols-2" data-testid="challan-box-packing">
+                {packingRows.map((row) => (
+                    <div key={row.label} className="grid grid-cols-[112px_minmax(0,1fr)] gap-2">
+                        <dt className="text-muted-foreground">{row.label}</dt>
+                        <dd className="min-w-0 break-words">{row.value}</dd>
+                    </div>
+                ))}
+                <div className="grid grid-cols-[112px_minmax(0,1fr)] gap-2 sm:col-span-2 print:col-span-2">
+                    <dt className="text-muted-foreground">Packed as</dt>
+                    <dd className="min-w-0 break-words font-semibold">{view.packing.line}</dd>
+                </div>
+            </dl>
+        </section>
+    )
+}
+
 const fieldClass = "h-11 min-w-0 flex-1 rounded border border-border bg-card px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-10"
 
 export function DispatchDocument({ dispatchData, onChange, printMode = false }: DispatchDocumentProps) {
@@ -77,11 +116,21 @@ export function DispatchDocument({ dispatchData, onChange, printMode = false }: 
 
     // Pre-calculate sums if missing
     const items = dispatchData.items || []
-    const summary = dispatchData.summary || {
+    // Box card (1 Nov 2026): the first goods line is the boxes — packing = spec box, units = boxes, pcs per unit = qty per box.
+    const boxView = challanBoxView(dispatchData)
+    const cell = (item: any, idx: number) => (boxView && idx === 0
+        ? { packing: boxView.packingLabel, units: boxView.units, perUnit: boxView.perUnitText, total: boxView.totalPcs }
+        : { packing: item.packing_type, units: item.qty_units, perUnit: item.pcs_per_unit, total: Number(item.total_pcs || 0) })
+    const summary = boxView ? {
+        total_units: items.reduce((sum: number, item: any, idx: number) => sum + (Number(cell(item, idx).units) || 0), items.length ? 0 : boxView.units),
+        total_pcs: items.reduce((sum: number, item: any, idx: number) => sum + cell(item, idx).total, items.length ? 0 : boxView.totalPcs),
+        total_weight: items.reduce((sum: number, item: any) => sum + (Number(item.net_weight) || 0), 0),
+    } : dispatchData.summary || {
         total_units: items.reduce((sum: number, item: any) => sum + (Number(item.qty_units) || 0), 0),
         total_pcs: items.reduce((sum: number, item: any) => sum + (Number(item.total_pcs) || 0), 0),
         total_weight: items.reduce((sum: number, item: any) => sum + (Number(item.net_weight) || 0), 0),
     }
+    const unitItems = boxView ? [{ packing_type: "box" }] : items
     // Older challans kept one customer address; newer ones keep billing and dispatch (ship-to) apart.
     const billing = customer.billing_address || customer.address
     const shipTo = customer.address || customer.billing_address
@@ -168,10 +217,10 @@ export function DispatchDocument({ dispatchData, onChange, printMode = false }: 
                     <section key={idx} className="space-y-3 rounded-lg border border-border p-4">
                         <h3 className="text-sm font-semibold">{idx + 1}. {item.description}</h3>
                         <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
-                            <div><dt className="text-muted-foreground">Packing</dt><dd>{item.packing_type}</dd></div>
-                            <div><dt className="text-muted-foreground">Units</dt><dd>{item.qty_units}</dd></div>
-                            <div><dt className="text-muted-foreground">Pieces / unit</dt><dd>{item.pcs_per_unit}</dd></div>
-                            <div><dt className="text-muted-foreground">Total pieces</dt><dd className="font-semibold">{Number(item.total_pcs || 0).toLocaleString("en-IN")}</dd></div>
+                            <div><dt className="text-muted-foreground">Packing</dt><dd>{cell(item, idx).packing}</dd></div>
+                            <div><dt className="text-muted-foreground">{boxView && idx === 0 ? "Boxes" : "Units"}</dt><dd>{cell(item, idx).units}</dd></div>
+                            <div><dt className="text-muted-foreground">{boxView && idx === 0 ? "Pieces / box" : "Pieces / unit"}</dt><dd>{cell(item, idx).perUnit}</dd></div>
+                            <div><dt className="text-muted-foreground">Total pieces</dt><dd className="font-semibold">{cell(item, idx).total.toLocaleString("en-IN")}</dd></div>
                             <div><dt className="text-muted-foreground">Net weight (kg)</dt><dd>{formatKg(item.net_weight)}</dd></div>
                         </dl>
                         {editable ? (
@@ -182,7 +231,7 @@ export function DispatchDocument({ dispatchData, onChange, printMode = false }: 
                     </section>
                 ))}
                 {items.length === 0 && <p className="text-sm text-muted-foreground">No items available for dispatch</p>}
-                <p className="rounded-lg bg-muted p-4 text-sm font-semibold">Total: {Number(summary.total_pcs || 0).toLocaleString("en-IN")} pcs · {packingUnitsText(items, Number(summary.total_units) || 0)} · {formatKg(summary.total_weight)} kg</p>
+                <p className="rounded-lg bg-muted p-4 text-sm font-semibold">Total: {Number(summary.total_pcs || 0).toLocaleString("en-IN")} pcs · {packingUnitsText(unitItems, Number(summary.total_units) || 0)} · {formatKg(summary.total_weight)} kg</p>
             </div>
             <div className="mb-8 hidden overflow-x-auto md:block print:block">
             <table className="mb-8 w-full border border-border text-sm">
@@ -203,10 +252,10 @@ export function DispatchDocument({ dispatchData, onChange, printMode = false }: 
                         <tr key={idx}>
                             <td className="border-r border-border px-3 py-2">{idx + 1}</td>
                             <td className="border-r border-border px-3 py-2 font-medium">{item.description}</td>
-                            <td className="border-r border-border px-3 py-2">{item.packing_type}</td>
-                            <td className="border-r border-border px-3 py-2 text-right">{item.qty_units}</td>
-                            <td className="border-r border-border px-3 py-2 text-right">{item.pcs_per_unit}</td>
-                            <td className="border-r border-border px-3 py-2 text-right font-semibold">{Number(item.total_pcs || 0).toLocaleString("en-IN")}</td>
+                            <td className="border-r border-border px-3 py-2">{cell(item, idx).packing}</td>
+                            <td className="border-r border-border px-3 py-2 text-right">{cell(item, idx).units}</td>
+                            <td className="border-r border-border px-3 py-2 text-right">{cell(item, idx).perUnit}</td>
+                            <td className="border-r border-border px-3 py-2 text-right font-semibold">{cell(item, idx).total.toLocaleString("en-IN")}</td>
                             <td className="border-r border-border px-3 py-2 text-right font-semibold">{formatKg(item.net_weight)}</td>
                             <td className="px-2 py-1">
                                 {editable ? (
@@ -242,6 +291,7 @@ export function DispatchDocument({ dispatchData, onChange, printMode = false }: 
                 </tfoot>
             </table>
             </div>
+            {boxView ? <BoxBlock view={boxView} /> : null}
 
             {/* Footer / Notes */}
             <div className="mb-12">

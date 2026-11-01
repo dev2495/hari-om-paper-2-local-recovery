@@ -113,7 +113,7 @@ function IssueHistory() {
                 <option value="ALL">Everything</option><option value="REEL">Paper reels & coils</option><option value="MATERIAL">Adhesive, parchment, packing</option>
               </select>
             </Field>
-            <Field label="Item"><input className={cn(fieldClass, "max-sm:h-11")} value={draft.item} placeholder="Material, AT or lot number" onChange={(e) => set({ item: e.target.value })} data-testid="issue-history-item" /></Field>
+            <Field label="Item"><input className={cn(fieldClass, "max-sm:h-11")} value={draft.item} placeholder="Material, AIT / reel or lot number" onChange={(e) => set({ item: e.target.value })} data-testid="issue-history-item" /></Field>
             <Field label="Card"><input className={cn(fieldClass, "max-sm:h-11")} value={draft.card} placeholder="Job card (older issues)" onChange={(e) => set({ card: e.target.value })} data-testid="issue-history-card" /></Field>
             <Field label="Issued by">
               <select className={cn(fieldClass, "max-sm:h-11")} value={draft.person} onChange={(e) => set({ person: e.target.value })} data-testid="issue-history-person">

@@ -59,7 +59,7 @@ def _receipt(po, line_rows, *, challan=None, on=date(2026, 10, 26), reason=None)
     return GovernedReceiptCreate(
         request_id=uuid.uuid4(), purchase_order_id=po["id"], received_date=on,
         supplier_challan_no=challan or f"CH-{uuid.uuid4().hex[:6]}",
-        invoice_no=f"INV-{uuid.uuid4().hex[:6]}", invoice_date=on, over_receipt_reason=reason, lines=line_rows,
+        invoice_no=f"INV-{uuid.uuid4().hex[:6]}", invoice_date=on, over_receipt_reason_code=("OR-NEEDED" if reason else None), over_receipt_reason_note=reason, lines=line_rows,
     )
 
 
@@ -85,7 +85,7 @@ def test_inward_numbers_follow_material_series_and_restart_each_year():
         assert label["grn_no"] == "P/26/001" and label["challan_no"] == first["supplier_challan_no"]
 
         adhesive_grn = post_manual_receipt(ManualReceiptCreate(
-            request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name="Glue works", reason="Local purchase",
+            request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name="Glue works", reason_code="MR-URGENT", reason_note="Local purchase",
             received_date=date(2026, 10, 26), supplier_challan_no="DC 9", invoice_no=f"G-{uuid.uuid4().hex[:6]}",
             invoice_date=date(2026, 10, 26), lines=[{"item_id": adhesive.id, "quantity": 200, "invoice_rate": 90}],
         ), db, PLANT, MAKER)
@@ -94,7 +94,7 @@ def test_inward_numbers_follow_material_series_and_restart_each_year():
         assert batch.batch_no.startswith("A/26/001")
 
         parchment_grn = post_manual_receipt(ManualReceiptCreate(
-            request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name="Parchment co", reason="Local purchase",
+            request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name="Parchment co", reason_code="MR-URGENT", reason_note="Local purchase",
             received_date=date(2026, 10, 26), supplier_challan_no="PC-1", invoice_pending=True,
             lines=[{"item_id": parchment.id, "lots": [{"source_reel_no": f"C-{uuid.uuid4().hex[:5]}", "net_weight_kg": 40, "width_mm": 90, "physical_form": "COIL"}]}],
         ), db, PLANT, MAKER)
@@ -156,7 +156,7 @@ def test_receipt_follows_po_open_quantity_and_more_needs_a_reason():
         assert preview_receipt(allowed, db, PLANT, MAKER)["lines"][0]["over_po_qty"] == 15
         saved = post_governed_receipt(allowed, db, PLANT, MAKER)
         history = [row for row in saved["approval_history"] if row["action"] == "OVER_RECEIPT"]
-        assert history and history[0]["reason"] == "Supplier sent the full drum" and history[0]["lines"][0]["over_qty"] == 15
+        assert history and history[0]["reason_code"] == "OR-NEEDED" and history[0]["reason_note"] == "Supplier sent the full drum" and history[0]["lines"][0]["over_qty"] == 15
 
 
 def test_pending_qc_rows_carry_their_grn_line_and_vendor_reel_number():

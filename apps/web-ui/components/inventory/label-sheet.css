@@ -1,0 +1,111 @@
+/*
+ * Reel / coil label in the plant's own layout (owner decision 6, 1 Nov 2026) and the label print sheet.
+ * The label is paper: white with black ink in light and dark mode alike. Sizes inside a label are in cqw
+ * (1% of the label's width), so the screen preview and the printed label are the same drawing.
+ */
+.plant-reel-label {
+  container-type: inline-size;
+  width: 100%;
+  max-width: 120mm;
+  aspect-ratio: 93 / 66;
+  background: #fff;
+  color: #000;
+  border: 0.6mm solid #000;
+  font-family: Arial, Helvetica, "Liberation Sans", sans-serif;
+  font-weight: 700;
+  break-inside: avoid;
+  page-break-inside: avoid;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
+
+.plant-reel-label__grid {
+  display: grid;
+  height: 100%;
+  grid-template-columns: 23fr 32fr 19fr 26fr;
+  grid-template-rows: 11fr 13fr 9fr 15fr 12fr 22fr 18fr;
+  gap: 0.3mm;
+  background: #000;
+}
+
+.plant-reel-label__cell {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0 1cqw;
+  background: #fff;
+  line-height: 1;
+  text-align: center;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.plant-reel-label__qr {
+  grid-column: 4;
+  grid-row: 5 / span 3;
+  padding: 1.6cqw;
+}
+
+.plant-reel-label__qr svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 100%;
+}
+
+/* The print copy of a label sheet lives at the end of <body>: hidden on screen, the only thing printed. */
+.label-sheet-print {
+  display: none;
+}
+
+@media print {
+  body:has(.label-sheet-print) > *:not(.label-sheet-print) {
+    display: none !important;
+  }
+
+  body:has(.label-sheet-print) {
+    background: #fff !important;
+  }
+
+  body:has(.label-sheet-print) .label-sheet-print {
+    display: block;
+    background: #fff;
+  }
+
+  /* A4 sheet: 2 across, 4 down, cut lines are the label borders (the plant's Excel prints 8 per A4). */
+  .label-sheet-print[data-layout="sheet"] .label-sheet-print__grid {
+    display: grid;
+    grid-template-columns: repeat(2, 92mm);
+    grid-auto-rows: 65.3mm;
+    gap: 4mm 5mm;
+    justify-content: center;
+  }
+
+  .label-sheet-print[data-layout="sheet"] .label-sheet-print__grid > * {
+    width: 92mm;
+    max-width: none;
+    break-inside: avoid;
+    overflow: hidden;
+  }
+
+  /* One label per page, on 100 x 72 mm label stock (or the top corner of an A4). */
+  .label-sheet-print[data-layout="single"] .label-sheet-print__grid > * {
+    page: reel-label-single;
+    width: 93mm;
+    max-width: none;
+    break-after: page;
+    overflow: hidden;
+  }
+
+  .label-sheet-print[data-layout="single"] .label-sheet-print__grid > *:last-child {
+    break-after: auto;
+  }
+}
+
+@page reel-label-single {
+  size: 100mm 72mm;
+  margin: 3mm 3.5mm;
+}

@@ -60,12 +60,14 @@ def test_return_is_checked_against_dispatch_and_follows_dispositions():
         assert found['found'] and found['lines'][0]['returnable_qty'] == 100
 
         first = create_customer_rejection(CustomerRejectionCreate(item_id=item.id, rejected_qty=60, customer_name='Acme',
-            dispatch_ref=ref, reason_code='CUSTOMER_REJECT'), db, PLANT, STORE)
+            dispatch_ref=ref, reason_code='cc-damage', reason_note='Crushed corners'), db, PLANT, STORE)
         assert first.status == 'QC_HOLD' and first.trace_snapshot['dispatch_verified'] is True
+        # Checked against the CUSTOMER_COMPLAINT master (owner decision 4): code, label at the time, note.
+        assert (first.reason_code, first.reason_label, first.reason_notes) == ('CC-DAMAGE', 'Cc damage', 'Crushed corners')
         assert str(first.source_job_card_id) == str(job_id)
         with pytest.raises(HTTPException) as too_many:
             create_customer_rejection(CustomerRejectionCreate(item_id=item.id, rejected_qty=50, customer_name='Acme',
-                dispatch_ref=ref, reason_code='CUSTOMER_REJECT'), db, PLANT, STORE)
+                dispatch_ref=ref, reason_code='CC-DAMAGE'), db, PLANT, STORE)
         assert too_many.value.status_code == 409 and too_many.value.detail['code'] == 'RETURN_EXCEEDS_DISPATCH'
 
         # Rework is a step: the case stays open and the stock moves to WIP in the ledger too.
@@ -86,7 +88,7 @@ def test_scrapped_return_leaves_no_held_quantity():
     with SessionLocal() as db:
         item, ref, _ = _shipped(db, qty=40)
         row = create_customer_rejection(CustomerRejectionCreate(item_id=item.id, rejected_qty=40, customer_name='Acme',
-            dispatch_ref=ref, reason_code='CUSTOMER_REJECT'), db, PLANT, STORE)
+            dispatch_ref=ref, reason_code='CC-DAMAGE'), db, PLANT, STORE)
         scrapped = dispose_customer_rejection(row.id, CustomerRejectionDisposition(disposition='SCRAP', notes='Crushed in transit'), db, PLANT, QC)
         assert scrapped.closed_at is not None
         balances = _balance_by_status(db, row.batch_id)
@@ -97,7 +99,7 @@ def test_unknown_dispatch_is_logged_unverified_and_side_doors_are_closed():
     with SessionLocal() as db:
         item, _, _ = _shipped(db, qty=10)
         row = create_customer_rejection(CustomerRejectionCreate(item_id=item.id, rejected_qty=5, customer_name='Legacy buyer',
-            dispatch_ref='OLD-PAPER-DC-1', reason_code='CUSTOMER_REJECT'), db, PLANT, STORE)
+            dispatch_ref='OLD-PAPER-DC-1', reason_code='CC-DAMAGE'), db, PLANT, STORE)
         assert row.trace_snapshot['dispatch_verified'] is False
         with pytest.raises(HTTPException) as manual:
             create_manual_fg_inward(ManualFGInwardCreate(item_id=item.id, qty=5, reason_code='RETURN'), db, PLANT, OWNER)
@@ -110,10 +112,10 @@ def test_quality_analytics_reports_returns_by_customer_and_reason():
     with SessionLocal() as db:
         item, ref, _ = _shipped(db, qty=20)
         create_customer_rejection(CustomerRejectionCreate(item_id=item.id, rejected_qty=7, customer_name='Analytics Co',
-            dispatch_ref=ref, reason_code='CRUSHED'), db, PLANT, STORE)
+            dispatch_ref=ref, reason_code='CC-PACKING'), db, PLANT, STORE)
         report = quality_analytics(date_from=None, date_to=None, db=db,
             plant_scope={'scope_all': False, 'selected_plant_id': PLANT, 'allowed_plants': [PLANT]}, current_user=QC)
         customer = next(row for row in report['customer_returns']['by_customer'] if row['customer'] == 'Analytics Co')
         assert customer['qty'] >= 7 and customer['open'] >= 1
-        assert any(row['reason_code'] == 'CRUSHED' for row in report['customer_returns']['by_reason'])
+        assert any(row['reason_code'] == 'CC-PACKING' and row['reason_label'] == 'Cc packing' for row in report['customer_returns']['by_reason'])
         assert 'by_supplier' in report['incoming'] and 'first_pass_rate' in report['incoming']

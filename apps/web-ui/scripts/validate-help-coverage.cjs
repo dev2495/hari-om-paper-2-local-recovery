@@ -35,6 +35,7 @@ const routePatterns = [
   { pattern: /^\/(?:planning|planning\/board|production\/planner)(?:\/.*)?$/, guideId: "planning" },
   { pattern: /^\/(?:job-cards|production\/job-cards|production\/entry|production\/eod-entry|production\/supervisor-entry)(?:\/.*)?$/, guideId: "job-cards" },
   { pattern: /^\/operations(?:\/.*)?$/, guideId: "job-cards" },
+  { pattern: /^\/production\/boxes(?:\/.*)?$/, guideId: "job-cards" },
   { pattern: /^\/production\/reconciliation\/limits(?:\/.*)?$/, guideId: "usage-limits" },
   { pattern: /^\/production\/reconciliation(?:\/.*)?$/, guideId: "month-end-close" },
   { pattern: /^\/quality(?:\/.*)?$/, guideId: "quality" },

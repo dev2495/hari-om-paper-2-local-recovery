@@ -114,8 +114,10 @@ def test_every_winding_sample_persists_and_later_fail_matters():
         failed = [row for row in rows if row.status == "FAIL"]
         assert len(failed) == 1
         assert failed[0].sample_id == "S2"
-        assert holds
-        assert any(hold.source_inspection_id == failed[0].id for hold in holds)
+        # Owner decision 3 (1 Nov 2026): a job-card QC reading out of band is flagged, never held.
+        assert holds == []
+        assert (failed[0].evaluation or {}).get("flagged") is True
+        assert db.query(QualityHold).filter(QualityHold.job_card_id == job.id).count() == 0
     finally:
         db.close()
 
@@ -142,9 +144,10 @@ def test_client_hold_flag_ignored_and_fail_without_reason_persists():
         )
         assert response.status == "FAIL"
         assert response.reason_pending or (response.evaluation or {}).get("workflow_status") == "REASON_PENDING"
-        assert response.hold_id is not None
-        hold = db.query(QualityHold).filter(QualityHold.id == response.hold_id).one()
-        assert hold.status == "HOLD"
+        # Owner decision 3 (1 Nov 2026): the failed job-card reading is flagged on the record; no hold opens.
+        assert response.hold_id is None
+        assert (response.evaluation or {}).get("flagged") is True
+        assert db.query(QualityHold).filter(QualityHold.job_card_id == job.id).count() == 0
         stored = db.query(QualityInspection).filter(QualityInspection.id == response.id).one()
         assert stored.status == "FAIL"
         assert stored.readings["od"] == 130

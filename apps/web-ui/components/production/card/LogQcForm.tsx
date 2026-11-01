@@ -9,15 +9,15 @@
 import { CheckCircle2, Clock3, Flag, Plus } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 
+import { EMPTY_REASON, ReasonPicker, reasonComplete, reasonText, useReasonList, type ReasonValue } from "@/components/reasons"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { InstrumentFields } from "../InstrumentFields"
 import { SeasonQcMatrix, readingVerdict, sampleBand } from "../SeasonQcMatrix"
 import { useCardMasters, useCardMutation, useEntryApi, useStableCommand, useStageEntries } from "./data"
 import { DraftRestoredBar, draftKey, useFormDraft } from "./draft"
-import { FormStageTabs, fieldLabel, type StageTab } from "./EntrySheet"
-import { bandText, dayLabel, filledSamples, flagText, fmt, neededText, padSamples, runNo, runQcState, shiftLabel, shortChecks, stageLabel, stageParameters, toneClass, useCardRoles } from "./model"
+import { Chips, FormStageTabs, fieldLabel, selectClass, type StageTab } from "./EntrySheet"
+import { bandText, dayLabel, filledSamples, flagText, fmt, memoryKey, neededText, padSamples, remember, remembered, runNo, runQcState, shiftLabel, shortChecks, stageLabel, stageOperators, stageParameters, toneClass, useCardRoles } from "./model"
 
 export type SavedQc = { entry: any; stage: string; flagged: boolean }
 
@@ -59,7 +59,15 @@ export function LogQcForm({
 }) {
   const entryApi = useEntryApi(card)
   const { canQc } = useCardRoles()
-  const { machineName } = useCardMasters(card)
+  const { machineName, activeEmployees, employees } = useCardMasters(card)
+  // Every floor log names the operator (owner decision 7, 1 Nov 2026): active employees of this stage's department only.
+  const operatorOptions = useMemo(() => stageOperators(activeEmployees, stage), [activeEmployees, stage])
+  const [operator, setOperator] = useState("")
+  useEffect(() => {
+    const last = remembered(memoryKey(card, stage, "operator"))
+    setOperator(operatorOptions.some((e: any) => String(e.id) === last) ? last : "")
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage, card.id, operatorOptions.length])
   const { mutation, error, setError } = useCardMutation(String(card.id))
   const { stableCommand, reset } = useStableCommand()
   const listing = useStageEntries(card, stage, 0)
@@ -71,7 +79,9 @@ export function LogQcForm({
   const [runId, setRunId] = useState<string>(entryId || "")
   const [samples, setSamples] = useState<any[]>([])
   const [instrument, setInstrument] = useState<any>({})
-  const [correction, setCorrection] = useState("")
+  // Changing recorded readings: an "Entry correction" code (Masters › Reason codes, owner decision 4).
+  const [correction, setCorrection] = useState<ReasonValue>(EMPTY_REASON)
+  const correctionList = useReasonList("ENTRY_CORRECTION", card.plant_id)
   const [remark, setRemark] = useState("")
   const [saved, setSaved] = useState<SavedQc | null>(null)
   const run = runId && runId !== "none" ? runs.find((e: any) => e.id === runId) : null
@@ -79,11 +89,11 @@ export function LogQcForm({
   // Device draft for this run (or "QC without a run"): readings, instrument, reason and remark.
   const baseline = useRef("[]")
   const typedJson = JSON.stringify(filledSamples(samples))
-  const draft = useFormDraft(picked ? draftKey("qc", card.id, stage, runId) : null, { samples, instrument, correction, remark }, !saved && (typedJson !== baseline.current || Boolean(correction.trim() || remark.trim())))
+  const draft = useFormDraft(picked ? draftKey("qc", card.id, stage, runId) : null, { samples, instrument, correction, remark }, !saved && (typedJson !== baseline.current || Boolean(correction.code || correction.note.trim() || remark.trim())))
   const startValues = () => {
     setSamples(padSamples(run?.samples || [], parameters))
     setInstrument(run?.details?.instrument || {})
-    setCorrection("")
+    setCorrection(EMPTY_REASON)
     setRemark("")
   }
 
@@ -108,7 +118,7 @@ export function LogQcForm({
     if (typed) {
       if (Array.isArray(typed.samples)) setSamples(padSamples(typed.samples, parameters))
       setInstrument(typed.instrument || {})
-      setCorrection(typed.correction || "")
+      setCorrection(typed.correction && typeof typed.correction === "object" ? { ...EMPTY_REASON, ...typed.correction } : EMPTY_REASON)
       setRemark(typed.remark || "")
     }
     reset()
@@ -127,9 +137,10 @@ export function LogQcForm({
   const needsInstrument = parameters.some((p: any) => p.requires_instrument)
   const missing = [
     !picked ? "the run (or QC without a run)" : "",
+    picked && !operator ? "the operator" : "",
     picked && !filled.length ? "at least one reading" : "",
     filled.length && short.length ? `2 readings for ${short.map((rule: any) => rule.label).join(", ")}` : "",
-    priorSamples.length && !onlyAdded && !correction.trim() ? "the reason for changing readings" : "",
+    priorSamples.length && !onlyAdded && !reasonComplete(correction) ? (correction.code ? "a note for the 'Other' correction" : "the reason for changing readings") : "",
     needsInstrument && filled.length && !String(instrument?.instrument_id || "").trim() ? "the instrument ID" : "",
   ].filter(Boolean)
   // Readings outside their band, in words ("I.D. 76.9 mm (band 76.2–76.5) · S2"): they save and flag the run.
@@ -148,11 +159,15 @@ export function LogQcForm({
   }, [parameters, samples])
 
   const save = () => {
-    const reason = [correction.trim(), remark.trim()].filter(Boolean).join(" · ")
+    const correcting = Boolean(priorSamples.length && !onlyAdded && correction.code)
+    const correctionText = correcting ? reasonText(correctionList.data, correction) : ""
+    const reason = [correctionText, remark.trim()].filter(Boolean).join(" · ")
+    const coded = correcting ? { reason_code: correction.code, reason_note: correction.note.trim() || undefined } : {}
     mutation.mutate(async () => {
+      remember(memoryKey(card, stage, "operator"), operator)
       const result = run
-        ? await entryApi.observations(card.id, run.id, stableCommand({ samples: filled, instrument, expected_version: run.row_version, reason }))
-        : await entryApi.create(card.id, stableCommand({ stage, kind: "QC_ONLY", quantity_mode: "DELTA", expected_version: state?.row_version, samples: filled, details: { instrument, qc_remark: remark.trim() || undefined }, reason, submit: true }))
+        ? await entryApi.observations(card.id, run.id, stableCommand({ samples: filled, instrument, expected_version: run.row_version, reason, ...coded, remark: remark.trim() || undefined, operator_id: operator || null }))
+        : await entryApi.create(card.id, stableCommand({ stage, kind: "QC_ONLY", quantity_mode: "DELTA", expected_version: state?.row_version, operator_id: operator || null, samples: filled, details: { instrument, qc_remark: remark.trim() || undefined }, reason, submit: true }))
       const savedEntry = result?.data?.entry
       const done = { entry: savedEntry, stage, flagged: Boolean(savedEntry?.qc_flagged || savedEntry?.evaluation?.verdict === "FAIL") }
       draft.clear()
@@ -291,6 +306,34 @@ export function LogQcForm({
             </div>
           </div>
 
+          {picked ? (
+            <div data-testid="log-qc-operator-field">
+              {employees.isLoading ? (
+                <p className="text-[13px] text-muted-foreground">Loading operators…</p>
+              ) : operatorOptions.length === 0 ? (
+                <p className="text-[13px] text-signal-amber-ink" data-testid="log-qc-no-operator">No active employee in the {stageLabel(stage)} department — set the department in Masters › Employees.</p>
+              ) : operatorOptions.length <= 8 ? (
+                <>
+                  <span className={fieldLabel}>Operator who took the readings</span>
+                  <Chips label="Operator who took the readings" value={operator} onChange={setOperator} options={operatorOptions.map((e: any) => ({ value: String(e.id), label: e.name }))} testId="log-qc-operator" />
+                </>
+              ) : (
+                <label className="block">
+                  <span className={fieldLabel}>Operator who took the readings</span>
+                  <select className={selectClass} value={operator} onChange={(e) => setOperator(e.target.value)} data-testid="log-qc-operator" aria-label="Operator">
+                    <option value="">Choose operator</option>
+                    {operatorOptions.map((e: any) => (
+                      <option key={e.id} value={e.id}>
+                        {e.name}
+                        {e.employee_code ? ` · ${e.employee_code}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+          ) : null}
+
           <DraftRestoredBar
             savedAt={draft.restoredAt}
             onDiscard={() => {
@@ -316,10 +359,10 @@ export function LogQcForm({
               ) : null}
               <p className="text-[12px] text-muted-foreground">At least 2 readings per check (moisture optional); use “Add another sample” for more. The next stage takes this run once its QC is recorded, and the stage closes once it has 2 readings per check.</p>
               {priorSamples.length && !onlyAdded ? (
-                <label className="block text-sm">
-                  Why are recorded readings changed? <span className="text-muted-foreground">(required — adding new readings needs no reason)</span>
-                  <Input aria-label="Entry reason" className="mt-1 h-11 min-h-11" value={correction} onChange={(e) => setCorrection(e.target.value)} data-testid="log-qc-correction" />
-                </label>
+                <div className="space-y-1" data-testid="log-qc-correction">
+                  <p className="text-[12px] text-muted-foreground">Adding new readings needs no reason; changing recorded ones does.</p>
+                  <ReasonPicker category="ENTRY_CORRECTION" plantId={card.plant_id} rows={correctionList.data} value={correction} onChange={setCorrection} showErrors={Boolean(correction.code)} compact label="Why are recorded readings changed?" testIdPrefix="log-qc:correction" />
+                </div>
               ) : null}
               <label className="block">
                 <span className={fieldLabel}>

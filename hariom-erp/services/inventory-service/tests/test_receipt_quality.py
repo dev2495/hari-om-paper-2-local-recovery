@@ -23,7 +23,7 @@ def receipt(db):
         'parameters':[{'code':'gsm','min':200,'max':260}]})
     db.add(item); db.commit()
     payload = ManualReceiptCreate(supplier_challan_no=f"CH-{uuid.uuid4().hex[:8]}", request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name='Isolated mill',
-        reason='Isolated acceptance receipt', received_date=date.today(), invoice_no=uuid.uuid4().hex,
+        reason_code='MR-URGENT', reason_note='Isolated acceptance receipt', received_date=date.today(), invoice_no=uuid.uuid4().hex,
         invoice_date=date.today(), lines=[{'item_id':item.id, 'invoice_rate':30, 'incoming_qc_required':False,
         'lots':[{'source_reel_no':f'LOT-{n}','net_weight_kg':100,'width_mm':800,'physical_form':'REEL'} for n in range(2)]}])
     result=post_manual_receipt(payload, db, PLANT, MAKER)
@@ -192,7 +192,7 @@ def test_startup_release_frees_commercially_blocked_lots_but_keeps_rejected_ones
         result, ids = receipt(db)
         inspect(db, ids[0])
         create_quality_inspection(QualityInspectionCreate(entity_type='REEL', entity_id=ids[1],
-            readings={'gsm': 230}, disposition='REJECT', notes='Wet edges'), db, PLANT, QC)
+            readings={'gsm': 230}, disposition='REJECT', reason_code='IQ-MOISTURE', reason_note='Wet edges'), db, PLANT, QC)
         # Stock as the old commercial gate left it.
         for reel_id in ids:
             db.get(PaperReel, reel_id).stock_status = 'BLOCKED'
@@ -211,7 +211,7 @@ def test_startup_release_moves_plain_fail_to_qc_hold_and_uninspected_to_waiting(
     with SessionLocal() as db:
         result, ids = receipt(db)
         create_quality_inspection(QualityInspectionCreate(entity_type='REEL', entity_id=ids[0],
-            readings={'gsm': 150}, reasons={'gsm': 'Light paper'}), db, PLANT, QC)
+            readings={'gsm': 150}, reasons={'gsm': 'Light paper'}, reason_code='IQ-GSM', reason_note='Light paper'), db, PLANT, QC)
         for reel_id in ids:
             db.get(PaperReel, reel_id).stock_status = 'BLOCKED'
         db.commit()

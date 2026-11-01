@@ -94,3 +94,6 @@ assert.equal(server[3].text, "The net weight is empty or 0 kg.")
 assert.deepEqual(gapsFromServerMessage("Final QC has not passed for this card."), [])
 
 console.log("dispatch-challan tests passed")
+
+// Box challans (picker totals, scan checks, challan box rows) run with this file under npm test.
+require("./dispatch-boxes.test")

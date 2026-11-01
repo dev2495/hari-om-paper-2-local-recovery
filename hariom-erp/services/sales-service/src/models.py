@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 from sqlalchemy import Boolean, Column, String, Float, Integer, Date, DateTime, ForeignKey, Enum as SQLEnum, Index, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from .database import Base
 
@@ -67,6 +67,8 @@ class SalesOrder(Base):
     closure_note = Column(Text, nullable=True)
     closure_by = Column(String(200), nullable=True)
     closure_at = Column(DateTime, nullable=True)
+    # Every customer hold / resume with its reason (code, label, note, by, at), oldest first (1 Nov 2026).
+    hold_history = Column(JSONB, nullable=True)
 
     lines = relationship("SalesOrderLine", back_populates="sales_order", cascade="all, delete-orphan")
     # Customer PO history (SalesOrderPoChange), oldest first; selectin keeps the list endpoint to one query.
@@ -174,6 +176,11 @@ class SalesOrderReleaseLot(Base):
     parchment_color_id = Column(UUID(as_uuid=True), nullable=True)
     # Qty handed back to the line when the job card was force-closed early (re-releasable).
     returned_qty = Column(Float, nullable=False, default=0.0)
+    # Why (force close): master reason checked in production — "Label — note", code, label at the time, note.
+    returned_reason = Column(Text, nullable=True)
+    returned_reason_code = Column(String(40), nullable=True)
+    returned_reason_label = Column(String(200), nullable=True)
+    returned_reason_note = Column(Text, nullable=True)
     status = Column(String(30), nullable=False, default="released")
     released_by = Column(String(200), nullable=True)
     released_by_identity = Column(String(200), nullable=True)
@@ -259,3 +266,36 @@ class SalesOrderScheduleAllocation(Base):
     __table_args__ = (
         UniqueConstraint("delivery_schedule_id", "release_lot_id", name="uq_schedule_release_alloc"),
     )
+
+
+class SalesOrderReleaseLotReturn(Base):
+    """Pcs a job card gave back to its order line when a stage closed short (owner decision 2026-11-01).
+
+    One row per return, keyed by the production return key, so a retry never returns twice and a
+    reopen can reverse exactly that return (only while the line still has those pcs unreleased)."""
+
+    __tablename__ = "sales_order_release_lot_returns"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    release_lot_id = Column(UUID(as_uuid=True), ForeignKey("sales_order_release_lots.id"), nullable=False, index=True)
+    sales_order_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    sales_order_line_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    job_card_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    return_key = Column(String(160), nullable=False)
+    stage = Column(String(20), nullable=True)
+    qty = Column(Float, nullable=False)
+    reason = Column(Text, nullable=True)  # "Label — note" (legacy text)
+    reason_code = Column(String(40), nullable=True)  # STAGE_SHORT_CLOSE / SURPLUS_RETAIN code checked in production
+    reason_label = Column(String(200), nullable=True)
+    reason_note = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="ACTIVE")
+    dropped = Column(Boolean, nullable=False, default=False)
+    created_by = Column(String(200), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    reversed_by = Column(String(200), nullable=True)
+    reversed_at = Column(DateTime, nullable=True)
+    reverse_reason = Column(Text, nullable=True)
+    reverse_reason_code = Column(String(40), nullable=True)
+    reverse_reason_label = Column(String(200), nullable=True)
+
+    __table_args__ = (UniqueConstraint("release_lot_id", "return_key", name="uq_release_lot_return_key"),)

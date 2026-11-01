@@ -3,6 +3,7 @@
 import { CheckCircle2, CircleSlash, ClipboardCheck, Copy, Hand, Loader2, OctagonX, TriangleAlert } from "lucide-react"
 import { KeyboardEvent, useMemo, useState } from "react"
 
+import { ReasonPicker, filterReasons, reasonComplete, reasonNeedsNote, useReasonList } from "@/components/reasons"
 import { useCreateInventoryQualityInspection } from "@/hooks/use-inventory"
 import {
   EMPTY_ENTRY,
@@ -10,6 +11,7 @@ import {
   cellVerdict,
   entryHasInput,
   incomingReadingsPayload,
+  incomingReasonFields,
   incomingReasonsPayload,
   lotKey,
   lotName,
@@ -181,6 +183,9 @@ export function IncomingInspectionEntry({
 }) {
   const save = useCreateInventoryQualityInspection()
   const checks = useMemo(() => applicableRules(rules), [rules])
+  // Out of band, Hold / Reject and closing an earlier hold pick an INCOMING_QC code (owner decision 4, 1 Nov 2026).
+  const reasonPlant = lots[0]?.plant_id
+  const reasonRows = filterReasons(useReasonList("INCOMING_QC", reasonPlant).data, "")
   const [entries, setEntries] = useState<Record<string, IncomingEntry>>({})
   const [saved, setSaved] = useState<Record<string, Saved>>({})
   const [busy, setBusy] = useState(false)
@@ -196,7 +201,7 @@ export function IncomingInspectionEntry({
   const rows = lots.map((lot) => {
     const entry = entryOf(lot)
     const preview = previewIncomingLot(checks, entry, { openHolds: openHolds(lot).length })
-    return { lot, entry, preview, inQueue: Boolean(live(lot)), missingReason: preview.willSave && preview.needsReason && entry.reason.trim().length < 3 }
+    return { lot, entry, preview, inQueue: Boolean(live(lot)), missingReason: preview.willSave && preview.needsReason && !reasonComplete({ code: entry.reasonCode, note: entry.reason }) }
   })
   const toSave = rows.filter((row) => row.preview.willSave && row.inQueue)
   const blocked = toSave.filter((row) => row.missingReason)
@@ -240,7 +245,7 @@ export function IncomingInspectionEntry({
           source: lot.source || "INWARD",
           readings: incomingReadingsPayload(checks, entry.readings),
           reasons: incomingReasonsPayload(checks, entry),
-          notes: entry.reason.trim() || undefined,
+          ...incomingReasonFields(entry, preview.needsReason),
           disposition: entry.decision === "AUTO" ? undefined : entry.decision,
           resolve_hold_ids: closing ? holds.map((hold: any) => hold.id) : [],
         })
@@ -281,7 +286,7 @@ export function IncomingInspectionEntry({
               <strong className="text-foreground">{toSave.length}</strong> to save ·{" "}
               <span className="font-semibold text-signal-emerald-ink">{willRelease} will be released</span> ·{" "}
               <span className="font-semibold text-signal-amber-ink">{toSave.length - willRelease} stay held</span>
-              {attempted && blocked.length ? <span className="ml-1 font-semibold text-signal-rose-ink">· write a reason on {blocked.length} row{blocked.length === 1 ? "" : "s"}</span> : null}
+              {attempted && blocked.length ? <span className="ml-1 font-semibold text-signal-rose-ink">· choose a reason on {blocked.length} row{blocked.length === 1 ? "" : "s"}</span> : null}
             </>
           ) : (
             "Enter readings. Each lot is saved on its own; empty rows are skipped."
@@ -363,16 +368,29 @@ export function IncomingInspectionEntry({
               <div><PreviewChip preview={preview} saved={saved[lotKey(lot)]} /></div>
             </div>
             <div className="space-y-2">
-              <label className="block text-[12px] font-semibold uppercase tracking-wide text-muted-foreground" htmlFor="qc-single-reason">
-                {preview.needsReason ? "Reason (required)" : "Note (optional)"}
-              </label>
-              <textarea
-                id="qc-single-reason"
-                value={entry.reason}
-                onChange={(event) => update(lot, { reason: event.target.value })}
-                placeholder={preview.kind === "fail" ? `Why ${preview.failing.join(", ")} is out of band` : holds.length ? "Why the earlier hold can close" : "Anything the store or purchase should know"}
-                className={cn("min-h-[72px] w-full rounded-lg border bg-card px-3 py-2 text-[13px]", attempted && missingReason ? "border-signal-rose-line ring-2 ring-signal-rose-line/40" : "border-input")}
-              />
+              {preview.needsReason ? (
+                <ReasonPicker
+                  category="INCOMING_QC"
+                  plantId={reasonPlant}
+                  rows={reasonRows}
+                  label={preview.kind === "fail" ? `Why ${preview.failing.join(", ")} is out of band` : preview.kind === "release" ? "Why the earlier hold can close" : "Reason"}
+                  value={{ code: entry.reasonCode, note: entry.reason }}
+                  onChange={(next) => update(lot, { reasonCode: next.code, reason: next.note })}
+                  showErrors={attempted && missingReason}
+                  testIdPrefix="qc-single-reason"
+                />
+              ) : (
+                <>
+                  <label className="block text-[12px] font-semibold uppercase tracking-wide text-muted-foreground" htmlFor="qc-single-reason">Note (optional)</label>
+                  <textarea
+                    id="qc-single-reason"
+                    value={entry.reason}
+                    onChange={(event) => update(lot, { reason: event.target.value })}
+                    placeholder="Anything the store or purchase should know"
+                    className="min-h-[72px] w-full rounded-lg border border-input bg-card px-3 py-2 text-[13px]"
+                  />
+                </>
+              )}
               {holds.length ? (
                 <label className="flex items-start gap-2 text-[12.5px] max-sm:min-h-11 max-sm:items-center">
                   <input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0 max-sm:mt-0 max-sm:h-5 max-sm:w-5" checked={entry.closeHolds} onChange={(event) => update(lot, { closeHolds: event.target.checked })} />
@@ -439,12 +457,25 @@ export function IncomingInspectionEntry({
                       {inQueue ? (
                         <div className="flex min-w-[230px] flex-col gap-1.5">
                           <DecisionSwitch compact value={entry.decision} onChange={(decision) => update(lot, { decision })} label={`${lotName(lot)} decision`} testId={`qc-entry-${index}-decision`} />
+                          {preview.needsReason ? (
+                            // A plain list here: a pop-over would be cut off by the scrolling table.
+                            <select
+                              aria-label={`${lotName(lot)} reason`}
+                              value={entry.reasonCode}
+                              onChange={(event) => update(lot, { reasonCode: event.target.value })}
+                              data-testid={`qc-entry-${index}-reason`}
+                              className={cn("h-8 w-full rounded-lg border bg-card px-2 text-[12.5px] max-sm:h-11", attempted && missingReason && !entry.reasonCode ? "border-signal-rose-line ring-2 ring-signal-rose-line/40" : "border-input")}
+                            >
+                              <option value="">Choose why (required)</option>
+                              {reasonRows.map((row) => <option key={row.code} value={row.code}>{row.label || row.code}</option>)}
+                            </select>
+                          ) : null}
                           <input
-                            aria-label={`${lotName(lot)} reason`}
+                            aria-label={`${lotName(lot)} ${preview.needsReason ? "reason note" : "note"}`}
                             value={entry.reason}
                             onChange={(event) => update(lot, { reason: event.target.value })}
-                            placeholder={preview.needsReason ? "Reason (required)" : "Note (optional)"}
-                            className={cn("h-8 w-full rounded-lg border bg-card px-2 text-[12.5px] max-sm:h-11", attempted && missingReason ? "border-signal-rose-line ring-2 ring-signal-rose-line/40" : "border-input")}
+                            placeholder={preview.needsReason ? (reasonNeedsNote(entry.reasonCode) ? "Note (needed for Other)" : "Note (optional)") : "Note (optional)"}
+                            className={cn("h-8 w-full rounded-lg border bg-card px-2 text-[12.5px] max-sm:h-11", attempted && missingReason && entry.reasonCode ? "border-signal-rose-line ring-2 ring-signal-rose-line/40" : "border-input")}
                           />
                           {holds.length ? (
                             <label className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground" title={holds.map((hold: any) => hold.reason).join(" · ")}>
