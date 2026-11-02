@@ -18,24 +18,36 @@ import uuid
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL
 
+# Go-live reset (owner decisions 2 Nov 2026): every table in every service DB is listed
+# explicitly. KEEP = users/roles/plants, masters, QC rules, item master, locations, number
+# counters and the specifications (with their recipes, seasonal bindings, QC values and
+# packing amendments). CLEAR = every transaction: sales orders, production, inventory,
+# purchase, month-end, notifications and audit outboxes. Unknown tables fail closed.
 KEEP={
+ # None deliberately retains the whole authentication/security catalogue, including the
+ # auth audit_events log (sign-ins and the central business audit trail).
  "authdb":None,
- "masterdb":set("adhesive_master customer customer_contact employee machine machine_supported_mandrel mandrel packaging_box packaging_fadda packaging_plastic_sheet paper_master parchment_color parchment_vendor plant_holiday reason_code shift_definition supplier supplier_contact tool_attribute_option tool_master tube_size".split()),
- "specdb":set("global_spec_defaults spec_dynamic_fields production_season_state season_qc_rule_versions production_season_events".split()),
+ "masterdb":set("adhesive_master customer customer_contact employee machine machine_supported_mandrel mandrel packaging_box packaging_fadda packaging_plastic_sheet paper_master parchment_color parchment_vendor plant_holiday reason_code reason_seed_log shift_definition supplier supplier_contact tool_attribute_option tool_master tube_size".split()),
+ # Specifications are masters now: sheet, dynamic values, recipes, seasonal bindings,
+ # readiness, per-spec QC overlays, packing amendments, save receipts and the seasonal
+ # command receipts that make the client spec import idempotent.
+ "specdb":set("global_spec_defaults spec_dynamic_fields production_season_state season_qc_rule_versions production_season_events recipe_header recipe_layers season_command_receipts season_qc_overlay_versions season_spec_readiness spec_dynamic_field_values spec_packing_amendments spec_save_operations spec_season_recipe_bindings specification_sheet".split()),
  "salesdb":set("sales_order_number_counters".split()),
- "productiondb":set("job_card_number_counters machine_stage_capacity_profile plant_tolerance_setting planner_views qc_instruments".split()),
- "inventorydb":set("document_series inventory_locations inventory_quality_standard_events inventory_quality_templates inventory_quality_tolerances item_master stock_alert_policies".split()),
+ "productiondb":set("job_card_number_counters machine_stage_capacity_profile plant_tolerance_setting plant_usage_limits planner_views qc_instruments".split()),
+ "inventorydb":set("document_series inventory_locations inventory_quality_standard_events inventory_quality_templates inventory_quality_tolerances item_master reel_serial_settings stock_alert_policies".split()),
  "analyticsdb":set(),
 }
 CLEAR={
  "authdb":set("notifications notification_delivery_log".split()),
  "masterdb":set("audit_outbox tool_usage_log".split()),
- "specdb":set("audit_outbox recipe_header recipe_layers season_command_receipts season_qc_overlay_versions season_release_authorizations season_spec_readiness spec_dynamic_field_values spec_save_operations spec_season_recipe_bindings specification_sheet trial_results".split()),
- "salesdb":set("audit_outbox sales_order_delivery_schedules sales_order_dispatch_logs sales_order_line_colors sales_order_lines sales_order_release_lots sales_order_schedule_allocations sales_orders".split()),
- "productiondb":set("audit_events audit_outbox continuous_command_receipts continuous_completion_outbox continuous_entry_revisions continuous_input_allocations continuous_residual_wip continuous_stage_entries dispatch dispatch_idempotency job_card_short_close job_card_stage_segments job_card_stages job_cards machine_downtime monthly_material_actuals monthly_material_close monthly_material_provisionals packing_records production_job quality_holds quality_inspections reel_issues sales_orders shift_material_ledger stage_queue_order".split()),
- "inventorydb":set("audit_outbox customer_rejections inventory_carry_forward_lines inventory_carry_forwards inventory_certification_lines inventory_certifications inventory_opening_load_lines inventory_opening_loads inventory_quality_concessions inventory_quality_holds inventory_quality_inspections label_print_jobs lot_label_records mrp_runs paper_reels procurement_plan_conversions procurement_plan_entries procurement_plans purchase_approval_decisions purchase_debit_note_lines purchase_debit_note_settlements purchase_debit_notes purchase_discrepancies purchase_line_schedules purchase_order_lines purchase_order_revision_lines purchase_order_revisions purchase_orders purchase_receipt_lines purchase_receipts purchase_requisitions purchase_workbook_imports receipt_invoice_allocations receipt_schedule_allocations receipt_stock_allocations reel_issues reel_scan_events reservations rm_cost_components rm_cost_sheets rm_cost_versions stock_adjustment_lines stock_adjustment_vouchers stock_alert_episodes stock_batch stock_transaction supplier_invoice_lines supplier_invoices tool_asset_assignments tool_asset_events tool_assets tool_receipts".split()),
+ # Release authorizations belong to job card releases; trial results to trial runs.
+ "specdb":set("audit_outbox season_release_authorizations trial_results".split()),
+ "salesdb":set("audit_outbox sales_order_delivery_schedules sales_order_dispatch_logs sales_order_line_colors sales_order_lines sales_order_po_changes sales_order_release_lot_returns sales_order_release_lots sales_order_schedule_allocations sales_orders".split()),
+ "productiondb":set("audit_events audit_outbox continuous_command_receipts continuous_completion_outbox continuous_entry_revisions continuous_input_allocations continuous_residual_wip continuous_stage_entries dispatch dispatch_idempotency fg_boxes job_card_short_close job_card_stage_segments job_card_stages job_cards machine_downtime monthly_close_events monthly_material_actuals monthly_material_close monthly_material_notes monthly_material_provisionals packing_records production_job quality_holds quality_inspections reel_issues sales_orders shift_material_ledger stage_queue_order".split()),
+ "inventorydb":set("audit_outbox customer_rejections inventory_books_locks inventory_carry_forward_lines inventory_carry_forwards inventory_certification_lines inventory_certifications inventory_opening_load_lines inventory_opening_loads inventory_quality_concessions inventory_quality_holds inventory_quality_inspections label_print_jobs lot_label_records mrp_runs paper_reels procurement_plan_conversions procurement_plan_entries procurement_plans purchase_approval_decisions purchase_debit_note_lines purchase_debit_note_settlements purchase_debit_notes purchase_discrepancies purchase_line_schedules purchase_order_lines purchase_order_revision_lines purchase_order_revisions purchase_orders purchase_receipt_lines purchase_receipts purchase_requisitions purchase_workbook_imports receipt_invoice_allocations receipt_schedule_allocations receipt_stock_allocations reel_issues reel_scan_events reservations rm_cost_components rm_cost_sheets rm_cost_versions stock_adjustment_lines stock_adjustment_vouchers stock_alert_episodes stock_batch stock_count_entries stock_count_locations stock_transaction supplier_invoice_lines supplier_invoices tool_asset_assignments tool_asset_events tool_assets tool_receipts".split()),
  "analyticsdb":set("background_jobs".split()),
 }
+assert not any((KEEP[name] or set())&CLEAR[name] for name in KEEP), 'A table cannot be both kept and cleared'
 
 
 def db_url(name):

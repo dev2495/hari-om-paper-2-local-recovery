@@ -1,0 +1,16 @@
+{
+ "note": "Client names in the 2 Nov 2026 workbooks that are not spelt like the customer master. Each alias maps to the master customer NAME (never creates a customer). 'confirm' marks mappings made from the item tag / spec list rather than the name; the import reports them.",
+ "aliases": [
+  {"source": "Reliance Industries Ltd. [Patalganga]", "customer": "Relience (Patal Ganga )", "why": "owner: Patalganga = the PG customer"},
+  {"source": "Reliance Industries Limited [PG]", "customer": "Relience (Patal Ganga )", "why": "spec sheet client name for the PG customer"},
+  {"source": "Reliance Industries Ltd. [Hazira] POY Packing Store", "customer": "Reliance Industries Limited [Hazira]", "why": "Hazira site; items tagged [HMD]"},
+  {"source": "Reliance Industries Ltd.", "customer": "Reliance Industries Limited [Silvassa]", "why": "no site in the Tally name; items tagged [SMD] (Silvassa) and the sizes are the Silvassa specs", "confirm": true},
+  {"source": "Madelin Enterprises Private Limited. (Athola)", "customer": "Madelin Enterprises Ltd. [ Athola ]", "why": "Athola site"},
+  {"source": "Madelin Enterprises Private Limited", "customer": "Madelin Enterprises Ltd.[ Saily ]", "why": "no site in the Tally name; items tagged [SAILY]", "confirm": true},
+  {"source": "Century Enka Limited [Rajashree]", "customer": "Rajashree Polyfils Ltd", "why": "items tagged [RPL]; the sizes are the Rajashree Polyfils specs", "confirm": true},
+  {"source": "Dodhia Industries Limited", "customer": "Dodhia Synthetics Ltd", "why": "items tagged [DO]; the four sizes are the Dodhia Synthetics specs", "confirm": true},
+  {"source": "Sanathan Textiles Ltd", "customer": "Sanathan Textile Pvt.Ltd", "why": "spelling"},
+  {"source": "Garden Silk Mills Pvt. Ltd.", "customer": "Garden Silk Mills Ltd.", "why": "spelling"},
+  {"source": "Global Textile Alliance India Pvt Ltd", "customer": "Global Textile Alliance India Pvt.Ltd", "why": "spelling"}
+ ]
+}
