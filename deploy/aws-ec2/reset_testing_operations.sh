@@ -29,9 +29,18 @@ maintenance="$archive/maintenance-state.json"
 compose() { docker compose --env-file "$deploy/.env" --project-directory "$deploy" "$@"; }
 postgres="$(compose ps -q postgres)"
 [[ -n "$postgres" ]]
-if [[ ! -x /opt/hariom/reset-venv/bin/python ]]; then
-  python3 -m venv /opt/hariom/reset-venv
-  /opt/hariom/reset-venv/bin/python -m pip install --disable-pip-version-check sqlalchemy==2.0.23 psycopg2-binary==2.9.9
+# The reset tooling runs from its own venv. Ubuntu ships python3 without ensurepip, so a first
+# attempt can leave a half-made venv behind: rebuild it until it imports both drivers.
+if ! /opt/hariom/reset-venv/bin/python -c 'import sqlalchemy, psycopg2' >/dev/null 2>&1; then
+  rm -rf /opt/hariom/reset-venv
+  if ! python3 -m venv /opt/hariom/reset-venv >/dev/null 2>&1; then
+    rm -rf /opt/hariom/reset-venv
+    py_minor="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+    DEBIAN_FRONTEND=noninteractive apt-get update -q >/dev/null
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -q "python${py_minor}-venv" >/dev/null
+    python3 -m venv /opt/hariom/reset-venv
+  fi
+  /opt/hariom/reset-venv/bin/python -m pip install -q --disable-pip-version-check sqlalchemy==2.0.23 psycopg2-binary==2.9.9
 fi
 mutating=1
 if [[ "$mode" == preview ]]; then
