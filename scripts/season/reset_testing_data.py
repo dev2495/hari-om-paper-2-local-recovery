@@ -44,7 +44,7 @@ CLEAR={
  "specdb":set("audit_outbox season_release_authorizations trial_results".split()),
  "salesdb":set("audit_outbox sales_order_delivery_schedules sales_order_dispatch_logs sales_order_line_colors sales_order_lines sales_order_po_changes sales_order_release_lot_returns sales_order_release_lots sales_order_schedule_allocations sales_orders".split()),
  "productiondb":set("audit_events audit_outbox continuous_command_receipts continuous_completion_outbox continuous_entry_revisions continuous_input_allocations continuous_residual_wip continuous_stage_entries dispatch dispatch_idempotency fg_boxes job_card_short_close job_card_stage_segments job_card_stages job_cards machine_downtime monthly_close_events monthly_material_actuals monthly_material_close monthly_material_notes monthly_material_provisionals packing_records production_job quality_holds quality_inspections reel_issues sales_orders shift_material_ledger stage_queue_order".split()),
- "inventorydb":set("audit_outbox customer_rejections inventory_books_locks inventory_carry_forward_lines inventory_carry_forwards inventory_certification_lines inventory_certifications inventory_opening_load_lines inventory_opening_loads inventory_quality_concessions inventory_quality_holds inventory_quality_inspections label_print_jobs lot_label_records mrp_runs paper_reels procurement_plan_conversions procurement_plan_entries procurement_plans purchase_approval_decisions purchase_debit_note_lines purchase_debit_note_settlements purchase_debit_notes purchase_discrepancies purchase_line_schedules purchase_order_lines purchase_order_revision_lines purchase_order_revisions purchase_orders purchase_receipt_lines purchase_receipts purchase_requisitions purchase_workbook_imports receipt_invoice_allocations receipt_schedule_allocations receipt_stock_allocations reel_issues reel_scan_events reservations rm_cost_components rm_cost_sheets rm_cost_versions stock_adjustment_lines stock_adjustment_vouchers stock_alert_episodes stock_batch stock_count_entries stock_count_locations stock_transaction supplier_invoice_lines supplier_invoices tool_asset_assignments tool_asset_events tool_assets tool_receipts".split()),
+ "inventorydb":set("audit_outbox purchase_delivery_schedules customer_rejections inventory_books_locks inventory_carry_forward_lines inventory_carry_forwards inventory_certification_lines inventory_certifications inventory_opening_load_lines inventory_opening_loads inventory_quality_concessions inventory_quality_holds inventory_quality_inspections label_print_jobs lot_label_records mrp_runs paper_reels procurement_plan_conversions procurement_plan_entries procurement_plans purchase_approval_decisions purchase_debit_note_lines purchase_debit_note_settlements purchase_debit_notes purchase_discrepancies purchase_line_schedules purchase_order_lines purchase_order_revision_lines purchase_order_revisions purchase_orders purchase_receipt_lines purchase_receipts purchase_requisitions purchase_workbook_imports receipt_invoice_allocations receipt_schedule_allocations receipt_stock_allocations reel_issues reel_scan_events reservations rm_cost_components rm_cost_sheets rm_cost_versions stock_adjustment_lines stock_adjustment_vouchers stock_alert_episodes stock_batch stock_count_entries stock_count_locations stock_transaction supplier_invoice_lines supplier_invoices tool_asset_assignments tool_asset_events tool_assets tool_receipts".split()),
  "analyticsdb":set("background_jobs".split()),
 }
 assert not any((KEEP[name] or set())&CLEAR[name] for name in KEEP), 'A table cannot be both kept and cleared'
@@ -152,6 +152,22 @@ def run(args):
         if args.apply and existing.get('status')!='PREVIEW':raise RuntimeError("An incomplete reset needs reviewed recovery from this manifest before rerun")
     if args.apply and not existing:raise RuntimeError('Create and review a dry-run manifest before applying the reset')
     report={'reset_id':args.reset_id,'scope':'testing operations across both plants','environment':identity,'release_commit':os.getenv('ERP_RELEASE_COMMIT'),'operator':os.getenv('ERP_RESET_ACTOR') or getpass.getuser(),'created_at':datetime.now(timezone.utc).isoformat(),'status':'PREVIEW','databases':{}}
+    # Check every database first, so one preview reports every unclassified table or dependency at once.
+    problems=[]
+    for name in KEEP:
+        probe=create_engine(db_url(name))
+        with probe.connect() as c:
+            tables=set(c.execute(text("SELECT tablename FROM pg_tables WHERE schemaname='public'")).scalars())
+            known=(tables if KEEP[name] is None else KEEP[name])|CLEAR[name]|{'alembic_version'}
+            if tables-known:
+                problems.append(f"Unclassified tables in {name}: {sorted(tables-known)}")
+            else:
+                clear_set=tables&CLEAR[name];keep_set=tables-clear_set
+                refs=c.execute(text("SELECT source.relname,target.relname FROM pg_constraint f JOIN pg_class source ON source.oid=f.conrelid JOIN pg_class target ON target.oid=f.confrelid WHERE f.contype='f' AND source.relnamespace='public'::regnamespace AND target.relnamespace='public'::regnamespace")).all()
+                bad=[(a,b) for a,b in refs if a in keep_set and b in clear_set]
+                if bad:problems.append(f"Retained tables reference the reset scope in {name}: {bad}")
+        probe.dispose()
+    if problems:raise RuntimeError(" | ".join(problems))
     engines={}
     for name in KEEP:
         url=db_url(name);engine=create_engine(url);engines[name]=engine
