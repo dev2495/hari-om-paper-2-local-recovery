@@ -21,6 +21,7 @@ skipped and a repeated save is replayed by the spec service.
 from __future__ import annotations
 
 import argparse
+import re
 import hashlib
 import json
 import sys
@@ -30,7 +31,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import (  # noqa: E402
-    CustomerResolver, add_common_args, base_variant, box_code, connect, dims_equal, name_key, near, variant_key, write_reports,
+    CustomerResolver, add_common_args, loose_key, base_variant, box_code, connect, dims_equal, name_key, near, variant_key, write_reports,
 )
 
 NAMESPACE = "client-import-2026-11-02:spec-packing"
@@ -47,12 +48,39 @@ def size_of(tube) -> str:
     return f"{fmt(tube['inner_diameter_mm'])} x {fmt(tube['outer_diameter_mm'])} x {fmt(tube['length_mm'])}"
 
 
-def wanted_packing(row, masters, defaults, problems):
+def box_key(code) -> str:
+    """Box code without punctuation, spaces or case: 'R-150_3PLY' -> 'R1503PLY', 'HBD 5 PLY' -> 'HBD5PLY'."""
+    return re.sub(r"[^A-Z0-9]", "", str(code or "").upper())
+
+
+def resolve_box(sheet_code, current_code, masters):
+    """Map the sheet's box code onto an EXISTING active box master (owner rule 2 Nov 2026: never make look-alike
+    duplicates of masters the plant already uses). Returns (code, note); code None means 'decide by hand'."""
+    boxes = {code: row for code, row in masters.items() if row.get("kind") == "BOX" and row.get("active", True)}
+    want = box_key(sheet_code)
+    current = (current_code or "").upper()
+    exact = [code for code in boxes if box_key(code) == want]
+    if exact:
+        return (current if current in exact else exact[0]), None
+    family = [code for code in boxes if box_key(code).startswith(want)]
+    if current in boxes and (current in family or box_key(current).startswith(want)):
+        return current, None
+    if len(family) == 1:
+        return family[0], f"sheet box {sheet_code} is master {family[0]}"
+    if len(family) > 1:
+        return None, f"sheet box {sheet_code} fits several masters ({', '.join(sorted(family))}); pick one on Packing setup"
+    return sheet_code, None
+
+
+def wanted_packing(row, masters, defaults, problems, current=None):
+    current = current or {}
     sheet = row["packing"]
     plastic_raw = (sheet.get("plastic_raw") or "").strip()
     plastic = plastic_raw.upper() if plastic_raw and plastic_raw.upper() not in {"YES", "Y"} else (defaults.get("plastic_sku") or "")
     if plastic_raw.upper() in {"NO", "N", "NA"}:
         plastic = ""
+    if not plastic_raw and current.get("plastic_sku"):
+        plastic = current["plastic_sku"]
     if not plastic:
         problems.append("no single active plastic master to default to; plastic left blank")
     fadda = ""
@@ -66,11 +94,14 @@ def wanted_packing(row, masters, defaults, problems):
         elif not fadda_count:
             problems.append("fadda YES but no fadda pcs per box; fadda left blank")
             fadda = ""
+    if not sheet.get("fadda") and current.get("fadda_sku") and current.get("fadda_per_box"):
+        # The sheet is silent on fadda: keep what the spec already has.
+        fadda, fadda_count = current["fadda_sku"], current["fadda_per_box"]
     return {
         "box_code": sheet["box_code"],
         "qty_per_box": int(sheet["qty_per_box"]),
         "plastic_sku": plastic or None,
-        "plastic_per_box": (sheet.get("plastic_per_box") or 1) if plastic else None,
+        "plastic_per_box": (sheet.get("plastic_per_box") or current.get("plastic_per_box") or 1) if plastic else None,
         "fadda_sku": fadda or None,
         "fadda_per_box": fadda_count if fadda else None,
     }
@@ -125,13 +156,15 @@ def main():
             continue
         customer, how = resolver.resolve(row["client"])
         entry = {"row": row["row"], "client": row["client"], "size": row["size_text"], "variant": row.get("variant"), "box": row["packing"]["box_raw"], "customer_match": how}
-        if customer is None:
+        # Specs carry their own customer name from the spec import; match on it as well as on the customer master.
+        own = [s for s in specs if loose_key(s.get("customer_name")) == loose_key(row["client"])
+               or (customer is not None and (str(s.get("customer_id") or "") == str(customer["id"]) or loose_key(s.get("customer_name")) == loose_key(customer["name"])))]
+        if customer is None and not own:
             entry["result"] = f"customer not found: {how}"
             report["sheet_rows_without_spec"].append(entry)
             report["sheet_rows"].append(entry)
             continue
-        entry["customer"] = customer["name"]
-        own = [s for s in specs if str(s.get("customer_id") or "") == str(customer["id"]) or name_key(s.get("customer_name")) == name_key(customer["name"])]
+        entry["customer"] = customer["name"] if customer is not None else row["client"]
         same_size = [s for s in own if (t := tubes.get(str(s.get("tube_size_id")))) and dims_equal(t["inner_diameter_mm"], row["id_mm"]) and dims_equal(t["outer_diameter_mm"], row["od_mm"]) and dims_equal(t["length_mm"], row["length_mm"])]
         candidates = same_size
         if len(candidates) > 1:
@@ -147,9 +180,18 @@ def main():
             report["sheet_rows_without_spec"].append(entry)
         else:
             problems: list[str] = []
-            wanted = wanted_packing(row, masters, defaults, problems)
-            entry.update(result=f"matches {len(candidates)} spec(s)", spec_ids=[s["id"] for s in candidates], wanted=wanted, problems=problems)
+            entry.update(result=f"matches {len(candidates)} spec(s)", spec_ids=[s["id"] for s in candidates], problems=problems)
             for spec in candidates:
+                current = spec.get("packing") or {}
+                wanted = wanted_packing(row, masters, defaults, problems, current)
+                code, note = resolve_box(wanted["box_code"], current.get("box_code"), masters)
+                if code is None:
+                    report["conflicts"].append({"spec_id": spec["id"], "spec": spec.get("customer_name"), "rows": [row["row"]], "packings": [note]})
+                    continue
+                wanted["box_code"] = code
+                if note:
+                    problems.append(note)
+                entry["wanted"] = wanted
                 matches[spec["id"]].append({"row": row["row"], "wanted": wanted})
         report["sheet_rows"].append(entry)
 
