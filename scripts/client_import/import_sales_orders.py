@@ -32,7 +32,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from common import CustomerResolver, add_common_args, base_variant, connect, dims_equal, near, tokens, write_reports  # noqa: E402
+from common import CustomerResolver, name_key, loose_key, add_common_args, base_variant, connect, dims_equal, near, tokens, write_reports  # noqa: E402
 
 IMPORT_MARK = "Imported from Tally 'Sales Orders (Due Only)'"
 ITEM = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*[xX]\s*(\d+(?:\.\d+)?)\s*[xX]\s*(\d+(?:\.\d+)?)\s*(?:mm)?\s*(.*)$", re.I)
@@ -146,6 +146,13 @@ def main():
         customer, how = resolver.resolve(party)
         report["customer_mapping"][party] = {"customer": customer["name"] if customer else None, "how": how}
         own = [s for s in specs if customer and str(s.get("customer_id") or "") == str(customer["id"])]
+        # Live specs often still carry the customer name of the spec import (an older, now inactive customer
+        # record), e.g. "Garden Silk Mills Ltd." for the active "GARDEN SILK MILLS PVT. LTD.". When the active
+        # customer's own specs have no spec of a line's size, fall back to specs whose own customer name is the
+        # same company (Tally party, active customer or the alias target).
+        alias = resolver.aliases.get(name_key(party)) or resolver.aliases.get(loose_key(party))
+        same_company = {loose_key(party)} | ({loose_key(customer["name"])} if customer else set()) | ({loose_key(alias["customer"])} if alias else set())
+        by_name = [s for s in specs if s not in own and loose_key(s.get("customer_name")) in same_company]
         matched = []
         for line in lines:
             item = parse_item(line["item"])
@@ -158,6 +165,10 @@ def main():
                 report["unmatched_lines"].append({**base, "reason": "item text is not I.D. x O.D. x length"})
                 continue
             spec, why, candidates = match_line(item, own, tubes)
+            if spec is None and why.startswith("no approved spec of this customer has this size") and by_name:
+                spec, why, candidates = match_line(item, by_name, tubes)
+                if spec is not None:
+                    why = f"{why} (spec filed under '{spec.get('customer_name')}')"
             if spec is None:
                 report["unmatched_lines"].append({**base, "reason": why, "candidates": candidates})
                 continue
