@@ -11,20 +11,21 @@ Live release: `8c5e45d` (all features, the 2 Nov operator scan update, and the g
 | Sales orders from Tally `Sales Orders.xlsx` | 22 orders created and approved, SO/26/11/04 to SO/26/11/25: 43 lines, 1,507,139 pcs (balance qty; ordered qty in the line note). |
 
 ## Lines not imported (39 lines, 5,847,978 pcs): enter by hand
-**Customer not active on live (31 lines).** Switch on or add the customer in Masters › Customers, then run `orders-apply` again (it adds only the missing orders):
+**Customer not active on live (26 lines, 4,326,004 pcs).** Switch on or add the customer in Masters › Customers, then run `orders-apply` again (it adds only the missing orders):
 - Reliance Industries Ltd. [Patalganga]: PO MP4/290516036/002 (6 lines) and MP4/290517227 (2 lines)
 - Century Enka Ltd.: PO 5500000436 (5 lines)
 - Century Enka Limited [Rajashree]: PO 5500000439 (10 lines)
 - Madelin Enterprises (Athola): PO 6500025433 (2 lines)
 - Gujarat Polyfilms Private Limited: PO 002219 (1 line, 100 pcs)
-- Vashupujya Corporation: PO 17, 94x108x205 (customer exists; no spec of this size)
 
-**Spec choice needed (8 lines).** Sales picks the spec when entering the line:
+**Spec choice needed (6 lines).** Sales picks the spec when entering the line:
 - Reliance [Hazira] 75x85x279.5 and 125x137x187.5 on POs 290516255/002 and 290517240: five look-alike specs each (Velvet, Single, Double, China, Textone)
 - Alok 110x123x115 (Bar), PO 6S2/840088653: two identical specs
 - Madelin Saily 112x126x149.9, PO 6500025446: two specs (300 g / 310 g)
 
-**No spec of that exact size or variant (5 lines):** Garden Silk 110x123x115 (spec is 114.9), Silvassa 120x136x95 plain (only HCS exists, 2 POs), Silvassa 110x122x150 (spec is 122.4, 2 POs), Madelin Saily 112x124.5x125.
+**No spec of that exact size or variant (7 lines):** Garden Silk 110x123x115 (spec is 114.9), Silvassa 120x136x95 plain (only HCS exists, 2 POs), Silvassa 110x122x150 (2 POs; a 110x122x150 POY spec exists under the old name 'Reliance Polyetser Ltd.[ Silvassa ]', the active customer has 110x122.4x150), Madelin Saily 112x124.5x125, Vashupujya 94x108x205 (customer exists).
+
+The client fill-in workbook with every open item is `TubeOS-Data-To-Complete-2026-11-02.xlsx` (same folder).
 
 ## First-day checklist for the plant
 1. Masters › Employees: department and login email for every operator (floor screens list only that department; a linked login sees only its own stage).
