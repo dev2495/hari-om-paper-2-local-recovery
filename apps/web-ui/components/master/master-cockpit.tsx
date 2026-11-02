@@ -660,7 +660,7 @@ export function Pill({
             ? "bg-signal-cyan-soft text-signal-cyan-ink border-signal-cyan-line"
             : "bg-muted text-muted-foreground border-border"
   return (
-    <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11.5px] font-semibold", cls)}>
+    <span className={cn("inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11.5px] font-semibold", cls)}>
       {children}
     </span>
   )

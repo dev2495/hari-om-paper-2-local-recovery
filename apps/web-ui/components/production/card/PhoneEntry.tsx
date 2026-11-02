@@ -3,6 +3,10 @@
 // Phone scan landing: the printed card's QR opens this. One card, its stages as tabs, two big buttons
 // (Log output, Log QC), the stage's recent runs and what still needs QC. Old-form cards keep their form.
 // A card from another plant switches the active plant; a closed card is shown read-only.
+// Operator scan scope (owner, 2 Nov 2026): an Operator-only login linked to a stage's department in
+// Masters › Employees sees only that stage (its status, targets, runs and QC) and logs as itself; when the
+// stage is not open yet or closed it gets one line saying why. Everyone else sees every stage, as before.
+// On a phone the stage tabs (or the operator's single stage) and "Scan another card" stay pinned under the top bar.
 
 import Link from "next/link"
 import { ArrowLeftRight, Camera, CheckCircle2, ClipboardCheck, ClipboardList, Clock3, Flag, Lock, ScanLine, SearchX } from "lucide-react"
@@ -21,7 +25,9 @@ import { useCardFlow, useCardMasters, useStageEntries } from "./data"
 import { FormStageTabs, type StageTab } from "./EntrySheet"
 import { CardEntrySheets, defaultOutputStage, defaultQcStage, type EntryPanel } from "./JobCardPage"
 import { RunRows } from "./RunList"
-import { cardFacts, currentFloorStage, fmt, isLoggable, previousStage, runNo, runQcState, stageLabel, stageParameters, toneClass, useCardRoles, visibleStages, waitingRunsBadge, waitingRunsTitle } from "./model"
+import { cardFacts, currentFloorStage, fmt, isLoggable, previousStage, runNo, runQcState, STAGE_ICON, stageLabel, stageParameters, toneClass, useCardRoles, visibleStages, waitingRunsBadge, waitingRunsTitle } from "./model"
+import { ScopeStatusLine, UnlinkedNote, useFloorScope } from "./scope"
+import { scopedStageGate } from "@/lib/floor-scope"
 
 export function PhoneEntry({ jobCardId, mode, stage: wantedStage, entryId }: { jobCardId: string; mode?: string | null; stage?: string | null; entryId?: string | null }) {
   const { canDraft, canQc, canSubmit } = useCardRoles()
@@ -39,10 +45,16 @@ export function PhoneEntry({ jobCardId, mode, stage: wantedStage, entryId }: { j
   const [panel, setPanel] = useState<EntryPanel>(null)
   const [closing, setClosing] = useState(false)
   const { machineName } = useCardMasters(card)
+  const floor = useFloorScope(card)
+  const lock = floor.scope.kind === "stage" ? floor.scope.stage : null
   useEffect(() => {
+    if (lock) {
+      if (stage !== lock) setStage(lock)
+      return
+    }
     if (!stages.length) return
     if (!stage || !stages.some((s: any) => s.stage === stage)) setStage(wantedStage && stages.some((s: any) => s.stage === wantedStage) ? wantedStage : defaultOutputStage(stages))
-  }, [stages, stage, wantedStage])
+  }, [stages, stage, wantedStage, lock])
   const listing = useStageEntries(card, stage || undefined, 0, isV2 && Boolean(stage))
   const entries: any[] = listing.data?.entries || []
   const state = stages.find((s: any) => s.stage === stage)
@@ -53,6 +65,9 @@ export function PhoneEntry({ jobCardId, mode, stage: wantedStage, entryId }: { j
   const cancelled = String(card?.status || "").toUpperCase() === "CANCELLED" || String(card?.close_mode || "").toUpperCase() === "CANCELLED"
   const cardOpen = facts.open && !cancelled
   const closedWord = cancelled ? "cancelled" : "completed"
+  // The scoped operator's stage: open, or one line on why there is nothing to log.
+  const gate = lock ? scopedStageGate(stages, lock, cardOpen) : null
+  const scopedShut = Boolean(gate && !gate.open)
   const waiting = !cancelled ? entries.filter((e) => e.status === "SUBMITTED" && e.kind !== "QC_ONLY" && stageParameters(card, e.stage).length && !runQcState(card, e).accepted) : []
   const hasQc = stageParameters(card, stage).length > 0
   const outputBlocked = !cardOpen ? "Card is closed" : !state ? "" : !isLoggable(state) ? (state.status === "COMPLETED" ? `${stageLabel(stage)} is closed` : `${stageLabel(stage)} is not logged as runs`) : !canDraft ? "Your role cannot log runs" : ""
@@ -65,14 +80,22 @@ export function PhoneEntry({ jobCardId, mode, stage: wantedStage, entryId }: { j
   // gets its own Log QC; a role with neither (Planner) gets no form, only the card.
   const autoPanel = mode === "output" && canDraft ? "output" : (mode === "qc" || mode === "output") && canQc ? "qc" : ""
   useEffect(() => {
-    if (!isV2 || !stages.length || !stage || panel || !autoPanel) return
+    if (!isV2 || !stages.length || !stage || panel || !autoPanel || floor.loading) return
+    if (lock) {
+      // A scoped operator gets the form of their own stage only, and none when it is not open.
+      if (stage !== lock || scopedShut) return
+      if (autoPanel === "output" && isLoggable(state)) setPanel({ kind: "output", stage: lock })
+      else if (hasQc && canQc) setPanel({ kind: "qc", stage: lock, entryId: entryId || null })
+      return
+    }
     if (autoPanel === "output" && cardOpen) setPanel({ kind: "output", stage: isLoggable(state) ? stage : defaultOutputStage(stages) })
     if (autoPanel === "qc" && !cancelled) setPanel({ kind: "qc", stage: hasQc ? stage : defaultQcStage(card, stages, entries).stage, entryId: entryId || null })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isV2, stages.length, stage, listing.isLoading])
+  }, [isV2, stages.length, stage, listing.isLoading, floor.loading, lock, scopedShut])
 
   const pickerHref = `/production/entry${mode ? `?mode=${mode}` : ""}`
-  if (cardQuery.isLoading || plant.probing) return <LoadingState label="Opening the job card…" />
+  // An operator's employee row decides which stage they see: wait for it rather than flash every stage.
+  if (cardQuery.isLoading || plant.probing || (card && floor.loading)) return <LoadingState label="Opening the job card…" />
   if (plant.missing) {
     return (
       <section className="mx-auto max-w-lg rounded-xl border border-signal-rose-line bg-card p-5" data-testid="phone-card-missing">
@@ -150,7 +173,29 @@ export function PhoneEntry({ jobCardId, mode, stage: wantedStage, entryId }: { j
       ) : (
         <>
           {flow.isError ? <ErrorState title="The card's stages could not be loaded" message="Refresh to retry." onRetry={() => void flow.refetch()} /> : null}
-          {stages.length ? <FormStageTabs tabs={tabs} value={stage} onChange={setStage} /> : null}
+          <UnlinkedNote scope={floor.scope} />
+          {stages.length ? (
+            // Pinned under the top bar while the page scrolls: the stages (or the operator's one stage) and Scan.
+            <div className="sticky top-[var(--topbar-h)] z-20 -mx-3 flex items-stretch gap-1.5 border-b border-border bg-background/95 px-3 py-1.5 backdrop-blur supports-[backdrop-filter]:bg-background/85 sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none" data-testid="phone-sticky-bar">
+              {lock ? (
+                <ScopedStageHeader stage={lock} state={state} employee={floor.scope.kind === "stage" ? floor.scope.employee : null} />
+              ) : (
+                <>
+                  <div className="min-w-0 flex-1 sm:hidden">
+                    <FormStageTabs tabs={tabs} value={stage} onChange={setStage} compact />
+                  </div>
+                  <div className="hidden min-w-0 flex-1 sm:block">
+                    <FormStageTabs tabs={tabs} value={stage} onChange={setStage} />
+                  </div>
+                </>
+              )}
+              <Link href={pickerHref} className="erp-btn-secondary !h-auto min-h-11 shrink-0 !px-2.5 sm:hidden" aria-label="Scan another card" title="Scan another card" data-testid="phone-sticky-scan">
+                <ScanLine className="h-5 w-5" aria-hidden="true" />
+                {lock ? <span className="text-[13px]">Scan</span> : null}
+              </Link>
+            </div>
+          ) : null}
+          {gate && !gate.open ? <ScopeStatusLine message={gate.message} testId="phone-scope-status" /> : null}
 
           {state ? (
             <section className="rounded-xl border border-border bg-card px-3.5 py-3" data-testid="phone-stage-summary">
@@ -183,6 +228,7 @@ export function PhoneEntry({ jobCardId, mode, stage: wantedStage, entryId }: { j
             </section>
           ) : null}
 
+          {scopedShut ? null : (
           <div className="grid grid-cols-2 gap-2" data-testid="phone-actions">
             <button type="button" className="erp-btn-primary !h-16 flex-col !gap-0.5 !rounded-xl !text-[15px] disabled:cursor-not-allowed" disabled={Boolean(outputBlocked)} title={outputBlocked || undefined} onClick={() => setPanel({ kind: "output", stage })} data-testid="phone-log-output">
               <Camera className="h-5 w-5" />
@@ -197,8 +243,9 @@ export function PhoneEntry({ jobCardId, mode, stage: wantedStage, entryId }: { j
               {qcBlocked ? <span className="text-[10.5px] font-normal text-muted-foreground">{qcBlocked}</span> : null}
             </button>
           </div>
+          )}
 
-          {closeable ? (
+          {closeable && !scopedShut ? (
             <button type="button" className={cn("erp-btn-secondary !h-12 w-full !rounded-xl !text-[14px]", closeBlocked || !canSubmit ? "!text-muted-foreground" : "")} onClick={() => setClosing(true)} data-testid="phone-close-stage">
               {closeBlocked || !canSubmit ? <Lock className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
               Close {stageLabel(stage)}
@@ -206,7 +253,7 @@ export function PhoneEntry({ jobCardId, mode, stage: wantedStage, entryId }: { j
             </button>
           ) : null}
 
-          {waiting.length ? (
+          {waiting.length && !scopedShut ? (
             <section className={cn("rounded-xl border px-3.5 py-2.5", toneClass("amber"))} data-testid="phone-waiting">
               <p className="flex items-center gap-1.5 text-[13px] font-semibold">
                 <Clock3 className="h-4 w-4" aria-hidden="true" /> Still needs QC
@@ -227,6 +274,7 @@ export function PhoneEntry({ jobCardId, mode, stage: wantedStage, entryId }: { j
             </section>
           ) : null}
 
+          {gate?.kind === "waiting" || gate?.kind === "missing" ? null : (
           <section className="overflow-hidden rounded-xl border border-border bg-card" data-testid="phone-runs">
             <div className="flex items-baseline justify-between border-b border-border px-3.5 py-2.5">
               <h3 className="text-[14px] font-semibold">
@@ -234,8 +282,9 @@ export function PhoneEntry({ jobCardId, mode, stage: wantedStage, entryId }: { j
               </h3>
               <span className="text-[11.5px] text-muted-foreground">newest first</span>
             </div>
-            {listing.isLoading ? <p className="px-4 py-6 text-center text-[13px] text-muted-foreground">Loading runs…</p> : <RunRows card={card} flow={flow.data} entries={entries.slice(0, 20)} showStage={false} layout="list" onEdit={cardOpen ? (entry) => setPanel({ kind: "output", stage: entry.stage, entry }) : undefined} onQc={!cancelled ? (entry) => setPanel({ kind: "qc", stage: entry.stage, entryId: entry.id }) : undefined} readOnly={!cardOpen} emptyText={`No runs on ${stageLabel(stage)} yet.`} />}
+            {listing.isLoading ? <p className="px-4 py-6 text-center text-[13px] text-muted-foreground">Loading runs…</p> : <RunRows card={card} flow={flow.data} entries={entries.slice(0, 20)} showStage={false} layout="list" onEdit={cardOpen && !scopedShut ? (entry) => setPanel({ kind: "output", stage: entry.stage, entry }) : undefined} onQc={!cancelled && !scopedShut ? (entry) => setPanel({ kind: "qc", stage: entry.stage, entryId: entry.id }) : undefined} readOnly={!cardOpen || scopedShut} emptyText={`No runs on ${stageLabel(stage)} yet.`} />}
           </section>
+          )}
 
           <CardEntrySheets card={card} flow={flow.data} stages={stages} panel={panel} onChange={setPanel} />
           {closing && state ? <CloseStageDialog card={card} flow={flow.data} stage={stage} entries={entries} open={closing} onOpenChange={setClosing} onLogQc={(s) => setPanel({ kind: "qc", stage: s, entryId: null })} /> : null}
@@ -250,6 +299,23 @@ export function PhoneEntry({ jobCardId, mode, stage: wantedStage, entryId }: { j
           Open the full job card
         </Link>
       </div>
+    </div>
+  )
+}
+
+/** The scoped operator's one stage, in the sticky bar: name, progress and who logs. */
+function ScopedStageHeader({ stage, state, employee }: { stage: string; state: any; employee: any }) {
+  const Icon = STAGE_ICON[stage]
+  return (
+    <div className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg border border-primary bg-primary px-2.5 py-1 text-primary-foreground" data-testid="phone-scoped-stage">
+      {Icon ? <Icon className="h-4 w-4 shrink-0" aria-hidden="true" /> : null}
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[14px] font-semibold leading-tight">Your stage: {stageLabel(stage)}</span>
+        <span className="block truncate text-[11.5px] leading-tight opacity-90">
+          {state ? `${fmt(state.accepted_total)} of ${fmt(state.target)} ${state.unit || ""} good` : "not on this card"}
+          {employee?.name ? ` · ${employee.name}` : ""}
+        </span>
+      </span>
     </div>
   )
 }

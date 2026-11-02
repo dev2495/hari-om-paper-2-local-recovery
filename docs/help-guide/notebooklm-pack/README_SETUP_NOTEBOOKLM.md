@@ -6,17 +6,17 @@ Everything NotebookLM needs to answer staff questions about TubeOS in plain word
 
 | Item | What it is | Use |
 |---|---|---|
-| `sources/` (28 PDFs) | One PDF per handbook chapter (S00 to S29, with screenshots and flow diagrams), plus S90 glossary, statuses and number formats, S91 all questions and answers, S92 all worked samples, S93 page index with who can see what | **Upload all 28 as sources** |
+| `sources/` (29 PDFs) | One PDF per handbook chapter (S00 to S29, with screenshots and flow diagrams), plus S30 the 2 Nov 2026 add-on (operator scan, phone screens, possible duplicate customers), S90 glossary, statuses and number formats, S91 all questions and answers, S92 all worked samples, S93 page index with who can see what | **Upload all 29 as sources** |
 | `BOT_INSTRUCTIONS.txt` | The bot's personality and answering rules | Paste into chat settings (step 3) |
 | `Hari-Om-TubeOS-Help-Guide.html` | The same handbook as one searchable web page with clickable screenshots | Share with users so they can see pictures (the bot cannot show images) |
 | `sources-markdown/` | Plain-text copies of the same 28 sources | Backup only. Use these if a PDF ever fails to import |
 
-28 sources fit NotebookLM's free limit of 50 per notebook, leaving room for about 20 more (for example your own SOPs).
+29 sources fit NotebookLM's free limit of 50 per notebook, leaving room for about 20 more (for example your own SOPs).
 
 ## Steps
 
 1. Open https://notebooklm.google.com and sign in with the Google account that will own the bot. Click **New notebook**.
-2. **Add sources**: select all 28 files in `sources/` and drop them in together. Wait until every file shows a tick.
+2. **Add sources**: select all 29 files in `sources/` and drop them in together. Wait until every file shows a tick.
 3. Open the chat settings (Configure chat). Choose **Custom** style, paste all of `BOT_INSTRUCTIONS.txt` into the box, set response length to **Default** (or **Longer** for more detail) and save.
 4. Test with the questions below. Open a citation to confirm the answer comes from the right source.
 5. **Share**: click **Share**, add the staff emails (or turn on link sharing) and choose **Chat only** so people can ask questions but cannot see or change the sources. Button names change from time to time; pick the option that lets people chat without editing.
@@ -45,3 +45,7 @@ Everything NotebookLM needs to answer staff questions about TubeOS in plain word
 - NotebookLM answers only from the uploaded sources. If something is not covered the bot should say so (the instructions ask for that).
 - Sample names (Sharma Tubes Pvt Ltd, Bharat Paper Mills) and numbers are examples. Real customer names were replaced in every screenshot.
 - Do not upload passwords, live customer data or anything private.
+
+## Add-ons
+
+When TubeOS changes after the handbook, a short add-on PDF is added to `sources/` (for example `S30_addon-2026-11-02-...pdf`). If the notebook already exists, just upload the new add-on as one more source; nothing else needs to change.

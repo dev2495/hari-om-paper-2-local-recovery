@@ -6,7 +6,8 @@
 // a reason; adding more does not. Instrument evidence is asked for where the check requires it.
 // Readings typed are kept on the device per card, stage and run until saved (client 2026-10-28).
 
-import { CheckCircle2, Clock3, Flag, Plus } from "lucide-react"
+import Link from "next/link"
+import { ArrowLeft, CheckCircle2, Clock3, Flag, Plus, ScanLine } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import { EMPTY_REASON, ReasonPicker, reasonComplete, reasonText, useReasonList, type ReasonValue } from "@/components/reasons"
@@ -16,7 +17,7 @@ import { InstrumentFields } from "../InstrumentFields"
 import { SeasonQcMatrix, readingVerdict, sampleBand } from "../SeasonQcMatrix"
 import { useCardMasters, useCardMutation, useEntryApi, useStableCommand, useStageEntries } from "./data"
 import { DraftRestoredBar, draftKey, useFormDraft } from "./draft"
-import { Chips, FormStageTabs, fieldLabel, selectClass, type StageTab } from "./EntrySheet"
+import { Chips, FormStageTabs, focusInView, fieldLabel, selectClass, type StageTab } from "./EntrySheet"
 import { bandText, dayLabel, filledSamples, flagText, fmt, memoryKey, neededText, padSamples, remember, remembered, runNo, runQcState, shiftLabel, shortChecks, stageLabel, stageOperators, stageParameters, toneClass, useCardRoles } from "./model"
 
 export type SavedQc = { entry: any; stage: string; flagged: boolean }
@@ -47,6 +48,7 @@ export function LogQcForm({
   entryId,
   onSaved,
   onCancel,
+  defaultOperator,
 }: {
   card: any
   stages: any[]
@@ -56,6 +58,8 @@ export function LogQcForm({
   entryId?: string | null
   onSaved?: (saved: SavedQc) => void
   onCancel?: () => void
+  /** The signed-in operator's own employee id (operator scan scope): picked as who took the readings. */
+  defaultOperator?: string
 }) {
   const entryApi = useEntryApi(card)
   const { canQc } = useCardRoles()
@@ -64,7 +68,7 @@ export function LogQcForm({
   const operatorOptions = useMemo(() => stageOperators(activeEmployees, stage), [activeEmployees, stage])
   const [operator, setOperator] = useState("")
   useEffect(() => {
-    const last = remembered(memoryKey(card, stage, "operator"))
+    const last = defaultOperator || remembered(memoryKey(card, stage, "operator"))
     setOperator(operatorOptions.some((e: any) => String(e.id) === last) ? last : "")
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage, card.id, operatorOptions.length])
@@ -125,6 +129,16 @@ export function LogQcForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run?.id, runId, stage])
 
+  // The first empty reading is focused once a run is picked (phone: the number keyboard comes up).
+  const readingsBox = useRef<HTMLFieldSetElement | null>(null)
+  useEffect(() => {
+    if (!picked || saved) return
+    const timer = window.setTimeout(() => {
+      const inputs = Array.from(readingsBox.current?.querySelectorAll<HTMLInputElement>("input:not([type=hidden]):not([disabled])") || [])
+      focusInView(inputs.find((input) => !input.value) || inputs[0])
+    }, 200)
+    return () => window.clearTimeout(timer)
+  }, [picked, saved, runId, stage])
   const filled = filledSamples(samples)
   const short = shortChecks(parameters, filled)
   const priorSamples: any[] = run?.samples || []
@@ -232,9 +246,14 @@ export function LogQcForm({
           <Button size="lg" variant="outline" className="h-12" onClick={() => { setSaved(null); setRunId("") }} data-testid="log-qc-another">
             <Plus className="h-4 w-4" /> Log another QC
           </Button>
-          <Button size="lg" variant="ghost" className="h-12 sm:col-span-2" onClick={onCancel}>
-            Done
-          </Button>
+          <Link href="/production/entry" className="erp-btn-secondary !h-12 !rounded-md !text-[14px]" data-testid="log-qc-scan-next">
+            <ScanLine className="h-4 w-4" /> Scan another card
+          </Link>
+          {onCancel ? (
+            <Button size="lg" variant="ghost" className="h-12 sm:col-span-2" onClick={onCancel} data-testid="log-qc-back">
+              <ArrowLeft className="h-4 w-4" /> Back to card
+            </Button>
+          ) : null}
         </div>
       </div>
     )
@@ -343,7 +362,7 @@ export function LogQcForm({
             testId="log-qc-draft"
           />
           {picked ? (
-            <fieldset className="space-y-3 rounded-xl border border-border bg-muted/30 p-3" data-testid="log-qc-readings">
+            <fieldset ref={readingsBox} className="space-y-3 rounded-xl border border-border bg-muted/30 p-3" data-testid="log-qc-readings">
               <legend className="px-1 text-[12.5px] font-semibold text-muted-foreground">
                 Readings · {run ? `run ${runNo(run)}` : "no run"} · {stageLabel(stage)}
               </legend>

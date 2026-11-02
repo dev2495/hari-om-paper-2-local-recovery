@@ -11,7 +11,8 @@
 // from "Floor rejection" (SCRAP), anything outside the plan (over +10%, held carryover, taking a batch before
 // its QC) from one "Override" picker; both lists load once per card.
 
-import { CalendarRange, CheckCircle2, ChevronDown, Clock3, Flag, Plus } from "lucide-react"
+import Link from "next/link"
+import { ArrowLeft, CalendarRange, CheckCircle2, ChevronDown, Clock3, Flag, Plus, ScanLine } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import { ReasonPicker, reasonProblem, reasonText, useReasonList } from "@/components/reasons"
@@ -20,7 +21,7 @@ import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { useCardMasters, useCardMutation, useEntryApi, useStableCommand } from "./data"
 import { DraftRestoredBar, draftKey, useFormDraft } from "./draft"
-import { Chips, FormStageTabs, Segmented, bigNumberClass, fieldLabel, selectClass, type StageTab } from "./EntrySheet"
+import { Chips, FormStageTabs, focusInView, Segmented, bigNumberClass, fieldLabel, selectClass, type StageTab } from "./EntrySheet"
 import {
   clockOf,
   clockShift,
@@ -100,6 +101,7 @@ export function LogOutputForm({
   onSaved,
   onCancel,
   onLogQc,
+  defaultOperator,
 }: {
   card: any
   flow: any
@@ -112,6 +114,8 @@ export function LogOutputForm({
   onCancel?: () => void
   /** After a save: open Log QC on the run that was just saved. */
   onLogQc?: (entry: any) => void
+  /** The signed-in operator's own employee id (operator scan scope): picked for every new run. */
+  defaultOperator?: string
 }) {
   const entryApi = useEntryApi(card)
   const { canSubmit, canDraft } = useCardRoles()
@@ -258,7 +262,7 @@ export function LogOutputForm({
       setGateOverride(Boolean(editing.details?.qc_gate_override_reason))
       reset()
     } else {
-      setOperator(remembered(memoryKey(card, stage, "operator")))
+      setOperator(defaultOperator || remembered(memoryKey(card, stage, "operator")))
       setHelper(remembered(memoryKey(card, stage, "helper")))
       setMachine(defaultMachine() || "")
       clearNumbers()
@@ -292,6 +296,13 @@ export function LogOutputForm({
       clearNumbers()
     }
   }
+  // The first field to type is focused when a new run's form opens (phone: the number keyboard comes up).
+  const firstField = useRef<HTMLInputElement | null>(null)
+  useEffect(() => {
+    if (!formOpen || saved || editing) return
+    const timer = window.setTimeout(() => focusInView(firstField.current), 200)
+    return () => window.clearTimeout(timer)
+  }, [formOpen, saved, editing, stage, card.id])
   // Machines and the stage plan load after the first paint; fill the machine once they arrive.
   useEffect(() => {
     if (!machine && !editing && state) setMachine(defaultMachine() || "")
@@ -452,18 +463,23 @@ export function LogOutputForm({
         <p className="rounded-lg bg-muted px-3 py-2 text-[12.5px] text-muted-foreground">
           {saved.submitted ? "The run is posted." : "The run is with the supervisor, who checks and submits it; it does not count until then."} No QC readings were asked for here — QC is its own short form and can be added to this run now or later.
         </p>
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid gap-2 sm:grid-cols-2" data-testid="log-output-next">
           {onLogQc && e.id ? (
-            <Button size="lg" className="h-12" onClick={() => onLogQc(e)} data-testid="log-output-to-qc">
+            <Button size="lg" className="h-12 sm:col-span-2" onClick={() => onLogQc(e)} data-testid="log-output-to-qc">
               <CheckCircle2 className="h-4 w-4" /> Log QC for run {runNo(e)} now
             </Button>
           ) : null}
           <Button size="lg" variant="outline" className="h-12" onClick={() => { setSaved(null); clearNumbers() }} data-testid="log-output-another">
             <Plus className="h-4 w-4" /> Log another run
           </Button>
-          <Button size="lg" variant="ghost" className="h-12 sm:col-span-2" onClick={onCancel}>
-            Done
-          </Button>
+          <Link href="/production/entry" className="erp-btn-secondary !h-12 !rounded-md !text-[14px]" data-testid="log-output-scan-next">
+            <ScanLine className="h-4 w-4" /> Scan another card
+          </Link>
+          {onCancel ? (
+            <Button size="lg" variant="ghost" className="h-12 sm:col-span-2" onClick={onCancel} data-testid="log-output-back">
+              <ArrowLeft className="h-4 w-4" /> Back to card
+            </Button>
+          ) : null}
         </div>
       </div>
     )
@@ -660,7 +676,7 @@ export function LogOutputForm({
                   {(state.input_unit || "bamboo").replace(/^./, (c: string) => c.toUpperCase())} taken from {stageLabel(prevStage || "OVEN")}
                 </span>
                 <div className="relative">
-                  <input inputMode="numeric" type="number" min="0" step="1" className={bigNumberClass} style={{ paddingRight: "5.5rem" }} value={input} onChange={(e) => { inputTouched.current = true; setInput(e.target.value) }} data-testid="season-entry-input" />
+                  <input ref={firstField} inputMode="numeric" type="number" min="0" step="1" className={bigNumberClass} style={{ paddingRight: "5.5rem" }} value={input} onChange={(e) => { inputTouched.current = true; setInput(e.target.value) }} data-testid="season-entry-input" />
                   <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[12px] text-muted-foreground">{state.input_unit || "bamboo"}</span>
                 </div>
                 <span className="mt-1 block text-[12px] text-muted-foreground" data-testid="process-ready-from-oven">
@@ -672,7 +688,7 @@ export function LogOutputForm({
             <div className="grid grid-cols-2 gap-3">
               <label className="block">
                 <span className={fieldLabel}>Made ({state.unit})</span>
-                <input inputMode="numeric" type="number" min="0" step="1" placeholder="0" className={bigNumberClass} value={output} onChange={(e) => { outputTouched.current = true; setOutput(e.target.value) }} data-testid="season-entry-produced" />
+                <input ref={stage === "PROCESS" ? undefined : firstField} inputMode="numeric" type="number" min="0" step="1" placeholder="0" className={bigNumberClass} value={output} onChange={(e) => { outputTouched.current = true; setOutput(e.target.value) }} data-testid="season-entry-produced" />
               </label>
               <label className="block">
                 <span className={fieldLabel}>Rejected ({state.unit})</span>

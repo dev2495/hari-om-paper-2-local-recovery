@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useCustomer360 } from "@/hooks/use-analytics"
 import { useAuth } from "@/context/AuthContext"
+import { duplicateText, findPossibleDuplicates } from "@/lib/customer-duplicates"
 import {
   useCreateCustomer,
   useCreateCustomerContact,
@@ -117,6 +118,8 @@ function CustomersBody() {
   const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ACTIVE")
   const [challanFilter, setChallanFilter] = useState<"ALL" | "READY" | "MISSING">("ALL")
   const [riskFilter, setRiskFilter] = useState<"all" | "watch" | "critical">("all")
+  // Possible duplicates (owner, 2 Nov 2026): flagged only; users check and decide, nothing is merged or blocked.
+  const [duplicateFilter, setDuplicateFilter] = useState<"ALL" | "POSSIBLE">("ALL")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [selection, setSelection] = useState<Set<string>>(new Set())
   const drawerRef = useRef<HTMLDivElement | null>(null)
@@ -136,10 +139,13 @@ function CustomersBody() {
     [customersQuery.data],
   )
 
+  const duplicates = useMemo(() => findPossibleDuplicates(customers), [customers])
+
   const filteredCustomers = useMemo(() => {
     const needle = search.trim().toLowerCase()
     return customers.filter((c) => {
       if (!matchesSearch(c, needle)) return false
+      if (duplicateFilter === "POSSIBLE" && !duplicates.has(String(c.id))) return false
       if (categoryFilter !== "ALL" && (c.category || "Other") !== categoryFilter) return false
       const active = c.is_active !== false
       if (statusFilter === "ACTIVE" && !active) return false
@@ -154,7 +160,7 @@ function CustomersBody() {
       }
       return true
     })
-  }, [customers, search, categoryFilter, statusFilter, challanFilter, riskFilter, lookupPerf])
+  }, [customers, search, categoryFilter, statusFilter, challanFilter, riskFilter, lookupPerf, duplicateFilter, duplicates])
 
   const selectedCustomer = customers.find((c) => c.id === selectedId) || null
   const contactsQuery = useCustomerContacts(selectedId)
@@ -350,6 +356,17 @@ function CustomersBody() {
     ? <Pill tone="ok"><CheckCircle2 className="h-3 w-3" aria-hidden="true" />Ready</Pill>
     : <Pill tone="warn"><AlertTriangle className="h-3 w-3" aria-hidden="true" />No dispatch address</Pill>
 
+  const duplicatePill = (c: Customer) => {
+    const others = duplicates.get(String(c.id))
+    if (!others?.length) return null
+    return (
+      <span className="mt-1 flex min-w-0 items-center gap-1.5" title={`Possible duplicate of ${duplicateText(others)}`} data-testid={`customer-duplicate-${c.customer_code || c.id}`}>
+        <span className="shrink-0 whitespace-nowrap"><Pill tone="warn"><AlertTriangle className="h-3 w-3" aria-hidden="true" />Possible duplicate</Pill></span>
+        <span className="min-w-0 truncate text-[11px] text-muted-foreground">of {duplicateText(others)}</span>
+      </span>
+    )
+  }
+
   const riskPill = (r: Customer) => {
     const perf = lookupPerf(r)
     if (perf?.risk === "critical") return <Pill tone="critical">Many late</Pill>
@@ -382,6 +399,7 @@ function CustomersBody() {
           <div className="truncate text-[11px] text-muted-foreground">{[dispatchPlace(r) || compact(r.address), contactLine(r)].filter(Boolean).join(" · ") || "No address yet"}</div>
           {narrow ? <div className="truncate text-[11px] text-muted-foreground">GSTIN <span className="font-mono text-foreground">{r.gst_no || "not given"}</span></div> : null}
           <div className="mt-1">{challanPill(r)}</div>
+          {duplicatePill(r)}
         </div>
       ),
     },
@@ -547,6 +565,12 @@ function CustomersBody() {
               <option value="critical">Many late orders</option>
             </select>
           </FilterField>
+          <FilterField label="Duplicates" stackOnPhone>
+            <select value={duplicateFilter} onChange={(e) => setDuplicateFilter(e.target.value as any)} className={filterSelect} data-testid="customer-duplicate-filter">
+              <option value="ALL">All</option>
+              <option value="POSSIBLE">Possible duplicates ({duplicates.size})</option>
+            </select>
+          </FilterField>
           <FilterField label="Status" stackOnPhone>
             <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)} className={filterSelect}>
               <option value="ACTIVE">Active</option>
@@ -603,6 +627,7 @@ function CustomersBody() {
                     <span className="mt-1.5 block text-xs text-muted-foreground">GSTIN <span className="font-mono text-foreground">{c.gst_no || "not given"}</span></span>
                     <span className="mt-0.5 block break-words text-xs text-muted-foreground">Dispatch to: <span className="text-foreground">{status.dispatchAddress || "missing"}</span></span>
                     {contactLine(c) ? <span className="mt-0.5 block text-xs text-muted-foreground">{contactLine(c)}</span> : null}
+                    {duplicatePill(c)}
                   </button>
                   <div className="mt-2 flex justify-end">
                     <Button variant="outline" className="min-h-11" onClick={() => openEdit(c)} data-testid={`customer-card-edit-${c.customer_code}`}><Pencil className="h-4 w-4" aria-hidden="true" />Edit</Button>
@@ -640,12 +665,13 @@ function CustomersBody() {
             selectedCustomer.is_active === false ? { label: "INACTIVE", tone: "warn" as const } : { label: "ACTIVE", tone: "ok" as const },
             customerChallanStatus(selectedCustomer).ready ? { label: "READY FOR CHALLAN", tone: "ok" as const } : { label: "NO DISPATCH ADDRESS", tone: "warn" as const },
             selectedCustomer.gst_no ? { label: "GSTIN GIVEN", tone: "ok" as const } : { label: "NO GSTIN", tone: "warn" as const },
+            ...(duplicates.has(String(selectedCustomer.id)) ? [{ label: "POSSIBLE DUPLICATE", tone: "warn" as const }] : []),
           ] : []}
           tabs={selectedCustomer ? [
             {
               key: "overview",
               label: "Overview",
-              content: <CustomerOverview customer={selectedCustomer} />,
+              content: <CustomerOverview customer={selectedCustomer} duplicates={duplicates.get(String(selectedCustomer.id)) || []} onOpen={(id) => setSelectedId(id)} />,
             },
             {
               key: "contacts",
@@ -824,12 +850,33 @@ export default function CustomersPage() {
   )
 }
 
-function CustomerOverview({ customer }: { customer: Customer }) {
+function CustomerOverview({ customer, duplicates = [], onOpen }: { customer: Customer; duplicates?: Customer[]; onOpen?: (id: string) => void }) {
   const status = customerChallanStatus(customer)
   const state = (name?: string | null, code?: string | null) => (name ? `${name}${code ? ` (${code})` : ""}` : "—")
   const separate = status.dispatchAddress && status.dispatchAddress !== status.billingAddress
   return (
     <div className="space-y-4" data-testid="customer-overview">
+      {duplicates.length ? (
+        <div className="rounded-lg border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-xs text-signal-amber-ink" data-testid="customer-duplicate-note">
+          <p className="flex items-start gap-2 font-semibold">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />Possible duplicate: the name looks like {duplicates.length === 1 ? "another customer" : `${duplicates.length} other customers`}.
+          </p>
+          <ul className="mt-1 space-y-0.5 pl-5">
+            {duplicates.map((d) => (
+              <li key={d.id}>
+                {onOpen ? (
+                  <button type="button" className="inline-flex min-h-11 items-center text-left font-semibold underline-offset-2 hover:underline sm:min-h-0" onClick={() => onOpen(d.id)}>
+                    {d.name}{d.customer_code ? ` (${d.customer_code})` : ""}{d.is_active === false ? " · inactive" : ""}
+                  </button>
+                ) : (
+                  <span>{d.name}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 pl-5 font-normal">Check both records. If they are the same customer, keep one and deactivate the other; if they are different (another unit or branch), nothing needs doing. Nothing is merged or blocked automatically.</p>
+        </div>
+      ) : null}
       {!status.ready ? (
         <p className="flex items-start gap-2 rounded-lg border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-xs text-signal-amber-ink">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />No dispatch address: a delivery challan for this customer cannot be sealed. Use Edit customer to add it.

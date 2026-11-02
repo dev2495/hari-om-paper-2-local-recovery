@@ -7,6 +7,7 @@ import { useMemo } from "react"
 import { CheckCircle2, Flame, Package, Scissors, SlidersHorizontal, Truck, Wind, type LucideIcon } from "lucide-react"
 
 import { useAuth } from "@/context/AuthContext"
+import { STAGE_DEPARTMENT } from "@/lib/floor-scope"
 import { displayStageRule } from "@/lib/qc-measurement"
 import { addDays, canonicalShift, istToday, shiftBusinessDate, shiftSlotNow } from "@/lib/shift"
 import { OPTIONAL_QC_CODES } from "../SeasonQcMatrix"
@@ -65,9 +66,8 @@ export const fmt = (value: any, digits = 1) => Number(value || 0).toLocaleString
  */
 export const waitingRunsBadge = (n: number) => (n > 0 ? `${n} with supervisor` : undefined)
 export const waitingRunsTitle = (n: number) => (n > 0 ? `${n} run${n === 1 ? "" : "s"} waiting for the supervisor to submit` : undefined)
-/** Plain words for runs still with the supervisor, with a count ("1 run", "2 runs"). */
 /** The department in Masters › Employees that runs each floor stage (owner decision 7, 1 Nov 2026). */
-export const STAGE_DEPARTMENT: Record<string, string> = { WINDER: "WINDER", OVEN: "OVEN", PROCESS: "PROCESS", PACKING: "PACKING" }
+export { STAGE_DEPARTMENT }
 
 /** Operators a floor log may name: active employees of the stage's department, operators first, then by name. */
 export function stageOperators(employees: any[], stage: string): any[] {
@@ -77,6 +77,7 @@ export function stageOperators(employees: any[], stage: string): any[] {
     .sort((a: any, b: any) => (String(a.role || "").toLowerCase() === "operator" ? 0 : 1) - (String(b.role || "").toLowerCase() === "operator" ? 0 : 1) || String(a.name || "").localeCompare(String(b.name || "")))
 }
 
+/** Plain words for runs still with the supervisor, with a count ("1 run", "2 runs"). */
 export const runsWord = (n: number) => `${n} run${n === 1 ? "" : "s"}`
 export const count = (value: string) => (value === "" ? 0 : Math.max(0, Math.floor(Number(value) || 0)))
 export const dayLabel = (value: any) => (value ? new Date(`${String(value).slice(0, 10)}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "—")

@@ -42,7 +42,7 @@ export function EntrySheet({
             <DialogDescription className="mt-0.5 !text-[12.5px] text-muted-foreground">{subtitle || " "}</DialogDescription>
           </div>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5">{children}</div>
+        <div className="min-h-0 flex-1 scroll-pb-40 scroll-pt-4 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5">{children}</div>
         {footer ? <div className="border-t border-border bg-card px-4 py-3 sm:px-5 [padding-bottom:max(0.75rem,env(safe-area-inset-bottom))]">{footer}</div> : null}
       </DialogContent>
     </Dialog>
@@ -51,10 +51,19 @@ export function EntrySheet({
 
 export type StageTab = { stage: string; status: string; good?: number; target?: number; unit?: string; disabled?: string; badge?: string; /** The badge in full words for screen readers and a long press. */ badgeTitle?: string }
 
-/** Stage chips across the top of a form. Disabled ones say why (closed, not open yet, no QC checks). */
-export function FormStageTabs({ tabs, value, onChange, ariaLabel = "Stage" }: { tabs: StageTab[]; value: string; onChange: (stage: string) => void; ariaLabel?: string }) {
+/**
+ * Stage chips across the top of a form. Disabled ones say why (closed, not open yet, no QC checks).
+ * `compact` is the one-row strip for the sticky bar on the phone card page: every stage in one line, no wrap.
+ */
+export function FormStageTabs({ tabs, value, onChange, ariaLabel = "Stage", compact = false }: { tabs: StageTab[]; value: string; onChange: (stage: string) => void; ariaLabel?: string; compact?: boolean }) {
   return (
-    <div role="tablist" aria-label={ariaLabel} className="flex flex-wrap gap-1.5 pb-1" data-testid="form-stage-tabs">
+    <div
+      role="tablist"
+      aria-label={ariaLabel}
+      className={compact ? "grid min-w-0 flex-1 gap-1" : "flex flex-wrap gap-1.5 pb-1"}
+      style={compact ? { gridTemplateColumns: `repeat(${Math.max(1, tabs.length)}, minmax(0, 1fr))` } : undefined}
+      data-testid="form-stage-tabs"
+    >
       {tabs.map((tab) => {
         const Icon = STAGE_ICON[tab.stage]
         const active = tab.stage === value
@@ -66,34 +75,49 @@ export function FormStageTabs({ tabs, value, onChange, ariaLabel = "Stage" }: { 
             aria-selected={active}
             aria-disabled={Boolean(tab.disabled)}
             disabled={Boolean(tab.disabled)}
-            title={tab.disabled || undefined}
+            title={tab.disabled || tab.badgeTitle || undefined}
             onClick={() => (tab.disabled ? undefined : onChange(tab.stage))}
             data-testid={`form-stage-${tab.stage.toLowerCase()}`}
             className={cn(
-              // The chips wrap to a second row instead of running past the sheet edge (round 28 final check).
-              "flex min-w-[8.25rem] flex-1 basis-[9.5rem] items-center gap-2 rounded-xl border px-3 py-2 text-left transition",
+              compact
+                ? "relative flex min-h-11 min-w-0 flex-col items-center justify-center rounded-lg border px-1 py-1 text-center transition"
+                : // The chips wrap to a second row instead of running past the sheet edge (round 28 final check).
+                  "flex min-w-[8.25rem] flex-1 basis-[9.5rem] items-center gap-2 rounded-xl border px-3 py-2 text-left transition",
               active ? "border-primary bg-primary text-primary-foreground shadow-sm" : "border-border bg-card hover:bg-muted",
               tab.disabled ? "cursor-not-allowed opacity-60 hover:bg-card" : "",
             )}
           >
-            <span className={cn("grid h-7 w-7 shrink-0 place-items-center rounded-full", active ? "bg-primary-foreground/15" : "bg-muted")}>
-              {tab.disabled ? <Lock className="h-3.5 w-3.5" aria-hidden="true" /> : Icon ? <Icon className="h-3.5 w-3.5" aria-hidden="true" /> : null}
-            </span>
-            <span className="min-w-0">
-              <span className="flex items-center gap-1.5 text-[13px] font-semibold">
-                {stageLabel(tab.stage)}
-                {tab.badge ? (
-                  // Solid chip on the active tab: white-on-teal at 20% fell below 4.5:1 (round 28 check 4).
-                  <span className={cn("whitespace-nowrap rounded-full px-1.5 text-[10.5px] font-bold", active ? "bg-primary-foreground text-primary" : "bg-signal-amber-soft text-signal-amber-ink")} title={tab.badgeTitle} aria-hidden={tab.badgeTitle ? true : undefined}>
-                    {tab.badge}
+            {compact ? (
+              <>
+                <span className="block w-full truncate text-[13px] font-semibold leading-tight">{stageLabel(tab.stage)}</span>
+                <span className={cn("block w-full truncate text-[11px] tabular-nums leading-tight", active ? "opacity-90" : "text-muted-foreground")}>
+                  {tab.status === "COMPLETED" ? "closed" : tab.target != null ? `${fmt(tab.good)}/${fmt(tab.target)}` : tab.status.toLowerCase()}
+                </span>
+                {tab.badge ? <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-card bg-signal-amber-ink" aria-hidden="true" /> : null}
+                {tab.badge ? <span className="sr-only">{tab.badgeTitle || tab.badge}</span> : null}
+              </>
+            ) : (
+              <>
+                <span className={cn("grid h-7 w-7 shrink-0 place-items-center rounded-full", active ? "bg-primary-foreground/15" : "bg-muted")}>
+                  {tab.disabled ? <Lock className="h-3.5 w-3.5" aria-hidden="true" /> : Icon ? <Icon className="h-3.5 w-3.5" aria-hidden="true" /> : null}
+                </span>
+                <span className="min-w-0">
+                  <span className="flex items-center gap-1.5 text-[13px] font-semibold">
+                    {stageLabel(tab.stage)}
+                    {tab.badge ? (
+                      // Solid chip on the active tab: white-on-teal at 20% fell below 4.5:1 (round 28 check 4).
+                      <span className={cn("whitespace-nowrap rounded-full px-1.5 text-[10.5px] font-bold", active ? "bg-primary-foreground text-primary" : "bg-signal-amber-soft text-signal-amber-ink")} title={tab.badgeTitle} aria-hidden={tab.badgeTitle ? true : undefined}>
+                        {tab.badge}
+                      </span>
+                    ) : null}
+                    {tab.badge && tab.badgeTitle ? <span className="sr-only">{tab.badgeTitle}</span> : null}
                   </span>
-                ) : null}
-                {tab.badge && tab.badgeTitle ? <span className="sr-only">{tab.badgeTitle}</span> : null}
-              </span>
-              <span className={cn("block truncate text-[11.5px] tabular-nums", active ? "opacity-90" : "text-muted-foreground")}>
-                {tab.disabled ? tab.disabled : tab.target != null ? `${fmt(tab.good)} of ${fmt(tab.target)} ${tab.unit || ""} good` : tab.status.toLowerCase()}
-              </span>
-            </span>
+                  <span className={cn("block truncate text-[11.5px] tabular-nums", active ? "opacity-90" : "text-muted-foreground")}>
+                    {tab.disabled ? tab.disabled : tab.target != null ? `${fmt(tab.good)} of ${fmt(tab.target)} ${tab.unit || ""} good` : tab.status.toLowerCase()}
+                  </span>
+                </span>
+              </>
+            )}
           </button>
         )
       })}
@@ -145,6 +169,13 @@ export function Chips({ options, value, onChange, label, tone = "primary", testI
       })}
     </div>
   )
+}
+
+/** Focus a field without hiding it under the sticky Save bar or the phone keyboard: it is scrolled to the middle. */
+export function focusInView(element: HTMLElement | null | undefined) {
+  if (!element) return
+  element.focus({ preventScroll: true })
+  element.scrollIntoView({ block: "center", behavior: "auto" })
 }
 
 export const fieldLabel = "mb-1 block text-[12.5px] font-semibold text-muted-foreground"

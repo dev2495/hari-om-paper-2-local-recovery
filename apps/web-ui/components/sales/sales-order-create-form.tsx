@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { History, Plus, Trash2 } from "lucide-react"
+import { AlertTriangle, History, Plus, Trash2 } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
 
 import { Panel } from "@/components/erp/shell"
@@ -20,6 +20,7 @@ import {
   isCustomerPoOrigin,
 } from "@/lib/sales-order-entry"
 import { describeErrorDetail } from "@/lib/api-error"
+import { duplicateText, findPossibleDuplicates } from "@/lib/customer-duplicates"
 import { api } from "@/lib/api"
 
 /** One parchment colour of a line. Blank rate = the line's Rate / Pc applies. */
@@ -186,6 +187,9 @@ export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: s
   )
   const [showAllCustomerSpecs, setShowAllCustomerSpecs] = useState(false)
   const selectedCustomer = useMemo(() => (customers || []).find((customer: any) => String(customer.id) === form.customer_id), [customers, form.customer_id])
+  // Possible duplicate customers (owner, 2 Nov 2026): a hint only, the order is never blocked.
+  const customerDuplicates = useMemo(() => findPossibleDuplicates((customers || []) as any[]), [customers])
+  const pickedDuplicates = form.customer_id ? customerDuplicates.get(form.customer_id) || [] : []
   const specForCustomer = (spec: any) => {
     if (!form.customer_id || showAllCustomerSpecs) return true
     if (spec?.customer_id && String(spec.customer_id) === form.customer_id) return true
@@ -571,6 +575,12 @@ export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: s
                   ))}
                 </select>
                 {fieldErrors.customer_id ? <p id="sales-order-customer-error" className="text-xs text-signal-rose-ink">{fieldErrors.customer_id}</p> : null}
+                {pickedDuplicates.length ? (
+                  <p className="flex items-start gap-1.5 text-[11.5px] text-signal-amber-ink" data-testid="sales-orders:customer-duplicate-hint">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    <span>Possible duplicate: {duplicateText(pickedDuplicates)} has a similar name. Check you picked the right customer.</span>
+                  </p>
+                ) : null}
               </div>
               {customerPoMode ? (
                 <>

@@ -128,7 +128,7 @@ const guides: GuideContent[] = [
     summary: "Every new job card, reel, lot, rack and tool label carries a QR that is a web link. The phone's own Camera app opens it; after sign-in you land on the page your role works on for that item.",
     flowTitle: "What a scan opens",
     steps: [
-      { label: "Job card", detail: "Opens the card's floor entry with Log output and Log QC." },
+      { label: "Job card", detail: "Opens the card's floor entry with Log output and Log QC. An operator linked to a stage's department sees only that stage; everyone else sees every stage." },
       { label: "Lot on QC hold", detail: "QC, Inward QC, Store and the plant head land on Incoming QC for that lot." },
       { label: "Cleared reel or coil", detail: "Store, RM issue and the plant head land on Reel & coil issue with the reel already picked. A cleared adhesive, parchment or packing lot opens Material issue." },
       { label: "Rack label", detail: "Opens the rack's location page for every role, with the actions your role may use." },
@@ -443,7 +443,7 @@ const guides: GuideContent[] = [
     flowTitle: "One run on the floor",
     steps: [
       { label: "Open the card", detail: "Scan the card's QR, type its number (26/10/315 or 26-10-315) and press Open, or pick it from Open cards." },
-      { label: "Log output", detail: "Pick the stage. Check Date and Shift, pick the machine and the Operator, type Made and Rejected (with a Rejection code). Good = Made − Rejected." },
+      { label: "Log output", detail: "Pick the stage (an operator linked in Masters › Employees gets only their own stage, with themselves picked as Operator). Check Date and Shift, pick the machine and the Operator, type Made and Rejected (with a Rejection code). Good = Made − Rejected." },
       { label: "Send or save", detail: "An operator presses Send to supervisor; a plant manager, Owner or Admin checks and posts it. A supervisor's own run posts at once (Save run)." },
       { label: "Log QC", detail: "Pick the run and type at least 2 readings per required check (S1, S2). Add another sample for more. Save QC." },
       { label: "Next stage", detail: "Once its QC is recorded, the next stage can take the run." },
@@ -454,9 +454,11 @@ const guides: GuideContent[] = [
       "Rejected cannot be more than made. Above 110% of target needs an overproduction reason. OT (Other) needs words.",
       "On Process, type Bamboo taken from Oven. A count gap saves and is flagged; a cutting loss needs a reason.",
       "Moisture is optional. A check named Remark or Notes is written in words and never judged.",
+      "Operator scope: an Operator-only login whose login email is on an employee row in Masters › Employees sees only the stage of that employee's department (Winding, Oven or Process). When that stage is not open yet or is closed, one line says why (\"This card is at Winding; Oven opens when Winding passes bamboo\") and nothing can be logged. A login not linked to an employee sees every stage, with a note to ask the Admin.",
     ],
     primaryActions: [
-      "Press Log QC for run W#3 now on the saved screen.",
+      "Press Log QC for run W#3 now on the saved screen, or Scan another card, or Back to card.",
+      "On a phone the stage tabs (or your one stage) and Scan stay pinned under the top bar; Save and Cancel stay pinned at the bottom of the form.",
       "Use QC without a run for a check between runs, at the start of a shift or on held pieces.",
       "A plant manager can type a whole paper card at once: Output log tab › Whole printed card.",
       "Correct a submitted run by voiding it with a reason and logging it again.",
@@ -1429,6 +1431,8 @@ const guides: GuideContent[] = [
     ],
     primaryActions: [
       "Customers: Customer name and Code are required; fill the dispatch (ship-to) address, which the challan prints.",
+      "Customers: a Possible duplicate badge names a customer with the same or nearly the same name (Pvt Ltd, Limited, punctuation and small typos ignored; a different unit in brackets, such as [Hazira] and [Silvassa], is a different customer). Filter Duplicates › Possible duplicates; check both and deactivate the extra one if it is the same customer. Nothing is merged or blocked.",
+      "Employees: write the person's login email on their employee row to link the login; an operator then sees only their department's stage on the floor.",
       "Vendors: Code and Vendor name required; GSTIN and contact print on the PO.",
       "Order close reasons: the Code stays fixed; Rename and Deactivate are safe.",
       "QC band on a master row, or Inward QC tolerances, sets inward bands.",

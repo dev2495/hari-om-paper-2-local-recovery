@@ -206,6 +206,7 @@ a{color:var(--accent)}
   <div class="sec-head"><span class="sec-num">9</span><h2>Before switching on</h2><p class="muted">These need your people on the live system. Each takes minutes, except packing setup.</p></div>
   <ol class="checklist">
     <li><div><b>Set every operator's department</b>Masters › Employees. Without it the floor forms offer no operator for that stage.</div></li>
+    <li><div><b>Link each operator's login</b>Masters › Employees: type the operator's login email on their employee row. Their scans then open only their own stage.</div></li>
     <li><div><b>Add the missing box masters</b>Box codes used on specs but missing from Masters › Packaging (for example R.125, R.150, N-225, S-300, EXPORT). Packing setup lists them with an Add box link.</div></li>
     <li><div><b>Fill packing on every live spec</b>Harish uses Design › Packing setup once. New specs need it before approval.</div></li>
     <li><div><b>Set the next AIT number</b>System › Plants: enter the number after the last reel label printed from Excel.</div></li>
@@ -235,6 +236,17 @@ a{color:var(--accent)}
   </div>
   <div class="callout ok"><b>What was walked live</b><p>Order release and approval by a second user, full card run with boxes, partial dispatch while Process ran, short close at all three stages with the totals reconciled, reopen and its refusals, split, edit, emergency insert, cancel, retain surplus, operator lists by department, 13 reason inputs, packing setup, reel labels and AIT numbers, and the employee report.</p></div>
   <div class="callout"><b>Covered by tests rather than walked live</b><p>Coil numbering (no reel was slit on the test system) and old-form cards below plan (no suitable test card).</p></div>
+</section>
+
+<section>
+  <div class="sec-head"><span class="sec-num">12</span><h2>Update, 2 November: operator scan and phone screens</h2><p class="muted">Screen flow only. No rule changed; the server still checks who may log and which operators a stage lists.</p></div>
+  <div class="grid">
+    <div class="tile"><h3>Operators see only their stage</h3><p>An Operator-only login linked to an employee sees just that employee's stage (Winding, Oven or Process) when scanning a card, and is already picked as the operator. If the card is not at that stage yet, one line says why.</p></div>
+    <div class="tile"><h3>Supervisors keep the full form</h3><p>Plant Manager, QC, Planner, Owner, Admin and every other login see all stages as before. An operator who is not linked also sees the full form, with a note to ask the Admin.</p></div>
+    <div class="tile"><h3>Faster on the phone</h3><p>Stage and Scan stay pinned at the top, Save and Cancel at the bottom, numbers open the number keypad, and after saving the next step is one tap: Log QC, log another run, scan another card or back to card.</p></div>
+    <div class="tile"><h3>Possible duplicate customers</h3><p>Customers with nearly the same name (for example "Relience" and "Reliance") get a Possible duplicate badge and filter in Masters › Customers, and a hint on a new order. Nothing is merged or blocked.</p></div>
+  </div>
+  <p class="muted">For the help bot, add the one add-on PDF (S30) as a new source. The main guide stays as it is.</p>
 </section>
 
 <footer>Hari Om TubeOS · prepared for Amigo Industries Unit II · 1 November 2026. Release is done by your team with the usual CloudShell command once the checklist is complete.</footer>

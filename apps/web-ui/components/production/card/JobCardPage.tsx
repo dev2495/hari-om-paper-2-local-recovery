@@ -21,6 +21,7 @@ import { useApp } from "@/context/AppContext"
 import { useJobCardLifecycle } from "@/hooks/use-lifecycle"
 import { usePlanningJobCard } from "@/hooks/use-production"
 import { buildProductionEntryUrl } from "@/lib/app-url"
+import { scopedStageGate } from "@/lib/floor-scope"
 import { cn } from "@/lib/utils"
 import JobCardDocument from "../JobCardDocument"
 import { CardPlanPanel } from "../CardPlanPanel"
@@ -34,6 +35,7 @@ import { EntrySheet } from "./EntrySheet"
 import { LogOutputForm } from "./LogOutputForm"
 import { LogQcForm } from "./LogQcForm"
 import { RunRows } from "./RunList"
+import { ScopeStatusLine, useFloorScope } from "./scope"
 import { StageStepper, stepsFromFlow, stepsFromOldCard, type StepInfo } from "./StageStepper"
 import { DispatchTab } from "./tabs/DispatchTab"
 import { HistoryTab } from "./tabs/HistoryTab"
@@ -49,24 +51,43 @@ type Tab = (typeof TABS)[number]
 /** The two floor forms in their sheet; used by the job card page, the phone landing and the QC desk. */
 export function CardEntrySheets({ card, flow, stages, panel, onChange }: { card: any; flow: any; stages: any[]; panel: EntryPanel; onChange: (panel: EntryPanel) => void }) {
   const facts = cardFacts(card)
+  // An Operator-only login linked to a stage's department logs only that stage, as itself (owner, 2 Nov 2026).
+  const { scope } = useFloorScope(card)
+  const lock = scope.kind === "stage" ? scope.stage : null
+  const self = scope.kind === "stage" ? String(scope.employee?.id || "") : undefined
+  const cancelled = String(card?.status || "").toUpperCase() === "CANCELLED" || String(card?.close_mode || "").toUpperCase() === "CANCELLED"
+  const gate = lock ? scopedStageGate(stages, lock, facts.open && !cancelled) : null
+  const stage = lock || panel?.stage || ""
+  const foreign = Boolean(lock && panel && panel.stage !== lock)
+  const closed = gate && !gate.open ? (
+    <div className="space-y-3">
+      <ScopeStatusLine message={gate.message} testId="sheet-scope-status" />
+      <Button size="lg" variant="outline" className="h-12 w-full" onClick={() => onChange(null)}>
+        Back to card
+      </Button>
+    </div>
+  ) : null
   return (
     <>
-      <EntrySheet open={panel?.kind === "output"} onOpenChange={(open) => (open ? undefined : onChange(null))} title="Log output" subtitle={`${facts.no} · ${facts.customer}${facts.size ? ` · ${facts.size}` : ""} · no QC fields here`} testId="log-output-sheet">
-        {panel?.kind === "output" ? (
-          <LogOutputForm
-            card={card}
-            flow={flow}
-            stages={stages}
-            stage={panel.stage}
-            onStage={(stage) => onChange({ kind: "output", stage, entry: null })}
-            entry={panel.entry}
-            onCancel={() => onChange(null)}
-            onLogQc={(entry) => onChange({ kind: "qc", stage: entry.stage, entryId: entry.id })}
-          />
-        ) : null}
+      <EntrySheet open={panel?.kind === "output"} onOpenChange={(open) => (open ? undefined : onChange(null))} title={lock ? `Log output · ${stageLabel(lock)}` : "Log output"} subtitle={`${facts.no} · ${facts.customer}${facts.size ? ` · ${facts.size}` : ""} · no QC fields here`} testId="log-output-sheet">
+        {panel?.kind === "output"
+          ? closed || (
+              <LogOutputForm
+                card={card}
+                flow={flow}
+                stages={stages}
+                stage={stage}
+                onStage={lock ? undefined : (next) => onChange({ kind: "output", stage: next, entry: null })}
+                entry={foreign ? null : panel.entry}
+                defaultOperator={self}
+                onCancel={() => onChange(null)}
+                onLogQc={(entry) => onChange({ kind: "qc", stage: entry.stage, entryId: entry.id })}
+              />
+            )
+          : null}
       </EntrySheet>
-      <EntrySheet open={panel?.kind === "qc"} onOpenChange={(open) => (open ? undefined : onChange(null))} title="Log QC" subtitle={`${facts.no} · ${facts.customer} · at least 2 readings per check · out of band is flagged, not held`} tone="amber" testId="log-qc-sheet">
-        {panel?.kind === "qc" ? <LogQcForm card={card} stages={stages} stage={panel.stage} onStage={(stage) => onChange({ kind: "qc", stage, entryId: null })} entryId={panel.entryId} onCancel={() => onChange(null)} /> : null}
+      <EntrySheet open={panel?.kind === "qc"} onOpenChange={(open) => (open ? undefined : onChange(null))} title={lock ? `Log QC · ${stageLabel(lock)}` : "Log QC"} subtitle={`${facts.no} · ${facts.customer} · at least 2 readings per check · out of band is flagged, not held`} tone="amber" testId="log-qc-sheet">
+        {panel?.kind === "qc" ? closed || <LogQcForm card={card} stages={stages} stage={stage} onStage={lock ? undefined : (next) => onChange({ kind: "qc", stage: next, entryId: null })} entryId={foreign ? null : panel.entryId} defaultOperator={self} onCancel={() => onChange(null)} /> : null}
       </EntrySheet>
     </>
   )
