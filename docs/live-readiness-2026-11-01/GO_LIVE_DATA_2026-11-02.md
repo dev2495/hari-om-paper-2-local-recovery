@@ -45,3 +45,10 @@ From `Reel stock.xlsx` (sheet Stock; closing till 31 Oct 2026): 351 reels, 410,0
 - Paper item = the register's GSM code (220, 301, 350–355, 401); SLITTED = reel, coil = coil; mill reel no. = ROLL NO.; vendor code = mill name; bill no./date, PO, inward date, mill variety (350CEDAR) and ply bond kept on the reel and printed on its QR label (Opening stock › Labels).
 - Left out: 224 empty pre-numbered rows (AIT 06830–07053); the 19 coils on sheet "Manual Entries" (the client types them on Opening stock, with the new **AIT no.** field so they keep their numbers).
 - Vendor codes (AKSHAT, UPPM, VATSALYA, BN, KALYANI) matched no single vendor master locally; the code is used as vendor and mill name.
+
+## Glue tank opening stock (3 Nov 2026, to load)
+From `Glue stock.xlsx` (closing till 31 Oct 2026): 29 tanks × 1000 kg = 29,000 kg (Wellcol EM30100 10, VINSOL-HV 7, TL4 LV 6, VINSOL-TL4 6; SIVA CHEMICAL 19, Poonam Corporation 10), AIT 00546 to AIT 01000.
+- One opening batch dated **1 Nov 2026**, QC cleared, ready to issue; each tank keeps its AIT tank number as its lot number, with vendor and inward date on the lot and its QR label.
+- The **glue tank series** is its own AIT series per plant (separate from reels), restarts every 1 April, never repeats; the next new tank at goods inward (PO or manual GRN, or a count) gets **AIT 01001**. Owner/Admin can see or raise it on System › Plants.
+- Products are matched to Adhesive masters; any missing one is created (code e.g. TL4-LV). Rate = master rate, else ₹0 until set (set rates in Masters › Adhesives).
+- Steps: `glue-preview`, then `glue-apply` (backup first, safe to repeat).
