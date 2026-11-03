@@ -81,7 +81,7 @@ def test_batches_on_the_go_live_date_new_numbers_labels_and_month_figures():
             {"item_id": glue.id, "qty": 120, "unit_cost": 85},
         ])
         assert [line.get("reel_code") or line.get("batch_no") for line in first["lines"]] == [
-            "AIT 00001", "AIT 00002", "RM-GLUE-PVA-261028-001"]  # the plant's AIT series (owner decision 6)
+            "AIT 00001", "AIT 00002", "AIT 00001"]  # the plant's AIT series (owner decision 6); glue tanks have their own
         # Stores enter rack by rack: a second batch on the same go-live date is fine.
         second = _post(db, plant, [
             {"item_id": paper.id, "qty": 700},
@@ -97,10 +97,12 @@ def test_batches_on_the_go_live_date_new_numbers_labels_and_month_figures():
         unplaced = db.query(PaperReel).filter_by(plant_id=uuid.UUID(plant), reel_code="AIT 00002").one()
         store = db.query(InventoryLocation).filter_by(plant_id=plant, is_receiving_default=True).one()
         assert unplaced.location_id == store.id and store.code == "RM-STORE"
-        glue_lot = db.query(StockBatch).filter_by(plant_id=plant, batch_no="RM-GLUE-PVA-261028-001").one()
+        glue_lot = db.query(StockBatch).filter_by(plant_id=plant, batch_no="AIT 00001").one()
+        assert glue_lot.inward_metadata["amigo_no"] == "AIT 00001" and glue_lot.inward_metadata["serial_fy"] == 2026
         txn = db.query(StockTransaction).filter_by(batch_id=glue_lot.id).one()
         assert txn.transaction_type.value == "OPENING" and txn.effective_date == GO_LIVE and txn.movement_metadata["source"] == "Opening load"
         held = db.query(StockBatch).filter_by(item_id=boxes.id).one()
+        assert held.batch_no.startswith("RM-BOX-5PLY-261028-")  # other bulk lots keep their numbers
         assert held.stock_status == "QC_HOLD" and held.inward_metadata["hold_reason_note"].startswith("Damp") and held.inward_metadata["hold_reason_code"] == "QH-SUSPECT"
 
         overview = get_opening_stock(db, plant, OWNER)

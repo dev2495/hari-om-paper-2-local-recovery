@@ -1394,11 +1394,13 @@ class DocumentSeries(Base):
 
 
 class ReelSerialSetting(Base):
-    """Each time the Owner / Admin set the next AIT reel number of a year (owner decision 6, 1 Nov 2026)."""
+    """Each time the Owner / Admin set the next AIT reel number of a year (owner decision 6, 1 Nov 2026), or
+    the next glue tank number (``kind`` TANK, owner 3 Nov 2026; NULL or REEL is the reel series)."""
     __tablename__ = "reel_serial_settings"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     plant_id = Column(String(50), nullable=False, index=True)
+    kind = Column(String(20), nullable=True)
     financial_year = Column(Integer, nullable=False)
     from_number = Column(Integer, nullable=False)
     to_number = Column(Integer, nullable=False)

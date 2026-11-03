@@ -42,6 +42,15 @@ def compact(value: Any) -> str:
     return _NOT_ALNUM.sub("", str(value or "")).upper()
 
 
+def scanned_record(code: Any) -> Optional[uuid.UUID]:
+    """The record id inside a scanned ``HARIOM|REEL|…`` / ``HARIOM|BATCH|…`` QR: a scan names one record even when
+    a reel and a glue tank share the printed number (two AIT series, owner 3 Nov 2026)."""
+    parts = _unwrap(str(code or "")).strip().split("|")
+    if len(parts) >= 5 and parts[0].strip().upper() == "HARIOM" and parts[1].strip().upper() in {"REEL", "BATCH"}:
+        return _uuid(parts[3].strip())
+    return None
+
+
 def typed_number(code: Any) -> str:
     """The number inside whatever was typed or pasted: a /scan link or a ``HARIOM|…|<number>`` payload gives its number."""
     text = _unwrap(str(code or "")).strip()
@@ -161,6 +170,10 @@ def find_by_number(db: Session, plants: list[str], code: Any, *, kind: str = "AL
         return empty
     best = min(level for level, *_ in scored)
     chosen = [row for row in scored if row[0] == best]
+    # A typed number that is both a reel and a glue tank lists both; a scanned QR keeps just its own record.
+    scanned = scanned_record(code)
+    if scanned is not None and any(record.id == scanned for *_, record in chosen):
+        chosen = [row for row in chosen if row[3].id == scanned]
     balances = batch_balances(db, [record.id for *_, record in chosen if isinstance(record, StockBatch)])
 
     def qty(record: Any) -> float:

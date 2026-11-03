@@ -27,6 +27,7 @@ from ..quality_task_queue import enqueue_incoming_qc_task
 from ..services.books import assert_books_open
 from ..services.labels import reel_label_payload, batch_label_payload
 from ..services.locations import default_receiving_location
+from ..services.tank_serial import is_tank_item, next_tank_serial
 from ..services.receipt_quality import initial_quality, inward_stock_status
 from ..services.procurement import canonical_hash, normalize_invoice_number
 from ..utils.auth import get_current_plant, require_role
@@ -191,10 +192,14 @@ def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_
                 db.add(LotLabelRecord(plant_id=plant_id, reel_id=reel.id, label_code=at_no, content_snapshot=reel_label_payload(reel, item)))
                 db.add(ReelScanEvent(plant_id=_plant_uuid(plant_id), reel_id=reel.id, event_type=ReelScanEventType.INWARD_SCAN, source=ReelScanSource.INVENTORY, event_metadata=metadata))
         else:
-            batch = StockBatch(plant_id=plant_id, item_id=item.id, batch_no=(requested.batch_no or f"{receipt.grn_no}-{index}").strip().upper(),
+            # A glue tank gets the plant's tank number (owner, 3 Nov 2026); a typed number is kept beside it.
+            tank = next_tank_serial(db, plant_id, payload.received_date) if is_tank_item(item) else None
+            typed_batch_no = (requested.batch_no or "").strip().upper() or None
+            batch = StockBatch(plant_id=plant_id, item_id=item.id, batch_no=tank["batch_no"] if tank else (typed_batch_no or f"{receipt.grn_no}-{index}"),
                 received_qty=float(qty), stock_status=lot_status, unit_cost=rate, cost_source="SUPPLIER", supplier_id=payload.supplier_id,
                 supplier_name_snapshot=payload.supplier_name, location_id=requested.location_id or default_location_id,
-                inward_metadata=metadata)
+                inward_metadata={**metadata, **(tank["metadata"] if tank else {}),
+                                 **({"vendor_batch_no": typed_batch_no} if tank and typed_batch_no else {})})
             db.add(batch)
             db.flush()
             line.batch_id = batch.id

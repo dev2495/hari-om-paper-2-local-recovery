@@ -822,7 +822,9 @@ REASON_CODE_SCHEMA_STATEMENTS = tuple(
     ("inventory_certifications", ("sent_back_reason_code VARCHAR(80)", "sent_back_reason_label VARCHAR(200)")),
     ("inventory_quality_inspections", ("reason_code VARCHAR(80)", "reason_label VARCHAR(200)", "reason_note TEXT")),
     ("label_print_jobs", ("reprint_reason_code VARCHAR(80)", "reprint_reason_label VARCHAR(200)", "reprint_reason_note TEXT")),
-    ("reel_serial_settings", ("reason_code VARCHAR(80)", "reason_label VARCHAR(200)", "reason_note TEXT")),
+    ("reel_serial_settings", ("reason_code VARCHAR(80)", "reason_label VARCHAR(200)", "reason_note TEXT",
+                              # Glue tank number settings share the table (owner, 3 Nov 2026); NULL = reel.
+                              "kind VARCHAR(20)")),
     ("stock_alert_policies", ("change_reason_code VARCHAR(80)", "change_reason_label VARCHAR(200)", "change_reason_note TEXT")),
     ("rm_cost_versions", ("change_reason_code VARCHAR(80)", "change_reason_label VARCHAR(200)", "change_reason_note TEXT")),
     ("purchase_requisitions", ("reason_code VARCHAR(80)", "reason_label VARCHAR(200)", "reason_note TEXT")),
@@ -1171,6 +1173,7 @@ app.include_router(stock_control.router)
 app.include_router(stock_count.router)
 from .routers import opening_stock; app.include_router(opening_stock.router)  # noqa: E402,E702 go-live opening stock page
 from .routers import reel_serial; app.include_router(reel_serial.router)  # noqa: E402,E702 AIT reel serial setting (2026-11-01)
+app.include_router(reel_serial.tank_router)  # glue tank number setting (2026-11-03)
 app.include_router(books.router)
 app.include_router(tool_assets.router)
 

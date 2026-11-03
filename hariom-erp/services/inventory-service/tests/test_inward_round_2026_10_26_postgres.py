@@ -91,7 +91,8 @@ def test_inward_numbers_follow_material_series_and_restart_each_year():
         ), db, PLANT, MAKER)
         assert adhesive_grn["grn_no"] == "A/26/001"
         batch = db.query(StockBatch).filter_by(item_id=adhesive.id).one()
-        assert batch.batch_no.startswith("A/26/001")
+        # A glue tank gets the plant's tank number (owner, 3 Nov 2026), not the GRN number.
+        assert batch.batch_no == "AIT 00001" and batch.inward_metadata["grn_no"] == "A/26/001"
 
         parchment_grn = post_manual_receipt(ManualReceiptCreate(
             request_id=uuid.uuid4(), supplier_id=uuid.uuid4(), supplier_name="Parchment co", reason_code="MR-URGENT", reason_note="Local purchase",

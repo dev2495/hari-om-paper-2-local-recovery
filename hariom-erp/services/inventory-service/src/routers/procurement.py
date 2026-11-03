@@ -66,6 +66,7 @@ from ..models import (
 from ..quality_task_queue import enqueue_incoming_qc_task
 from ..services.labels import reel_label_payload, batch_label_payload, with_reel_facts
 from ..services.reel_serial import next_reel_serial
+from ..services.tank_serial import is_tank_item, next_tank_serial
 from ..services.receipt_quality import initial_quality, inward_stock_status, refresh_receipt_stock
 from ..services.procurement import (
     ProcurementRuleError,
@@ -673,7 +674,10 @@ def post_governed_receipt(
                     "physical_form": form, "width_mm": lot.width_mm, "net_weight_kg": lot.net_weight_kg, "stock_status": stock_status,
                     "label": with_reel_facts(db, label_snapshot, reel, po_line.item)})
         else:
-            batch_no = (requested.batch_no or f"{grn_no}-B{index:03d}").strip().upper()
+            # A glue tank gets the plant's tank number (owner, 3 Nov 2026); a typed number is kept beside it.
+            tank = next_tank_serial(db, plant_id, payload.received_date) if is_tank_item(po_line.item) else None
+            typed_batch_no = (requested.batch_no or "").strip().upper() or None
+            batch_no = tank["batch_no"] if tank else (typed_batch_no or f"{grn_no}-B{index:03d}")
             batch = StockBatch(item_id=po_line.item_id, batch_no=batch_no, received_qty=float(qty),
                 location_id=requested.location_id or default_location_id, stock_status=stock_status,
                 unit_cost=float(revision_line.unit_rate),
@@ -681,7 +685,9 @@ def post_governed_receipt(
                 plant_id=plant_id, inward_metadata={**quality_metadata, "po_id": str(order.id), "receipt_id": str(receipt.id),
                     "grn_no": receipt.grn_no, "challan_no": payload.supplier_challan_no, "invoice_no": payload.invoice_no,
                     # "In since": a backdated GRN's lot came in on its received date, not on the day it was typed.
-                    "received_date": payload.received_date.isoformat(), "invoice_rate": requested.invoice_rate})
+                    "received_date": payload.received_date.isoformat(), "invoice_rate": requested.invoice_rate,
+                    **(tank["metadata"] if tank else {}),
+                    **({"vendor_batch_no": typed_batch_no} if tank and typed_batch_no else {})})
             db.add(batch)
             db.flush()
             receipt_line.batch_id = batch.id

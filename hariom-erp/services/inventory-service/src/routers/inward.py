@@ -13,6 +13,7 @@ from ..models import InventoryLocation, ItemMaster, PaperReel, ReferenceType, St
 from ..services import get_batch_balance, get_item_balance
 from ..services.books import assert_books_open, ist_today
 from ..services.labels import batch_label_payload
+from ..services.tank_serial import is_tank_item, next_tank_serial
 from ..utils.audit_client import emit_audit_event
 from ..utils.auth import get_current_plant, get_current_plant_scope, get_current_user, require_role
 from ..quality_pin import pin_quality_profile_metadata
@@ -293,11 +294,19 @@ def create_inward(
         stock_status = "QC_HOLD"
 
     amigo_no = (inward.amigo_no or inward.batch_no or "").strip().upper()
-    batch_no = amigo_no or _next_system_batch_no(db, item, plant_id)
-    _ensure_unique_batch_no(db, plant_id, batch_no)
+    effective_date_value = inward.effective_date or ist_today()
+    # A glue tank gets the plant's tank number (owner, 3 Nov 2026); a typed number is kept as the vendor's.
+    tank = next_tank_serial(db, plant_id, effective_date_value) if is_tank_item(item) else None
+    if tank:
+        batch_no = tank["batch_no"]
+    else:
+        batch_no = amigo_no or _next_system_batch_no(db, item, plant_id)
+        _ensure_unique_batch_no(db, plant_id, batch_no)
     metadata = {
         **dict(inward.inward_metadata or {}),
-        "amigo_no": batch_no,
+        **(tank["metadata"] if tank else {}),
+        **({"vendor_batch_no": amigo_no} if tank and amigo_no else {}),
+        "amigo_no": tank["serial"] if tank else batch_no,
         "material_form": (inward.material_form or item.type.value if hasattr(item.type, "value") else inward.material_form or str(item.type)),
         "product": inward.product,
         "item_name_snapshot": inward.item_name_snapshot or item.name,
@@ -340,7 +349,6 @@ def create_inward(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid reference_type")
 
-    effective_date_value = inward.effective_date or ist_today()
     assert_books_open(db, plant_id, effective_date_value)
 
     transaction = StockTransaction(
@@ -355,7 +363,7 @@ def create_inward(
         stock_status=batch.stock_status,
         movement_metadata={
             "batch_no": batch_no,
-            "amigo_no": batch_no,
+            "amigo_no": metadata["amigo_no"],
             "supplier_id": str(inward.supplier_id),
             "supplier_name": inward.supplier_name,
             "unit_cost": inward.unit_cost,

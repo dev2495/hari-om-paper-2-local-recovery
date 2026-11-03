@@ -322,15 +322,20 @@ def resolve_lot(db: Session, plant_id: str, code: str) -> dict[str, Any]:
             raw = "|".join(parts[4:]).strip()
     if entity is None:
         typed = raw.strip().upper()
-        entity = db.query(PaperReel).filter(
+        reel = db.query(PaperReel).filter(
             PaperReel.plant_id == plant_uuid(plant_id), func.upper(PaperReel.reel_code) == typed,
         ).first()
-        entity_type = "REEL"
-        if entity is None:
-            entity = db.query(StockBatch).filter(
-                StockBatch.plant_id == str(plant_id), func.upper(StockBatch.batch_no) == typed,
-            ).first()
-            entity_type = "BATCH"
+        batch = db.query(StockBatch).filter(
+            StockBatch.plant_id == str(plant_id), func.upper(StockBatch.batch_no) == typed,
+        ).first()
+        if reel is not None and batch is not None:
+            # Reels and glue tanks are two AIT series (owner, 3 Nov 2026): the typed number alone is not enough.
+            raise HTTPException(status_code=409, detail={
+                "code": "AMBIGUOUS_LABEL",
+                "message": f"{typed} is both a reel and a lot in this plant. Scan the QR on the label.",
+                "candidates": [{"entity_type": "REEL", "id": str(reel.id)}, {"entity_type": "BATCH", "id": str(batch.id)}],
+            })
+        entity, entity_type = (reel, "REEL") if reel is not None else (batch, "BATCH")
         if entity is None:
             raise HTTPException(status_code=404, detail={"code": "UNKNOWN_LABEL", "message": f"{typed or 'This label'} is not in the system for this plant."})
     item = db.query(ItemMaster).filter(ItemMaster.id == (entity.paper_id if entity_type == "REEL" else entity.item_id)).first()

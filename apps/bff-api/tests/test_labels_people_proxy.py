@@ -29,6 +29,16 @@ def test_reel_serial_setting_is_a_get_and_a_put_to_inventory():
         assert proxy.await_args.args[:4] == (inventory.INVENTORY_SERVICE_URL, "/inventory/reel-serial", request, "token")
 
 
+def test_tank_serial_setting_is_a_get_and_a_put_to_inventory():
+    keys = _routes(inventory.router)
+    assert ("GET", "/tank-serial") in keys and ("PUT", "/tank-serial") in keys
+    for method in ("GET", "PUT"):
+        request = _request(method)
+        with patch("src.routes.inventory.proxy_to_service", new=AsyncMock(return_value=Response(status_code=200))) as proxy:
+            asyncio.run(inventory.tank_serial_setting(request, "token"))
+        assert proxy.await_args.args[:4] == (inventory.INVENTORY_SERVICE_URL, "/inventory/tank-serial", request, "token")
+
+
 def test_employee_report_is_one_get_to_production_with_its_filters():
     assert _routes(production.router).count(("GET", "/reports/employees")) == 1
     request = _request("GET", b"date_from=2026-10-01&date_to=2026-10-31&stage=WINDER&department=WINDER&shift=SHIFT_A")

@@ -359,7 +359,7 @@ def test_old_voucher_endpoint_never_adds_cleared_stock_or_takes_off_without_a_lo
         assert draft["status"] == "DRAFT" and line["stock_status"] == "QC_HOLD" and line["location_id"] == str(store.id)
         posted = approve_correction(uuid.UUID(draft["id"]), CorrectionDecisionPayload(), db, plant, OWNER)
         lot = db.get(StockBatch, uuid.UUID(posted["lines"][0]["created_batch_id"]))
-        assert lot.stock_status == "QC_HOLD" and lot.location_id == store.id and lot.batch_no.startswith("ADJ-") and not lot.batch_no.startswith("ADJ-ADJ-")
+        assert lot.stock_status == "QC_HOLD" and lot.location_id == store.id and lot.batch_no.startswith("AIT ")  # a glue lot takes the next glue tank number (owner 3 Nov 2026)
         _refused(lambda: create_adjustment_voucher(AdjustmentVoucherPayload(effective_date=date.today(), reason_code="COUNT_SHORT", lines=[
             {"item_id": glue.id, "qty_delta": -1}]), db, plant, GRN), 422, "name the reel or lot")
         _refused(lambda: create_adjustment_voucher(AdjustmentVoucherPayload(effective_date=date.today(), reason_code="PHYSICAL_COUNT_VARIANCE", lines=[

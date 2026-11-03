@@ -22,7 +22,8 @@ export type DraftRow = {
   location_id: string
   location_text: string
   old_mark: string
-  /** The reel's own AIT number when it already carries one (client 2026-11-03): kept instead of a new one. */
+  /** The reel's (or glue tank's, owner 3 Nov 2026) own AIT number when it already carries one (client
+   * 2026-11-03): kept instead of a new one. */
   serial: string
   vendor_name: string
   vendor_ref: string
@@ -47,6 +48,11 @@ export function rowKey(): string {
 
 export function blankRow(kind: RowKind = "REEL", location_id = ""): DraftRow {
   return { key: rowKey(), kind, item_id: "", item_text: "", qty: "", location_id, location_text: "", old_mark: "", serial: "", vendor_name: "", vendor_ref: "", rate: "", on_hold: false, hold_reason: "", hold_reason_code: "", hold_reason_note: "", note: "" }
+}
+
+/** Reels and glue (adhesive) tanks carry the plant's AIT number (owner, 3 Nov 2026); other bulk lots do not. */
+export function carriesSerial(row: Pick<DraftRow, "kind">, item?: Pick<ItemOption, "type"> | null): boolean {
+  return row.kind === "REEL" || String(item?.type || "").toUpperCase() === "ADHESIVE"
 }
 
 /** A copy of the row under it: same material, place, vendor and rate; the old mark and weight are left to type. */
@@ -164,7 +170,7 @@ export function parsePaste(text: string, items: ItemOption[], places: PlaceOptio
       qty: cleanNumber(qtyCell),
       location_text: place || !placeCell.trim() ? "" : placeCell.trim(),
       old_mark: markCell,
-      serial: kind === "REEL" ? serialCell.trim() : "",
+      serial: carriesSerial({ kind }, item) ? serialCell.trim() : "",
       vendor_name: vendorCell,
       rate: rateCell ? cleanNumber(rateCell) : "",
       note,
@@ -205,15 +211,16 @@ export function rowProblems(row: DraftRow, uom?: string): Array<{ field: string;
   return problems
 }
 
-/** The payload line for a row (blank rows are left out by the caller). */
-export function toLine(row: DraftRow) {
+/** The payload line for a row (blank rows are left out by the caller). Pass the row's material so a glue
+ * tank sends its AIT number. */
+export function toLine(row: DraftRow, item?: Pick<ItemOption, "type"> | null) {
   return {
     item_id: row.item_id,
     kind: row.kind,
     qty: Number(row.qty) || 0,
     location_id: row.location_id || undefined,
     old_mark: row.old_mark.trim() || undefined,
-    serial: row.kind === "REEL" ? row.serial.trim() || undefined : undefined,
+    serial: carriesSerial(row, item) ? row.serial.trim() || undefined : undefined,
     vendor_name: row.vendor_name.trim() || undefined,
     vendor_ref: row.vendor_ref.trim() || undefined,
     on_hold: row.on_hold || undefined,

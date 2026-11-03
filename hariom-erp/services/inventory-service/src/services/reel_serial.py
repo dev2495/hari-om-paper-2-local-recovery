@@ -19,7 +19,7 @@ from datetime import date, datetime
 from typing import Any, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import Integer, cast, func, text
+from sqlalchemy import Integer, cast, func, or_, text
 from sqlalchemy.orm import Session
 
 from ..models import DocumentSeries, PaperReel, ReelSerialSetting
@@ -204,8 +204,10 @@ def series_state(db: Session, plant_id: Any, today: date) -> dict[str, Any]:
     counter = _counter(db, plant_id, fy, create=False)
     highest = highest_issued(db, plant_id, fy)
     next_value = max(int(counter.next_value) if counter else 1, highest + 1)
+    # Glue tank settings (kind TANK) are their own series; rows from before 3 Nov 2026 have no kind: reels.
     history = db.query(ReelSerialSetting).filter(
         ReelSerialSetting.plant_id == _plant_key(plant_id), ReelSerialSetting.financial_year == fy,
+        or_(ReelSerialSetting.kind.is_(None), ReelSerialSetting.kind == "REEL"),
     ).order_by(ReelSerialSetting.created_at.desc()).all()
     return {
         "plant_id": _plant_key(plant_id),
@@ -257,7 +259,7 @@ def set_next_number(db: Session, plant_id: Any, number: int, *, actor: str, reas
     counter.next_value = number
     counter.version = int(counter.version or 1) + 1
     counter.updated_at = datetime.utcnow()
-    db.add(ReelSerialSetting(plant_id=_plant_key(plant_id), financial_year=fy, from_number=current, to_number=number,
+    db.add(ReelSerialSetting(plant_id=_plant_key(plant_id), kind="REEL", financial_year=fy, from_number=current, to_number=number,
                              reason=reason, reason_code=reason_code, reason_label=reason_label, reason_note=reason_note,
                              set_by=actor))
     db.flush()

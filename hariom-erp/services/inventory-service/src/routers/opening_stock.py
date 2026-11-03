@@ -37,7 +37,7 @@ class PreviewLine(BaseModel):
     hold_reason_code: Optional[str] = Field(default=None, max_length=80)
     hold_reason_note: Optional[str] = Field(default=None, max_length=300)
     unit_cost: Optional[float] = None
-    # The reel's own AIT serial, kept (client 2026-11-03); the check says when it is not one or is taken.
+    # The reel's (or glue tank's, owner 3 Nov 2026) own AIT number, kept (client 2026-11-03); the check says when it is not one or is taken.
     serial: Optional[str] = Field(default=None, max_length=40)
     received_on: Optional[date] = None
 

@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils"
 import { OTHER_NOTE_MIN, ReasonPicker, reasonNeedsNote, useReasonList } from "@/components/reasons"
 
 import { openingApi, useOpeningOverview, usePostOpening, type CheckedLine, type OpeningBatch, type OpeningOverview, type OpeningPreview } from "./api"
-import { blankRow, duplicateRow, isBlank, kindOf, matchProblems, parsePaste, rowProblems, toLine, type DraftRow, type ItemOption, type PlaceOption, type RowKind } from "./rows"
+import { blankRow, carriesSerial, duplicateRow, isBlank, kindOf, matchProblems, parsePaste, rowProblems, toLine, type DraftRow, type ItemOption, type PlaceOption, type RowKind } from "./rows"
 
 const NOT_OPENING = new Set(["FINISHED_GOOD", "TOOL"])
 // Places opening stock may not go (the server refuses them too): the floor, a dispatch bay, a scrap bay.
@@ -171,7 +171,7 @@ function EntryPanel({ data, plant, onPosted }: { data: OpeningOverview; plant: s
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const ready = filled.filter((row) => row.item_id)
-      setCheck(ready.length ? { body: { effective_date: day || null, lines: ready.map(toLine) }, keys: ready.map((row) => row.key) } : null)
+      setCheck(ready.length ? { body: { effective_date: day || null, lines: ready.map((row) => toLine(row, itemById.get(row.item_id))) }, keys: ready.map((row) => row.key) } : null)
     }, 450)
     return () => window.clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -214,7 +214,7 @@ function EntryPanel({ data, plant, onPosted }: { data: OpeningOverview; plant: s
     setPostError("")
     setPostErrorTitle("")
     try {
-      const batch = await post.mutateAsync({ effective_date: day, request_id: requestKey.current, notes: "Go-live opening stock", lines: filled.map(toLine) })
+      const batch = await post.mutateAsync({ effective_date: day, request_id: requestKey.current, notes: "Go-live opening stock", lines: filled.map((row) => toLine(row, itemById.get(row.item_id))) })
       requestKey.current = newKey()
       setConfirmOpen(false)
       setRows([blankRow("REEL")])
@@ -346,6 +346,8 @@ function RowsEditor({ rows, items, itemById, places, defaultPlace, checked, onCh
       {rows.map((row, index) => {
         const item = itemById.get(row.item_id)
         const uom = row.kind === "REEL" ? "KG" : item?.uom || ""
+        // Reels and glue tanks keep the AIT number they carry (owner, 3 Nov 2026); other bulk lots get none.
+        const withSerial = carriesSerial(row, item)
         const server = checked.get(row.key)
         const local = rowProblems(row, uom)
         const fieldsWithError = new Set([...local, ...(server?.errors || [])].map((error) => error.field))
@@ -420,17 +422,17 @@ function RowsEditor({ rows, items, itemById, places, defaultPlace, checked, onCh
                 </button>
               </div>
             </div>
-            <div className={cn("mt-2 grid grid-cols-2 gap-2 lg:pl-[32px]", row.kind === "REEL"
+            <div className={cn("mt-2 grid grid-cols-2 gap-2 lg:pl-[32px]", withSerial
               ? row.on_hold
                 ? "lg:grid-cols-[112px_minmax(0,0.8fr)_120px_minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,1.3fr)_92px]"
                 : "lg:grid-cols-[112px_minmax(0,0.8fr)_120px_minmax(0,1.1fr)_minmax(0,0.9fr)_92px]"
               : row.on_hold
                 ? "lg:grid-cols-[minmax(0,0.9fr)_120px_minmax(0,1.1fr)_minmax(0,0.9fr)_minmax(0,1.3fr)_92px]"
                 : "lg:grid-cols-[minmax(0,0.9fr)_120px_minmax(0,1.2fr)_minmax(0,1fr)_92px]")}>
-              {row.kind === "REEL" ? (
+              {withSerial ? (
                 <label className="col-span-1 block">
                   <span className={caption}>AIT no.</span>
-                  <input className={cn(fieldClass, "mt-1 text-[13px] tabular-nums lg:mt-0.5", bad("serial") && errorCls)} value={row.serial} maxLength={20} placeholder="New if blank" aria-label={`Row ${index + 1} AIT number the reel already carries`} data-testid="opening-row-serial" onChange={(event) => onChange(row.key, { serial: event.target.value })} />
+                  <input className={cn(fieldClass, "mt-1 text-[13px] tabular-nums lg:mt-0.5", bad("serial") && errorCls)} value={row.serial} maxLength={20} placeholder="New if blank" aria-label={`Row ${index + 1} AIT number the ${row.kind === "REEL" ? "reel" : "tank"} already carries`} data-testid="opening-row-serial" onChange={(event) => onChange(row.key, { serial: event.target.value })} />
                 </label>
               ) : null}
               <label className="col-span-1 block">

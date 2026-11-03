@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 
-import { blankRow, cleanNumber, duplicateRow, findItem, isBlank, matchItem, matchPlace, matchProblems, parsePaste, rowProblems, toLine } from "../components/opening-stock/rows"
+import { blankRow, carriesSerial, cleanNumber, duplicateRow, findItem, isBlank, matchItem, matchPlace, matchProblems, parsePaste, rowProblems, toLine } from "../components/opening-stock/rows"
 
 // Go-live opening stock (client 2026-10-30): rows pasted from Excel are matched to materials and locations;
 // what matches nothing stays as typed (shown red with a pick list).
@@ -49,9 +49,15 @@ assert.equal(pasted[3].location_id, "l1")
 
 const row = { ...blankRow("BULK"), item_id: "g1", qty: "30", on_hold: true, hold_reason_code: "qh-suspect", hold_reason_note: " Lid open ", rate: "" }
 assert.deepEqual(toLine(row), { item_id: "g1", kind: "BULK", qty: 30, location_id: undefined, old_mark: undefined, serial: undefined, vendor_name: undefined, vendor_ref: undefined, on_hold: true, hold_reason_code: "QH-SUSPECT", hold_reason_note: "Lid open", unit_cost: undefined })
-// A reel keeps the AIT number it already carries (client 2026-11-03); a bulk lot never sends one.
+// A reel keeps the AIT number it already carries (client 2026-11-03), and so does a glue tank (owner,
+// 3 Nov 2026); another bulk lot never sends one.
 assert.equal(toLine({ ...blankRow("REEL"), item_id: "p1", qty: "700", serial: " AIT 06290 " }).serial, "AIT 06290")
-assert.equal(toLine({ ...blankRow("BULK"), item_id: "g1", qty: "5", serial: "AIT 1" }).serial, undefined)
+assert.equal(toLine({ ...blankRow("BULK"), item_id: "g1", qty: "5", serial: " AIT 00546 " }, items[1]).serial, "AIT 00546")
+assert.equal(toLine({ ...blankRow("BULK"), item_id: "g1", qty: "5", serial: "AIT 1" }).serial, undefined, "no material known: not sent")
+assert.equal(toLine({ ...blankRow("BULK"), item_id: "b1", qty: "5", serial: "AIT 1" }, items[2]).serial, undefined)
+assert.ok(carriesSerial(blankRow("BULK"), items[1]) && !carriesSerial(blankRow("BULK"), items[2]) && carriesSerial(blankRow("REEL")))
+assert.equal(parsePaste("GLUE-PVA,bulk,900,,,,,AIT 00546", items, [])[0].serial, "AIT 00546")
+assert.equal(parsePaste("BOX-5PLY,bulk,10,,,,,AIT 00546", items, [])[0].serial, "")
 assert.equal(parsePaste("351,reel,700,,M-1,AKSHAT,31,AIT 06291", [{ id: "p1", item_code: "351", name: "Kraft", type: "RAW_PAPER", tracking_mode: "REEL", uom: "KG" } as any], [])[0].serial, "AIT 06291")
 const copy = duplicateRow({ ...row, old_mark: "X1", serial: "AIT 00001" })
 assert.notEqual(copy.key, row.key)

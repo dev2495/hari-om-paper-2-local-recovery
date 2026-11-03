@@ -5,7 +5,7 @@ The plant starts on TubeOS with stock already on its racks. Owner or Admin enter
     stores can enter rack by rack over a few days;
   - once the go-live month is closed, opening stock is closed (a stock count corrects stock after that);
   - each reel / coil / bulk lot gets a new system number dated the go-live date (AT-yymmdd-nnn for reels,
-    RM-<item>-yymmdd-nnn for lots), a ledger receipt with source "Opening load", a location (default the
+    RM-<item>-yymmdd-nnn for lots; a glue tank gets the plant's AIT tank number, its own one kept when given), a ledger receipt with source "Opening load", a location (default the
     RM store) and is either cleared (usable at once, no incoming QC: it is already in use in the plant)
     or on hold with a reason (incoming QC clears it like any held lot);
   - one batch posts all or nothing, once per request key (a double click posts once), inside the books
@@ -51,6 +51,7 @@ from .labels import batch_label_payload, reel_label_facts, reel_label_payload, s
 from .locations import RECEIVING_DEFAULT_CODE, RECEIVING_PURPOSES, default_receiving_location
 from .receipt_quality import initial_quality
 from .stock_lots import batch_balances, location_brief, lot_row
+from . import tank_serial
 
 OPENING_CLOSED = "Opening stock is closed. Use a stock count to correct stock."
 SOURCE_WORD = "Opening load"
@@ -319,10 +320,17 @@ def check_lines(db: Session, plant_id: str, lines: list[Any], on_date: Optional[
     seen_marks: dict[str, int] = {}
     from .reel_serial import kept_serial_number, serial_text, serials_in_use
     serial_day = on_date or go_live_date(db, plant_id) or ist_today()
-    typed_serials = {str(getattr(line, "serial", None) or "").strip() for line in lines} - {""}
-    kept = {serial_text(number) for number in (kept_serial_number(value) for value in typed_serials) if number}
-    serials_taken = serials_in_use(db, plant_id, serial_day, kept) if plant_uuid else set()
-    seen_serials: dict[str, int] = {}
+    # Reels and glue tanks are two series (owner, 3 Nov 2026): the same number may be once in each.
+    kept_reels: set[str] = set()
+    kept_tanks: set[str] = set()
+    for line in lines:
+        number = kept_serial_number(str(getattr(line, "serial", None) or "").strip())
+        if number:
+            line_item = items.get(_uuid_or_none(getattr(line, "item_id", None)))
+            (kept_tanks if line_item is not None and _line_kind(line_item) != "REEL" and tank_serial.is_tank_item(line_item) else kept_reels).add(serial_text(number))
+    serials_taken = serials_in_use(db, plant_id, serial_day, kept_reels) if plant_uuid else set()
+    tanks_taken = tank_serial.serials_in_use(db, plant_id, serial_day, kept_tanks)
+    seen_serials: dict[tuple[str, str], int] = {}
 
     checked: list[dict[str, Any]] = []
     by_item: dict[tuple[str, str], dict[str, Any]] = {}
@@ -389,17 +397,22 @@ def check_lines(db: Session, plant_id: str, lines: list[Any], on_date: Optional[
         serial = None
         if typed_serial:
             number = kept_serial_number(typed_serial)
-            if item is not None and kind != "REEL":
-                errors.append({"field": "serial", "message": "Only reels and coils carry an AIT number."})
+            # A glue tank keeps its own AIT tank number too (owner, 3 Nov 2026); other bulk lots have none.
+            tank = item is not None and kind != "REEL" and tank_serial.is_tank_item(item)
+            if item is not None and kind != "REEL" and not tank:
+                errors.append({"field": "serial", "message": "Only reels, coils and glue tanks carry an AIT number."})
             elif number is None:
-                errors.append({"field": "serial", "message": f"{typed_serial} is not an AIT number like AIT 06243."})
+                errors.append({"field": "serial", "message": f"{typed_serial} is not an AIT number like {'AIT 00546' if tank else 'AIT 06243'}."})
             else:
                 serial = serial_text(number)
-                if serial in seen_serials:
-                    errors.append({"field": "serial", "message": f"{serial} is also on row {seen_serials[serial]}."})
+                key = ("TANK" if tank else "REEL", serial)
+                if key in seen_serials:
+                    errors.append({"field": "serial", "message": f"{serial} is also on row {seen_serials[key]}."})
                 else:
-                    seen_serials[serial] = index
-                if serial in serials_taken:
+                    seen_serials[key] = index
+                if tank and serial in tanks_taken:
+                    errors.append({"field": "serial", "message": f"{serial} is already a glue tank in this plant this year."})
+                elif not tank and serial in serials_taken:
                     errors.append({"field": "serial", "message": f"{serial} is already a reel in this plant this year."})
         mark = _old_mark(line)
         if mark:
@@ -659,7 +672,13 @@ def post_batch(db: Session, plant_id: str, payload: Any, actor: str) -> dict[str
             ))
             response_lines.append({"item_code": item.item_code, "reel_code": serial["serial"], "qty": line.qty})
         else:
-            batch_no = _next_lot_no(db, plant_id, item, go_live)
+            # A glue tank carries the plant's tank number: its own one kept, else the next (owner, 3 Nov 2026).
+            tank = None
+            if tank_serial.is_tank_item(item):
+                tank = (tank_serial.keep_tank_serial(db, plant_id, go_live, line.serial) if getattr(line, "serial", None)
+                        else tank_serial.next_tank_serial(db, plant_id, go_live))
+                meta = {**meta, **tank["metadata"]}
+            batch_no = tank["batch_no"] if tank else _next_lot_no(db, plant_id, item, go_live)
             batch = StockBatch(
                 item_id=item.id, batch_no=batch_no, received_qty=line.qty,
                 unit_cost=unit_cost if unit_cost > 0 else None, cost_source=cost_source,
@@ -669,7 +688,9 @@ def post_batch(db: Session, plant_id: str, payload: Any, actor: str) -> dict[str
             )
             db.add(batch)
             db.flush()
-            batch.inward_metadata = {**meta, "saved_label": batch_label_payload(batch, item, inward_date=go_live)}
+            # The label prints the day the lot really came in when the register gives it, else the go-live date.
+            received = _iso_day(meta.get("received_on")) or go_live
+            batch.inward_metadata = {**meta, "saved_label": batch_label_payload(batch, item, inward_date=received)}
             db.add(StockTransaction(
                 item_id=item.id, batch_id=batch.id, transaction_type=TransactionType.OPENING, qty_change=line.qty,
                 reference_type=ReferenceType.INTERNAL, reference_id=header.id, plant_id=str(plant_id),
@@ -819,11 +840,13 @@ def batch_labels(db: Session, header: InventoryOpeningLoad) -> list[dict[str, An
         qty = float(entity.current_weight_kg or 0.0) if line.reel_id else balances.get(str(entity.id), 0.0)
         row = lot_row(entity, item, qty, locations=locations)
         meta = entity.inward_metadata or {}
-        payload = reel_label_payload(entity, item) if line.reel_id else batch_label_payload(entity, item, inward_date=header.effective_date)
+        # A lot whose register gives the day it came in prints that day (owner, 3 Nov 2026), else the go-live date.
+        lot_day = header.effective_date if line.reel_id else (_iso_day(meta.get("received_on")) or header.effective_date)
+        payload = reel_label_payload(entity, item) if line.reel_id else batch_label_payload(entity, item, inward_date=lot_day)
         row.update({
             # The label prints the go-live date, not the day the batch was typed in.
-            "created_at": header.effective_date.isoformat(),
-            "in_since": header.effective_date.isoformat(),
+            "created_at": lot_day.isoformat(),
+            "in_since": lot_day.isoformat(),
             "posted_qty": round(float(line.qty or 0.0), 3),
             "old_mark": meta.get("old_mark"),
             "vendor_name": meta.get("vendor_name"),

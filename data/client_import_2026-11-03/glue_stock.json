@@ -1,0 +1,299 @@
+{
+ "source": "Glue stock.xlsx, Sheet2 (Amigo Industries, stock as on 03-11-2026; closing till 31-10-2026)",
+ "extracted_on": "2026-11-03",
+ "notes": [
+  "Every row is one 1000 kg tank in stock (open, not consumed) on 31 Oct 2026; loaded as opening stock dated 1 Nov 2026, QC cleared, keeping its AIT tank number (owner 2026-11-03)."
+ ],
+ "tanks": [
+  {
+   "sheet_row": 4,
+   "register_no": "24/00546",
+   "inward_date": "2026-08-06",
+   "vendor": "SIVA CHEMICAL",
+   "product": "ADHESIVE",
+   "item": "TL4 LV",
+   "weight_kg": 1000.0,
+   "ait_no": "AIT 00546"
+  },
+  {
+   "sheet_row": 5,
+   "register_no": "24/00889",
+   "inward_date": "2026-10-08",
+   "vendor": "SIVA CHEMICAL",
+   "product": "ADHESIVE",
+   "item": "VINSOL-HV",
+   "weight_kg": 1000.0,
+   "ait_no": "AIT 00889"
+  },
+  {
+   "sheet_row": 6,
+   "register_no": "24/00954",
+   "inward_date": "2026-10-24",
+   "vendor": "SIVA CHEMICAL",
+   "product": "ADHESIVE",
+   "item": "VINSOL-TL4",
+   "weight_kg": 1000.0,
+   "ait_no": "AIT 00954"
+  },
+  {
+   "sheet_row": 7,
+   "register_no": "24/00956",
+   "inward_date": "2026-10-24",
+   "vendor": "SIVA CHEMICAL",
+   "product": "ADHESIVE",
+   "item": "VINSOL-HV",
+   "weight_kg": 1000.0,
+   "ait_no": "AIT 00956"
+  },
+  {
+   "sheet_row": 8,
+   "register_no": "24/00957",
+   "inward_date": "2026-10-24",
+   "vendor": "SIVA CHEMICAL",
+   "product": "ADHESIVE",
+   "item": "VINSOL-HV",
+   "weight_kg": 1000.0,
+   "ait_no": "AIT 00957"
+  },
+  {
+   "sheet_row": 9,
+   "register_no": "24/00958",
+   "inward_date": "2026-10-24",
+   "vendor": "SIVA CHEMICAL",
+   "product": "ADHESIVE",
+   "item": "VINSOL-HV",
+   "weight_kg": 1000.0,
+   "ait_no": "AIT 00958"
+  },
+  {
+   "sheet_row": 10,
+   "register_no": "24/00969",
+   "inward_date": "2026-10-27",
+   "vendor": "Poonam Corporation",
+   "product": "ADHESIVE",
+   "item": "Wellcol EM30100",
+   "weight_kg": 1000.0,
+   "ait_no": "AIT 00969"
+  },
+  {
+   "sheet_row": 11,
+   "register_no": "24/00970",
+   "inward_date": "2026-10-27",
+   "vendor": "Poonam Corporation",
+   "product": "ADHESIVE",
+   "item": "Wellcol EM30100",
+   "weight_kg": 1000.0,
+   "ait_no": "AIT 00970"
+  },
+  {
+   "sheet_row": 12,
+   "register_no": "24/00978",
+   "inward_date": "2026-10-28",
+   "vendor": "SIVA CHEMICAL",
+   "product": "ADHESIVE",
+   "item": "VINSOL-TL4",
+   "weight_kg": 1000.0,
+   "ait_no": "AIT 00978"
+  },
+  {
+   "sheet_row": 13,
+   "register_no": "24/00979",
+   "inward_date": "2026-10-28",
+   "vendor": "SIVA CHEMICAL",
+   "product": "ADHESIVE",
+   "item": "VINSOL-TL4",
+   "weight_kg": 1000.0,
+   "ait_no": "AIT 00979"
+  },
+  {
+   "sheet_row": 14,
+   "register_no": "24/00980",
+   "inward_date": "2026-10-28",
+   "vendor": "SIVA CHEMICAL",
+   "product": "ADHESIVE",
+   "item": "VINSOL-TL4",
+   "weight_kg": 1000.0,
+   "ait_no": "AIT 00980"
+  },
+  {
+   "sheet_row": 15,
+   "register_no": "24/00983",
+   "inward_date": "2026-10-28",
+   "vendor": "SIVA CHEMICAL",
+   "product": "ADHESIVE",
+   "item": "TL4 LV",
+   "weight_kg": 1000.0,
+   "ait_no": "AIT 00983"
+  },
+  {
+   "sheet_row": 16,
+   "register_no": "24/00984",
+   "inward_date": "2026-10-28",
+   "vendor": "SIVA CHEMICAL",
+   "product": "ADHESIVE",
+   "item": "TL4 LV",
+   "weight_kg": 1000.0,
+   "ait_no": "AIT 00984"
+  },
+  {
+   "sheet_row": 17,
+   "register_no": "24/00985",
+   "inward_date": "2026-10-30",
+   "vendor": "Poonam Corporation",
+   "product": "ADHESIVE",
+   "item": "Wellcol EM30100",
+   "weight_kg": 1000.0,
+   "ait_no": "AIT 00985"
+  },
+  {
+   "sheet_row": 18,
+   "register_no": "24/00986",
+   "inward_date": "2026-10-30",
+   "vendor": "Poonam Corporation",
+   "product": "ADHESIVE",
+   "item": "Wellcol EM30100",
+   "weight_kg": 1000.0,
+   "ait_no": "AIT 00986"
+  },
+  {
+   "sheet_row": 19,
+   "register_no": "24/00987",
+   "inward_date": "2026-10-30",
+   "vendor": "Poonam Corporation",
+   "product": "ADHESIVE",
+   "item": "Wellcol EM30100",
+   "weight_kg": 1000.0,
+   "ait_no": "AIT 00987"
+  },
+  {
+   "sheet_row": 20,
+   "register_no": "24/00988",
+   "inward_date": "2026-10-30",
+   "vendor": "Poonam Corporation",
+   "product": "ADHESIVE",
+   "item": "Wellcol EM30100",
+   "weight_kg": 1000.0,
+   "ait_no": "AIT 00988"
+  },
+  {
+   "sheet_row": 21,
+   "register_no": "24/00989",
+   "inward_date": "2026-10-30",
+   "vendor": "Poonam Corporation",
+   "product": "ADHESIVE",
+   "item": "Wellcol EM30100",
+   "weight_kg": 1000.0,
+   "ait_no": "AIT 00989"
+  },
+  {
+   "sheet_row": 22,
+   "register_no": "24/00990",
+   "inward_date": "2026-10-30",
+   "vendor": "Poonam Corporation",
+   "product": "ADHESIVE",
+   "item": "Wellcol EM30100",
+   "weight_kg": 1000.0,
+   "ait_no": "AIT 00990"
+  },
+  {
+   "sheet_row": 23,
+   "register_no": "24/00991",
+   "inward_date": "2026-10-30",
+   "vendor": "Poonam Corporation",
+   "product": "ADHESIVE",
+   "item": "Wellcol EM30100",
+   "weight_kg": 1000.0,
+   "ait_no": "AIT 00991"
+  },
+  {
+   "sheet_row": 24,
+   "register_no": "24/00992",
+   "inward_date": "2026-10-30",
+   "vendor": "Poonam Corporation",
+   "product": "ADHESIVE",
+   "item": "Wellcol EM30100",
+   "weight_kg": 1000.0,
+   "ait_no": "AIT 00992"
+  },
+  {
+   "sheet_row": 25,
+   "register_no": "24/00993",
+   "inward_date": "2026-10-31",
+   "vendor": "SIVA CHEMICAL",
+   "product": "ADHESIVE",
+   "item": "VINSOL-TL4",
+   "weight_kg": 1000.0,
+   "ait_no": "AIT 00993"
+  },
+  {
+   "sheet_row": 26,
+   "register_no": "24/00994",
+   "inward_date": "2026-10-31",
+   "vendor": "SIVA CHEMICAL",
+   "product": "ADHESIVE",
+   "item": "VINSOL-TL4",
+   "weight_kg": 1000.0,
+   "ait_no": "AIT 00994"
+  },
+  {
+   "sheet_row": 27,
+   "register_no": "24/00995",
+   "inward_date": "2026-10-31",
+   "vendor": "SIVA CHEMICAL",
+   "product": "ADHESIVE",
+   "item": "VINSOL-HV",
+   "weight_kg": 1000.0,
+   "ait_no": "AIT 00995"
+  },
+  {
+   "sheet_row": 28,
+   "register_no": "24/00996",
+   "inward_date": "2026-10-31",
+   "vendor": "SIVA CHEMICAL",
+   "product": "ADHESIVE",
+   "item": "VINSOL-HV",
+   "weight_kg": 1000.0,
+   "ait_no": "AIT 00996"
+  },
+  {
+   "sheet_row": 29,
+   "register_no": "24/00997",
+   "inward_date": "2026-10-31",
+   "vendor": "SIVA CHEMICAL",
+   "product": "ADHESIVE",
+   "item": "VINSOL-HV",
+   "weight_kg": 1000.0,
+   "ait_no": "AIT 00997"
+  },
+  {
+   "sheet_row": 30,
+   "register_no": "24/00998",
+   "inward_date": "2026-10-31",
+   "vendor": "SIVA CHEMICAL",
+   "product": "ADHESIVE",
+   "item": "TL4 LV",
+   "weight_kg": 1000.0,
+   "ait_no": "AIT 00998"
+  },
+  {
+   "sheet_row": 31,
+   "register_no": "24/00999",
+   "inward_date": "2026-10-31",
+   "vendor": "SIVA CHEMICAL",
+   "product": "ADHESIVE",
+   "item": "TL4 LV",
+   "weight_kg": 1000.0,
+   "ait_no": "AIT 00999"
+  },
+  {
+   "sheet_row": 32,
+   "register_no": "24/01000",
+   "inward_date": "2026-10-31",
+   "vendor": "SIVA CHEMICAL",
+   "product": "ADHESIVE",
+   "item": "TL4 LV",
+   "weight_kg": 1000.0,
+   "ait_no": "AIT 01000"
+  }
+ ]
+}

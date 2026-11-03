@@ -361,7 +361,7 @@ class OpeningLoadLinePayload(BaseModel):
     unit_cost: Optional[float] = Field(default=None, ge=0)
     cost_source: Optional[str] = None
     notes: Optional[str] = Field(default=None, max_length=500)
-    # A reel that already carries the plant's serial keeps it (client 2026-11-03), with what its receipt said:
+    # A reel (or a glue tank, owner 3 Nov 2026) that already carries the plant's serial keeps it (client 2026-11-03), with what its receipt said:
     # mill short name, mill invoice no. / date, PO, the day it came in, and the mill's variety and ply bond.
     serial: Optional[str] = Field(default=None, max_length=20)
     mill_name: Optional[str] = Field(default=None, max_length=60)
@@ -820,8 +820,11 @@ def _post_bulk_adjustment_line(
         txn_status = batch.stock_status
         txn_location = batch.location_id
     elif qty_delta > 0:
-        batch_no = f"{_new_lot_prefix(header.voucher_no)}-B{line_index:03d}"
-        if db.query(StockBatch.id).filter(StockBatch.plant_id == plant_id, StockBatch.batch_no == batch_no).first():
+        # A glue lot found by a count takes the plant's next glue tank number like every new tank (owner 3 Nov 2026).
+        from ..services.tank_serial import is_tank_item, next_tank_serial
+        tank = next_tank_serial(db, plant_id, header.effective_date or date.today()) if is_tank_item(item) else None
+        batch_no = tank["batch_no"] if tank else f"{_new_lot_prefix(header.voucher_no)}-B{line_index:03d}"
+        if not tank and db.query(StockBatch.id).filter(StockBatch.plant_id == plant_id, StockBatch.batch_no == batch_no).first():
             batch_no = f"{batch_no}-{uuid.uuid4().hex[:4].upper()}"[:100]
         batch = StockBatch(
             item_id=item.id,
@@ -836,7 +839,7 @@ def _post_bulk_adjustment_line(
             plant_id=plant_id,
             # "In since" the voucher's own day (a back-dated month-end count's lot is in the book from then).
             inward_metadata={"source_document_type": "STOCK_ADJUSTMENT", "voucher_no": header.voucher_no, "notes": line.notes,
-                             "received_date": header.effective_date.isoformat() if header.effective_date else None},
+                             "received_date": header.effective_date.isoformat() if header.effective_date else None, **(tank["metadata"] if tank else {})},
         )
         db.add(batch)
         db.flush()

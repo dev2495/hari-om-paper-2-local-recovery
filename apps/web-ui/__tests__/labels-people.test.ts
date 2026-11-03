@@ -41,6 +41,9 @@ assert.match(read("app/(dashboard)/inventory/locations/lot-labels/page.tsx"), /L
 assert.match(read("components/inventory/label-sheet.css"), /repeat\(2, 92mm\)/)
 assert.match(read("components/inventory/label-sheet.css"), /@page reel-label-single/)
 assert.match(read("app/(dashboard)/system/plants/page.tsx"), /ReelSerialSetting/)
+// Glue tanks have their own AIT series next to the reels (owner, 3 Nov 2026).
+assert.match(read("app/(dashboard)/system/plants/page.tsx"), /<TankSerialSetting plantId/)
+assert.match(read("components/inventory/reel-serial-setting.tsx"), /tank-serial/)
 assert.match(read("app/(dashboard)/system/plants/page.tsx"), /plant-label-heading/)
 assert.match(read("app/(dashboard)/masters/vendors/page.tsx"), /"short_name"/)
 assert.match(read("app/(dashboard)/purchase/inward/page.tsx"), /mill_name: vendor\.short_name/)

@@ -1515,3 +1515,9 @@ async def return_production_material(request: Request, token: str = Depends(get_
 @router.api_route("/reel-serial", methods=["GET", "PUT"])
 async def reel_serial_setting(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/reel-serial", request, token)
+
+
+# The plant's glue tank number (owner, 3 Nov 2026): its own AIT series, the same GET / PUT as the reel serial.
+@router.api_route("/tank-serial", methods=["GET", "PUT"])
+async def tank_serial_setting(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/tank-serial", request, token)
