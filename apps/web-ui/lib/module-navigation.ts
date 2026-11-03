@@ -6,6 +6,14 @@ export type ModuleLink = {
   also?: string[]
   /** For a tab link: the tab the page opens on when the address has no tab. */
   defaultTab?: boolean
+  /** Roles that see this link (blank = everyone who sees its menu entry; Owner and Admin always). */
+  roles?: string[]
+}
+
+/** Can someone with these roles see the link? Same rule as the sidebar's entries. */
+export function canSeeModuleLink(link: ModuleLink, roles: Set<string>): boolean {
+  if (!link.roles?.length || roles.has("Owner") || roles.has("Admin")) return true
+  return link.roles.some((role) => roles.has(role))
 }
 
 const pathOf = (href: string) => href.split("?")[0]
@@ -170,8 +178,19 @@ export const MODULE_NAVIGATION: Record<string, ModuleLink[]> = {
       "href": "/production/reconciliation/limits"
     }
   ],
+  // Stores & inventory, one entry per job with its pages as tabs (review 3 Nov 2026). A tab carries the
+  // roles of its page, so nobody loses a page they could open before.
+  "/purchase/inward": [
+    { name: "Receive goods", href: "/purchase/inward", roles: ["Store", "PlantManager", "GRN"] },
+    { name: "GRN register & labels", href: "/purchase/receipts", roles: ["Store", "PlantManager", "Accounts", "GRN", "InwardQC"] },
+  ],
+  "/inventory/reels/issue": [
+    { name: "Reels & coils", href: "/inventory/reels/issue", roles: ["Store", "PlantManager", "RMIssue"] },
+    { name: "Adhesive, parchment, packing", href: "/inventory/production-issue", roles: ["Store", "PlantManager", "RMIssue"] },
+    { name: "Issue history", href: "/inventory/issue-history", roles: ["Store", "PlantManager", "RMIssue", "Planner", "GRN"] },
+  ],
   // One Stock place (client 2026-10-28): the hub's three tabs and locations. A count and its racks
-  // (/inventory/counts/<id>/...) sit under Counts.
+  // (/inventory/counts/<id>/...) sit under Counts. Go-live opening stock is entered here too.
   "/inventory/stock-control": [
     {
       "name": "Counts",
@@ -190,20 +209,20 @@ export const MODULE_NAVIGATION: Record<string, ModuleLink[]> = {
     {
       "name": "Locations",
       "href": "/inventory/locations"
-    }
+    },
+    { name: "Opening stock", href: "/inventory/opening-stock", roles: ["Owner", "Admin"] }
   ],
   "/inventory": [
-    {
-      "name": "Stock overview",
-      "href": "/inventory"
-    },
-    {
-      "name": "Material items",
-      "href": "/inventory/items"
-    },
-    {
-      "name": "Goods inward",
-      "href": "/purchase/inward"
-    }
+    { name: "Overview", href: "/inventory", roles: ["Store", "Planner", "PlantManager", "GRN", "RMIssue"] },
+    { name: "Materials", href: "/inventory/items", roles: ["Store", "Planner", "PlantManager", "GRN", "RMIssue"] },
+    { name: "Reel trace", href: "/inventory/genealogy", roles: ["Store", "Planner", "PlantManager", "Dispatch", "GRN", "RMIssue"] },
+  ],
+  "/inventory/stock-alerts": [
+    { name: "Alerts", href: "/inventory/stock-alerts", roles: ["Store", "Planner", "PlantManager"] },
+    { name: "Reorder rules", href: "/inventory/stock-alert-policies", roles: ["PlantManager", "Store"] },
+  ],
+  "/logistics/dispatch": [
+    { name: "Dispatch", href: "/logistics/dispatch", roles: ["Dispatch", "Sales", "Store"] },
+    { name: "FG in without a job card", href: "/inventory/fg-inward", roles: ["PlantManager"] },
   ]
 }

@@ -7,7 +7,7 @@ import { ChevronRight, type LucideIcon } from "lucide-react"
 import { activeModuleLink, type ModuleLink } from "@/lib/module-navigation"
 import { cn } from "@/lib/utils"
 
-export type SidebarItem = { name: string; href: string; icon: LucideIcon; description: string }
+export type SidebarItem = { name: string; href: string; icon: LucideIcon; description: string; entryHref?: string }
 export type SidebarGroup = { title: string; items: SidebarItem[] }
 
 /** One accent per group so the rail reads as sections at a glance. */
@@ -17,6 +17,7 @@ const GROUP_ACCENT: Record<string, string> = {
   Quality: "var(--primary)",
   Purchasing: "var(--chart-4)",
   "Stores & inventory": "var(--chart-6)",
+  Dispatch: "var(--chart-5)",
   Design: "var(--chart-3)",
   Reports: "var(--chart-8)",
   Foundation: "var(--muted-foreground)",
@@ -126,7 +127,7 @@ export function SidebarNav({
                     return (
                       <div key={item.href} style={{ ["--item-index" as any]: itemIndex }}>
                         <Link
-                          href={item.href}
+                          href={item.entryHref || item.href}
                           className="tube-nav-link"
                           data-level="top"
                           aria-label={badge?.count ? `${item.name}, ${badge.count}` : item.name}

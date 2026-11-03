@@ -70,7 +70,22 @@ assert.doesNotMatch(sidebar, /name: "Reconciliation"|name: "RM & PM Schedule"|na
 const names = (key: string) => (MODULE_NAVIGATION[key] || []).map((link) => `${link.name} ${link.href}`)
 assert.deepEqual(names("/production/reconciliation"), ["Month-end close /production/reconciliation", "Usage limits /production/reconciliation/limits"])
 assert.deepEqual(names("/inventory/stock-control"), ["Counts /inventory/stock-control?tab=counts", "Corrections /inventory/stock-control?tab=corrections",
-  "Stock book /inventory/stock-control?tab=book", "Locations /inventory/locations"])
+  "Stock book /inventory/stock-control?tab=book", "Locations /inventory/locations", "Opening stock /inventory/opening-stock"])
+// Stores & inventory (review 3 Nov 2026): one entry per job, its pages as tabs, each tab with its page's roles.
+assert.deepEqual(names("/purchase/inward"), ["Receive goods /purchase/inward", "GRN register & labels /purchase/receipts"])
+assert.deepEqual(names("/inventory/reels/issue").map((row) => row.split(" /")[1]), ["inventory/reels/issue", "inventory/production-issue", "inventory/issue-history"])
+assert.deepEqual(names("/inventory"), ["Overview /inventory", "Materials /inventory/items", "Reel trace /inventory/genealogy"])
+assert.deepEqual(names("/inventory/stock-alerts"), ["Alerts /inventory/stock-alerts", "Reorder rules /inventory/stock-alert-policies"])
+assert.ok(!names("/inventory").some((row) => row.includes("/purchase/inward")), "Goods inward is its own entry, not a Stock overview tab")
+{
+  const { canSeeModuleLink } = require("../lib/module-navigation")
+  const grn = MODULE_NAVIGATION["/purchase/inward"]
+  assert.deepEqual(grn.filter((link: any) => canSeeModuleLink(link, new Set(["Accounts"]))).map((link: any) => link.href), ["/purchase/receipts"])
+  assert.equal(grn.filter((link: any) => canSeeModuleLink(link, new Set(["Owner"]))).length, 2)
+  assert.deepEqual(MODULE_NAVIGATION["/inventory/stock-control"].filter((link: any) => canSeeModuleLink(link, new Set(["Operator"]))).map((link: any) => link.name), ["Counts", "Corrections", "Stock book", "Locations"])
+}
+for (const name of ["Goods inward", "Issue to floor", "Stock overview", "Stock counts & book", "Stock alerts", "RM costing"]) assert.match(sidebar, new RegExp(`name: "${name}"`))
+assert.doesNotMatch(sidebar, /name: "Stock Alerts"|name: "Manual FG"|name: "RM Costing"|name: "Inventory",/)
 assert.ok(names("/system/users").includes("Background jobs /system/scheduler"))
 assert.ok(!names("/system/users").some((row) => /tolerances|locations/.test(row)))
 // A nested page marks its own module link: the longest link it sits under.

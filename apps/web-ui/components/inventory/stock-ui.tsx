@@ -43,7 +43,8 @@ export function Panel({ title, description, action, children, className, bodyCla
           {action ? <div className="flex flex-wrap items-center gap-2">{action}</div> : null}
         </header>
       ) : null}
-      <div className={cn("p-4 sm:p-5", bodyClassName)}>{children}</div>
+      {/* A given bodyClassName replaces the default padding (cn joins classes; it does not merge them). */}
+      <div className={bodyClassName ?? "p-4 sm:p-5"}>{children}</div>
     </section>
   )
 }

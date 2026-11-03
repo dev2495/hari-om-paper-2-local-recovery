@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { ArrowRight, Boxes, ClipboardCheck, FileCheck2, LineChart, PackageCheck, ReceiptText, Warehouse } from "lucide-react"
+import { ArrowRight, Boxes, ClipboardCheck, FileCheck2, PackageCheck, ReceiptText, Warehouse } from "lucide-react"
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 
 import {
@@ -160,15 +160,14 @@ export default function InventoryOverviewPage() {
     })),
   ).sort((left: any, right: any) => right.load_kg - left.load_kg)
 
+  // Six shortcuts to the desks that change stock (review 3 Nov 2026: plain words, no duplicates).
   const actionCards = [
-    { href: "/purchase/inward", title: "Goods inward", copy: "Receive PO or manual paper with one AIT reel label per reel/coil.", icon: Warehouse },
-    { href: "/inventory/reels/issue", title: "Issue reel by scan", copy: "Scan a reel/coil label and issue it to winder or slitting.", icon: Boxes },
-    { href: "/purchase/receipts", title: "Reprint labels", copy: "Open a GRN and reprint reel or lot QR labels.", icon: ReceiptText },
-    { href: "/inventory/stock-control?tab=corrections", title: "Correct stock", copy: "Damaged, short or a wrong GRN weight: raise it with a reason; the Owner approves.", icon: FileCheck2 },
-    { href: "/inventory/production-issue", title: "Production issue", copy: "Issue RM against job card and lot/reel truth.", icon: PackageCheck },
-
-    { href: "/inventory/ledger", title: "Ledger and balances", copy: "Audit physical, reserved, available, and transactions.", icon: ClipboardCheck },
-    { href: "/purchase/scheduler", title: "RM inward calendar", copy: "Forward demand against stock and arrivals, day by day.", icon: LineChart },
+    { href: "/purchase/inward", title: "Receive goods", copy: "Paper or materials in; each reel or coil gets its AIT label.", icon: Warehouse },
+    { href: "/inventory/reels/issue", title: "Issue reels & coils", copy: "Scan a reel or coil label to send it to the slitter or winders.", icon: Boxes },
+    { href: "/inventory/production-issue", title: "Issue other materials", copy: "Adhesive, parchment and packing to the floor by shift.", icon: PackageCheck },
+    { href: "/purchase/receipts", title: "Reprint labels", copy: "Open a GRN and print its reel or lot labels again.", icon: ReceiptText },
+    { href: "/inventory/stock-control?tab=corrections", title: "Correct stock", copy: "Damaged, short or a wrong weight: raise it with a reason; the Owner approves.", icon: FileCheck2 },
+    { href: "/inventory/ledger", title: "Ledger", copy: "Every receipt, issue and correction behind each material's balance.", icon: ClipboardCheck },
   ]
 
   return (
@@ -176,16 +175,16 @@ export default function InventoryOverviewPage() {
       <PageHeader
         variant="hero"
         appearance={MODULE_APPEARANCES.inventory}
-        badge="Inventory control"
+        badge="Stores"
         title="Stock overview"
-        description="Review material availability, held stock and valuation. Open a receipt, issue or stock record to take action."
+        description="What is in stock, what is held and where. Use the shortcuts to receive, issue or correct stock."
       />
 
       <MetricRail className="xl:grid-cols-4">
-        <MetricCard label="Inventory value" value={formatCurrency(totalValue)} detail="RM + tracked batch valuation" icon={Warehouse} tone="violet" href={valueHref} />
+        <MetricCard label="Inventory value" value={formatCurrency(totalValue)} detail="Raw materials at their rates" icon={Warehouse} tone="violet" href={valueHref} />
         <MetricCard label="Stock on hand" value={formatKg(totalKg)} detail={`${inventoryRows.length} stocked items${totalPcs ? ` · ${formatNumber(totalPcs)} pcs` : ""}`} icon={Boxes} tone="teal" href="/inventory/ledger" />
-        <MetricCard label="Held / blocked" value={formatKg(blockedKg)} detail="QC hold, blocked and scrap" icon={FileCheck2} tone={blockedKg ? "rose" : "slate"} href="/quality/results" />
-        <MetricCard label="Locations used" value={`${occupiedLocations}/${totalLocations}`} detail="Warehouse occupancy" icon={ClipboardCheck} tone="amber" progress={totalLocations ? (occupiedLocations / totalLocations) * 100 : null} href="/inventory/locations" />
+        <MetricCard label="Held / blocked" value={formatKg(blockedKg)} detail="On QC hold, blocked or scrap: not issuable" icon={FileCheck2} tone={blockedKg ? "rose" : "slate"} href="/quality/incoming" />
+        <MetricCard label="Locations used" value={`${occupiedLocations}/${totalLocations}`} detail="Racks with stock on them" icon={ClipboardCheck} tone="amber" progress={totalLocations ? (occupiedLocations / totalLocations) * 100 : null} href="/inventory/locations" />
       </MetricRail>
 
       <section className="stagger grid grid-cols-2 gap-2.5 xl:grid-cols-6" aria-label="Quick actions">

@@ -1,330 +1,282 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+// Materials (review 3 Nov 2026): the list of every material the stores keep, with what is in stock and its
+// reorder levels. It never changes stock. Papers, parchment, adhesive and packing come from Masters (they
+// sync in on their own); only tools and other materials are added here. Reorder levels are set in one place,
+// Stock alerts › Reorder rules (two-person check), and shown here read-only.
+import { useMemo, useState } from "react"
 import Link from "next/link"
-import { ArrowRight, Boxes, PencilLine, Plus, Save } from "lucide-react"
+import { AlertTriangle, ArrowRight, Boxes, CheckCircle2, CircleSlash, Layers, PackagePlus, Search } from "lucide-react"
 
-import { useCreateItem, useDeleteItem, useInventoryBalances, useInventoryItems, useUpdateItem } from "@/hooks/use-inventory"
+import { useAuth } from "@/context/AuthContext"
+import { Chip, EmptyBlock, Field, Notice, Panel, PickPlant, Segmented, Sheet, Stat, fieldClass } from "@/components/inventory/stock-ui"
+import { useCreateItem, useDeleteItem, useInventoryBalances, useInventoryItems } from "@/hooks/use-inventory"
+import { cn } from "@/lib/utils"
 
-const formatNumber = (value: unknown, digits = 2) =>
-  Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: digits })
+const qty = (value: unknown) => Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })
 
-const itemTypes = ["RAW_PAPER", "ADHESIVE", "PARCHMENT", "PACKAGING", "TOOL", "FINISHED_GOOD", "OTHER"]
-const uoms = ["KG", "L", "PCS"]
-const trackingModes = ["BULK", "REEL"]
+const TYPE_WORD: Record<string, string> = {
+  RAW_PAPER: "Paper", PARCHMENT: "Parchment", ADHESIVE: "Adhesive", PACKAGING: "Packing", TOOL: "Tool", OTHER: "Other", FINISHED_GOOD: "Finished good",
+}
+/** Where each synced material type is added (they reach this list on their own). */
+const MASTER_FOR: Record<string, { label: string; href: string }> = {
+  RAW_PAPER: { label: "Masters › Papers", href: "/masters/papers" },
+  PARCHMENT: { label: "Masters › Parchments", href: "/masters/parchments" },
+  ADHESIVE: { label: "Masters › Adhesives", href: "/masters/adhesives" },
+  PACKAGING: { label: "Masters › Packaging", href: "/masters/packaging" },
+}
+const FILTERS = ["ALL", "RAW_PAPER", "PARCHMENT", "ADHESIVE", "PACKAGING", "OTHERS"] as const
+type Filter = (typeof FILTERS)[number]
+const FILTER_WORD: Record<Filter, string> = { ALL: "All", RAW_PAPER: "Paper", PARCHMENT: "Parchment", ADHESIVE: "Adhesive", PACKAGING: "Packing", OTHERS: "Tools & other" }
+const unitWord = (uom: string) => ({ KG: "kg", L: "L", PCS: "pcs" } as Record<string, string>)[String(uom || "").toUpperCase()] || String(uom || "").toLowerCase()
 
-export default function InventoryItemsPage() {
+/** A QC band in words: "5 to 9 %", "at least 24", "up to 9 %", or "no limit set". */
+const bandText = (min: unknown, max: unknown, unit?: string) => {
+  const has = (value: unknown) => value !== null && value !== undefined && value !== ""
+  const tail = unit ? ` ${unit}` : ""
+  if (has(min) && has(max)) return `${min} to ${max}${tail}`
+  if (has(min)) return `at least ${min}${tail}`
+  if (has(max)) return `up to ${max}${tail}`
+  return "no limit set"
+}
+
+type Level = "LOW" | "OK" | "NONE"
+
+export default function MaterialsPage() {
+  const { activePlant, user } = useAuth()
+  const single = Boolean(activePlant && activePlant !== "ALL")
+  const roles = useMemo(() => new Set([user?.role, ...(user?.roles || [])].filter(Boolean) as string[]), [user?.role, user?.roles])
+  const isAdmin = roles.has("Owner") || roles.has("Admin")
+  const canSwitchOff = isAdmin || roles.has("Store")
   const { data: items = [], isLoading } = useInventoryItems()
   const { data: balances = [] } = useInventoryBalances()
-  const createItem = useCreateItem()
-  const updateItem = useUpdateItem()
-  const deleteItem = useDeleteItem()
-  const [selectedItemId, setSelectedItemId] = useState("")
-  const [form, setForm] = useState({
-    item_code: "",
-    name: "",
-    type: "RAW_PAPER",
-    tracking_mode: "REEL",
-    uom: "KG",
-    density_kg_per_litre: "",
-    reorder_level: "",
-    safety_stock: "",
-    lead_time_days: "",
-  })
-  const [policyForm, setPolicyForm] = useState({
-    reorder_level: "",
-    safety_stock: "",
-    lead_time_days: "",
-  })
-  const [policyError, setPolicyError] = useState("")
+  const [filter, setFilter] = useState<Filter>("ALL")
+  const [search, setSearch] = useState("")
+  const [inStockOnly, setInStockOnly] = useState(false)
+  const [showOff, setShowOff] = useState(false)
+  const [openId, setOpenId] = useState("")
+  const [adding, setAdding] = useState(false)
 
-  const balanceMap = useMemo(
-    () => new Map((Array.isArray(balances) ? balances : []).map((row: any) => [String(row.item_id), row])),
-    [balances],
-  )
-  const itemRows = Array.isArray(items) ? items : []
-  const selectedItem = itemRows.find((item: any) => String(item.id) === selectedItemId)
-  const typeCounts = itemRows.reduce((acc: Record<string, number>, item: any) => {
-    const key = String(item.type || "UNKNOWN").toUpperCase()
-    acc[key] = (acc[key] || 0) + 1
-    return acc
-  }, {})
+  const stockOf = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const row of Array.isArray(balances) ? balances : []) map.set(String(row.item_id), Number(row.balance ?? row.available_qty ?? 0))
+    return map
+  }, [balances])
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    await createItem.mutateAsync({
-      item_code: form.item_code,
-      name: form.name,
-      type: form.type,
-      tracking_mode: form.tracking_mode,
-      uom: form.uom,
-      density_kg_per_litre: form.density_kg_per_litre ? Number(form.density_kg_per_litre) : undefined,
-      reorder_level: form.reorder_level ? Number(form.reorder_level) : 0,
-      safety_stock: form.safety_stock ? Number(form.safety_stock) : 0,
-      lead_time_days: form.lead_time_days ? Number(form.lead_time_days) : 0,
-    })
-    setForm((current) => ({ ...current, item_code: "", name: "", reorder_level: "", safety_stock: "", lead_time_days: "" }))
-  }
+  const rows = useMemo(() => (Array.isArray(items) ? items : []).filter((item: any) => String(item.type) !== "FINISHED_GOOD").map((item: any) => {
+    const stock = stockOf.get(String(item.id)) || 0
+    const reorder = Number(item.reorder_level || 0)
+    const level: Level = reorder > 0 ? (stock <= reorder ? "LOW" : "OK") : "NONE"
+    return { ...item, stock, reorder, safety: Number(item.safety_stock || 0), lead: Number(item.lead_time_days || 0), level, off: String(item.active) === "false" }
+  }), [items, stockOf])
 
-  useEffect(() => {
-    if (!selectedItem) return
-    setPolicyForm({
-      reorder_level: selectedItem.reorder_level ? String(selectedItem.reorder_level) : "",
-      safety_stock: selectedItem.safety_stock ? String(selectedItem.safety_stock) : "",
-      lead_time_days: selectedItem.lead_time_days ? String(selectedItem.lead_time_days) : "",
-    })
-  }, [selectedItem])
+  const active = rows.filter((row) => !row.off)
+  const visible = rows.filter((row) => {
+    if (row.off && !showOff) return false
+    if (filter === "OTHERS" ? !["TOOL", "OTHER"].includes(String(row.type)) : filter !== "ALL" && String(row.type) !== filter) return false
+    if (inStockOnly && row.stock <= 0) return false
+    const words = search.trim().toLowerCase()
+    return !words || `${row.item_code} ${row.name}`.toLowerCase().includes(words)
+  }).sort((a, b) => Number(a.off) - Number(b.off) || b.stock - a.stock || String(a.item_code).localeCompare(String(b.item_code)))
+  const open = rows.find((row) => row.id === openId)
+  const count = (filterValue: Filter) => active.filter((row) => filterValue === "ALL" || (filterValue === "OTHERS" ? ["TOOL", "OTHER"].includes(String(row.type)) : String(row.type) === filterValue)).length
 
-  async function savePolicy(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!selectedItem) return
-    setPolicyError("")
-    try {
-      await updateItem.mutateAsync({
-        id: selectedItem.id,
-        data: {
-          reorder_level: policyForm.reorder_level ? Number(policyForm.reorder_level) : 0,
-          safety_stock: policyForm.safety_stock ? Number(policyForm.safety_stock) : 0,
-          lead_time_days: policyForm.lead_time_days ? Number(policyForm.lead_time_days) : 0,
-        },
-      })
-    } catch (error: any) {
-      setPolicyError(error?.response?.data?.detail || error?.message || "Policy update failed.")
-    }
-  }
+  if (!single) return <PickPlant what="the materials list" />
 
   return (
-    <div className="space-y-5" data-testid="inventory-items-page">
-      <section className="tube-hero-card animate-enter-up">
-        <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
-          <div>
-            <p className="text-[12px] font-semibold text-muted-foreground">Inventory master</p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-[-0.04em]">Items and stock policy</h1>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
-              Create RM, FG, adhesive, parchment, packaging, tool, and OTHER items with tracking mode, UOM, reorder, safety, and lead-time controls.
-            </p>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-4 xl:w-[560px]">
-            {itemTypes.map((type) => (
-              <div key={type} className="rounded-2xl border border-border/15 bg-card/10 px-3 py-2">
-                <p className="text-[12px] font-semibold text-muted-foreground">{type.replace(/_/g, " ")}</p>
-                <p className="mt-1 text-xl font-semibold">{typeCounts[type] || 0}</p>
-              </div>
-            ))}
-          </div>
+    <div className="space-y-4" data-testid="inventory-items-page">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-[22px] font-semibold tracking-tight text-foreground sm:text-[26px]">Materials</h1>
+          <p className="mt-1 max-w-3xl text-[13.5px] leading-6 text-muted-foreground">
+            Every material the stores keep, what is in stock now and its reorder level. Stock changes only through goods inward, issues and stock counts.
+          </p>
         </div>
+        {isAdmin ? (
+          <button type="button" className="erp-btn-secondary !h-11" onClick={() => setAdding(true)} data-testid="materials-add">
+            <PackagePlus className="h-4 w-4" aria-hidden="true" />Add tool or other material
+          </button>
+        ) : null}
+      </header>
+
+      <section className="grid grid-cols-2 gap-2 lg:grid-cols-4" aria-label="Materials at a glance">
+        <Stat label="Materials" value={active.length} detail={`${active.filter((row) => row.type === "RAW_PAPER").length} papers`} icon={Boxes} />
+        <Stat label="In stock" value={active.filter((row) => row.stock > 0).length} detail="materials with stock now" icon={CheckCircle2} tone="emerald" />
+        <Stat label="Low" value={active.filter((row) => row.level === "LOW").length} detail="at or below reorder level" icon={AlertTriangle} tone={active.some((row) => row.level === "LOW") ? "rose" : "slate"} />
+        <Stat label="No reorder level" value={active.filter((row) => row.level === "NONE").length} detail={<Link href="/inventory/stock-alert-policies" className="font-semibold text-primary hover:underline">Set in Reorder rules</Link>} icon={CircleSlash} tone="amber" />
       </section>
 
-      <div className="grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">
-        <div className="min-w-0 space-y-4">
-        <form onSubmit={handleSubmit} className="rounded-xl border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-[11.5px] font-semibold text-muted-foreground">Create</p>
-              <h2 className="mt-1 text-xl font-semibold text-foreground">New item</h2>
-            </div>
-            <div className="rounded-2xl bg-primary p-3 text-primary-foreground">
-              <Boxes className="h-5 w-5" />
-            </div>
-          </div>
-          <div className="mt-4 grid gap-3">
-            <label className="space-y-1 text-sm font-semibold text-muted-foreground">
-              Item code
-              <input required value={form.item_code} onChange={(event) => setForm((current) => ({ ...current, item_code: event.target.value }))} className="h-11 w-full rounded-xl border border-border px-3 outline-none focus:border-signal-cyan-ink/40" placeholder="KRAFT-180-BF18" />
+      <Panel bodyClassName="!p-0">
+        <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:px-5 xl:flex-row xl:items-center xl:justify-between">
+          <Segmented<Filter> label="Material type" value={filter} onChange={setFilter}
+            options={FILTERS.map((value) => ({ value, label: <>{FILTER_WORD[value]}<span className="tabular-nums text-muted-foreground">{count(value)}</span></> }))} />
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="relative block min-w-0 flex-1 sm:w-64 sm:flex-none">
+              <span className="sr-only">Find a material</span>
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+              <input className={cn(fieldClass, "pl-9")} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Code or name" data-testid="materials-search" />
             </label>
-            <label className="space-y-1 text-sm font-semibold text-muted-foreground">
-              Item name
-              <input required value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} className="h-11 w-full rounded-xl border border-border px-3 outline-none focus:border-signal-cyan-ink/40" placeholder="Kraft paper 180 GSM" />
+            <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-border px-3 text-[13px] font-semibold text-foreground">
+              <input type="checkbox" className="h-4 w-4 accent-[hsl(var(--primary))]" checked={inStockOnly} onChange={(event) => setInStockOnly(event.target.checked)} />In stock only
             </label>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="space-y-1 text-sm font-semibold text-muted-foreground">
-                Type
-                <select value={form.type} onChange={(event) => setForm((current) => ({ ...current, type: event.target.value, tracking_mode: event.target.value === "RAW_PAPER" ? "REEL" : "BULK" }))} className="h-11 w-full rounded-xl border border-border px-3 outline-none focus:border-signal-cyan-ink/40">
-                  {itemTypes.map((type) => <option key={type} value={type}>{type.replace(/_/g, " ")}</option>)}
-                </select>
-              </label>
-              <label className="space-y-1 text-sm font-semibold text-muted-foreground">
-                UOM
-                <select value={form.uom} onChange={(event) => setForm((current) => ({ ...current, uom: event.target.value }))} className="h-11 w-full rounded-xl border border-border px-3 outline-none focus:border-signal-cyan-ink/40">
-                  {uoms.map((uom) => <option key={uom} value={uom}>{uom}</option>)}
-                </select>
-              </label>
-              {form.uom === "L" ? <label className="space-y-2 text-sm">Density (kg per litre)<input aria-label="Density kg per litre" className="h-11 w-full rounded-xl border border-border px-3" type="number" required min="0.000001" step="0.000001" value={form.density_kg_per_litre} onChange={(event) => setForm((current) => ({ ...current, density_kg_per_litre: event.target.value }))} /><span className="text-xs text-muted-foreground">Used to convert the specification BOM from kg to litres.</span></label> : null}
-            </div>
-            <label className="space-y-1 text-sm font-semibold text-muted-foreground">
-              Tracking mode
-              <select value={form.tracking_mode} onChange={(event) => setForm((current) => ({ ...current, tracking_mode: event.target.value }))} className="h-11 w-full rounded-xl border border-border px-3 outline-none focus:border-signal-cyan-ink/40">
-                {trackingModes.map((mode) => <option key={mode} value={mode} disabled={mode === "REEL" && form.type !== "RAW_PAPER"}>{mode}</option>)}
-              </select>
+            <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-border px-3 text-[13px] font-semibold text-muted-foreground">
+              <input type="checkbox" className="h-4 w-4 accent-[hsl(var(--primary))]" checked={showOff} onChange={(event) => setShowOff(event.target.checked)} />Switched off
             </label>
-            <div className="grid grid-cols-3 gap-3">
-              <label className="space-y-1 text-sm font-semibold text-muted-foreground">
-                Reorder
-                <input type="number" step="0.001" value={form.reorder_level} onChange={(event) => setForm((current) => ({ ...current, reorder_level: event.target.value }))} className="h-11 w-full rounded-xl border border-border px-3 outline-none focus:border-signal-cyan-ink/40" placeholder="0" />
-              </label>
-              <label className="space-y-1 text-sm font-semibold text-muted-foreground">
-                Safety
-                <input type="number" step="0.001" value={form.safety_stock} onChange={(event) => setForm((current) => ({ ...current, safety_stock: event.target.value }))} className="h-11 w-full rounded-xl border border-border px-3 outline-none focus:border-signal-cyan-ink/40" placeholder="0" />
-              </label>
-              <label className="space-y-1 text-sm font-semibold text-muted-foreground">
-                Lead days
-                <input type="number" step="0.1" value={form.lead_time_days} onChange={(event) => setForm((current) => ({ ...current, lead_time_days: event.target.value }))} className="h-11 w-full rounded-xl border border-border px-3 outline-none focus:border-signal-cyan-ink/40" placeholder="0" />
-              </label>
-            </div>
           </div>
-          {createItem.isError ? <div className="mt-4 rounded-xl border border-signal-rose-line bg-signal-rose-soft px-3 py-2 text-sm text-signal-rose-ink">Item save failed. Check duplicate code and plant scope.</div> : null}
-          <button disabled={createItem.isPending} className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50">
-            <Plus className="h-4 w-4" />
-            Create item
-          </button>
-        </form>
-
-        <form onSubmit={savePolicy} className="rounded-xl border border-signal-cyan-line bg-signal-cyan-soft/70 p-5 shadow-xl shadow-slate-900/5">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-[11.5px] font-semibold text-signal-cyan-ink/70">Governance</p>
-              <h2 className="mt-1 text-xl font-semibold text-foreground">MRP policy</h2>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">Select a row to edit reorder, safety stock, and lead time used by MRP and stock-close risk.</p>
-            </div>
-            <div className="rounded-2xl bg-primary p-3 text-primary-foreground">
-              <PencilLine className="h-5 w-5" />
-            </div>
-          </div>
-          {selectedItem ? (
-            <div className="mt-4 grid gap-3">
-              <div className="rounded-2xl border border-signal-cyan-line bg-card px-3 py-2">
-                <p className="text-sm font-semibold text-foreground">{selectedItem.item_code}</p>
-                <p className="text-xs text-muted-foreground">{selectedItem.name}</p>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                <input type="number" step="0.001" value={policyForm.reorder_level} onChange={(event) => setPolicyForm((current) => ({ ...current, reorder_level: event.target.value }))} className="h-11 rounded-xl border border-signal-cyan-line px-3 text-sm outline-none focus:border-signal-cyan-ink/40" placeholder="Reorder" />
-                <input type="number" step="0.001" value={policyForm.safety_stock} onChange={(event) => setPolicyForm((current) => ({ ...current, safety_stock: event.target.value }))} className="h-11 rounded-xl border border-signal-cyan-line px-3 text-sm outline-none focus:border-signal-cyan-ink/40" placeholder="Safety" />
-                <input type="number" step="0.1" value={policyForm.lead_time_days} onChange={(event) => setPolicyForm((current) => ({ ...current, lead_time_days: event.target.value }))} className="h-11 rounded-xl border border-signal-cyan-line px-3 text-sm outline-none focus:border-signal-cyan-ink/40" placeholder="Lead days" />
-              </div>
-              <button disabled={updateItem.isPending} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-primary text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50">
-                <Save className="h-4 w-4" />
-                Save policy
-              </button>
-              {policyError ? <p className="rounded-xl border border-signal-rose-line bg-signal-rose-soft px-3 py-2 text-sm text-signal-rose-ink">{policyError}</p> : null}
-            </div>
-          ) : (
-            <div className="mt-4 rounded-2xl border border-dashed border-signal-cyan-line bg-card/70 p-5 text-sm text-muted-foreground">Select an item from the catalog to govern alerts.</div>
-          )}
-        </form>
-        {selectedItem ? (
-          <div className="mt-5 rounded-2xl border border-signal-cyan-line bg-card p-4">
-            <p className="text-[11.5px] font-semibold text-signal-cyan-ink/70">Incoming QC profile</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Checks and tolerance bands incoming QC applies to this material. QC prepares them and Owner/Admin approves them in Quality → Material standards.
-            </p>
-            <div className="mt-3 space-y-2 text-sm" data-testid="item-qc-profile-summary">
-              <p className="font-semibold text-foreground">
-                {selectedItem.quality_profile
-                  ? `Revision ${selectedItem.quality_profile.revision || 1} · ${String(selectedItem.quality_profile.status || selectedItem.quality_profile.setup_status || "draft").replace(/_/g, " ")}`
-                  : "No incoming QC profile yet"}
-              </p>
-              {Array.isArray(selectedItem.quality_profile?.parameters) && selectedItem.quality_profile.parameters.length ? (
-                <ul className="space-y-1 text-xs text-muted-foreground">
-                  {selectedItem.quality_profile.parameters.map((row: any, index: number) => (
-                    <li key={`${row.code}-${index}`}>
-                      <span className="font-semibold text-foreground">{row.label || row.code}</span>{" "}
-                      {row.applicable === false
-                        ? "not applicable"
-                        : Array.isArray(row.options) && row.options.length
-                          ? `accepts ${row.options.join(" / ")}`
-                          : `${row.min ?? "—"} to ${row.max ?? "—"} ${row.unit || ""}`}
-                      {row.non_waivable ? " · critical" : ""}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-              <Link
-                href="/quality/material-standards"
-                className="inline-flex rounded-xl border border-border px-3 py-2 text-xs font-semibold text-foreground"
-              >
-                Open material standards
-              </Link>
-            </div>
-          </div>
-        ) : null}
         </div>
-
-        <section className="min-w-0 rounded-xl border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
-          <div className="flex items-end justify-between gap-4">
-            <div>
-              <p className="text-[11.5px] font-semibold text-muted-foreground">Catalog</p>
-              <h2 className="mt-1 text-xl font-semibold text-foreground">Inventory item master</h2>
-            </div>
-            <Link href="/purchase/scheduler" className="inline-flex items-center gap-1 text-sm font-semibold text-signal-cyan-ink">
-              RM inward calendar <ArrowRight className="h-4 w-4" />
-            </Link>
-          </div>
-          <div className="mt-4 overflow-x-auto rounded-2xl border border-border">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-muted text-[11.5px] text-muted-foreground">
+        {isLoading ? (
+          <div className="space-y-2 p-4" role="status" aria-label="Loading materials">{[0, 1, 2, 3, 4].map((n) => <div key={n} className="skeleton h-12 rounded-lg" />)}</div>
+        ) : !visible.length ? (
+          <EmptyBlock icon={Boxes} title="No materials match" message="Change the type, the search words or the in-stock filter." className="m-4" />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[600px] text-left text-[13.5px]">
+              <caption className="sr-only">Materials with stock and reorder level. Choose a material to see details.</caption>
+              <thead className="bg-muted/60 text-[12px] font-semibold text-muted-foreground">
                 <tr>
-                  <th className="px-4 py-3">Item</th>
-                  <th className="px-4 py-3">Type</th>
-                  <th className="px-4 py-3">Tracking</th>
-                  <th className="px-4 py-3 text-right">Available</th>
-                  <th className="px-4 py-3">Policy</th>
-                  <th className="px-4 py-3">Action</th>
+                  <th scope="col" className="px-4 py-2.5 sm:px-5">Material</th>
+                  <th scope="col" className="px-3 py-2.5">Type</th>
+                  <th scope="col" className="px-3 py-2.5 text-right">In stock</th>
+                  <th scope="col" className="px-3 py-2.5">Reorder level</th>
+                  <th scope="col" className="px-3 py-2.5"><span className="sr-only">Status</span></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {isLoading ? (
-                  <tr><td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">Loading items...</td></tr>
-                ) : itemRows.length === 0 ? (
-                  <tr><td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">No items found.</td></tr>
-                ) : (
-                  itemRows.map((item: any) => {
-                    const balance = balanceMap.get(String(item.id)) || {}
-                    return (
-                      <tr key={item.id} className="transition hover:bg-muted">
-                        <td className="px-4 py-3">
-                          <p className="font-semibold text-foreground">{item.item_code}</p>
-                          <p className="text-xs text-muted-foreground">{item.name}</p>
-                        </td>
-                        <td className="px-4 py-3 text-muted-foreground">{item.type}</td>
-                        <td className="px-4 py-3 text-muted-foreground">{item.tracking_mode}</td>
-                        <td className="px-4 py-3 text-right font-semibold text-foreground">{formatNumber(balance.available_qty ?? balance.balance ?? 0)} {item.uom}</td>
-                        <td className="px-4 py-3 text-xs text-muted-foreground">
-                          <p>R {formatNumber(item.reorder_level, 2)} · S {formatNumber(item.safety_stock, 2)}</p>
-                          <p>Lead {formatNumber(item.lead_time_days, 1)} d</p>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="inline-flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => setSelectedItemId(item.id)}
-                              className="rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:border-signal-cyan-line hover:text-signal-cyan-ink"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (typeof window !== "undefined" && window.confirm(`Soft-delete item ${item.item_code}? Historical ledger transactions remain intact.`)) {
-                                  deleteItem.mutate(item.id)
-                                }
-                              }}
-                              disabled={deleteItem.isPending}
-                              className="rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:border-signal-rose-line hover:text-signal-rose-ink disabled:opacity-40"
-                              title="Soft-delete this item"
-                            >
-                              {deleteItem.isPending && deleteItem.variables === item.id ? "…" : "Delete"}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })
-                )}
+                {visible.map((row) => {
+                  const unit = unitWord(row.uom)
+                  return (
+                    <tr key={row.id} className={cn("transition-colors hover:bg-muted/50", row.off && "opacity-60")}>
+                      <td className="px-4 py-2.5 sm:px-5">
+                        <button type="button" onClick={() => setOpenId(row.id)} className="group min-h-11 text-left" aria-label={`${row.item_code} ${row.name}: details`} data-testid="materials-row">
+                          <span className="block font-semibold text-foreground group-hover:text-primary group-hover:underline">{row.item_code}</span>
+                          <span className="block text-[12.5px] text-muted-foreground">{row.name}</span>
+                        </button>
+                      </td>
+                      <td className="px-3 py-2.5 text-muted-foreground">
+                        {TYPE_WORD[row.type] || row.type}
+                        {row.tracking_mode === "REEL" ? <span className="ml-1 inline-flex items-center gap-0.5 text-[12px]"><Layers className="h-3 w-3" aria-hidden="true" />reels</span> : null}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular-nums text-foreground">{row.stock > 0 ? `${qty(row.stock)} ${unit}` : <span className="font-normal text-muted-foreground">—</span>}</td>
+                      <td className="px-3 py-2.5 text-[12.5px] text-muted-foreground">
+                        {row.level === "NONE" ? "Not set" : <>Reorder at <span className="font-semibold tabular-nums text-foreground">{qty(row.reorder)} {unit}</span>{row.safety ? <> · safety {qty(row.safety)}</> : null}{row.lead ? <> · {qty(row.lead)} days</> : null}</>}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        {row.off ? <Chip>Switched off</Chip> : row.level === "LOW" ? <Chip tone="rose" icon={AlertTriangle}>Low</Chip> : row.level === "OK" ? <Chip tone="emerald" icon={CheckCircle2}>OK</Chip> : null}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
-        </section>
-      </div>
+        )}
+        <p className="border-t border-border px-4 py-2.5 text-[12px] text-muted-foreground sm:px-5">
+          Showing {visible.length} of {showOff ? rows.length : active.length}. Papers, parchment, adhesive and packing are added in Masters and appear here on their own.
+        </p>
+      </Panel>
+
+      <MaterialSheet row={open} canSwitchOff={canSwitchOff} onClose={() => setOpenId("")} />
+      <AddMaterialSheet open={adding} onOpenChange={setAdding} />
     </div>
+  )
+}
+
+function MaterialSheet({ row, canSwitchOff, onClose }: { row: any; canSwitchOff: boolean; onClose: () => void }) {
+  const switchOff = useDeleteItem()
+  const [confirming, setConfirming] = useState(false)
+  const [error, setError] = useState("")
+  if (!row) return <Sheet open={false} onOpenChange={() => undefined} title="Material"><span /></Sheet>
+  const unit = unitWord(row.uom)
+  const master = MASTER_FOR[String(row.type)]
+  const profile = row.quality_profile
+  const close = () => { setConfirming(false); setError(""); onClose() }
+  return (
+    <Sheet open onOpenChange={(open) => { if (!open) close() }} title={`${row.item_code} · ${row.name}`} description={`${TYPE_WORD[row.type] || row.type}, kept as ${row.tracking_mode === "REEL" ? "reels / coils (weighed in kg)" : `a bulk quantity in ${unit}`}.`} testId="material-sheet" wide
+      footer={<>
+        {canSwitchOff && !row.off ? (confirming
+          ? <><span className="mr-auto self-center text-[12.5px] text-muted-foreground">Switch off {row.item_code}? It can no longer be received or issued. History stays.</span>
+              <button type="button" className="erp-btn-secondary !h-11" onClick={() => setConfirming(false)}>Keep it</button>
+              <button type="button" className="erp-btn-secondary !h-11 !border-signal-rose-line !bg-signal-rose-soft !text-signal-rose-ink" disabled={switchOff.isPending} onClick={async () => {
+                setError("")
+                try { await switchOff.mutateAsync(row.id); close() } catch (failure: any) { setError(failure?.response?.data?.detail || failure?.message || "Could not switch it off.") }
+              }}>{switchOff.isPending ? "Switching off…" : "Switch off"}</button></>
+          : <button type="button" className="erp-btn-secondary !h-11 mr-auto" disabled={row.stock > 0} title={row.stock > 0 ? "Only a material with no stock can be switched off" : undefined} onClick={() => setConfirming(true)}>Switch off…</button>) : null}
+        <button type="button" className="erp-btn-primary !h-11" onClick={close}>Done</button>
+      </>}>
+      <div className="space-y-4">
+        {error ? <Notice tone="rose" icon={AlertTriangle}>{error}</Notice> : null}
+        {canSwitchOff && !row.off && row.stock > 0 ? <p className="text-[12.5px] text-muted-foreground">It has stock, so it cannot be switched off. Issue or correct the stock first.</p> : null}
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <Stat label="In stock" value={`${qty(row.stock)} ${unit}`} icon={Boxes} tone={row.stock > 0 ? "emerald" : "slate"} />
+          <Stat label="Reorder at" value={row.level === "NONE" ? "Not set" : `${qty(row.reorder)} ${unit}`} detail={row.safety ? `Safety ${qty(row.safety)} ${unit}` : undefined} icon={AlertTriangle} tone={row.level === "LOW" ? "rose" : "slate"} />
+          <Stat label="Lead time" value={row.lead ? `${qty(row.lead)} days` : "Not set"} />
+        </div>
+        <Notice tone="blue" title="Reorder level" action={<Link href={`/inventory/stock-alert-policies?item=${encodeURIComponent(row.id)}`} className="inline-flex items-center gap-1 font-semibold text-primary hover:underline">Change in Reorder rules <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" /></Link>}>
+          Set in Stock alerts › Reorder rules, where a second person switches each change on. It is shown here only.
+        </Notice>
+        <div>
+          <h3 className="text-[13px] font-semibold text-foreground">Incoming QC</h3>
+          <p className="mt-1 text-[13px] text-muted-foreground">
+            {profile ? `Revision ${profile.revision || 1}, ${String(profile.status || profile.setup_status || "draft").replace(/_/g, " ").toLowerCase()}` : "No incoming QC checks yet."}
+          </p>
+          {Array.isArray(profile?.parameters) && profile.parameters.length ? (
+            <ul className="mt-2 divide-y divide-border rounded-xl border border-border text-[13px]">
+              {profile.parameters.map((check: any, index: number) => (
+                <li key={`${check.code}-${index}`} className="flex flex-wrap justify-between gap-2 px-3 py-2">
+                  <span className="font-medium text-foreground">{check.label || check.code}{check.non_waivable ? <Chip tone="rose" className="ml-2">critical</Chip> : null}</span>
+                  <span className="tabular-nums text-muted-foreground">
+                    {check.applicable === false ? "not checked" : Array.isArray(check.options) && check.options.length ? check.options.join(" / ") : bandText(check.min, check.max, check.unit)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <Link href="/quality/material-standards" className="mt-2 inline-flex min-h-11 items-center gap-1 text-[13px] font-semibold text-primary hover:underline">Open material standards <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" /></Link>
+        </div>
+        {master ? <p className="text-[12.5px] text-muted-foreground">Name, code and specification are kept in <Link href={master.href} className="font-semibold text-primary hover:underline">{master.label}</Link>.</p> : null}
+      </div>
+    </Sheet>
+  )
+}
+
+function AddMaterialSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const create = useCreateItem()
+  const blank = { item_code: "", name: "", type: "TOOL", tracking_mode: "BULK", uom: "PCS" }
+  const [form, setForm] = useState(blank)
+  const [error, setError] = useState("")
+  const ready = form.item_code.trim() && form.name.trim()
+  const close = () => { setForm(blank); setError(""); onOpenChange(false) }
+  return (
+    <Sheet open={open} onOpenChange={(value) => { if (!value) close() }} title="Add a tool or other material" testId="materials-add-sheet"
+      description="Papers, parchment, adhesive and packing are added in Masters and appear in Materials on their own."
+      footer={<>
+        <button type="button" className="erp-btn-secondary !h-11" onClick={close}>Cancel</button>
+        <button type="button" className="erp-btn-primary !h-11" disabled={!ready || create.isPending} onClick={async () => {
+          setError("")
+          try {
+            await create.mutateAsync({ ...form, item_code: form.item_code.trim().toUpperCase(), name: form.name.trim(), reorder_level: 0, safety_stock: 0, lead_time_days: 0 })
+            close()
+          } catch (failure: any) { setError(failure?.response?.data?.detail || failure?.message || "Could not add it.") }
+        }}>{create.isPending ? "Adding…" : "Add material"}</button>
+      </>}>
+      <div className="grid gap-3">
+        {error ? <Notice tone="rose" icon={AlertTriangle}>{String(error)}</Notice> : null}
+        <Field label="Code" hint="Short and unique, e.g. TOOL-CUTTER-12"><input className={fieldClass} value={form.item_code} maxLength={50} onChange={(event) => setForm({ ...form, item_code: event.target.value })} /></Field>
+        <Field label="Name"><input className={fieldClass} value={form.name} maxLength={200} onChange={(event) => setForm({ ...form, name: event.target.value })} /></Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Kind">
+            <select className={fieldClass} value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value })}>
+              <option value="TOOL">Tool</option><option value="OTHER">Other</option>
+            </select>
+          </Field>
+          <Field label="Counted in">
+            <select className={fieldClass} value={form.uom} onChange={(event) => setForm({ ...form, uom: event.target.value })}>
+              <option value="PCS">Pieces</option><option value="KG">Kilograms</option>
+            </select>
+          </Field>
+        </div>
+        <p className="text-[12.5px] text-muted-foreground">Missing a paper, parchment, adhesive or box? Add it in {Object.values(MASTER_FOR).map((master, index, list) => <span key={master.href}><Link href={master.href} className="font-semibold text-primary hover:underline">{master.label.replace("Masters › ", "")}</Link>{index < list.length - 1 ? ", " : ""}</span>)} (Masters).</p>
+      </div>
+    </Sheet>
   )
 }

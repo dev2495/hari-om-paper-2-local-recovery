@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogTrigger } 
 import { Input } from "@/components/ui/input"
 import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
-import { MODULE_NAVIGATION, activeModuleLink, moduleLinkBase, moduleLinkCovers } from "@/lib/module-navigation"
+import { MODULE_NAVIGATION, activeModuleLink, canSeeModuleLink, moduleLinkBase, moduleLinkCovers, type ModuleLink } from "@/lib/module-navigation"
 import { canReadJobCardAggregates, roleLabel } from "@/lib/role-matrix"
 import { searchWorkspaceJumps } from "@/lib/workspace-jump"
 import { RouteProgress } from "@/components/workspace/route-progress"
@@ -35,6 +35,8 @@ type NavLink = {
   description: string
   roles?: string[]
   ownerOnly?: boolean
+  /** Where the entry opens: its first tab this person may see, when its own page is not one of them. */
+  entryHref?: string
 }
 
 type NavGroup = {
@@ -171,64 +173,26 @@ const navigationUnits: NavGroup[] = [
   },
   {
     title: "Stores & inventory",
+    // One entry per job, its pages as tabs (review 3 Nov 2026). An entry's roles are its tabs' roles together.
     items: [
-      { name: "Goods inward", href: "/purchase/inward", icon: Package, description: "Manual or approved-PO receipt with individual reel and coil labels.", roles: ["Owner", "Admin", "Store", "PlantManager", "GRN"] },
-      { name: "GRN register & labels", href: "/purchase/receipts", icon: ClipboardList, description: "Saved receipts, pending invoices, QC and label reprints.", roles: ["Owner", "Admin", "Store", "PlantManager", "Accounts", "GRN", "InwardQC"] },
-      { name: "Reel & coil issue", href: "/inventory/reels/issue", icon: Layers, description: "Issue reels and coils to the floor by shift; each reel gets a slitting card.", roles: ["Owner", "Admin", "Store", "PlantManager", "RMIssue"] },
-      { name: "Material issue", href: "/inventory/production-issue", icon: Boxes, description: "Issue adhesive, parchment and packing to the floor by shift.", roles: ["Owner", "Admin", "Store", "PlantManager", "RMIssue"] },
-      { name: "Issue history", href: "/inventory/issue-history", icon: ScrollText, description: "Every issue to the floor: shift, material, reel or lot, who issued it and the rack. CSV.", roles: ["Owner", "Admin", "Store", "PlantManager", "RMIssue", "Planner", "GRN"] },
+      { name: "Goods inward", href: "/purchase/inward", icon: Package, description: "Receive paper and materials against a PO or by hand, print reel labels; saved GRNs, invoices pending and label reprints.", roles: ["Owner", "Admin", "Store", "PlantManager", "GRN", "Accounts", "InwardQC"] },
+      { name: "Issue to floor", href: "/inventory/reels/issue", icon: Layers, description: "Issue reels, coils, adhesive, parchment and packing to the floor by shift, and the history of every issue.", roles: ["Owner", "Admin", "Store", "PlantManager", "RMIssue", "Planner", "GRN"] },
+      { name: "Stock overview", href: "/inventory", icon: Boxes, description: "What is in stock, what is held and where; the materials list and reel trace.", roles: ["Owner", "Admin", "Store", "Planner", "PlantManager", "GRN", "RMIssue", "Dispatch"] },
       {
         // Every logged-in role may start a count and count (client 2026-10-28); only the Owner approves.
         name: "Stock counts & book",
         href: "/inventory/stock-control",
         icon: ClipboardCheck,
-        description: "Spot and month-end counts, corrections, the stock book and locations with rack labels.",
+        description: "Spot and month-end counts, corrections, the stock book, rack locations and go-live opening stock.",
       },
-      // Go-live opening stock (client 2026-10-30): Owner and Admin enter it; the page is open to view for others.
-      { name: "Opening stock", href: "/inventory/opening-stock", icon: Package, description: "Go-live stock already in the plant: reels and lots with new labels, in batches on the go-live date.", roles: ["Owner", "Admin"] },
-      {
-        name: "Inventory",
-        href: "/inventory",
-        icon: Package,
-        description: "Raw material inward, reel issue, balances, and valuation.",
-        roles: ["Owner", "Admin", "Store", "Planner", "PlantManager", "GRN", "RMIssue"],
-      },
-      {
-        name: "Genealogy",
-        href: "/inventory/genealogy",
-        icon: Layers,
-        description: "Reel lineage, slit children, issue scans, and trace exceptions.",
-        roles: ["Owner", "Admin", "Store", "Planner", "PlantManager", "Dispatch", "GRN", "RMIssue"],
-      },
-      {
-        name: "Manual FG",
-        href: "/inventory/fg-inward",
-        icon: Package,
-        description: "Rework yield, returns, and adjustments — manual FG inward outside the job-close flow.",
-        roles: ["Owner", "Admin", "PlantManager"],
-      },
-      { name: "Stock alert policies", href: "/inventory/stock-alert-policies", icon: ShieldCheck, description: "Set material stock thresholds, lead times and replenishment rules.", roles: ["Owner", "Admin", "PlantManager"] },
-      {
-        name: "Stock Alerts",
-        href: "/inventory/stock-alerts",
-        icon: ShieldCheck,
-        description: "Policy-driven stock breach inbox, ownership, and recovery.",
-        roles: ["Owner", "Admin", "Store", "Planner", "PlantManager"],
-      },
-      {
-        name: "RM Costing",
-        href: "/inventory/rm-costing",
-        icon: ScrollText,
-        description: "Owner and Admin standard-cost versions, impact, and audit history.",
-        roles: ["Owner", "Admin"],
-      },
-      {
-        name: "Dispatch",
-        href: "/logistics/dispatch",
-        icon: Truck,
-        description: "Packing handoff, challans, and finished-goods release.",
-        roles: ["Owner", "Admin", "Dispatch", "Sales", "Store"],
-      },
+      { name: "Stock alerts", href: "/inventory/stock-alerts", icon: AlertTriangle, description: "Materials running low, and the reorder levels that raise the alerts.", roles: ["Owner", "Admin", "Store", "Planner", "PlantManager"] },
+      { name: "RM costing", href: "/inventory/rm-costing", icon: ScrollText, description: "Standard cost versions of raw materials, their impact and history.", roles: ["Owner", "Admin"] },
+    ],
+  },
+  {
+    title: "Dispatch",
+    items: [
+      { name: "Dispatch", href: "/logistics/dispatch", icon: Truck, description: "Packing handoff, boxes, challans and finished-goods release; FG in without a job card.", roles: ["Owner", "Admin", "Dispatch", "Sales", "Store", "PlantManager"] },
     ],
   },
   {
@@ -356,8 +320,14 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
     return navigationUnits.map(group => ({ ...group, items: group.items.filter(item => {
       if (!canSeeLink(item, userRoles) || seen.has(item.href)) return false
       seen.add(item.href); return true
+    }).map(item => {
+      const tabs = (MODULE_NAVIGATION[item.href] || []).filter(child => canSeeModuleLink(child, userRoles))
+      const ownPage = tabs.some(child => child.href.split("?")[0] === item.href)
+      return tabs.length && !ownPage ? { ...item, entryHref: tabs[0].href } : item
     }) })).filter(group => group.items.length)
   }, [userRoles])
+  // The tabs under each entry, only those this person may open.
+  const subnav = useMemo(() => Object.fromEntries(Object.entries(MODULE_NAVIGATION).map(([href, links]) => [href, links.filter(child => canSeeModuleLink(child, userRoles))])) as Record<string, ModuleLink[]>, [userRoles])
   const flatLinks = useMemo(() => groups.flatMap(group => group.items), [groups])
   const visibleHrefs = useMemo(() => new Set(flatLinks.map(link => link.href)), [flatLinks])
   const inboxSummary = useNotificationSummary(Boolean(user))
@@ -472,7 +442,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
     isOpen={(title) => isGroupOpen(title, mobile)}
     onToggle={toggleGroup}
     onNavigate={() => setMobileNavOpen(false)}
-    subnav={MODULE_NAVIGATION}
+    subnav={subnav}
     search={navSearch}
     badges={navBadges}
   />

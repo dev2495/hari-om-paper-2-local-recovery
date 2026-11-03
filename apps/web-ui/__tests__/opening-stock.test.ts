@@ -48,12 +48,17 @@ assert.equal(pasted[3].qty, "1200", "quoted commas in a CSV cell")
 assert.equal(pasted[3].location_id, "l1")
 
 const row = { ...blankRow("BULK"), item_id: "g1", qty: "30", on_hold: true, hold_reason_code: "qh-suspect", hold_reason_note: " Lid open ", rate: "" }
-assert.deepEqual(toLine(row), { item_id: "g1", kind: "BULK", qty: 30, location_id: undefined, old_mark: undefined, vendor_name: undefined, vendor_ref: undefined, on_hold: true, hold_reason_code: "QH-SUSPECT", hold_reason_note: "Lid open", unit_cost: undefined })
-const copy = duplicateRow({ ...row, old_mark: "X1" })
+assert.deepEqual(toLine(row), { item_id: "g1", kind: "BULK", qty: 30, location_id: undefined, old_mark: undefined, serial: undefined, vendor_name: undefined, vendor_ref: undefined, on_hold: true, hold_reason_code: "QH-SUSPECT", hold_reason_note: "Lid open", unit_cost: undefined })
+// A reel keeps the AIT number it already carries (client 2026-11-03); a bulk lot never sends one.
+assert.equal(toLine({ ...blankRow("REEL"), item_id: "p1", qty: "700", serial: " AIT 06290 " }).serial, "AIT 06290")
+assert.equal(toLine({ ...blankRow("BULK"), item_id: "g1", qty: "5", serial: "AIT 1" }).serial, undefined)
+assert.equal(parsePaste("351,reel,700,,M-1,AKSHAT,31,AIT 06291", [{ id: "p1", item_code: "351", name: "Kraft", type: "RAW_PAPER", tracking_mode: "REEL", uom: "KG" } as any], [])[0].serial, "AIT 06291")
+const copy = duplicateRow({ ...row, old_mark: "X1", serial: "AIT 00001" })
 assert.notEqual(copy.key, row.key)
 assert.equal(copy.item_id, "g1")
 assert.equal(copy.qty, "")
 assert.equal(copy.old_mark, "")
+assert.equal(copy.serial, "", "a copied row never repeats an AIT number")
 assert.ok(isBlank(blankRow("REEL")))
 assert.deepEqual(rowProblems({ ...blankRow("REEL"), qty: "0" }).map((problem) => problem.field), ["qty"])
 
