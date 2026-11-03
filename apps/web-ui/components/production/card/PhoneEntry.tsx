@@ -27,7 +27,7 @@ import { CardEntrySheets, defaultOutputStage, defaultQcStage, type EntryPanel } 
 import { RunRows } from "./RunList"
 import { cardFacts, currentFloorStage, fmt, isLoggable, previousStage, runNo, runQcState, STAGE_ICON, stageLabel, stageParameters, toneClass, useCardRoles, visibleStages, waitingRunsBadge, waitingRunsTitle } from "./model"
 import { ScopeStatusLine, UnlinkedNote, useFloorScope } from "./scope"
-import { scopedStageGate } from "@/lib/floor-scope"
+import { NOT_LINKED_MESSAGE, scopedStageGate } from "@/lib/floor-scope"
 
 export function PhoneEntry({ jobCardId, mode, stage: wantedStage, entryId }: { jobCardId: string; mode?: string | null; stage?: string | null; entryId?: string | null }) {
   const { canDraft, canQc, canSubmit } = useCardRoles()
@@ -158,7 +158,10 @@ export function PhoneEntry({ jobCardId, mode, stage: wantedStage, entryId }: { j
         </p>
       ) : null}
 
-      {!isV2 ? (
+      {floor.scope.kind === "none" ? (
+        // An Operator-only login not linked to an employee sees no stage (owner, 3 Nov 2026).
+        <ScopeStatusLine message={NOT_LINKED_MESSAGE} testId="phone-scope-unlinked" />
+      ) : !isV2 ? (
         <div className="space-y-3" data-testid="phone-old-form">
           {cardOpen ? (
             <p className="rounded-xl border border-border bg-muted/60 px-4 py-3 text-[13px]">

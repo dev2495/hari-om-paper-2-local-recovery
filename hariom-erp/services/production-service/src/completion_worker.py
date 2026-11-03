@@ -125,11 +125,25 @@ def deliver_one(effect_key=None):
             elif effect.kind=="tools":
                 if stage.status!="COMPLETED":effect.status="CANCELLED";db.commit();return True
                 segments=db.query(JobCardStageSegment).filter_by(job_card_id=job.id,stage_type=stage_name).order_by(JobCardStageSegment.segment_no).all()
-                posted=[]
-                for segment in segments or [SimpleNamespace(id=stage.id,output_qty=stage.output_qty,scrap_qty=stage.scrap_qty)]:
-                    actual=SimpleNamespace(id=stage.id,entry_snapshot=stage.entry_snapshot,output_qty=segment.output_qty,scrap_qty=segment.scrap_qty)
-                    posted.extend(planning._record_physical_tool_usage(stage=actual,segment=segment,job_card=job,selected_stage=stage_name,token=actor["token"],plant_id=plant,current_user=actor))
+                posted=[];keys=list(effect.payload.get("posted_usage_keys") or [])
+                round_no=int(effect.payload.get("usage_round") or 0)
+                try:
+                    for segment in segments or [SimpleNamespace(id=stage.id,output_qty=stage.output_qty,scrap_qty=stage.scrap_qty)]:
+                        actual=SimpleNamespace(id=stage.id,entry_snapshot=stage.entry_snapshot,output_qty=segment.output_qty,scrap_qty=segment.scrap_qty)
+                        posted.extend(planning._record_physical_tool_usage(stage=actual,segment=segment,job_card=job,selected_stage=stage_name,token=actor["token"],plant_id=plant,current_user=actor,
+                                                                          usage_round=round_no,on_posted=lambda _asset,key:keys.append(key)))
+                finally:
+                    # Kept even when a later tool fails: a reopen reverses exactly what reached Stores.
+                    effect.payload={**effect.payload,"posted_usage_keys":sorted(set(keys))}
                 effect.payload={**effect.payload,'posted_tool_asset_ids':sorted(set(posted))}
+            elif effect.kind=="tools_reversal":
+                # A reopened stage takes back the tool usage its close posted (3 Nov 2026), idempotent per reversal key.
+                p=effect.payload
+                response=httpx.post(f"{planning.settings.INVENTORY_SERVICE_URL}/inventory/tools/usage/reverse",headers={"Authorization":f"Bearer {actor['token']}","X-Plant-ID":plant},
+                                    json={"job_card_id":str(job.id),"stage_type":stage_name,"usage_keys":p.get("usage_keys") or [],"usage_key_prefix":p.get("usage_key_prefix"),
+                                          "uncertain":bool(p.get("uncertain")),"reversal_key":effect.effect_key,"reason":p.get("reason"),"reason_code":p.get("reason_code")},timeout=10)
+                if response.status_code in (404,405,501):raise ValueError("Stores cannot take back tool usage yet; this reversal waits and retries (tool life counts this close until then)")
+                if response.status_code>=400:raise ValueError(f"Stores refused the tool usage reversal: {response.text[:300]}")
             elif effect.kind=="theory":
                 planning._upsert_monthly_provisional_theory(db=db,job_card=job,selected_stage=stage_name,token=actor["token"],plant_id=plant,current_user=actor)
             elif effect.kind=="fg_inward":

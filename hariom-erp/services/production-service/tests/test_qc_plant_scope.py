@@ -19,11 +19,12 @@ def _user(role, plant=PLANT_A, allowed=None, extra_roles=None):
 
 
 def test_qc_write_requires_concrete_plant():
+    # All plants is the Owner/Admin read-only view (owner decision 3 Nov 2026): refused for QC outright.
     try:
         _resolve_scope(_user("QC"), "ALL", allow_all=False)
         raise AssertionError("expected HTTPException")
     except HTTPException as exc:
-        assert exc.status_code == 400
+        assert exc.status_code == 403
 
 
 def test_qc_cannot_write_other_plant():
@@ -34,11 +35,13 @@ def test_qc_cannot_write_other_plant():
         assert exc.status_code == 403
 
 
-def test_qc_read_all_aggregates_only_allowed_plants():
-    scope = _resolve_scope(_user("QC"), "ALL", allow_all=True)
-    assert scope["scope_all"] is True
-    assert scope["allowed_plants"] == [PLANT_A]
-    assert PLANT_B not in scope["allowed_plants"]
+def test_qc_cannot_read_all_plants_but_reads_its_own():
+    try:
+        _resolve_scope(_user("QC"), "ALL", allow_all=True)
+        raise AssertionError("expected HTTPException")
+    except HTTPException as exc:
+        assert exc.status_code == 403
+    assert _resolve_scope(_user("QC"), None, allow_all=True)["selected_plant_id"] == PLANT_A
 
 
 def test_unresolved_plant_is_not_defaulted_to_plant_a():

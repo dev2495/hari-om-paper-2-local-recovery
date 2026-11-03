@@ -808,14 +808,18 @@ def validate_reason_choice(
     right list, active, of that plant, and an OTHER code has a 5+ character note. Every service calls
     this before it saves a reason, and stores the returned code, label and note."""
     record_plant = str(payload.plant_id or "").strip()
-    ensure_plant_reason_codes(record_plant or (plant_scope or {}).get("selected_plant_id"))
     if record_plant and record_plant.upper() != "ALL":
+        # Check the record's plant first: the default codes are seeded only into a plant the caller may use.
         allowed = [str(p).strip() for p in (plant_scope or {}).get("allowed_plants", []) or [] if str(p).strip()]
+        if not (plant_scope or {}).get("is_owner") and (plant_scope or {}).get("selected_plant_id"):
+            allowed.append(str(plant_scope["selected_plant_id"]))
         aliases = accepted_persisted_plant_ids(record_plant)
         if allowed and not (set(aliases) & {alias for plant in allowed for alias in accepted_persisted_plant_ids(plant)}):
             raise HTTPException(status_code=403, detail="You cannot use reasons of that plant.")
+        ensure_plant_reason_codes(record_plant)
         query = db.query(models.ReasonCode).filter(models.ReasonCode.plant_id.in_(aliases))
     else:
+        ensure_plant_reason_codes((plant_scope or {}).get("selected_plant_id"))
         query = apply_plant_scope(db.query(models.ReasonCode), models.ReasonCode.plant_id, plant_scope)
     code = str(payload.reason_code or payload.code or "").strip().upper()
     rows = query.filter(models.ReasonCode.code == code).all() if code else []

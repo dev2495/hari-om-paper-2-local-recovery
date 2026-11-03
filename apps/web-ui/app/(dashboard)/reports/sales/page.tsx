@@ -1,6 +1,7 @@
 "use client"
 
 import { useMemo } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 
 import { ChartTooltip } from "@/components/erp/charts"
@@ -22,8 +23,10 @@ import {
   formatNumber,
   formatPct,
 } from "@/components/reports/primitives"
+import { reportLoadNote } from "@/components/reports/report-load"
 import { useAuth } from "@/context/AuthContext"
-import { useCustomer360, useLeadtimeAnatomy, useOwnerPack, useSalesReport } from "@/hooks/use-analytics"
+import { useCustomer360, useLeadtimeAnatomy } from "@/hooks/use-analytics"
+import { api } from "@/lib/api"
 import { usePlantScopeLabel } from "@/hooks/use-plant-scope-label"
 
 export default function SalesReportsWrapper() {
@@ -40,14 +43,24 @@ function SalesPulsePage() {
   const today = new Date().toISOString().split("T")[0]
   const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
 
-  const { data: salesReport } = useSalesReport({ startDate, endDate: today, plant: activePlant || undefined, granularity: "day" })
-  const { data: pack } = useOwnerPack(activePlant ? { plant: activePlant } : undefined, { enabled: true })
-  const { data: leadtime } = useLeadtimeAnatomy({ startDate, endDate: today, plant: activePlant || undefined })
-  const { data: customers } = useCustomer360({ startDate, endDate: today, plant: activePlant || undefined })
-
-  const p: any = pack || {}
-  const sales = p.sales || {}
-  const headline = p.headline || {}
+  // The sales report carries the OTIF, backlog and dispatch numbers itself, so this page no longer reads
+  // the owner pack (Owner/Planner/Plant head only): Sales and the plant head both get real numbers.
+  const salesQuery = useQuery({
+    queryKey: ["analytics", "reports-sales", startDate, today, activePlant],
+    queryFn: async () =>
+      (await api.get("/api/analytics/reports/sales", {
+        params: { start_date: startDate, end_date: today, granularity: "day", ...(activePlant ? { plant: activePlant } : {}) },
+      })).data,
+  })
+  const salesReport = salesQuery.data
+  const leadtimeQuery = useLeadtimeAnatomy({ startDate, endDate: today, plant: activePlant || undefined })
+  const customersQuery = useCustomer360({ startDate, endDate: today, plant: activePlant || undefined })
+  const leadtime = leadtimeQuery.data
+  const customers = customersQuery.data
+  const salesNote = reportLoadNote(salesQuery.error)
+  const leadNote = reportLoadNote(leadtimeQuery.error)
+  const customersNote = reportLoadNote(customersQuery.error)
+  const sales: any = salesReport || {}
 
   const series = useMemo(() => (salesReport as any)?.series || [], [salesReport])
   const ordersCreated = series.reduce((a: number, r: any) => a + Number(r.orders_created || 0), 0)
@@ -82,9 +95,11 @@ function SalesPulsePage() {
   const leadStages: any[] = Array.isArray((leadtime as any)?.stages) ? (leadtime as any).stages : []
   const totalAvgDays = Number((leadtime as any)?.total_average_days || 0)
 
-  const otifValue = Number((salesReport as any)?.summary?.otif_percent ?? headline.otif_percent ?? 0)
+  const otifValue = Number((salesReport as any)?.summary?.otif_percent ?? 0)
   const closedMeasured = Number((salesReport as any)?.summary?.closed_orders || 0)
-  const backlogOrders = Number((salesReport as any)?.summary?.backlog_orders ?? headline.backlog_orders ?? 0)
+  const backlogOrders = Number((salesReport as any)?.summary?.backlog_orders ?? 0)
+  // On an API error the numbers are unknown, never zero.
+  const shown = (value: string) => (salesNote ? "—" : value)
 
   return (
     <div className="space-y-5 pb-10" data-testid="reports-sales-page">
@@ -94,10 +109,10 @@ function SalesPulsePage() {
         description="Every customer-facing signal on one page. Click a row to drill into the order, customer, or specification."
         accent="emerald"
         chips={[
-          { label: `${formatNumber(ordersCreated)} orders this window`, tone: "neutral" },
-          { label: closedMeasured ? `OTIF ${formatPct(otifValue)} of ${formatNumber(closedMeasured)} closed` : "No closed orders to measure OTIF", tone: "neutral" },
-          { label: `${customerRows.length} customers tracked`, tone: "neutral" },
-          { label: `Lead ${formatNumber(totalAvgDays, 1)} d`, tone: totalAvgDays > 21 ? "warn" : "neutral" },
+          { label: salesNote ? `Orders: ${salesNote}` : `${formatNumber(ordersCreated)} orders this window`, tone: salesNote ? "warn" : "neutral" },
+          ...(salesNote ? [] : [{ label: closedMeasured ? `OTIF ${formatPct(otifValue)} of ${formatNumber(closedMeasured)} closed` : "No closed orders to measure OTIF", tone: "neutral" as const }]),
+          ...(customersNote ? [] : [{ label: `${customerRows.length} customers tracked`, tone: "neutral" as const }]),
+          ...(leadNote ? [] : [{ label: `Lead ${formatNumber(totalAvgDays, 1)} d`, tone: totalAvgDays > 21 ? ("warn" as const) : ("neutral" as const) }]),
         ]}
       />
 
@@ -110,28 +125,30 @@ function SalesPulsePage() {
         </FilterField>
       </ReportFilterBar>
 
+      {salesNote ? <NoteCallout tone="warn">Sales numbers: {salesNote}</NoteCallout> : null}
+
       <KpiRail
         items={[
-          { label: "Orders created", value: formatNumber(ordersCreated), tone: "cyan" },
-          { label: "Released %", value: ordersCreated ? formatPct((released / ordersCreated) * 100) : "—", tone: "violet" },
-          { label: "Closed", value: formatNumber(closed), tone: "emerald" },
-          { label: "Released backlog", value: formatNumber(backlogOrders), tone: "amber", detail: "Released, not yet fully dispatched" },
-          { label: "OTIF", value: closedMeasured ? formatPct(otifValue) : "—", tone: "emerald", detail: `${formatNumber(closedMeasured)} closed orders measured` },
+          { label: "Orders created", value: shown(formatNumber(ordersCreated)), tone: "cyan" },
+          { label: "Released %", value: ordersCreated ? shown(formatPct((released / ordersCreated) * 100)) : "—", tone: "violet" },
+          { label: "Closed", value: shown(formatNumber(closed)), tone: "emerald" },
+          { label: "Released backlog", value: shown(formatNumber(backlogOrders)), tone: "amber", detail: "Released, not yet fully dispatched" },
+          { label: "OTIF", value: closedMeasured ? shown(formatPct(otifValue)) : "—", tone: "emerald", detail: salesNote || `${formatNumber(closedMeasured)} closed orders measured` },
           {
             label: "Lead time",
-            value: `${formatNumber(totalAvgDays, 1)} d`,
+            value: leadNote ? "—" : `${formatNumber(totalAvgDays, 1)} d`,
             tone: "slate",
-            detail: `p50/p90 = ${formatNumber(Number((leadtime as any)?.p50 || 0), 1)} / ${formatNumber(Number((leadtime as any)?.p90 || 0), 1)} d`,
+            detail: leadNote || `p50/p90 = ${formatNumber(Number((leadtime as any)?.p50 || 0), 1)} / ${formatNumber(Number((leadtime as any)?.p90 || 0), 1)} d`,
           },
         ]}
       />
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
         <Panel eyebrow="Order funnel" title="From created to dispatched" description="Each drop arrow shows the % lost between stages.">
-          {funnelStages[0].value > 0 ? <Funnel stages={funnelStages} /> : <NoteCallout tone="neutral">No order activity in this window.</NoteCallout>}
+          {salesNote ? <NoteCallout tone="warn">{salesNote}</NoteCallout> : funnelStages[0].value > 0 ? <Funnel stages={funnelStages} /> : <NoteCallout tone="neutral">No order activity in this window.</NoteCallout>}
         </Panel>
         <Panel eyebrow="Order flow" title="Booked, closed and dispatched" description="Orders booked and closed per day (bars) with pieces dispatched (line).">
-          {flowData.some((row: any) => row.booked + row.closed + row.dispatched > 0) ? (
+          {salesNote ? <NoteCallout tone="warn">{salesNote}</NoteCallout> : flowData.some((row: any) => row.booked + row.closed + row.dispatched > 0) ? (
             <div className="h-[260px]">
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={flowData}>
@@ -147,19 +164,19 @@ function SalesPulsePage() {
               </ResponsiveContainer>
             </div>
           ) : <NoteCallout tone="neutral">No orders booked, closed or dispatched in this window.</NoteCallout>}
-          <p className="mt-2 text-[12px] text-muted-foreground">{formatNumber(dispatchedPcs)} pcs dispatched in the window.</p>
+          {salesNote ? null : <p className="mt-2 text-[12px] text-muted-foreground">{formatNumber(dispatchedPcs)} pcs dispatched in the window.</p>}
         </Panel>
       </div>
 
       <ClosuresByReason />
 
       <Panel eyebrow="Lead-time anatomy" title="Where the lead-time days are going" description="From order-created to dispatched, broken into the major stages.">
-        {leadStages.length ? <LeadTimeAnatomy stages={leadStages.map((s: any) => ({ label: s.label, days: Number(s.days || 0) }))} /> : <NoteCallout tone="neutral">Not enough closed orders for a lead-time breakdown yet.</NoteCallout>}
+        {leadNote ? <NoteCallout tone="warn">{leadNote}</NoteCallout> : leadStages.length ? <LeadTimeAnatomy stages={leadStages.map((s: any) => ({ label: s.label, days: Number(s.days || 0) }))} /> : <NoteCallout tone="neutral">Not enough closed orders for a lead-time breakdown yet.</NoteCallout>}
       </Panel>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
-        <Panel eyebrow="Customer 360" title="Top customers — risk-sorted" description={`${customerSummary.active_customers || customerRows.length} active · ${customerSummary.at_risk_customers || 0} at risk.`}>
-          {customerRows.length ? (
+        <Panel eyebrow="Customer 360" title="Top customers — risk-sorted" description={customersNote ? "Customer list could not be shown." : `${customerSummary.active_customers || customerRows.length} active · ${customerSummary.at_risk_customers || 0} at risk.`}>
+          {customersNote ? <NoteCallout tone="warn">{customersNote}</NoteCallout> : customerRows.length ? (
             <div className="overflow-x-auto"><table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-[12px] font-semibold text-muted-foreground">
@@ -195,7 +212,7 @@ function SalesPulsePage() {
           )}
         </Panel>
         <Panel eyebrow="SKU mix" title="Top SKUs by quantity" description="Where the volume is concentrated.">
-          {topSkuRows.length ? (
+          {salesNote ? <NoteCallout tone="warn">{salesNote}</NoteCallout> : topSkuRows.length ? (
             <ul className="space-y-1.5">
               {topSkuRows.map((s) => (
                 <li key={s.label} className="grid grid-cols-[minmax(0,1fr)_60px] items-center gap-2 text-sm">

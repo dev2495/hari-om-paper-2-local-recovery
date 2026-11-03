@@ -81,9 +81,19 @@ api.interceptors.response.use(
       }
     }
 
+    // A save sent while "All plants" is chosen (the Owner/Admin read-only view, owner decision 3 Nov 2026):
+    // every service refuses it; say in one plain line what to do instead of the service's wording.
+    const detail = error?.response?.data?.detail
+    if (status === 400 && error.response && typeof detail === "string" && ALL_PLANTS_WRITE.test(detail)) {
+      error.response.data = { ...error.response.data, detail: PICK_ONE_PLANT, code: "PICK_ONE_PLANT" }
+    }
+
     return Promise.reject(error)
   },
 )
+
+const ALL_PLANTS_WRITE = /select one concrete plant|ALL scope is read-only/i
+export const PICK_ONE_PLANT = "All plants is view-only. Pick one plant at the top, then save again."
 
 export const authApi = {
   login: async (email: string, password: string) => {

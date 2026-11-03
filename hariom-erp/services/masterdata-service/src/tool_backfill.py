@@ -27,12 +27,17 @@ def spec_database_url() -> str | None:
     return f"{head}/{base[: -len('masterdb')]}specdb" + (f"?{query}" if query else "")
 
 
-def backfill_tools_from_specs() -> int:
+def backfill_tools_from_specs(only_plants: list[str] | None = None) -> int:
     """Every tool a specification sheet names exists in the Tool master (client 2026-10-18:
     imported specs showed "Notch tools not in Tool master" and empty tool dropdowns).
 
     Reads the spec database once at start, creates only the missing (category, name) pairs in
-    the spec's plant, and never touches an existing row, so a tool QC switched off stays off."""
+    the spec's plant, and never touches an existing row, so a tool QC switched off stays off.
+
+    ``only_plants`` limits it to those plants (a plant head runs it for their own plant only)."""
+    limit = None
+    if only_plants is not None:
+        limit = {alias for plant in only_plants for alias in (get_plant_aliases(plant) or [plant])}
     url = spec_database_url()
     if not url:
         return 0
@@ -58,6 +63,8 @@ def backfill_tools_from_specs() -> int:
             continue
         category = SPEC_TOOL_FIELDS[key]
         plant = str(plant_id or "PLANT_A").strip() or "PLANT_A"
+        if limit is not None and plant not in limit:
+            continue
         wanted.setdefault((category, name.casefold(), plant), name)
     if not wanted:
         return 0

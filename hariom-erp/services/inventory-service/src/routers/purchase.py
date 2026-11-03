@@ -86,6 +86,33 @@ def _po_status(line_statuses: list[str]) -> str:
     return "APPROVED"
 
 
+def _settle_line_status(line: Any) -> str:
+    """A PO line's status from what it holds, with the receipt rule: received plus short-closed covers the order = CLOSED."""
+    ordered = float(line.qty_ordered or 0.0)
+    received = float(line.qty_received or 0.0)
+    short = float(line.qty_short_closed or 0.0)
+    rejected = float(getattr(line, "qty_rejected", 0.0) or 0.0)
+    if received + short + 1e-9 >= ordered and (received > 0 or short > 0):
+        return "CLOSED"
+    if rejected > 0 and received <= 0 and rejected + short + 1e-9 >= ordered:
+        return "REJECTED"
+    if received > 0 or short > 0 or rejected > 0:
+        return "PARTIAL"
+    return "OPEN"
+
+
+def _approved_po_status(order: Any) -> str:
+    """Status of an approved PO from its lines (same rule as a GRN posting), so an approval after a
+    revision that left nothing open does not leave the PO stuck at APPROVED."""
+    lines = list(order.lines or [])
+    for line in lines:
+        line.line_status = _settle_line_status(line)
+    if lines and all(line.line_status == "CLOSED" for line in lines):
+        received_all = all(float(line.qty_received or 0) + 1e-9 >= float(line.qty_ordered or 0) for line in lines)
+        return "RECEIVED" if received_all else "SHORT_CLOSED"
+    return _po_status([line.line_status for line in lines])
+
+
 def _receipt_status(qc_statuses: list[str]) -> str:
     statuses = [status.upper() for status in qc_statuses]
     if any(status == "HOLD" for status in statuses):
@@ -1087,7 +1114,7 @@ def create_purchase_order_revision(
                 "bulk": requested.bulk, "cobb": requested.cobb,
                 **({"rate_source": "DESK", "rate_needed": float(requested.unit_cost or 0) <= 0} if rate_changed else {}),
             }
-            line.line_status = _line_status(line.qty_ordered, line.qty_received)
+            line.line_status = _settle_line_status(line)
         else:
             line = PurchaseOrderLine(
                 purchase_order_id=order.id, item_id=requested.item_id, logical_line_id=requested.logical_line_id or uuid.uuid4(),
@@ -1323,7 +1350,8 @@ def approve_purchase_order(
     # The Owner and an Admin may approve a revision they made or submitted (user decision 2026-10-30);
     # the history records it as approved by the same person.
     same_person = actor in makers
-    order.status = "APPROVED"
+    # Not always APPROVED: a revision may have left every line received or closed.
+    order.status = _approved_po_status(order)
     order.approved_by = _actor(current_user)
     order.approved_at = datetime.utcnow()
     order.approval_source = "OWNER"
@@ -1417,6 +1445,13 @@ def short_close_purchase_order(
         raise HTTPException(status_code=409, detail="Purchase order changed; reload before short-closing")
     if order.status not in {"APPROVED", "PARTIALLY_RECEIVED"}:
         raise HTTPException(status_code=409, detail="Only an approved open purchase order can be short-closed")
+    if all(float(line.qty_ordered or 0) - float(line.qty_received or 0) - float(line.qty_short_closed or 0) <= 1e-9 for line in order.lines or []):
+        # Nothing is left open (e.g. a revision set the quantity to what came): close it as its lines say.
+        order.status = _approved_po_status(order)
+        order.version += 1
+        db.commit()
+        db.refresh(order)
+        return _serialize_order(order)
     choice = _reason_choice(payload, "PO_CLOSE", order.plant_id or plant_id, current_user, "the short close")
     requested = {row.po_line_id: row.qty for row in payload.lines}
     if len(requested) != len(payload.lines):
@@ -1453,7 +1488,7 @@ def short_close_purchase_order(
         closed_any = True
     if not closed_any:
         raise HTTPException(status_code=409, detail="No open quantity was selected for short-close")
-    order.status = "SHORT_CLOSED" if all(line.line_status == "CLOSED" for line in order.lines or []) else "PARTIALLY_RECEIVED"
+    order.status = "SHORT_CLOSED" if all(_settle_line_status(line) == "CLOSED" for line in order.lines or []) else "PARTIALLY_RECEIVED"
     order.metadata_json = {**(order.metadata_json or {}), "short_close_reason": choice.text,
         "short_close_reason_code": choice.code, "short_close_reason_label": choice.label, "short_close_reason_note": choice.note,
         "short_closed_by": _actor(current_user), "short_closed_at": datetime.utcnow().isoformat()}
@@ -1477,7 +1512,7 @@ def cancel_purchase_order(
     if order.version != payload.expected_version:
         raise HTTPException(status_code=409, detail="Purchase order changed; reload before cancelling")
     if order.status in {"RECEIVED", "SHORT_CLOSED", "CANCELLED"} or any(float(line.qty_received or 0) > 0 for line in order.lines or []):
-        raise HTTPException(status_code=409, detail="A PO with received quantity cannot be cancelled; use short-close or a controlled return")
+        raise HTTPException(status_code=409, detail="A PO with received quantity cannot be cancelled; use short-close (it also closes a PO with nothing open) or a controlled return")
     choice = _reason_choice(payload, "PO_CLOSE", order.plant_id or plant_id, current_user, "cancelling this PO")
     order.status = "CANCELLED"
     line_ids = [line.id for line in order.lines or []]

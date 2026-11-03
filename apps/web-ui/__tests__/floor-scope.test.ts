@@ -38,14 +38,14 @@ assert.equal(winder.kind === "stage" && winder.employee.id, "w1", "logs as their
 const oven = floorScope({ roles: ["Operator"], email: "oven.op@hariom.com", employees })
 assert.equal(oven.kind === "stage" && oven.stage, "OVEN")
 const unlinked = floorScope({ roles: ["Operator"], email: "nobody@hariom.com", employees })
-assert.equal(unlinked.kind, "unlinked")
-assert.equal(unlinked.kind === "unlinked" && unlinked.why, "no-employee")
-assert.match(unlinkedNote(unlinked), /ask the Admin to link your login in Masters › Employees/i)
-assert.equal((floorScope({ roles: ["Operator"], email: "left@hariom.com", employees }) as any).why, "no-employee", "an inactive employee row does not link")
+// Not linked to any employee: no stage at all, with one plain line (owner, 3 Nov 2026).
+assert.equal(unlinked.kind, "none")
+assert.equal(unlinkedNote(unlinked), "Your login is not linked to an employee; ask the Owner.")
+assert.equal(floorScope({ roles: ["Operator"], email: "left@hariom.com", employees }).kind, "none", "an inactive employee row does not link")
 assert.equal((floorScope({ roles: ["Operator"], email: "qc.floor@hariom.com", employees }) as any).why, "no-stage", "a QC-department employee runs no floor stage")
 assert.match(unlinkedNote(floorScope({ roles: ["Operator"], email: "qc.floor@hariom.com", employees })), /QC department/)
 assert.equal((floorScope({ roles: ["Operator"], email: "two@hariom.com", employees }) as any).why, "several", "two departments: never guess")
-assert.equal((floorScope({ roles: ["Operator"], email: "", employees: [{ id: "e", department: "OVEN", email: "", active: true }] }) as any).why, "no-employee", "a blank email never links")
+assert.equal(floorScope({ roles: ["Operator"], email: "", employees: [{ id: "e", department: "OVEN", email: "", active: true }] }).kind, "none", "a blank email never links")
 assert.equal(unlinkedNote({ kind: "full" }), "")
 
 // Gate: is the operator's stage open on this card?

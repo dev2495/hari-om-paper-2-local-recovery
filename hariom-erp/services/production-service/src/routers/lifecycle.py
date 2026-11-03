@@ -37,7 +37,7 @@ from ..lifecycle_rules import (
 )
 from ..models import AuditEvent, JobCard, JobCardStage, JobCardStageSegment, MachineStageCapacityProfile
 from ..reasons import ReasonChoice, reason_input, resolve_reason, token_of
-from ..utils.auth import get_current_plant, require_role
+from ..utils.auth import get_current_plant, get_current_plant_scope, require_role
 from .missed_slots import restore_missed_slot_for_late_entry, sweep_missed_slots
 from .planning import (
     PLANT_TIMEZONE,
@@ -1036,8 +1036,11 @@ def list_missed_slots(
 def job_cards_spec_usage(
     spec_id: uuid.UUID,
     db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(require_role(ROLES_FLOOR + ["Sales", "QC", "Store"])),
 ):
-    """Running (not completed/cancelled) job cards on a specification (live-spec edit lock)."""
-    rows = db.query(JobCard).filter(JobCard.spec_id == spec_id, JobCard.status.notin_(["COMPLETED", "CANCELLED"])).all()
+    """Running (not completed/cancelled) job cards on a specification (live-spec edit lock), in the plant(s) in scope."""
+    plants = plant_scope.get("allowed_plants") if plant_scope.get("scope_all") else [plant_scope.get("selected_plant_id")]
+    plant_ids = [_to_uuid(value) for value in (plants or []) if value]
+    rows = db.query(JobCard).filter(JobCard.spec_id == spec_id, JobCard.plant_id.in_(plant_ids), JobCard.status.notin_(["COMPLETED", "CANCELLED"])).all()
     return {"spec_id": str(spec_id), "open_job_cards": len(rows), "job_card_nos": [row.job_card_no for row in rows][:20]}

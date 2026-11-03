@@ -69,3 +69,50 @@ Report only, nothing changed. Four read-only code reviews traced the main flows 
 2. **H2** (re-derive PO status on approve), **H3** (work out the claim on PO GRN quantity cases), **M9** (void button).
 3. **M5/M3/M8** (cancel paths for a failed seal, an unsynced release lot, and tool reversal), **M7** (flag, don't block, on V2 Final QC).
 4. **M6, M10, M11** and the low items.
+
+## Fixed (3 Nov 2026, same day)
+**Plant isolation (owner rule):** every user works only in the plants assigned to them; "All plants" is the Owner/Admin read-only view; every save needs one concrete plant.
+- One rule in all services (`utils/auth.py` of sales, spec, masterdata, production, analytics; inventory already had it): multi-plant users now reach each of their plants everywhere (before, sales/spec/masters/analytics allowed only the primary plant), anyone else's plant is refused, and "All" is refused for non-admins (production used to allow it).
+- The app says "All plants is view-only. Pick one plant at the top, then save again." on any save refused in "All plants". Saves on an existing record (order actions, packing rows) send that record's own plant.
+- Record-by-id gaps closed: sales stage-returns and call-off writes; production short close / downtime under All, hold source inspections, challan box lock, shift ledger, reel issues saved with the card's plant (were Plant A); masterdata reason-code seeding; tool backfill limited to the caller's plant; analytics job endpoints now Owner/Admin. Inventory: all 102 id lookups and scans were already plant-filtered.
+- Saved planner views can now be read under "All plants".
+
+**Findings:**
+- **H1:** sales actions follow the server's roles.
+- **H2:** PO status settles from its lines, and stuck POs can be closed.
+- **H3:** short weight on a PO GRN is claimed at the billed rate.
+- **M1:** sales saves under All plants handled as above.
+- **M2:** packing setup saves to each spec's plant.
+- **M3:** an order with a lot that never became a job card can be cancelled or short-closed (the lot is dropped).
+- **M4:** a held order shows Cancel / Short close.
+- **M5:** "Cancel this shipment" undoes a failed seal: stock is put back, boxes return to ready, reason code required.
+- **M6:** dispatch notification links open the register filtered to that card; old links redirect.
+- **M7:** V2 Final QC out-of-band readings flag and never block.
+- **M8:** reopening a stage takes back its posted tool usage through a new stores reversal, which is idempotent and plant-scoped.
+- **M9:** debit notes can be voided with a reason.
+- **M10:** Sales pulse and Inventory intelligence show real numbers to their roles, or "Not available for your role" (never zeros).
+- **M11:** manual FG history shows pcs.
+- **Low items:**
+  - reopen ordering is safe (sales is called last and re-armed if production fails);
+  - an unlinked operator login sees no stage, with a message;
+  - "Release, keep case" shows only when valid;
+  - the manual GRN header status is consistent;
+  - dispatch counts are correct, and the dashboard reads the right event.
+
+**Tests:**
+| Suite | Result |
+|---|---|
+| Production | 641 passed |
+| Sales | 160 passed |
+| Inventory | 326 passed (one known order-dependent test needs other tests' data first) |
+| Spec | 91 passed |
+| Masterdata | 57 passed |
+| Analytics | 28 passed |
+| Auth | 38 passed |
+| BFF | 134 passed |
+| Web | type-check clean, all tests pass |
+
+Browser pass on the local stack: new order and packing setup under All plants, old dispatch links, orders list; all calls 200.
+
+**Open, needs an owner decision:** materials, customers, suppliers and the tool list are meant to be shared by all plants, but today every master is stored per plant (isolated, so nothing leaks). Making them shared needs a data change: either one shared copy readable by every plant, or a copy into each new plant when it starts.
+**Small open item:** old-form (V1) reel issue ids are not plant-checked (V1 forms are retired for new cards; a strict check would break old saves).

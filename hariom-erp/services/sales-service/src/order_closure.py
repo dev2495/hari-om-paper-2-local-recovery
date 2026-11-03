@@ -11,6 +11,8 @@ One place decides what an order allows, so the screen and the server never disag
   released finish and are dispatched, and the order then closes by itself. A balance a force-closed
   job card later hands back is dropped too, instead of becoming releasable again.
 * **Customer hold** (unchanged) is the reversible pause; cancel or short close also ends a hold.
+* A lot saved in sales whose job card was never made (the planning sync failed) is not "released":
+  cancel and short close drop it with the rest, so such an order is never stuck.
 
 Both need a reason code from Masters › Reason codes (category "Order cancel / short close"); a code
 whose name says OTHER also needs a note. The order keeps its stored status CLOSED for a cancel (so
@@ -19,12 +21,17 @@ every "open order" query already leaves it out) and reports itself as ``cancelle
 from __future__ import annotations
 
 import re
+from datetime import datetime, timedelta
 from typing import Any, Iterable, Optional
 
 CANCELLED = "CANCELLED"
 SHORT_CLOSED = "SHORT_CLOSED"
 CLOSURE_ROLES = ["Admin", "Owner", "Sales", "PlantManager"]
 _EPS = 1e-6
+# A lot saved in sales gets its job card id when planning has made the card. A lot without one is
+# still being made for this long (planning commits the card, then links it back); after that the
+# sync failed and the lot is not on a job card.
+PENDING_SYNC_GRACE = timedelta(minutes=10)
 
 
 def _num(value: Any) -> float:
@@ -44,9 +51,44 @@ def active_released(line: Any) -> float:
     return sum(_num(lot.released_qty) for lot in getattr(line, "release_lots", None) or [] if str(lot.status or "").lower() != "cancelled")
 
 
+def lot_on_job_card(lot: Any, now: Optional[datetime] = None) -> bool:
+    """Is this lot really on a job card? Cancelled: no. Linked to a job card: yes. Not linked: only
+    while planning may still be making the card (a few minutes after the release)."""
+    if str(lot.status or "").lower() == "cancelled":
+        return False
+    if getattr(lot, "job_card_id", None):
+        return True
+    created = getattr(lot, "created_at", None)
+    return created is not None and (now or datetime.utcnow()) - created < PENDING_SYNC_GRACE
+
+
+def stuck_lots(line: Any, now: Optional[datetime] = None) -> list[Any]:
+    """Lots saved in sales whose job card was never made (the planning sync failed)."""
+    return [
+        lot for lot in getattr(line, "release_lots", None) or []
+        if str(lot.status or "").lower() != "cancelled" and not lot_on_job_card(lot, now)
+    ]
+
+
+def cancel_stuck_lots(lines: Iterable[Any], reason: str) -> float:
+    """Cancel the lots that never got a job card; returns their quantity."""
+    total = 0.0
+    for line in lines:
+        for lot in stuck_lots(line):
+            total += _num(lot.released_qty)
+            lot.status = "cancelled"
+            lot.returned_reason = reason[:200]
+    return round(total, 4)
+
+
+def on_job_cards(line: Any, now: Optional[datetime] = None) -> float:
+    """Quantity really on job cards: what cancel and short close must leave alone."""
+    return sum(_num(lot.released_qty) for lot in getattr(line, "release_lots", None) or [] if lot_on_job_card(lot, now))
+
+
 def line_floor(line: Any) -> float:
     """What a line can never go below: what is on job cards or already dispatched."""
-    return max(active_released(line), _num(line.fulfilled_qty))
+    return max(on_job_cards(line), _num(line.fulfilled_qty))
 
 
 def droppable(line: Any) -> float:
@@ -72,7 +114,8 @@ def closure_options(order: Any) -> dict[str, Any]:
     status = _status(order)
     held = getattr(order, "held_at", None) is not None
     dispatched = sum(_num(line.fulfilled_qty) for line in lines)
-    released = sum(active_released(line) for line in lines)
+    released = sum(on_job_cards(line) for line in lines)
+    stuck = sum(_num(lot.released_qty) for line in lines for lot in stuck_lots(line))
     drop = round(sum(droppable(line) for line in lines), 4)
     finished = status == "closed" and not held and not getattr(order, "closure_kind", None)
     kind = str(getattr(order, "closure_kind", "") or "").upper()
@@ -111,6 +154,7 @@ def closure_options(order: Any) -> dict[str, Any]:
         "dispatched_qty": round(dispatched, 4),
         "released_qty": round(released, 4),
         "drop_qty": drop,
+        "stuck_qty": round(stuck, 4),
         "held": held,
     }
 

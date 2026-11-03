@@ -36,6 +36,7 @@ import { SavedViewsSelect } from "@/components/common/saved-views-select"
 import { ColorChip, JobCardNo, LifecycleBadge } from "@/components/production/lifecycle-chips"
 import { CardMixChips, Chip, DueCell, FulfilmentBar, FulfilmentLegend, OrderStatusChip, PlanChip, QcFlagChip, StageDots } from "@/components/sales/order-chips"
 import { OrderClosureDialog, orderClosureAction, orderPlantId } from "@/components/sales/order-closure-dialog"
+import { salesActionRoles } from "@/components/sales/sales-action-roles"
 import { OrderHoldDialog } from "@/components/sales/order-hold-dialog"
 import { OrderResumeDialog } from "@/components/sales/order-resume-dialog"
 import { useReasonList } from "@/components/reasons"
@@ -124,6 +125,8 @@ export default function SalesOrdersPage() {
   const { user, setActivePlant, activePlant } = useAuth()
   // Sales views challans only; the row's "Dispatch" action goes to the roles that can seal one.
   const canChallan = canMakeChallan(user)
+  // Row and bulk actions follow the roles the sales service enforces; one a role can never use is hidden.
+  const can = useMemo(() => salesActionRoles(user), [user])
   const router = useRouter()
   const searchParams = useSearchParams()
   const [initial] = useState(() => initialFromParams(searchParams))
@@ -266,7 +269,7 @@ export default function SalesOrdersPage() {
     }
   }
   const handleApprove = (order: any) => run(order, () => approveOrder.mutateAsync({ orderId: String(order.id), plantId: orderPlantId(order) }), `${order.order_no || "Order"} approved. Next: release its lines.`)
-  const handleSubmit = (order: any) => run(order, () => submitOrder.mutateAsync({ orderId: String(order.id) }), `${order.order_no || "Order"} sent for approval.`)
+  const handleSubmit = (order: any) => run(order, () => submitOrder.mutateAsync({ orderId: String(order.id), plantId: orderPlantId(order) }), `${order.order_no || "Order"} sent for approval.`)
   // Lifting a hold asks why (ORDER_RESUME reason, 1 Nov 2026).
   const handleResume = (order: any) => setResumeOrderRow(order)
   const openRelease = (order: any) => {
@@ -353,7 +356,7 @@ export default function SalesOrdersPage() {
             <>
               <button type="button" className="erp-btn-secondary !h-11 sm:!h-9" onClick={() => window.print()}><Printer className="h-4 w-4" />Print</button>
               <button type="button" className="erp-btn-secondary !h-11 sm:!h-9" onClick={() => void exportRegister()} disabled={!orders.length || exporting}><Download className="h-4 w-4" />{exporting ? "Exporting…" : "Excel"}</button>
-              <Link href="/sales-orders/new" className="erp-btn-primary !h-11 sm:!h-9" data-testid="sales-orders:new"><Plus className="h-4 w-4" />New sales order</Link>
+              {can.create ? <Link href="/sales-orders/new" className="erp-btn-primary !h-11 sm:!h-9" data-testid="sales-orders:new"><Plus className="h-4 w-4" />New sales order</Link> : null}
             </>
           }
         />
@@ -473,9 +476,9 @@ export default function SalesOrdersPage() {
           {selected.length ? (
             <div className="flex flex-wrap items-center gap-2 border-b border-primary/30 bg-primary/[.06] px-3 py-2 text-[12.5px]" data-testid="sales-orders:bulk" aria-live="polite">
               <strong>{selected.length} selected</strong>
-              <button type="button" className="erp-btn-secondary !h-11 sm:!h-8" disabled={!bulkApprove.length || approveOrder.isPending} onClick={() => void runBulk(bulkApprove, (order) => approveOrder.mutateAsync({ orderId: String(order.id), plantId: orderPlantId(order) }), "approved")}><CheckCircle2 className="h-3.5 w-3.5" />Approve{bulkApprove.length ? ` ${bulkApprove.length}` : ""}</button>
-              <button type="button" className="erp-btn-secondary !h-11 sm:!h-8" disabled={!bulkSubmit.length || submitOrder.isPending} onClick={() => void runBulk(bulkSubmit, (order) => submitOrder.mutateAsync({ orderId: String(order.id) }), "sent for approval")}><Send className="h-3.5 w-3.5" />Send for approval{bulkSubmit.length ? ` ${bulkSubmit.length}` : ""}</button>
-              <button type="button" className="erp-btn-secondary !h-11 sm:!h-8 !text-signal-amber-ink" disabled={!bulkHold.length} onClick={() => setHoldOrders(bulkHold)}><PauseCircle className="h-3.5 w-3.5" />Hold…{bulkHold.length ? ` ${bulkHold.length}` : ""}</button>
+              {can.approve ? <button type="button" className="erp-btn-secondary !h-11 sm:!h-8" disabled={!bulkApprove.length || approveOrder.isPending} onClick={() => void runBulk(bulkApprove, (order) => approveOrder.mutateAsync({ orderId: String(order.id), plantId: orderPlantId(order) }), "approved")}><CheckCircle2 className="h-3.5 w-3.5" />Approve{bulkApprove.length ? ` ${bulkApprove.length}` : ""}</button> : null}
+              {can.submit ? <button type="button" className="erp-btn-secondary !h-11 sm:!h-8" disabled={!bulkSubmit.length || submitOrder.isPending} onClick={() => void runBulk(bulkSubmit, (order) => submitOrder.mutateAsync({ orderId: String(order.id), plantId: orderPlantId(order) }), "sent for approval")}><Send className="h-3.5 w-3.5" />Send for approval{bulkSubmit.length ? ` ${bulkSubmit.length}` : ""}</button> : null}
+              {can.hold ? <button type="button" className="erp-btn-secondary !h-11 sm:!h-8 !text-signal-amber-ink" disabled={!bulkHold.length} onClick={() => setHoldOrders(bulkHold)}><PauseCircle className="h-3.5 w-3.5" />Hold…{bulkHold.length ? ` ${bulkHold.length}` : ""}</button> : null}
               <button type="button" className="erp-btn-secondary !h-11 sm:!h-8" disabled={exporting} onClick={() => void exportRegister(selected)}><Download className="h-3.5 w-3.5" />Excel</button>
               <button type="button" className="ml-auto min-h-11 px-2 text-[12.5px] font-semibold text-primary hover:underline sm:min-h-8" onClick={() => setSelectedOrders(new Set())}>Clear</button>
             </div>
@@ -533,6 +536,9 @@ export default function SalesOrdersPage() {
                   const actionButton = (() => {
                     const base = cn("inline-flex h-11 items-center gap-1 whitespace-nowrap rounded-md px-3 sm:h-8 sm:px-2.5 text-[12.5px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-50", action.tone === "primary" ? "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90" : action.tone === "secondary" ? "border border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink hover:brightness-[.97]" : "border border-border bg-card text-foreground hover:bg-muted")
                     const testId = `sales-orders:next-${action.key}`
+                    // A next step this role cannot do (the service would refuse it) becomes plain "Open".
+                    const allowedNext = ({ approve: can.approve, submit: can.submit, resume: can.resume, release: can.release } as Record<string, boolean>)[action.key] ?? true
+                    if (!allowedNext) return <Link href={`/sales-orders/${orderId}`} className={base} data-testid="sales-orders:next-open">Open</Link>
                     if (action.key === "open") return <Link href={`/sales-orders/${orderId}`} className={base} data-testid={testId}>{action.label}</Link>
                     if (action.href) return <Link href={action.href} className={base} title={action.hint} data-testid={testId}>{action.label}</Link>
                     if (action.key === "waiting") return <span className={cn(base, "cursor-default opacity-70")} title={action.hint} data-testid={testId}>{action.label}</span>
@@ -601,15 +607,15 @@ export default function SalesOrdersPage() {
                                 { label: "Open order", href: `/sales-orders/${orderId}`, icon: Eye, testId: "sales-orders:view-link" },
                                 { label: "History", href: `/sales-orders/${orderId}?tab=history`, icon: History },
                                 { label: "Print", href: `/sales-orders/${orderId}?print=1`, icon: Printer },
-                                { label: "Copy as new order", href: `/sales-orders/new?copy=${orderId}`, icon: Copy },
-                                ...(canApprove(order) && action.key !== "approve" && !isMine(order) ? [{ label: "Approve", icon: CheckCircle2, onSelect: () => void handleApprove(order) }] : []),
-                                ...(canRelease(order) && action.key !== "release" ? [{ label: "Release lines…", icon: Send, onSelect: () => openRelease(order) }] : []),
+                                ...(can.create ? [{ label: "Copy as new order", href: `/sales-orders/new?copy=${orderId}`, icon: Copy }] : []),
+                                ...(can.approve && canApprove(order) && action.key !== "approve" && !isMine(order) ? [{ label: "Approve", icon: CheckCircle2, onSelect: () => void handleApprove(order) }] : []),
+                                ...(can.release && canRelease(order) && action.key !== "release" ? [{ label: "Release lines…", icon: Send, onSelect: () => openRelease(order) }] : []),
                                 ...(order.is_held
-                                  ? [{ label: "Resume (lift hold)", icon: PlayCircle, onSelect: () => void handleResume(order) }]
-                                  : totals.pending > 0 && !["closed", "cancelled"].includes(String(order.status))
+                                  ? (can.resume ? [{ label: "Resume (lift hold)", icon: PlayCircle, onSelect: () => void handleResume(order) }] : [])
+                                  : can.hold && totals.pending > 0 && !["closed", "cancelled"].includes(String(order.status))
                                     ? [{ label: "Customer hold & close…", icon: PauseCircle, tone: "warn" as const, testId: "sales-orders:hold", onSelect: () => setHoldOrders([order]) }]
                                     : []),
-                                ...(closure.kind === "cancel"
+                                ...(!can.close ? [] : closure.kind === "cancel"
                                   ? [{ label: "Cancel order…", icon: Ban, tone: "danger" as const, testId: "sales-orders:cancel", onSelect: () => setClosureOrder(order) }]
                                   : closure.kind === "short_close"
                                     ? [{ label: "Short close balance…", icon: CircleSlash2, tone: "warn" as const, testId: "sales-orders:short-close", onSelect: () => setClosureOrder(order) }]
@@ -627,10 +633,10 @@ export default function SalesOrdersPage() {
                               jobs={jobs}
                               overlay={overlay}
                               jobsFailed={jobCardsQuery.isError}
-                              releasable={releasableLineIds(order)}
+                              releasable={can.release ? releasableLineIds(order) : []}
                               selectedLineIds={ticked}
                               onToggleLine={(lineId, checked) => updateSelectedLines(orderId, lineId, checked)}
-                              onRelease={canRelease(order) ? () => openRelease(order) : undefined}
+                              onRelease={can.release && canRelease(order) ? () => openRelease(order) : undefined}
                             />
                           </td>
                         </tr>

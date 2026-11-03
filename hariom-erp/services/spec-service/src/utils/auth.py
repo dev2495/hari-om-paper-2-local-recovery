@@ -134,9 +134,11 @@ def _resolve_scope(current_user: dict, requested_plant_id: Optional[str], allow_
     if not requested:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User has no assigned plant context")
 
-    if not is_owner and token_plant:
-        token_aliases = set(get_plant_aliases(token_plant))
-        if requested not in token_aliases:
+    # Plants are isolated (owner decision 3 Nov 2026): everyone but Owner/Admin works only in the plants
+    # assigned to them, their primary plant included; a request for any other plant is refused.
+    if not is_owner:
+        assigned = allowed_plants + ([token_plant] if token_plant and token_plant not in allowed_plants else [])
+        if not _is_plant_allowed(requested, assigned):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cross-plant access is not permitted")
 
     if is_owner and allowed_plants and not _is_plant_allowed(requested, allowed_plants):

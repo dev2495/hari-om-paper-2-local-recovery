@@ -408,7 +408,7 @@ def _inventory_health_report(snapshot: dict[str, Any]) -> dict[str, Any]:
     genealogy_rows = []
     blocked_qty = 0.0
     qc_hold_qty = 0.0
-    dispatch_ready_job_count = len(snapshot["ready_jobs"])
+    dispatch_ready_job_count = len([row for row in snapshot["ready_jobs"] if _ready_at_gate(row)])
     total_locations = 0
     occupied_locations = 0
     total_value = 0.0
@@ -509,9 +509,32 @@ def _quality_report(snapshot: dict[str, Any], start_day: date, end_day: date, gr
     }
 
 
+def _ready_at_gate(row: dict[str, Any]) -> bool:
+    """A card on the dispatch register that still has pieces to ship (fully shipped cards are history)."""
+    if row.get("remaining_qty") is not None:
+        try:
+            return float(row.get("remaining_qty") or 0.0) > 0.0001
+        except (TypeError, ValueError):
+            pass
+    return str(row.get("dispatch_status") or "").upper() != "SEALED"
+
+
+def _sealed_challans_in_window(ready_jobs: list[dict[str, Any]], start_day: date, end_day: date) -> int:
+    """Sealed challans in the date range: a card can ship in several challans, so count each one."""
+    seen: set[str] = set()
+    for row in ready_jobs:
+        for shipment in row.get("shipments") or []:
+            sealed_at = _parse_dt(shipment.get("created_at"))
+            key = str(shipment.get("id") or "")
+            if not key or key in seen or not sealed_at or not _in_window(sealed_at.date(), start_day, end_day):
+                continue
+            seen.add(key)
+    return len(seen)
+
+
 def _dispatch_report(snapshot: dict[str, Any], start_day: date, end_day: date, granularity: str) -> dict[str, Any]:
     order_series = _build_order_series(snapshot, start_day, end_day, granularity)
-    ready_jobs = snapshot["ready_jobs"]
+    ready_jobs = [row for row in snapshot["ready_jobs"] if _ready_at_gate(row)]
     dispatch_qty = sum(float(row.get("dispatch_qty") or 0.0) for row in order_series)
     closed_rows = [order for order in snapshot["orders"] if str(order.get("status") or "").lower() == "closed"]
     return {
@@ -519,7 +542,7 @@ def _dispatch_report(snapshot: dict[str, Any], start_day: date, end_day: date, g
             "dispatch_qty": round(dispatch_qty, 2),
             "ready_job_count": len(ready_jobs),
             "closed_orders": len(closed_rows),
-            "sealed_dispatches": len([row for row in ready_jobs if str(row.get("dispatch_status") or "").upper() == "SEALED"]),
+            "sealed_dispatches": _sealed_challans_in_window(snapshot["ready_jobs"], start_day, end_day),
         },
         "series": order_series,
         "ready_jobs": ready_jobs[:20],
@@ -617,7 +640,8 @@ def _plant_compare(snapshot: dict[str, Any], inventory_report: dict[str, Any], s
 
     ready_jobs_by_plant: dict[str, int] = defaultdict(int)
     for row in snapshot["ready_jobs"]:
-        ready_jobs_by_plant[str(row.get("plant_id"))] += 1
+        if _ready_at_gate(row):
+            ready_jobs_by_plant[str(row.get("plant_id"))] += 1
 
     rows = []
     for plant in snapshot["plants"]:
@@ -862,6 +886,9 @@ def run_exceptions_check_now(*, report_date: date | None = None) -> dict[str, An
     }
 
 
+SALES_REPORT_CAPABILITIES = ("so:create", "so:approve", "analytics:view")
+
+
 @router.get("/owner-pack")
 def owner_pack_report(
     start_date: Optional[str] = Query(default=None),
@@ -935,7 +962,8 @@ def sales_report(
     granularity: Optional[str] = Query(default="day"),
     token: str = Depends(get_token),
     plant_scope: dict = Depends(get_plant_scope),
-    current_user: dict = Depends(require_capability("so:create", "so:approve")),
+    # Read-only sales numbers: sales roles, plus the plant head and planner who see Sales pulse in the menu.
+    current_user: dict = Depends(require_capability(*SALES_REPORT_CAPABILITIES)),
 ):
     return _build_reports(token, plant_scope, start_date, end_date, granularity)["sales"]
 

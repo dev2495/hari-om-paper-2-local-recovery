@@ -1,23 +1,26 @@
 """Cancel / short-close rules for a sales order (client 2026-10-20)."""
-from datetime import date
+from datetime import date, datetime, timedelta
 from types import SimpleNamespace as NS
 
 import pytest
 
 from src.order_closure import (
+    cancel_stuck_lots,
     closure_options,
     display_status,
     droppable,
     lines_after_drop,
+    lot_on_job_card,
     shrink_colour_splits,
+    stuck_lots,
     trim_schedules,
     validate_reason,
 )
 from src.color_allocation import ColorSplit
 
 
-def lot(qty, status="released", color=None):
-    return NS(released_qty=qty, status=status, parchment_color=color, parchment_color_id=None)
+def lot(qty, status="released", color=None, job_card_id="JC-1", created_at=None):
+    return NS(released_qty=qty, status=status, parchment_color=color, parchment_color_id=None, job_card_id=job_card_id, created_at=created_at)
 
 
 def line(qty, fulfilled=0.0, lots=(), schedules=()):
@@ -136,3 +139,30 @@ def test_customer_hold_and_close_needs_an_order_close_reason_code(monkeypatch):
     assert other.value.status_code == 422 and "Other" in other.value.detail
     assert hold_reason_text("Customer not lifting", "CUST_HOLD", "since July") == "Customer not lifting — since July"
     assert hold_reason_text(None, "CUST_HOLD", "") == "CUST_HOLD"
+
+
+def test_lot_whose_job_card_never_came_back_is_not_released():
+    # Planning sync failed: the lot sits in sales with no job card. Cancel and short close must not be stuck on it.
+    old = datetime.utcnow() - timedelta(hours=2)
+    stuck = closure_options(order("approved", [line(1000, lots=[lot(400, job_card_id=None, created_at=old)])]))
+    assert stuck["cancel"]["allowed"] and stuck["released_qty"] == 0 and stuck["stuck_qty"] == 400
+    mixed = order("partially_released", [line(1000, lots=[lot(300), lot(200, job_card_id=None, created_at=old)])])
+    options = closure_options(mixed)
+    assert not options["cancel"]["allowed"] and options["short_close"]["allowed"]
+    assert options["released_qty"] == 300 and options["drop_qty"] == 700
+
+
+def test_lot_just_released_still_counts_while_its_job_card_is_being_made():
+    fresh = lot(400, job_card_id=None, created_at=datetime.utcnow() - timedelta(minutes=1))
+    assert lot_on_job_card(fresh)
+    options = closure_options(order("partially_released", [line(1000, lots=[fresh])]))
+    assert not options["cancel"]["allowed"] and options["stuck_qty"] == 0
+
+
+def test_cancel_stuck_lots_cancels_only_unlinked_old_lots():
+    old = datetime.utcnow() - timedelta(hours=1)
+    linked, stuck = lot(300), lot(200, job_card_id=None, created_at=old)
+    the_line = line(1000, lots=[linked, stuck])
+    assert stuck_lots(the_line) == [stuck]
+    assert cancel_stuck_lots([the_line], "test") == 200
+    assert stuck.status == "cancelled" and linked.status == "released"

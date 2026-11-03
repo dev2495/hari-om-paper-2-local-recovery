@@ -168,7 +168,7 @@ def test_short_close_other_without_a_note_is_refused_before_the_master():
 def test_short_close_without_a_code_is_refused():
     payload = ops.ShortClosePayload(produced_qty=10, reason_code="", decision="HOLD", notes="material short")
     with pytest.raises(HTTPException) as refused:
-        ops.short_close_job_card(uuid.uuid4(), payload, db=Mock(), plant_scope={"scope_all": True}, current_user=ADMIN)
+        ops.short_close_job_card(uuid.uuid4(), payload, db=Mock(), plant_scope={"selected_plant_id": str(PLANT)}, current_user=ADMIN)
     assert refused.value.status_code == 422 and "Choose a reason" in refused.value.detail
 
 
@@ -223,7 +223,7 @@ def test_downtime_edit_with_a_bad_code_is_refused(monkeypatch):
     row = _downtime_row()
     db = _edit_db(row)
     with pytest.raises(HTTPException) as refused:
-        ops.update_downtime(row.id, ops.DowntimeUpdate(reason_code="ANYTHING"), db=db, plant_scope={"scope_all": True}, current_user=ADMIN)
+        ops.update_downtime(row.id, ops.DowntimeUpdate(reason_code="ANYTHING"), db=db, plant_scope={"selected_plant_id": str(PLANT)}, current_user=ADMIN)
     assert refused.value.status_code == 422
     assert row.reason_code == "DT-POWER"
     db.commit.assert_not_called()
@@ -236,7 +236,7 @@ def test_downtime_edit_with_a_new_code_stores_its_label(monkeypatch):
     monkeypatch.setattr(ops, "record_audit_event", lambda **kw: None)
     row = _downtime_row()
     response = ops.update_downtime(row.id, ops.DowntimeUpdate(reason_code="dt-breakdown", reason_note="bearing gone"),
-                                   db=_edit_db(row), plant_scope={"scope_all": True}, current_user=ADMIN)
+                                   db=_edit_db(row), plant_scope={"selected_plant_id": str(PLANT)}, current_user=ADMIN)
     assert (row.reason_code, row.reason_label, row.reason_note) == ("DT-BREAKDOWN", "Machine breakdown", "bearing gone")
     assert calls[0]["plant_id"] == PLANT  # the row's own plant
     assert response.reason_label == "Machine breakdown"
@@ -249,7 +249,7 @@ def test_downtime_edit_closing_an_event_does_not_call_the_master(monkeypatch):
     monkeypatch.setattr(ops, "record_audit_event", lambda **kw: None)
     row = _downtime_row()
     ops.update_downtime(row.id, ops.DowntimeUpdate(reason_code="DT-POWER", ended_at=datetime(2026, 11, 1, 7, 0)),
-                        db=_edit_db(row), plant_scope={"scope_all": True}, current_user=ADMIN)
+                        db=_edit_db(row), plant_scope={"selected_plant_id": str(PLANT)}, current_user=ADMIN)
     assert calls == [] and row.duration_minutes == 60 and row.reason_label == "Power cut"
 
 
@@ -309,3 +309,13 @@ def test_v1_shortage_gap_leaves_out_pcs_a_stage_already_gave_back(monkeypatch):
     except Exception:
         pass  # the response needs a real row; only the Sales call matters here
     assert seen["gap_qty"] == 10 and seen["produced_qty"] == 470
+
+
+def test_all_plants_scope_cannot_short_close_or_change_downtime():
+    # All plants is the Owner/Admin read-only view (3 Nov 2026): every write names one plant.
+    payload = ops.ShortClosePayload(produced_qty=10, reason_code="SH-MATERIAL", decision="HOLD", notes="x")
+    for call in (lambda: ops.short_close_job_card(uuid.uuid4(), payload, db=Mock(), plant_scope={"scope_all": True, "allowed_plants": [str(PLANT)]}, current_user=ADMIN),
+                 lambda: ops.update_downtime(uuid.uuid4(), ops.DowntimeUpdate(reason_code="DT-POWER"), db=Mock(), plant_scope={"scope_all": True}, current_user=ADMIN)):
+        with pytest.raises(HTTPException) as refused:
+            call()
+        assert refused.value.status_code == 400 and "view only" in refused.value.detail

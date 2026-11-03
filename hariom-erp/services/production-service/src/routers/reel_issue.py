@@ -43,6 +43,7 @@ def add_reel_issue(
     
     db_reel = ReelIssue(
         job_id=job_id,
+        plant_id=job.plant_id,
         reel_barcode=reel.reel_barcode,
         weight_used=reel.weight_used
     )

@@ -1,7 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { Suspense, useState } from "react"
 import Link from "next/link"
+import { useRouter, useSearchParams } from "next/navigation"
 import { ClipboardCheck, Factory, Truck } from "lucide-react"
 import { useReadyJobs, useCustomers } from "@/hooks/use-dispatch"
 import { Button } from "@/components/ui/button"
@@ -57,7 +58,14 @@ const canRetainBoxes = (job: any) => {
     return Number(job.max_ship_qty || 0) <= 0 || room <= 0 || (perBox > 0 && room < perBox && Number(job.boxes?.ready_pcs || 0) > room)
 }
 
+// ?card=<job card id> shows one card's dispatch (notification links; old /logistics/dispatch/<id> links redirect here).
 export default function DispatchSelectionPage() {
+    return <Suspense fallback={<div className="p-6 text-muted-foreground">Loading ready dispatches...</div>}><DispatchRegister /></Suspense>
+}
+
+function DispatchRegister() {
+    const router = useRouter()
+    const cardFilter = useSearchParams()?.get("card") || ""
     const { activePlant, user } = useAuth()
     const canRetain = (user?.roles || []).some(role => ["Owner", "Admin", "Dispatch"].includes(role))
     // Sales sees the register and prints sealed challans; making a challan is for the dispatch desk.
@@ -95,6 +103,7 @@ export default function DispatchSelectionPage() {
     }, {})
 
     const filteredJobs = jobs.filter((job: any) => {
+        if (cardFilter && String(job.id) !== cardFilter) return false
         const customerName = customerMap[job.customer_id] || ""
         if (filterCustomer && !customerName.toLowerCase().includes(filterCustomer.toLowerCase())) return false
         if (filterJobNo && !jobCardRef(job).toLowerCase().includes(filterJobNo.toLowerCase())) return false
@@ -159,8 +168,14 @@ export default function DispatchSelectionPage() {
                         <option value="SEALED">Sealed</option>
                     </select>
                 </div>
-                <Button variant="outline" className="min-h-11 sm:min-h-0" onClick={() => { setFilterCustomer(""); setFilterJobNo(""); setFilterStatus(""); }}>Clear</Button>
+                <Button variant="outline" className="min-h-11 sm:min-h-0" onClick={() => { setFilterCustomer(""); setFilterJobNo(""); setFilterStatus(""); if (cardFilter) router.replace("/logistics/dispatch") }}>Clear</Button>
             </div>
+            {cardFilter ? (
+                <p className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-muted px-4 py-2.5 text-sm" data-testid="dispatch-card-filter">
+                    <span>{filteredJobs.length ? "Showing one job card." : "This job card is not on the dispatch register of this plant. Check the plant at the top, or it has nothing packed yet."}</span>
+                    <Link href="/logistics/dispatch" className="font-medium text-signal-teal-ink underline">Show all job cards</Link>
+                </p>
+            ) : null}
 
             {/* Phone: one card per handoff with the action as a full-size button. */}
             <ul className="space-y-2 md:hidden" data-testid="dispatch-cards">

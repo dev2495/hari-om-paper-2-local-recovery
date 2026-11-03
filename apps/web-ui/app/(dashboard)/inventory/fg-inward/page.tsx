@@ -19,7 +19,9 @@ import { ReasonPicker, useReasonChoice } from "@/components/reasons"
 
 const STATUS_OPTIONS = ["UNRESTRICTED", "WIP", "QC_HOLD", "DISPATCH_STAGING", "BLOCKED"]
 
-const fmtKg = (value: unknown) => `${Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })} kg`
+// FG is counted in pieces: show the item's own unit (pcs unless the item master says otherwise).
+const fmtQty = (value: unknown, uom?: unknown) =>
+  `${Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })} ${String(uom || "pcs").toLowerCase()}`
 
 export default function ManualFgInwardPage() {
   const { activePlant } = useAuth()
@@ -45,6 +47,15 @@ export default function ManualFgInwardPage() {
     stock_status: "UNRESTRICTED",
   })
 
+  const itemUom = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const it of items as any[]) {
+      if (!it.uom) continue
+      map.set(String(it.id), String(it.uom))
+      if (it.code) map.set(String(it.code), String(it.uom))
+    }
+    return map
+  }, [items])
   const selectedItem = useMemo(() => items.find((it: any) => String(it.id) === form.item_id) || null, [items, form.item_id])
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -270,7 +281,7 @@ export default function ManualFgInwardPage() {
                       <span className="block font-mono text-[12px] font-bold text-signal-cyan-ink">{row.item_code || "—"}</span>
                       <span className="block text-[11px] text-muted-foreground">{row.item_name || ""}</span>
                     </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-foreground">{fmtKg(row.qty_change || row.quantity)}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-foreground">{fmtQty(row.qty_change || row.quantity, row.uom || itemUom.get(String(row.item_id || "")) || itemUom.get(String(row.item_code || "")))}</td>
                     <td className="px-3 py-2.5">
                       {row.movement_metadata?.manual ? (
                         <span className="inline-flex items-center gap-1 rounded-full border border-signal-violet-line bg-signal-violet-soft px-2 py-0.5 text-[11.5px] font-semibold text-signal-violet-ink">

@@ -76,7 +76,13 @@ def _backfill_dispatch_lineage(transaction: StockTransaction, dispatch: Dispatch
         flag_modified(transaction, "movement_metadata")
 
 
+def _reversal_ref(transaction: StockTransaction) -> str:
+    return f"DISPATCH-REVERSAL-{transaction.id}"
+
+
 def _existing_dispatch_response(transaction: StockTransaction, dispatch: DispatchCreate, db: Session) -> DispatchResponse:
+    if db.query(StockTransaction.id).filter(StockTransaction.external_ref == _reversal_ref(transaction)).first():
+        raise HTTPException(status_code=409, detail="This shipment was cancelled and its stock was put back. Make a new challan.")
     if transaction.item_id != dispatch.item_id:
         raise HTTPException(status_code=409, detail="Existing dispatch transaction belongs to a different item")
     if dispatch.batch_id and transaction.batch_id != dispatch.batch_id:
@@ -320,3 +326,87 @@ def create_dispatch(
         batch_balance=get_batch_balance(str(selected_batch_id), db),
         message=f"Dispatched {dispatch.qty} {item.uom.value} of {item.name} (Ref: {dispatch.dispatch_ref})",
     )
+
+
+class DispatchReverse(BaseModel):
+    """Put back the stock of a shipment that was cancelled before it finished (production cancel-shipment)."""
+    external_refs: list[str] = Field(..., min_length=1, max_length=500)
+    reversal_ref: str = Field(..., min_length=1, max_length=100)
+    reason: Optional[str] = Field(default=None, max_length=2000)
+    reason_code: Optional[str] = Field(default=None, max_length=40)
+    reason_label: Optional[str] = Field(default=None, max_length=200)
+    reason_note: Optional[str] = Field(default=None, max_length=1000)
+
+
+@router.post("/reverse")
+def reverse_dispatch(
+    payload: DispatchReverse,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Dispatch"])),
+):
+    """One stock-back row per stock-out key, idempotent: a key never posted, or already put back, is reported only.
+
+    The stock goes back to the same batch, location and stock status, and a sales-line reservation it used
+    is given back, so the goods can go on a new challan."""
+    results = []
+    for ref in dict.fromkeys(str(value).strip() for value in payload.external_refs if str(value).strip()):
+        original = db.query(StockTransaction).filter(
+            StockTransaction.external_ref == ref, StockTransaction.plant_id == plant_id,
+        ).with_for_update().first()
+        if original is None:
+            results.append({"external_ref": ref, "status": "NOT_POSTED"})
+            continue
+        if original.transaction_type != TransactionType.DISPATCH or float(original.qty_change or 0) >= 0:
+            raise HTTPException(status_code=409, detail=f"Stock entry {ref} is not a shipment stock-out")
+        done = db.query(StockTransaction).filter(StockTransaction.external_ref == _reversal_ref(original)).first()
+        if done is not None:
+            results.append({"external_ref": ref, "status": "ALREADY_REVERSED", "transaction_id": str(original.id), "reversal_transaction_id": str(done.id)})
+            continue
+        qty = abs(float(original.qty_change))
+        metadata = dict(original.movement_metadata or {})
+        back = StockTransaction(
+            item_id=original.item_id,
+            batch_id=original.batch_id,
+            transaction_type=TransactionType.ADJUSTMENT,
+            effective_date=datetime.now(ZoneInfo("Asia/Kolkata")).date(),
+            qty_change=qty,
+            reference_type=ReferenceType.DISPATCH,
+            reference_id=original.reference_id,
+            plant_id=plant_id,
+            location_id=original.location_id,
+            stock_status=original.stock_status,
+            movement_metadata={**{k: metadata.get(k) for k in ("dispatch_ref", "production_job_id", "sales_order_id", "sales_order_line_id", "reservation_id")},
+                               "reverses_transaction_id": str(original.id), "reverses_external_ref": ref, "reversal_ref": payload.reversal_ref,
+                               "kind": "SHIPMENT_CANCELLED", "reason": payload.reason, "reason_code": payload.reason_code,
+                               "reason_label": payload.reason_label, "reason_note": payload.reason_note},
+            external_ref=_reversal_ref(original),
+        )
+        db.add(back)
+        reservation_id = metadata.get("reservation_id")
+        if reservation_id:
+            try:
+                reservation = db.query(Reservation).filter(Reservation.id == uuid.UUID(str(reservation_id)), Reservation.plant_id == plant_id).with_for_update().first()
+            except ValueError:
+                reservation = None
+            if reservation is not None:
+                reservation.consumed_qty = max(0.0, float(reservation.consumed_qty or 0.0) - qty)
+                if reservation.status == ReservationStatus.CONSUMED and reservation.consumed_qty + 0.0001 < float(reservation.reserved_qty or 0.0):
+                    reservation.status = ReservationStatus.ACTIVE
+        db.flush()
+        results.append({"external_ref": ref, "status": "REVERSED", "transaction_id": str(original.id), "reversal_transaction_id": str(back.id), "qty": qty})
+    db.commit()
+    for row in results:
+        if row["status"] != "REVERSED":
+            continue
+        try:
+            emit_audit_event(
+                token=current_user.get("token", ""), event_type="dispatch_reversed", entity_type="stock_transaction",
+                entity_id=row["reversal_transaction_id"], plant_id=str(plant_id),
+                actor_role=str((current_user.get("roles") or ["?"])[0]), actor_email=current_user.get("sub"),
+                summary=f"Shipment cancelled: {row['qty']:g} put back to stock (ref {row['external_ref']})",
+                payload={**row, "reversal_ref": payload.reversal_ref, "reason_code": payload.reason_code, "reason": payload.reason},
+            )
+        except Exception as exc:
+            _audit_logger.warning("audit emit failed for dispatch_reversed %s: %s", row["reversal_transaction_id"], exc)
+    return {"reversal_ref": payload.reversal_ref, "results": results}

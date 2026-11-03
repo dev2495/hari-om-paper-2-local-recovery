@@ -3480,8 +3480,14 @@ def _record_physical_tool_usage(
     token: str,
     plant_id: str,
     current_user: dict,
+    usage_round: int = 0,
+    on_posted: Optional[Any] = None,
 ) -> list[str]:
-    """Post actual completed-stage output against QR asset IDs, idempotently."""
+    """Post actual completed-stage output against QR asset IDs, idempotently.
+
+    ``usage_round`` counts reopens of the stage: a stage closed again after a reopen posts under new usage
+    keys (the earlier keys are reversed by the reopen's tools_reversal effect). ``on_posted(asset_id, key)``
+    is told of each posting as it lands, so a failure half way still knows what reached Stores."""
     deferred = _DEFERRED_EXTERNAL.get()
     if deferred is not None:
         deferred.append({"kind": "tool_usage", "job_card_id": job_card.id, "stage_id": stage.id,
@@ -3523,7 +3529,7 @@ def _record_physical_tool_usage(
                     "stage_type": selected_stage,
                     "good_qty": good_qty,
                     "scrap_qty": scrap_qty,
-                    "usage_key": f"{job_card.id}:{stage.id}:{segment.id}:{asset_id}",
+                    "usage_key": tool_usage_key(job_card.id, stage.id, segment.id, asset_id, usage_round),
                     "notes": f"Actual {selected_stage} output captured by {actor or 'operator'}",
                 },
             )
@@ -3531,7 +3537,14 @@ def _record_physical_tool_usage(
                 detail = response.text[:500] or "Inventory tooling usage was rejected"
                 raise HTTPException(status_code=409, detail=f"Tool {asset_id} usage could not be recorded: {detail}")
             recorded.append(asset_id)
+            if on_posted is not None:
+                on_posted(asset_id, tool_usage_key(job_card.id, stage.id, segment.id, asset_id, usage_round))
     return recorded
+
+
+def tool_usage_key(job_card_id: Any, stage_id: Any, segment_id: Any, asset_id: Any, usage_round: int = 0) -> str:
+    """Stores' idempotency key of one tool posting; round 0 keeps the key used before reopen reversal existed."""
+    return f"{job_card_id}:{stage_id}:{segment_id}:{asset_id}" + (f":r{int(usage_round)}" if int(usage_round or 0) else "")
 
 
 def _line_remaining_qty(line: dict[str, Any]) -> float:
@@ -4368,6 +4381,24 @@ def _inspection_has_full_final_spec(
     return not _missing_final_spec_qc_fields(spec_snapshot, readings)
 
 
+def _final_qc_flagged_not_held(inspection: QualityInspection, job_card: JobCard) -> bool:
+    """A Final QC reading saved out of band that counts as accepted and flagged (QC flags, never blocks).
+
+    Old-form cards mark it when saved; on a batch-entry (V2) card whose Final QC step still shows (older
+    cards), a full out-of-band reading counts the same way, also for readings saved before 3 Nov 2026."""
+    evaluation = getattr(inspection, "evaluation", None) or {}
+    if evaluation.get("workflow_status") == "SUPERSEDED":
+        return False
+    if evaluation.get("flagged_not_held"):
+        return True
+    return (
+        (job_card.spec_snapshot or {}).get("entry_model") == "V2"
+        and str(getattr(inspection, "stage_type", "") or "").upper() == FINAL_SPEC_QC_STAGE
+        and str(getattr(inspection, "status", "") or "").upper() == "FAIL"
+        and _inspection_has_full_final_spec(inspection, job_card.spec_snapshot or {})
+    )
+
+
 def _final_spec_qc_passed(
     *,
     db: Session,
@@ -4387,7 +4418,7 @@ def _final_spec_qc_passed(
             continue
         # Old-form Final QC saved out of band is flagged, not held (user 2026-10-30): its full readings count
         # as the final QC record; the flag stays on the stage and in Reports › Exceptions.
-        if (getattr(inspection, "evaluation", None) or {}).get("flagged_not_held"):
+        if _final_qc_flagged_not_held(inspection, job_card):
             return _inspection_has_full_final_spec(inspection, spec_snapshot)
         # A later failed or incomplete inspection invalidates an older pass.
         if str(getattr(inspection, "status", "") or "").upper() != "PASS":

@@ -13,6 +13,7 @@ import { useCustomers } from "@/hooks/use-master-data"
 import { usePlants } from "@/hooks/use-system"
 import { useAuth } from "@/context/AuthContext"
 import { DispatchDocument } from "@/components/dispatch/dispatch-document"
+import { CancelShipmentButton } from "@/components/dispatch/CancelShipmentButton"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -622,7 +623,7 @@ function NewDispatchForm() {
                     {handoff && !["UNSEALED", "SEALED"].includes(handoff.handoff_state) && <p className="mt-1 text-sm text-signal-amber-ink">Close Process (packing and its two QC readings close with it), post FG, and resolve any QC hold before sealing.</p>}
                         </>
                     )}
-                    {recovering && <p className="mt-1 text-sm text-signal-amber-ink">This shipment was interrupted. Retry its original command to finish stock and sales posting once. Its saved details remain locked.</p>}
+                    {recovering && <p className="mt-1 text-sm text-signal-amber-ink">This shipment was interrupted. Press Retry shipment to finish stock and sales posting once; its saved details stay locked. If it cannot finish, Cancel this shipment puts any stock back and frees its boxes for a new challan.</p>}
                 </div>
                 <div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0 sm:flex-nowrap sm:items-center sm:justify-end">
                     <Button variant="outline" className="min-h-11 whitespace-nowrap sm:min-h-0" disabled={updateDispatch.isPending} onClick={() => router.back()}>{isSealed ? "Back" : "Cancel"}</Button>
@@ -634,6 +635,10 @@ function NewDispatchForm() {
                             {canSeal && <Button className="col-span-2 min-h-11 whitespace-nowrap sm:min-h-0" data-testid="challan-seal" onClick={() => handleSave("SEALED")} disabled={updateDispatch.isPending || maxShipQty <= 0 || handoff?.handoff_state !== (boxMode ? "BOXES_READY" : "UNSEALED")} >
                                 {recovering ? "Retry shipment" : "Seal & print challan"}
                             </Button>}
+                            {canSeal && recovering && existingDispatch?.id && (
+                                <CancelShipmentButton dispatchId={String(existingDispatch.id)} plantId={jobCard?.plant_id}
+                                    onCancelled={() => { window.sessionStorage.removeItem(`dispatch-request:${jobCardId}`); router.push(`/logistics/dispatch?card=${jobCardId}`) }} />
+                            )}
                         </>
                     )}
                     {isSealed && (

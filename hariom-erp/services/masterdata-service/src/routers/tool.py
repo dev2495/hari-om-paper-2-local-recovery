@@ -564,11 +564,18 @@ def get_tool_report(
 
 
 @router.post("/backfill-from-specs")
-def backfill_from_specs(current_user: dict = Depends(require_role(TOOL_MASTER_WRITE_ROLES))):
-    """Add every tool named in specification sheets that the Tool master is missing."""
+def backfill_from_specs(
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(TOOL_MASTER_WRITE_ROLES)),
+):
+    """Add every tool named in specification sheets that the Tool master is missing.
+
+    Owner/Admin fill every plant; anyone else only the plant they are working in."""
     from ..tool_backfill import backfill_tools_from_specs
 
-    return {"created": backfill_tools_from_specs()}
+    if plant_scope.get("is_owner"):
+        return {"created": backfill_tools_from_specs()}
+    return {"created": backfill_tools_from_specs([str(plant_scope.get("selected_plant_id") or "")])}
 
 
 @router.post("/log-usage", response_model=ToolUsageLogResponse)

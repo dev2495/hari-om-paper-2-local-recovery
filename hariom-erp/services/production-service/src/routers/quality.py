@@ -1158,7 +1158,7 @@ def _active_hold_for_sample_scope(
             continue
         source = (
             db.query(QualityInspection)
-            .filter(QualityInspection.id == hold.source_inspection_id)
+            .filter(QualityInspection.id == hold.source_inspection_id, QualityInspection.job_card_id == hold.job_card_id)
             .first()
         )
         if source is None:
@@ -1314,6 +1314,10 @@ def record_stage_inspection(
         )
     eval_readings = dict(sanitized_readings)
     eval_sample_id = sample_id
+    if parent_inspection_id and not db.query(QualityInspection.id).filter(
+        QualityInspection.id == parent_inspection_id, QualityInspection.job_card_id == job_card.id, QualityInspection.plant_id == plant_uuid,
+    ).first():
+        raise HTTPException(status_code=404, detail="Parent inspection not found")
     parent_id = parent_inspection_id
     if stage_type == "OVEN" and _oven_checkpoint(eval_readings) in {"POST", "POST_ONLY"}:
         pair_id = _oven_pair_id(eval_sample_id, eval_readings)
@@ -1536,6 +1540,14 @@ def record_stage_inspection(
         # on the inspection (and the card, run and box) and never opens an automatic hold; only holds a plant
         # head / Admin / Owner places on purpose stop movement. GRN (incoming) QC lives in inventory, unchanged.
         inspection.evaluation = {**dict(inspection.evaluation or {}), "flagged": True, "gating": "advisory", "auto_hold": False}
+        if (job_card.spec_snapshot or {}).get("entry_model") == "V2" and stage_type == "QC" and evaluation.status == "FAIL":
+            # Batch-entry card with its Final QC step still shown (older cards): the reading counts as accepted and
+            # flagged, so Final QC is never stuck on it; the flag shows on the stage like other flagged QC (3 Nov 2026).
+            inspection.evaluation = {**inspection.evaluation, "flagged_not_held": True}
+            from .planning import _set_old_form_qc_flag
+            qc_stage = db.query(JobCardStage).filter_by(job_card_id=job_card.id, stage_type="QC").first()
+            if qc_stage is not None:
+                _set_old_form_qc_flag(stage=qc_stage, selected_stage="QC", flags=failures, now=datetime.utcnow())
         db.flush()
 
     _record_audit_event(
@@ -2708,6 +2720,12 @@ def create_hold(
         token=token_of(current_user), what="the QC hold",
     )
 
+    # The inspection a hold points at is one of this card's own (plant isolation, 3 Nov 2026).
+    if payload.source_inspection_id and not db.query(QualityInspection.id).filter(
+        QualityInspection.id == payload.source_inspection_id, QualityInspection.job_card_id == job_card.id, QualityInspection.plant_id == plant_uuid,
+    ).first():
+        raise HTTPException(status_code=404, detail="Inspection not found")
+
     if (job_card.spec_snapshot or {}).get("entry_model")=="V2":lock_card_transaction(db,job_card.id)
 
     hold = QualityHold(
@@ -2820,7 +2838,7 @@ def release_hold(
 
     source_inspection = None
     if hold.source_inspection_id:
-        source_inspection = db.query(QualityInspection).filter(QualityInspection.id == hold.source_inspection_id).first()
+        source_inspection = db.query(QualityInspection).filter(QualityInspection.id == hold.source_inspection_id, QualityInspection.job_card_id == hold.job_card_id).first()
     critical_detail = non_waivable_release_detail(getattr(source_inspection, "evaluation", None))
     if critical_detail:
         raise HTTPException(status_code=409, detail=critical_detail)

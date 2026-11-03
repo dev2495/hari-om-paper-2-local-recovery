@@ -870,6 +870,7 @@ def _matching_stage_rows(db: Session, ledger: ShiftMaterialLedger):
         db.query(JobCardStage, JobCard)
         .join(JobCard, JobCard.id == JobCardStage.job_card_id)
         .filter(
+            JobCard.plant_id == ledger.plant_id,
             JobCardStage.stage_type == ledger.stage_type,
             JobCardStage.status == "COMPLETED",
             JobCardStage.plan_date == ledger.work_date,
@@ -1113,6 +1114,10 @@ def create_shift_material_ledger(
         raise HTTPException(status_code=400, detail="Shift ledger writes require a selected plant")
     stage_type = _normalize_stage(payload.stage_type)
     shift_code = _normalize_shift(payload.shift_code)
+    card_ids = [uuid.UUID(str(value)) for value in (payload.actual_job_card_ids or [])]
+    # Only this plant's job cards can be named on its shift ledger (plant isolation, 3 Nov 2026).
+    if card_ids and db.query(JobCard.id).filter(JobCard.id.in_(card_ids), JobCard.plant_id == _to_uuid(plant_scope["selected_plant_id"])).count() != len(set(card_ids)):
+        raise HTTPException(status_code=404, detail="Job card not found")
     row = ShiftMaterialLedger(
         plant_id=_to_uuid(plant_scope["selected_plant_id"]),
         stage_type=stage_type,

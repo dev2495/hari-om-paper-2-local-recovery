@@ -7,7 +7,9 @@ import { AlertTriangle, History, Plus, Trash2 } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
 
 import { Panel } from "@/components/erp/shell"
+import { concretePlant } from "@/components/sales/sales-action-roles"
 import { useApp } from "@/context/AppContext"
+import { useAuth } from "@/context/AuthContext"
 import { useCustomers, useParchments } from "@/hooks/use-master-data"
 import { useCreateSalesOrder, useSalesOrder, useUpdateSalesOrder } from "@/hooks/use-sales"
 import { useSpecs } from "@/hooks/use-specs"
@@ -160,6 +162,7 @@ function isoDate(value?: string | null) {
 export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: string; copyFromOrderId?: string }) {
   const router = useRouter()
   const { showToast } = useApp()
+  const { activePlant } = useAuth()
   const { data: customers } = useCustomers()
   const { data: specs } = useSpecs()
   const { data: parchments } = useParchments()
@@ -174,6 +177,9 @@ export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: s
 
   const editing = Boolean(orderId)
   const saving = createOrder.isPending || updateOrder.isPending
+  // A new order is made in the plant picked at the top; "All visible plants" is a read-only view.
+  // An edit is saved in the order's own plant.
+  const needsPlant = !editing && !concretePlant(activePlant)
 
   const approvedSpecs = useMemo(
     () => (Array.isArray(specs) ? specs : []).filter((spec: any) => String(spec.status || "").toLowerCase() === "approved" && spec.active !== false),
@@ -444,6 +450,10 @@ export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: s
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (needsPlant) {
+      showToast("Pick one plant at the top to create an order.", "error")
+      return
+    }
     const errors = validateForm()
     if (Object.keys(errors).length > 0) {
       const first = Object.values(errors)[0]
@@ -475,7 +485,7 @@ export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: s
     }
     try {
       const response = editing
-        ? await updateOrder.mutateAsync({ orderId: String(orderId), data: payload })
+        ? await updateOrder.mutateAsync({ orderId: String(orderId), data: payload, plantId: concretePlant(existingOrder.data?.plant_id) })
         : await createOrder.mutateAsync(payload)
       const savedId = response?.data?.id || response?.data?.order?.id || orderId
       if (!editing) setForm(INITIAL_FORM)
@@ -522,6 +532,12 @@ export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: s
         </Link>
       </header>
 
+      {needsPlant ? (
+        <p role="alert" data-testid="sales-orders:pick-plant" className="flex items-center gap-2 rounded-xl border border-signal-amber-line bg-signal-amber-soft px-4 py-3 text-sm font-medium text-signal-amber-ink">
+          <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+          Pick one plant at the top to create an order. "All visible plants" only shows orders.
+        </p>
+      ) : null}
       <form data-testid="sales-orders:create-form" onSubmit={handleSubmit} className="space-y-6">
         <Panel title="Order header" subtitle="Who is ordering and against which PO. An internal order has no customer PO yet — add it later to confirm the order.">
           <div className="space-y-4">
@@ -959,7 +975,8 @@ export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: s
           <button
             data-testid="sales-orders:create-submit"
             type="submit"
-            disabled={saving}
+            disabled={saving || needsPlant}
+            title={needsPlant ? "Pick one plant at the top to create an order" : undefined}
             className="inline-flex items-center justify-center rounded-xl bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground transition-all duration-200 hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {saving ? "Saving..." : editing ? "Save sales order" : "Create sales order"}

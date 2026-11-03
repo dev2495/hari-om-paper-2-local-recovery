@@ -21,7 +21,7 @@ import { useApp } from "@/context/AppContext"
 import { useJobCardLifecycle } from "@/hooks/use-lifecycle"
 import { usePlanningJobCard } from "@/hooks/use-production"
 import { buildProductionEntryUrl } from "@/lib/app-url"
-import { scopedStageGate } from "@/lib/floor-scope"
+import { NOT_LINKED_MESSAGE, scopedStageGate } from "@/lib/floor-scope"
 import { cn } from "@/lib/utils"
 import JobCardDocument from "../JobCardDocument"
 import { CardPlanPanel } from "../CardPlanPanel"
@@ -59,9 +59,11 @@ export function CardEntrySheets({ card, flow, stages, panel, onChange }: { card:
   const gate = lock ? scopedStageGate(stages, lock, facts.open && !cancelled) : null
   const stage = lock || panel?.stage || ""
   const foreign = Boolean(lock && panel && panel.stage !== lock)
-  const closed = gate && !gate.open ? (
+  // An Operator-only login not linked to an employee logs on no stage (owner, 3 Nov 2026).
+  const blockedMessage = scope.kind === "none" ? NOT_LINKED_MESSAGE : gate && !gate.open ? gate.message : ""
+  const closed = blockedMessage ? (
     <div className="space-y-3">
-      <ScopeStatusLine message={gate.message} testId="sheet-scope-status" />
+      <ScopeStatusLine message={blockedMessage} testId={scope.kind === "none" ? "sheet-scope-unlinked" : "sheet-scope-status"} />
       <Button size="lg" variant="outline" className="h-12 w-full" onClick={() => onChange(null)}>
         Back to card
       </Button>

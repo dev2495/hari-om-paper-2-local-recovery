@@ -668,8 +668,16 @@ def _can_edit(view: PlannerView, user: dict) -> bool:
 
 
 @router.get("/planning/views")
-def list_planner_views(stage: Optional[str] = Query(None), db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), user: dict = Depends(require_role(VIEW_ROLES))):
-    query = db.query(PlannerView).filter(PlannerView.plant_id == planning._to_uuid(plant_id))
+def list_planner_views(stage: Optional[str] = Query(None), db: Session = Depends(get_db), plant_scope: dict = Depends(get_current_plant_scope), user: dict = Depends(require_role(VIEW_ROLES))):
+    # A read: the Owner/Admin "All plants" view lists the views of their plants (3 Nov 2026); saving still needs one plant.
+    plants = [plant_scope["selected_plant_id"]] if not plant_scope.get("scope_all") else list(plant_scope.get("allowed_plants") or [])
+    plant_ids = []
+    for plant in plants:
+        try:
+            plant_ids.append(planning._to_uuid(plant))
+        except Exception:  # a plant code the planner tables never use holds no views
+            continue
+    query = db.query(PlannerView).filter(PlannerView.plant_id.in_(plant_ids)) if plant_ids or not plant_scope.get("scope_all") else db.query(PlannerView)
     rows = [v for v in query.all() if v.scope == "PLANT" or v.owner_id == str(user.get("sub"))]
     if stage and stage.upper() in PAGE_VIEW_KEYS:
         rows = [v for v in rows if v.stage == stage.upper()]
@@ -743,9 +751,10 @@ def move_many_planning_cards(payload: BulkMovePayload, db: Session = Depends(get
                     db=db, plant_id=plant_id, current_user=user,
                 )
             except HTTPException as exc:
-                job = db.query(JobCard).filter(JobCard.id == move.job_card_id).first() if move.job_card_id else None
+                plant_uuid = planning._to_uuid(plant_id)
+                job = db.query(JobCard).filter(JobCard.id == move.job_card_id, JobCard.plant_id == plant_uuid).first() if move.job_card_id else None
                 if job is None and move.segment_id:
-                    segment = db.query(JobCardStageSegment).filter(JobCardStageSegment.id == move.segment_id).first()
+                    segment = db.query(JobCardStageSegment).filter(JobCardStageSegment.id == move.segment_id, JobCardStageSegment.plant_id == plant_uuid).first()
                     job = segment.job_card if segment else None
                 label = job.job_card_no if job else f"card {index + 1}"
                 detail = (exc.detail if isinstance(exc.detail, str) else str(exc.detail)).rstrip(". ")

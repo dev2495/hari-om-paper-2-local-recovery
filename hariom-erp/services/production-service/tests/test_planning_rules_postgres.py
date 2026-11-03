@@ -98,7 +98,9 @@ def test_saved_views_are_personal_or_for_the_plant(db):
     other = {**PLANNER, 'sub': 'planner-2'}
     personal = planning_overview.create_planner_view(planning_overview.PlannerViewPayload(name='My due list', filters={'due': '3d'}), db, PLANT, PLANNER)
     shared = planning_overview.create_planner_view(planning_overview.PlannerViewPayload(name='Blue cards', scope='PLANT', stage='WINDER', filters={'colour': ['BLUE']}), db, PLANT, PLANNER)
-    seen_by_other = {row['name'] for row in planning_overview.list_planner_views(None, db, PLANT, other)}
+    seen_by_other = {row['name'] for row in planning_overview.list_planner_views(None, db, {'selected_plant_id': PLANT, 'scope_all': False, 'allowed_plants': [PLANT]}, other)}
+    # The Owner/Admin All plants view reads the same views (3 Nov 2026).
+    assert seen_by_other <= {row['name'] for row in planning_overview.list_planner_views(None, db, {'selected_plant_id': None, 'scope_all': True, 'allowed_plants': [PLANT]}, other)}
     assert seen_by_other == {'Blue cards'}
     with pytest.raises(HTTPException) as refused:
         planning_overview.update_planner_view(uuid.UUID(shared['id']), planning_overview.PlannerViewPayload(name='Mine now', scope='PLANT'), db, PLANT, other)

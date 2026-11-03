@@ -95,9 +95,17 @@ export default function PackingSetupPage() {
       setState((all) => ({ ...all, [row.id]: { error: problems.join(" · ") } }))
       return false
     }
+    // Save to the spec's own plant, so "All Visible Plants" at the top never sends the save to another plant.
+    const plantId = String((row as PackingSetupRow & { plant_id?: string | null }).plant_id || "")
+    if (!plantId) {
+      setState((all) => ({ ...all, [row.id]: { error: "This spec has no plant. Pick one plant at the top and refresh the list." } }))
+      return false
+    }
     setState((all) => ({ ...all, [row.id]: { saving: true } }))
     try {
-      const { data } = await api.put(`/api/spec/specifications/${row.id}/packing`, draftPayload(draft, row, newRequestId()))
+      const { data } = await api.put(`/api/spec/specifications/${row.id}/packing`, draftPayload(draft, row, newRequestId()), {
+        headers: { "X-Plant-ID": plantId },
+      })
       const cards = data.job_cards || {}
       const parts = [data.amended ? "Saved to the spec" : "No change on the spec"]
       if (cards.error) parts.push(cards.error)

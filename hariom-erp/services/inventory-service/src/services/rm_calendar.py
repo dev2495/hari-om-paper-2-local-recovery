@@ -1202,7 +1202,10 @@ def send_order(db: Session, order: PurchaseOrder, *, channel: str, actor: str, a
         db.add(PurchaseApprovalDecision(revision_id=revision.id, decision="APPROVED", content_hash=revision.content_hash, actor=approver,
             actor_role="Owner (RM inward calendar)", decided_at=approved_at,
             reason=f"Approved on the RM inward calendar on {indian_date(ist_day(approved_at))}; sent unchanged by {actor} on {indian_date(ist_day(now))}."))
-        order.status = "APPROVED"
+        from ..routers.purchase import _approved_po_status
+
+        # Not always APPROVED: a revised PO may already have every line received.
+        order.status = _approved_po_status(order)
         order.approved_by = approver
         order.approved_at = approved_at
         order.approval_source = "SCHEDULE"

@@ -152,8 +152,10 @@ def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_
     db.flush()
     # A line or reel with no location goes to the plant's receiving default, the RM store (spec 2.7).
     default_location_id = default_receiving_location(db, plant_id, actor=_actor(current_user)).id
+    qc_statuses: list[str] = []
     for index, (requested, item, qty, is_reel) in enumerate(rows, 1):
         metadata, qc_status = initial_quality(item, plant_id, payload.received_date)
+        qc_statuses.append(qc_status)
         lot_status = inward_stock_status(qc_status)
         rate = requested.invoice_rate or 0
         line = PurchaseReceiptLine(receipt_id=receipt.id, item_id=item.id, qty_received=float(qty), unit_cost=rate,
@@ -214,6 +216,9 @@ def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_
                 db.add(PurchaseDiscrepancy(plant_id=plant_id, allocation_id=allocation.id, discrepancy_type="QUANTITY",
                     quantity=qty, po_rate=rate, invoice_rate=rate, delta=invoice_qty - qty,
                     claimable_amount=max(Decimal(0), (invoice_qty - qty) * Decimal(str(rate))), status="OPEN"))
+    # Same header rule as a PO GRN: QC_PENDING only while a lot waits for incoming QC, else POSTED.
+    # (Neither header is moved on later QC; screens read each lot's own QC status.)
+    receipt.status = "QC_PENDING" if "PENDING" in qc_statuses else "POSTED"
     try:
         for receipt_line in receipt.lines:
             if receipt_line.batch_id:

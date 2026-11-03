@@ -188,7 +188,7 @@ def test_po_to_nine_physical_lots_invoice_variance_claim_and_retry():
         qty_case = next(row for row in discrepancies if row.discrepancy_type == "QUANTITY")
         spec_case = next(row for row in discrepancies if row.discrepancy_type == "SPECIFICATION")
         assert rate_case.claimable_amount == Decimal("5000.00")
-        assert qty_case.delta == Decimal("10.000000") and qty_case.claimable_amount == Decimal("0.00")
+        assert qty_case.delta == Decimal("10.000000") and qty_case.claimable_amount == Decimal("310.00")  # 10 kg billed, not received x Rs 31
 
         note_request = DebitNoteCreate(request_id=uuid.uuid4(), note_date=date(2026, 9, 20),
             discrepancy_ids=[rate_case.id], reason_code="DN-RATE", reason_note="Vendor rate above approved PO")

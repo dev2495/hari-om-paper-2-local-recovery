@@ -1,6 +1,7 @@
 "use client"
 
 import { useMemo } from "react"
+import { useQuery } from "@tanstack/react-query"
 
 import { RoleGate } from "@/components/workspace/role-gate"
 import {
@@ -17,8 +18,10 @@ import {
   formatCurrency,
   formatNumber,
 } from "@/components/reports/primitives"
+import { reportLoadNote } from "@/components/reports/report-load"
 import { useAuth } from "@/context/AuthContext"
-import { useInventoryValuation, useItemVelocity, useOwnerPack } from "@/hooks/use-analytics"
+import { useInventoryValuation, useItemVelocity } from "@/hooks/use-analytics"
+import { api } from "@/lib/api"
 import { useInwardStockAsOn } from "@/hooks/use-inventory"
 import { usePlantScopeLabel } from "@/hooks/use-plant-scope-label"
 
@@ -34,14 +37,22 @@ function InventoryIntelligencePage() {
   const { activePlant } = useAuth()
   const activePlantLabel = usePlantScopeLabel(activePlant)
 
-  const { data: valuation } = useInventoryValuation(activePlant || undefined)
-  const { data: velocity, isLoading: velLoading } = useItemVelocity({ horizonDays: 30, plant: activePlant || undefined })
-  const { data: pack } = useOwnerPack(activePlant ? { plant: activePlant } : undefined, { enabled: true })
+  const valuationQuery = useInventoryValuation(activePlant || undefined)
+  const velocityQuery = useItemVelocity({ horizonDays: 30, plant: activePlant || undefined })
+  const valuation = valuationQuery.data
+  const velocity = velocityQuery.data
+  const velLoading = velocityQuery.isLoading
+  // Stock health comes from its own report, not the owner pack (Store does not hold analytics:view).
+  const healthQuery = useQuery({
+    queryKey: ["analytics", "reports-inventory-health", activePlant],
+    queryFn: async () => (await api.get("/api/analytics/reports/inventory-health", { params: activePlant ? { plant: activePlant } : undefined })).data,
+  })
   const inwardStockQuery = useInwardStockAsOn({ material: "ALL", limit: 20 })
 
-  const p: any = pack || {}
-  const inventory = p.inventory || {}
-  const headline = p.headline || {}
+  const inventory: any = healthQuery.data || {}
+  const valueNote = reportLoadNote(healthQuery.error) && reportLoadNote(valuationQuery.error)
+  const velocityNote = reportLoadNote(velocityQuery.error)
+  const valuationNote = reportLoadNote(valuationQuery.error)
 
   const breakdown = useMemo(() => {
     const raw = (valuation as any)?.breakdown || []
@@ -76,8 +87,9 @@ function InventoryIntelligencePage() {
     tone: r.tone as any,
   }))
 
-  const inventoryValue = Number(headline.inventory_value || inventory.summary?.inventory_value || (valuation as any)?.total_value || 0)
-  const lowStock = Number(headline.low_stock_items || velSummary.critical || 0)
+  const inventoryValue = Number(inventory.summary?.total_value || (valuation as any)?.total_value || 0)
+  const lowStock = Number(inventory.summary?.low_stock_count ?? velSummary.critical ?? 0)
+  const lowStockNote = reportLoadNote(healthQuery.error) && velocityNote
   const dead = Number(velSummary.dead || 0)
   const watch = Number(velSummary.watch || 0)
   const healthy = Number(velSummary.healthy || 0)
@@ -106,10 +118,14 @@ function InventoryIntelligencePage() {
         description="Same data spine as the close ritual. Click any row to drill into the underlying ledger, batches, reels."
         accent="amber"
         chips={[
-          { label: `${formatCurrency(inventoryValue)} value`, tone: "neutral" },
-          { label: `${lowStock} critical`, tone: lowStock ? "critical" : "ok" },
-          { label: `${watch} watch`, tone: watch ? "warn" : "neutral" },
-          { label: `${dead} dead stock`, tone: dead ? "warn" : "neutral" },
+          valueNote ? { label: `Value: ${valueNote}`, tone: "warn" } : { label: `${formatCurrency(inventoryValue)} value`, tone: "neutral" },
+          ...(lowStockNote ? [] : [{ label: `${lowStock} critical`, tone: lowStock ? ("critical" as const) : ("ok" as const) }]),
+          ...(velocityNote
+            ? [{ label: `Item velocity: ${velocityNote}`, tone: "warn" as const }]
+            : [
+                { label: `${watch} watch`, tone: watch ? ("warn" as const) : ("neutral" as const) },
+                { label: `${dead} dead stock`, tone: dead ? ("warn" as const) : ("neutral" as const) },
+              ]),
         ]}
       />
 
@@ -126,18 +142,20 @@ function InventoryIntelligencePage() {
 
       <KpiRail
         items={[
-          { label: "Total stock value", value: formatCurrency(inventoryValue), tone: "violet", detail: `${breakdown.length} categories` },
-          { label: "Days on hand (RM)", value: rmDays === null ? "—" : `${formatNumber(rmDays)} d`, tone: "cyan", detail: rmDays === null ? "Needs ledger issue history" : "From ledger velocity" },
-          { label: "Low stock items", value: formatNumber(lowStock), tone: lowStock ? "rose" : "emerald", detail: `${watch} watch · ${lowStock} critical` },
-          { label: "Dead stock SKUs", value: formatNumber(dead), tone: dead ? "amber" : "emerald", detail: ">60 d on hand" },
-          { label: "Healthy SKUs", value: formatNumber(healthy), tone: "emerald", detail: "Within target band" },
-          { label: "Tracked SKUs", value: formatNumber(velRows.length), tone: "slate" },
+          { label: "Total stock value", value: valueNote ? "—" : formatCurrency(inventoryValue), tone: "violet", detail: valueNote || `${breakdown.length} categories` },
+          { label: "Days on hand (RM)", value: rmDays === null ? "—" : `${formatNumber(rmDays)} d`, tone: "cyan", detail: rmDays === null ? velocityNote || "Needs ledger issue history" : "From ledger velocity" },
+          { label: "Low stock items", value: lowStockNote ? "—" : formatNumber(lowStock), tone: lowStock ? "rose" : "emerald", detail: lowStockNote || (velocityNote ? `${lowStock} critical` : `${watch} watch · ${lowStock} critical`) },
+          { label: "Dead stock SKUs", value: velocityNote ? "—" : formatNumber(dead), tone: dead ? "amber" : "emerald", detail: velocityNote || ">60 d on hand" },
+          { label: "Healthy SKUs", value: velocityNote ? "—" : formatNumber(healthy), tone: "emerald", detail: velocityNote || "Within target band" },
+          { label: "Tracked SKUs", value: velocityNote ? "—" : formatNumber(velRows.length), tone: "slate", detail: velocityNote || undefined },
         ]}
       />
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Panel eyebrow="Stock composition" title="Value mix by category" description="Click a wedge to filter the rest of the page.">
-          {breakdown.length ? (
+          {valuationNote ? (
+            <NoteCallout tone="warn">{valuationNote}</NoteCallout>
+          ) : breakdown.length ? (
             <DonutWithCenter
               slices={breakdown}
               centerTop={formatCurrency(breakdownTotal)}
@@ -148,7 +166,9 @@ function InventoryIntelligencePage() {
           )}
         </Panel>
         <Panel eyebrow="Velocity matrix" title="Days-on-hand vs value — by SKU" description="Bottom-right = dead-stock; top-left = firefight zone. Reorder line at 10 days.">
-          {velLoading ? (
+          {velocityNote ? (
+            <NoteCallout tone="warn">{velocityNote}</NoteCallout>
+          ) : velLoading ? (
             <NoteCallout tone="neutral">Loading item velocity matrix…</NoteCallout>
           ) : points.length ? (
             <VelocityMatrix points={points} />
@@ -196,7 +216,7 @@ function InventoryIntelligencePage() {
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Panel eyebrow="Top movers" title="Highest-velocity items (30d)" description="Burn rate × days-on-hand drives reorder pressure.">
-          {topMovers.length ? (
+          {velocityNote ? <NoteCallout tone="warn">{velocityNote}</NoteCallout> : topMovers.length ? (
             <div className="overflow-x-auto"><table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-[12px] font-semibold text-muted-foreground">
@@ -230,7 +250,7 @@ function InventoryIntelligencePage() {
           )}
         </Panel>
         <Panel eyebrow="Critical shortages" title="Items below reorder · top of the queue" description="Sorted by velocity-pressure (critical first).">
-          {shortages.length ? (
+          {velocityNote ? <NoteCallout tone="warn">{velocityNote}</NoteCallout> : shortages.length ? (
             <div className="overflow-x-auto"><table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-[12px] font-semibold text-muted-foreground">

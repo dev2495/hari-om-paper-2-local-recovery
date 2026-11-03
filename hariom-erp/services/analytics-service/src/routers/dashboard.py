@@ -33,14 +33,20 @@ def _dispatch_qty_from_sales_orders(sales_orders: List[Dict[str, Any]], today_is
     return total
 
 
+DISPATCH_EVENT_TYPES = {"SALES_ORDER_DISPATCH_RECORDED", "SO_LINE_DISPATCH_RECORDED"}
+
+
 def _dispatch_qty_from_timeline_events(events: List[Dict[str, Any]], today_iso: str) -> float:
     total = 0.0
     for event in events or []:
-        if str(event.get("event_type") or "").upper() != "SO_LINE_DISPATCH_RECORDED":
+        # The sales timeline names it SALES_ORDER_DISPATCH_RECORDED with qty and created_at on the event;
+        # the older SO_LINE_DISPATCH_RECORDED shape (timestamp, payload.qty) is still read.
+        if str(event.get("event_type") or "").upper() not in DISPATCH_EVENT_TYPES:
             continue
-        ts = _parse_dt(event.get("timestamp"))
+        ts = _parse_dt(event.get("created_at") or event.get("timestamp"))
         if ts and ts.date().isoformat() == today_iso:
-            total += float((event.get("payload") or {}).get("qty") or 0.0)
+            qty = event.get("qty") if event.get("qty") is not None else (event.get("payload") or {}).get("qty")
+            total += float(qty or 0.0)
     return total
 
 

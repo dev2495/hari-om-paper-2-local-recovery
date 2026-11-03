@@ -304,7 +304,7 @@ def batch_hold(db,hold):
     Holds on the card itself still stop all movement; any blocking hold still stops stage close."""
     if not hold.source_inspection_id:return False
     inspection=db.get(QualityInspection,hold.source_inspection_id)
-    return bool(inspection and inspection.entry_mode=="CONTINUOUS" and (inspection.evaluation or {}).get("entry_id"))
+    return bool(inspection and inspection.job_card_id==hold.job_card_id and inspection.entry_mode=="CONTINUOUS" and (inspection.evaluation or {}).get("entry_id"))
 
 
 def card_blocking_holds(db,holds):
@@ -373,9 +373,11 @@ def flow(db,job):
             # Process QC is the final QC: nothing more to sample here.
             readiness={"ready":True,"missing":[],"blockers":[],"unrecorded":[]}
         elif stage=="QC":
-            final_samples={i.sample_id for i in inspections if i.stage_type=="QC" and i.status=="PASS" and i.sample_id and (i.evaluation or {}).get("workflow_status")!="SUPERSEDED" and planning._inspection_has_full_final_spec(i,job.spec_snapshot or {}) and all((i.readings or {}).get(k) not in (None,"") for k in ("id","od","length","weight","cs"))}
+            # An out-of-band Final QC reading counts as accepted and flagged (QC flags, never blocks; 3 Nov 2026).
+            final_samples={i.sample_id for i in inspections if i.stage_type=="QC" and (i.status=="PASS" or planning._final_qc_flagged_not_held(i,job)) and i.sample_id and (i.evaluation or {}).get("workflow_status")!="SUPERSEDED" and planning._inspection_has_full_final_spec(i,job.spec_snapshot or {}) and all((i.readings or {}).get(k) not in (None,"") for k in ("id","od","length","weight","cs"))}
             final_pass=planning._final_spec_qc_passed(db=db,plant_id=job.plant_id,job_card=job,inline_quality_checks=None)
-            readiness={"ready":len(final_samples)>=2 and final_pass,"missing":[] if len(final_samples)>=2 else [{"parameter":"final_spec","label":"Final specification QC","have":len(final_samples),"need":2}],"blockers":[] if final_pass else ["Final specification acceptance required"],"unrecorded":[]}
+            flagged_final=[i for i in inspections if i.stage_type=="QC" and planning._final_qc_flagged_not_held(i,job)]
+            readiness={"ready":len(final_samples)>=2 and final_pass,"flagged":len(flagged_final),"missing":[] if len(final_samples)>=2 else [{"parameter":"final_spec","label":"Final specification QC","have":len(final_samples),"need":2}],"blockers":[] if final_pass else ["Final specification acceptance required"],"unrecorded":[]}
         drafts=sum(e.stage==stage and e.status=="DRAFT" for e in all_entries)
         upstream=previous(job,stage);upstream_closed=not upstream or stage_map[upstream].status=="COMPLETED" or (stage=="WINDER" and upstream=="SLITTING")
         target=int(snapshot.get("effective_target",planned_in_stage_units(stage,job.planned_qty,planning._pcs_per_bamboo_from_snapshot(job.spec_snapshot or {}))))
@@ -408,7 +410,7 @@ def flow(db,job):
             status="COMPLETED" if packed>0 and accepted+retained>=packed or snapshot.get("all_qc_rejected") else "RUNNING" if accepted>0 else row.status
             cap=max(0,packed-accepted-retained);blockers=[] if status=="COMPLETED" else ["Complete shipment through Logistics Dispatch"]
         stage_segments=[s for s in segments if s.stage_type==stage]
-        states.append({"stage":stage,"status":status,"unit":stage_unit(stage),"target":target,"unscheduled_entries":sum(1 for e in actual if (e.details or {}).get("unscheduled_entry")),"produced_total":produced,"accepted_total":accepted,"rejected_total":produced-accepted,"input_total":accepted if stage=="DISPATCH" else sum(e.input_quantity for e in actual),"cutting_loss_total":sum(e.cutting_loss_pcs for e in actual),"qc_flagged_runs":sum(1 for e in actual if (e.evaluation or {}).get("verdict")=="FAIL"),"carryover_pcs":sum(e.carry_out_pcs-e.carry_in_pcs for e in actual),"available_from_upstream":cap,"awaiting_qc_from_upstream":waiting,"upstream_has_qc":bool(upstream and stage_has_qc(job,upstream)),"input_unit":stage_unit(upstream) if upstream else None,"pcs_per_bamboo":planning._pcs_per_bamboo_from_snapshot(job.spec_snapshot or {}) if stage=="PROCESS" else None,"qc":readiness,"draft_count":drafts,"can_close":status!="COMPLETED" and stage not in ("SLITTING","DISPATCH") and not blockers,"system_step":stage in SYSTEM_STAGES and not drafts and not any(e.stage==stage for e in all_entries),"completes_card":stage=="PROCESS" and any(s in route(job) for s in SYSTEM_STAGES),"blockers":blockers,"row_version":int(snapshot.get("row_version",1)),"supervisor_name":snapshot.get("supervisor_name"),"closed_at":snapshot.get("closed_at"),"residual_quantity":snapshot.get("residual_quantity"),"residual_disposition":snapshot.get("residual_disposition"),"segments":[{"id":str(s.id),"machine_id":str(s.machine_id) if s.machine_id else None,"plan_date":s.plan_date,"shift_code":s.shift_code,"status":s.status,**planning._planner_gate_context(current_stage=stage,active_stage=row,active_segment=s)} for s in stage_segments]})
+        states.append({"stage":stage,"status":status,"unit":stage_unit(stage),"target":target,"unscheduled_entries":sum(1 for e in actual if (e.details or {}).get("unscheduled_entry")),"produced_total":produced,"accepted_total":accepted,"rejected_total":produced-accepted,"input_total":accepted if stage=="DISPATCH" else sum(e.input_quantity for e in actual),"cutting_loss_total":sum(e.cutting_loss_pcs for e in actual),"qc_flagged_runs":sum(1 for e in actual if (e.evaluation or {}).get("verdict")=="FAIL")+int(readiness.get("flagged") or 0),"carryover_pcs":sum(e.carry_out_pcs-e.carry_in_pcs for e in actual),"available_from_upstream":cap,"awaiting_qc_from_upstream":waiting,"upstream_has_qc":bool(upstream and stage_has_qc(job,upstream)),"input_unit":stage_unit(upstream) if upstream else None,"pcs_per_bamboo":planning._pcs_per_bamboo_from_snapshot(job.spec_snapshot or {}) if stage=="PROCESS" else None,"qc":readiness,"draft_count":drafts,"can_close":status!="COMPLETED" and stage not in ("SLITTING","DISPATCH") and not blockers,"system_step":stage in SYSTEM_STAGES and not drafts and not any(e.stage==stage for e in all_entries),"completes_card":stage=="PROCESS" and any(s in route(job) for s in SYSTEM_STAGES),"blockers":blockers,"row_version":int(snapshot.get("row_version",1)),"supervisor_name":snapshot.get("supervisor_name"),"closed_at":snapshot.get("closed_at"),"residual_quantity":snapshot.get("residual_quantity"),"residual_disposition":snapshot.get("residual_disposition"),"segments":[{"id":str(s.id),"machine_id":str(s.machine_id) if s.machine_id else None,"plan_date":s.plan_date,"shift_code":s.shift_code,"status":s.status,**planning._planner_gate_context(current_stage=stage,active_stage=row,active_segment=s)} for s in stage_segments]})
         # Process runs whose pieces do not match bamboo × pcs (flagged, never refused) and how the stage was closed,
         # for the card banner and the printed card (client 2026-10-28).
         gaps=[(e.details or {}).get("count_gap") for e in actual if (e.details or {}).get("count_gap")]
@@ -1382,12 +1384,10 @@ def reopen_stage(card_id:uuid.UUID,stage:str,payload:Mutation,db:Session=Depends
     if payload.expected_version!=int((row.actuals_snapshot or {}).get("row_version",1)):raise HTTPException(409,"Stage changed; refresh")
     if row.status!="COMPLETED":raise HTTPException(409,"Closed stage and reopen reason required")
     choice=correction_reason(payload,job,user,f"reopening {label_stage(stage)}")
-    effects=db.query(CompletionEffect).filter_by(job_card_id=job.id).all()
+    # Row locks: the worker delivers with SKIP LOCKED, so no posting of this card lands while the reopen decides.
+    effects=db.query(CompletionEffect).filter_by(job_card_id=job.id).with_for_update().all()
     boxed=box_rules.box_mode(db,job)
     if not boxed and any(e.kind=='fg_inward' and e.status=='DELIVERED' for e in effects):raise HTTPException(409,"Posted finished goods require governed reversal/additional production")
-    for e in effects:
-        if e.kind=='tools' and e.payload.get('stage')==stage and e.attempts:
-            if e.status!='DELIVERED' or e.payload.get('posted_tool_asset_ids')!=[]:raise HTTPException(409,"Posted or uncertain tool usage requires governed reversal/additional production")
     for entry in entries(db,job,stage):
         if entry.business_date:validate_books(db,job,entry)
     # A box card's Process closed Packing and Final QC by itself: reopening Process reopens them; its boxes stay
@@ -1397,7 +1397,11 @@ def reopen_stage(card_id:uuid.UUID,stage:str,payload:Mutation,db:Session=Depends
     # The checks that can refuse the reopen run before Sales is asked to take the balance back, so a refusal
     # never leaves the order line and the card disagreeing (Sales commits its reverse at once).
     if any(r.status!="HOLD" for r in db.query(ResidualWip).filter_by(job_card_id=job.id,stage=stage).filter(ResidualWip.status!="REVERSED").all()):raise HTTPException(409,f"The leftover input of {label_stage(stage)} was scrapped when it closed, so the stage cannot be reopened here. Nothing was changed.")
-    def sales_reverse(lot_id,key,missing_ok=False):
+    sales_calls=[]
+    # Sales commits its reverse at once, so it is asked last, after every production change is made and flushed;
+    # if the production commit then fails, the return is put back on the order line (same return key).
+    def sales_reverse(lot_id,key,missing_ok=False):sales_calls.append((lot_id,key,missing_ok))
+    def call_sales_reverse(lot_id,key,missing_ok=False):
         try:response=httpx.post(f"{planning.settings.SALES_SERVICE_URL}/sales-orders/release-lots/{lot_id}/stage-returns/reverse",headers={"Authorization":f"Bearer {user.get('token','')}","X-Plant-ID":plant},json={"job_card_id":str(job.id),"return_key":key,"reason":choice.text,"reason_code":choice.code,"reason_label":choice.label},timeout=10)
         except httpx.HTTPError as exc:raise HTTPException(503,"Could not reach Sales to take back the balance this close gave the order; nothing was reopened. Try again.") from exc
         if response.status_code==404 and missing_ok:return
@@ -1405,6 +1409,7 @@ def reopen_stage(card_id:uuid.UUID,stage:str,payload:Mutation,db:Session=Depends
             try:detail=response.json().get("detail")
             except ValueError:detail=response.text[:300]
             raise HTTPException(409,f"{label_stage(stage)} cannot be reopened: {detail}")
+        return True
     reversed_close=short_rules.reverse_short_close(db,job,stage,row,sales_reverse=sales_reverse)
     for name in system_reopen:
         sys_row=stage_row(db,job,name);sys_row.status="RUNNING";sys_snap=dict(sys_row.actuals_snapshot or {})
@@ -1423,8 +1428,62 @@ def reopen_stage(card_id:uuid.UUID,stage:str,payload:Mutation,db:Session=Depends
     for residual in db.query(ResidualWip).filter_by(job_card_id=job.id,stage=stage).filter(ResidualWip.status!="REVERSED").all():
         if residual.status!="HOLD":raise HTTPException(409,f"The leftover input of {label_stage(stage)} was scrapped when it closed, so the stage cannot be reopened here. Nothing was changed.")
         residual.status="REVERSED";residual.row_version+=1
+    reversals=reverse_tool_usage(db,job,stage,row,[e for e in effects if e.kind=="tools" and e.payload.get("stage")==stage],choice,user)
     for pending in effects:
         # Only postings not yet made are called off; a DELIVERED one stays as the record of what was posted (issue #4).
         if pending.status!="DELIVERED" and pending.kind in ('tools','theory','fg_inward') and (pending.payload.get('stage')==stage or (stage=='QC' and pending.kind=='fg_inward') or pending.payload.get('stage') in system_reopen):
             pending.status="CANCELLED"
-    return finish(db,job,payload,f"reopen:{stage}",user,{"flow":flow(db,job),**({"reopened_short_close":reversed_close} if reversed_close else {})},reason_choice=choice)
+    if reversals:queue_delivery(db,reversals)
+    response={"flow":flow(db,job),**({"reopened_short_close":reversed_close} if reversed_close else {})}
+    db.flush()
+    taken=[(lot,key) for lot,key,missing_ok in sales_calls if call_sales_reverse(lot,key,missing_ok)]
+    try:return finish(db,job,payload,f"reopen:{stage}",user,response,reason_choice=choice)
+    except Exception:
+        db.rollback()
+        if taken:restore_sales_returns(job,[key for _,key in taken])
+        raise
+
+
+def restore_sales_returns(job,return_keys):
+    """The reopen did not commit after Sales took the pcs back: give them back to the order line again, through the
+    card's own sales_return effects (idempotent per return key in Sales), now and by the worker until it lands."""
+    from ..database import SessionLocal
+    from ..completion_worker import deliver_keys
+    session=SessionLocal();keys=[]
+    try:
+        for key in return_keys:
+            row=session.query(CompletionEffect).filter_by(effect_key=f"{key}:sales_return").with_for_update().first()
+            if row is None:continue
+            row.status="PENDING";row.next_attempt_at=datetime.utcnow();row.last_error="Reopen did not save; giving the balance back to the order";keys.append(row.effect_key)
+        session.commit()
+    finally:session.close()
+    try:deliver_keys(keys)
+    except Exception:pass
+
+
+def reverse_tool_usage(db,job,stage,row,tool_effects,choice,user):
+    """Reopen takes back the tool usage the close posted (3 Nov 2026). Stores has no negative usage, so a
+    tools_reversal effect asks it to reverse those usage keys, retried by the worker until Stores does it;
+    a posting still failing or retrying is called off first (whatever reached Stores is reversed too). The
+    next close posts under new keys (usage round + 1), so the stage is counted once with its final totals."""
+    keys=[]
+    for e in tool_effects:
+        if not int(e.attempts or 0):continue
+        p=dict(e.payload or {});round_no=int(p.get("usage_round") or 0)
+        known=list(p.get("posted_usage_keys") or [])
+        if not known and p.get("posted_tool_asset_ids"):
+            # Closed before keys were kept: rebuild them as the worker made them (slot by slot, else the stage row).
+            segments=db.query(JobCardStageSegment).filter_by(job_card_id=job.id,stage_type=stage).all() or [row]
+            known=[planning.tool_usage_key(job.id,row.id,s.id,a,round_no) for s in segments for a in p["posted_tool_asset_ids"]]
+        uncertain=e.status!="DELIVERED"
+        if known or uncertain or p.get("posted_tool_asset_ids") is None:
+            key=f"{job.id}:{stage}:tools_reversal:{round_no}"
+            if not db.query(CompletionEffect).filter_by(effect_key=key).first():
+                db.add(CompletionEffect(job_card_id=job.id,effect_key=key,kind="tools_reversal",
+                                        payload={"stage":stage,"plant_id":str(job.plant_id),"usage_keys":sorted(set(known)),"usage_round":round_no,
+                                                 "usage_key_prefix":f"{job.id}:{row.id}:","uncertain":uncertain,"reason":choice.text,"reason_code":choice.code,
+                                                 "reason_label":choice.label,"by":user.get("sub")}))
+                keys.append(key)
+        if e.status!="DELIVERED":e.status="CANCELLED"
+        e.payload={**p,"usage_round":round_no+1,"posted_usage_keys":[],"posted_tool_asset_ids":None,"reversed_round":round_no}
+    return keys

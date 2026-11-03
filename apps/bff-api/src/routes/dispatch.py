@@ -32,8 +32,8 @@ async def create_or_update_dispatch(request: Request, token: str = Depends(get_t
         event_type="DISPATCH_UPDATED",
         title=f"Dispatch {str(payload.get('status') or 'updated').replace('_', ' ').lower()}{' · ' + str(payload.get('dispatch_no')) if payload.get('dispatch_no') else ''}",
         message="Dispatch readiness or sealing state changed.",
-        # The dispatch desk; /logistics/dispatch/<job card> opens one card's dispatch.
-        href=f"/logistics/dispatch/{payload.get('job_card_id')}" if payload.get("job_card_id") else "/logistics/dispatch",
+        # The dispatch register filtered to this card (older /logistics/dispatch/<job card> links redirect there).
+        href=f"/logistics/dispatch?card={payload.get('job_card_id')}" if payload.get("job_card_id") else "/logistics/dispatch",
         recipient_roles=["Owner", "Admin", "Store", "Dispatch", "Sales"],
         payload={"dispatch_id": str(payload.get('id') or '')},
     )
@@ -46,3 +46,8 @@ async def get_dispatch(dispatch_id: str, request: Request, token: str = Depends(
 @router.post("/retain-surplus/{job_card_id}")
 async def retain_surplus(job_card_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/dispatch/retain-surplus/{job_card_id}", request, token)
+
+
+@router.post("/{dispatch_id}/cancel")
+async def cancel_unfinished_shipment(dispatch_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/dispatch/{dispatch_id}/cancel", request, token)

@@ -83,6 +83,7 @@ from ..services.procurement import (
     normalize_invoice_number,
     over_receipt,
     physical_form,
+    quantity_claim,
 )
 from ..services.books import assert_books_open
 from ..services.locations import RECEIVING_PURPOSES, default_receiving_location
@@ -716,7 +717,9 @@ def post_governed_receipt(
             if invoice_qty != qty:
                 db.add(PurchaseDiscrepancy(plant_id=plant_id, allocation_id=allocation.id, discrepancy_type="QUANTITY",
                     quantity=qty, po_rate=revision_line.unit_rate, invoice_rate=requested.invoice_rate,
-                    delta=invoice_qty - qty, claimable_amount=0, status="OPEN"))
+                    delta=invoice_qty - qty, status="OPEN",
+                    # Billed more than came in: claim the extra kg at the billed rate (as a manual GRN does).
+                    claimable_amount=quantity_claim(invoice_qty, qty, requested.invoice_rate if requested.invoice_rate is not None else revision_line.unit_rate)))
             if width_evidence:
                 first = width_evidence["violations"][0]
                 db.add(PurchaseDiscrepancy(plant_id=plant_id, allocation_id=allocation.id, discrepancy_type="SPECIFICATION",
@@ -1026,7 +1029,8 @@ def attach_invoice_to_receipt(
                 po_rate=receipt_line.po_rate if receipt_line.po_rate is not None else requested.invoice_rate,
                 invoice_rate=requested.invoice_rate,
                 delta=invoice_qty - qty,
-                claimable_amount=0,
+                # Billed more than came in: claim the extra kg at the billed rate (as a manual GRN does).
+                claimable_amount=quantity_claim(invoice_qty, qty, requested.invoice_rate if requested.invoice_rate is not None else receipt_line.po_rate),
                 status="OPEN",
             ))
         if width_evidence:

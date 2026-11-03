@@ -1,7 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
+import { concretePlant } from "@/components/sales/sales-action-roles"
 import { useAuth } from "@/context/AuthContext"
-import { salesApi } from "@/lib/api"
+import { invalidateJobCardViews } from "@/hooks/use-lifecycle"
+import { api, salesApi } from "@/lib/api"
+
+const onPlant = (plantId?: string) => (plantId ? { headers: { "X-Plant-ID": plantId } } : undefined)
+
+/**
+ * The plant a write on an order goes to: the one passed in, else the order's own plant (from the order
+ * already loaded on the page). Under "All visible plants" the service refuses a write without one
+ * concrete plant, and a write is never sent to some other plant by default.
+ */
+function orderWritePlant(queryClient: ReturnType<typeof useQueryClient>, orderId: string, plantId?: string) {
+  return concretePlant(plantId) || concretePlant(queryClient.getQueryData<any>(["sales", "order", orderId])?.plant_id)
+}
 
 function asArray<T = any>(value: any): T[] {
   if (Array.isArray(value)) return value
@@ -236,15 +249,18 @@ export function useOrderDeliverySchedules(orderId?: string) {
 }
 
 export function usePreviewDeliverySchedules() {
+  const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ orderId, data }: { orderId: string; data: any }) => salesApi.previewOrderDeliverySchedules(orderId, data),
+    mutationFn: ({ orderId, data, plantId }: { orderId: string; data: any; plantId?: string }) =>
+      api.post(`/api/sales/orders/${orderId}/delivery-schedules/preview`, data, onPlant(orderWritePlant(queryClient, orderId, plantId))),
   })
 }
 
 export function useCommitDeliverySchedules() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ orderId, data }: { orderId: string; data: any }) => salesApi.commitOrderDeliverySchedules(orderId, data),
+    mutationFn: ({ orderId, data, plantId }: { orderId: string; data: any; plantId?: string }) =>
+      api.post(`/api/sales/orders/${orderId}/delivery-schedules/commit`, data, onPlant(orderWritePlant(queryClient, orderId, plantId))),
     onSuccess: (_response, variables) => {
       invalidateSalesQueries(queryClient, variables.orderId)
       queryClient.invalidateQueries({ queryKey: ["sales", "delivery-schedules", variables.orderId] })
@@ -257,15 +273,18 @@ export function useCommitDeliverySchedules() {
 }
 
 export function usePreviewScheduleEntirePo() {
+  const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ orderId, data }: { orderId: string; data: any }) => salesApi.previewScheduleEntirePo(orderId, data),
+    mutationFn: ({ orderId, data, plantId }: { orderId: string; data: any; plantId?: string }) =>
+      api.post(`/api/sales/orders/${orderId}/schedule-entire-po/preview`, data, onPlant(orderWritePlant(queryClient, orderId, plantId))),
   })
 }
 
 export function useCommitScheduleEntirePo() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ orderId, data }: { orderId: string; data: any }) => salesApi.commitScheduleEntirePo(orderId, data),
+    mutationFn: ({ orderId, data, plantId }: { orderId: string; data: any; plantId?: string }) =>
+      api.post(`/api/sales/orders/${orderId}/schedule-entire-po/commit`, data, onPlant(orderWritePlant(queryClient, orderId, plantId))),
     onSuccess: (_response, variables) => {
       invalidateSalesQueries(queryClient, variables.orderId)
       queryClient.invalidateQueries({ queryKey: ["sales", "delivery-schedules", variables.orderId] })
@@ -280,8 +299,8 @@ export function useCommitScheduleEntirePo() {
 export function usePatchDeliverySchedule() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ orderId, scheduleId, data }: { orderId: string; scheduleId: string; data: any }) =>
-      salesApi.patchOrderDeliverySchedule(orderId, scheduleId, data),
+    mutationFn: ({ orderId, scheduleId, data, plantId }: { orderId: string; scheduleId: string; data: any; plantId?: string }) =>
+      api.patch(`/api/sales/orders/${orderId}/delivery-schedules/${scheduleId}`, data, onPlant(orderWritePlant(queryClient, orderId, plantId))),
     onSuccess: (_response, variables) => {
       invalidateSalesQueries(queryClient, variables.orderId)
       queryClient.invalidateQueries({ queryKey: ["sales", "delivery-schedules", variables.orderId] })
@@ -295,7 +314,8 @@ export function usePatchDeliverySchedule() {
 export function useMoveDeliverySchedule() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ orderId, data }: { orderId: string; data: any }) => salesApi.moveDeliverySchedule(orderId, data),
+    mutationFn: ({ orderId, data, plantId }: { orderId: string; data: any; plantId?: string }) =>
+      api.post(`/api/sales/orders/${orderId}/delivery-schedules/group-move`, data, onPlant(orderWritePlant(queryClient, orderId, plantId))),
     onSuccess: (_response, variables) => {
       if (!variables.data.preview_only) {
         invalidateSalesQueries(queryClient, variables.orderId)
@@ -381,7 +401,8 @@ export function useOrderHistory(orderId?: string, plantId?: string) {
 export function useSubmitSalesOrder() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ orderId }: { orderId: string; plantId?: string }) => salesApi.updateOrder(orderId, { status: "submitted" }),
+    mutationFn: ({ orderId, plantId }: { orderId: string; plantId?: string }) =>
+      api.put(`/api/sales/orders/${orderId}`, { status: "submitted" }, onPlant(orderWritePlant(queryClient, orderId, plantId))),
     onSuccess: (_response, variables) => invalidateSalesQueries(queryClient, variables.orderId),
   })
 }
@@ -400,9 +421,23 @@ export function useCreateSalesOrder() {
 export function useUpdateSalesOrder() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ orderId, data }: { orderId: string; data: any }) => salesApi.updateOrder(orderId, data),
+    mutationFn: ({ orderId, data, plantId }: { orderId: string; data: any; plantId?: string }) =>
+      api.put(`/api/sales/orders/${orderId}`, data, onPlant(orderWritePlant(queryClient, orderId, plantId))),
     onSuccess: (_response, variables) => {
       invalidateSalesQueries(queryClient, variables.orderId)
+    },
+  })
+}
+
+/** Colour breakup of one line, saved in the order's own plant (the "All plants" view cannot write). */
+export function useUpdateSalesLineColors() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ lineId, colorSplits, plantId }: { lineId: string; colorSplits: Array<{ color: string; color_id?: string | null; qty: number; rate_per_pc?: number | null }>; plantId?: string }) =>
+      api.put(`/api/sales/orders/lines/${lineId}/colors`, { color_splits: colorSplits }, onPlant(concretePlant(plantId))),
+    onSuccess: () => {
+      invalidateJobCardViews(queryClient)
+      queryClient.invalidateQueries({ queryKey: ["sales"] })
     },
   })
 }

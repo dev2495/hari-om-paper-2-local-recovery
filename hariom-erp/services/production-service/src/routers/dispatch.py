@@ -47,6 +47,7 @@ ORCHESTRATION_SNAPSHOT_KEYS = {
     "orchestration_error",
     "seal_request",
     "sales_dispatch_ref",
+    "box_ref_scope",
 }
 
 
@@ -224,11 +225,11 @@ def _challan_boxes(db: Session, job_card: JobCard, snapshot: dict[str, Any], dis
     ids = _box_ids(snapshot)
     if not ids:
         raise HTTPException(status_code=422, detail="Tick or scan the boxes going on this challan.")
-    boxes = db.query(FgBox).filter(FgBox.id.in_(ids)).with_for_update().all()
+    boxes = db.query(FgBox).filter(FgBox.id.in_(ids), FgBox.job_card_id == job_card.id, FgBox.plant_id == job_card.plant_id).with_for_update().all()
     found = {box.id: box for box in boxes}
     missing = [str(value) for value in ids if value not in found]
     if missing:
-        raise HTTPException(status_code=404, detail="Some boxes on this challan do not exist; refresh and pick them again.")
+        raise HTTPException(status_code=404, detail="Some boxes on this challan are not on this job card; refresh and pick them again.")
     problems = []
     for box in (found[value] for value in ids):
         if box.job_card_id != job_card.id:
@@ -260,6 +261,13 @@ def _box_packing_block(job_card: JobCard, boxes: list[FgBox]) -> dict[str, Any]:
     }
 
 
+def _box_external_ref(snapshot: dict[str, Any], box_id: Any) -> str:
+    """The stock-out key of one box on one challan. Older challans used the box id alone; a challan started
+    since cancel-shipment adds its own id, so a box from a cancelled challan can ship again (3 Nov 2026)."""
+    scope = str(snapshot.get("box_ref_scope") or "").strip()
+    return f"PROD-DISPATCH-BOX-{box_id}" + (f"-{scope}" if scope else "")
+
+
 def _post_inventory_box_dispatch(*, job_card: JobCard, boxes: list[FgBox], snapshot: dict[str, Any], dispatch_ref: str, token: str, plant_id: str) -> dict[str, Any]:
     """One stock-out per box batch, idempotent per box (a retry re-sends the same box keys)."""
     posted = dict(snapshot.get("inventory_box_transactions") or {})
@@ -269,7 +277,7 @@ def _post_inventory_box_dispatch(*, job_card: JobCard, boxes: list[FgBox], snaps
         payload = {
             "item_id": str(box.fg_item_id), "batch_id": str(box.inventory_batch_id), "qty": float(box.qty),
             "effective_date": snapshot.get("date") or plant_today().isoformat(), "dispatch_ref": dispatch_ref[:100],
-            "external_ref": f"PROD-DISPATCH-BOX-{box.id}", "production_job_id": str(job_card.id),
+            "external_ref": _box_external_ref(snapshot, box.id), "production_job_id": str(job_card.id),
             "sales_order_id": str(job_card.sales_order_id) if job_card.sales_order_id else None,
             "sales_order_line_id": str(job_card.sales_order_line_id) if job_card.sales_order_line_id else None,
         }
@@ -596,6 +604,8 @@ def _create_or_update_dispatch(payload,db,plant_id,current_user):
         if idem:
             if idem.job_card_id != payload.job_card_id:
                 raise HTTPException(status_code=409, detail="dispatch_request_id already belongs to another job card")
+            if (idem.response_snapshot or {}).get("orchestration_state") == "CANCELLED":
+                raise HTTPException(status_code=409, detail="This shipment was cancelled. Refresh the page and make a new challan.")
             if idem.request_hash != request_hash:
                 raise HTTPException(status_code=409, detail="dispatch_request_id was already used with a different payload")
             if idem.status == "SUCCESS":
@@ -850,6 +860,13 @@ def _seal_box_challan(*, db, job_card, dispatch, idem, payload, plant_id, plant_
         raise HTTPException(status_code=422, detail="Dispatch date must be YYYY-MM-DD") from exc
     dispatch_ref = _dispatch_ref(dispatch_snapshot, dispatch.id, request_id)
     sales_ref = persisted_snapshot.get("sales_dispatch_ref") or "DISPATCH-REQUEST:" + hashlib.sha256(request_id.encode()).hexdigest()
+    # A challan begun before this release keeps box-id-only stock keys, so its retry stays idempotent.
+    if persisted_snapshot.get("box_ref_scope"):
+        dispatch_snapshot["box_ref_scope"] = persisted_snapshot["box_ref_scope"]
+    elif persisted_snapshot.get("orchestration_state") in {"PENDING", "FAILED"} or persisted_snapshot.get("inventory_box_transactions"):
+        dispatch_snapshot.pop("box_ref_scope", None)
+    else:
+        dispatch_snapshot["box_ref_scope"] = str(dispatch.id)
     token = current_user.get("token", "")
     if job_card.sales_order_line_id:
         _post_sales_request(path=f"/sales-orders/lines/{job_card.sales_order_line_id}/validate-dispatch", token=token, plant_id=plant_id,
@@ -908,6 +925,125 @@ def _seal_box_challan(*, db, job_card, dispatch, idem, payload, plant_id, plant_
     except HTTPException as exc:
         _persist_dispatch_failure(db=db, dispatch=dispatch, idem=idem, snapshot=dispatch_snapshot, error=exc)
         raise
+
+
+class CancelShipmentInput(BaseModel):
+    # ENTRY_CORRECTION code from Masters › Reason codes ("Entry correction / void / reopen", owner decision 4).
+    reason_code: Optional[str] = Field(default=None, max_length=40)
+    reason_note: Optional[str] = Field(default=None, max_length=1000)
+
+
+def _shipment_stock_refs(dispatch: Dispatch, snapshot: dict[str, Any]) -> list[str]:
+    """Every stock-out key this draft may have used (posted, or sent with the reply lost)."""
+    if isinstance(snapshot.get("box_ids"), list) and snapshot.get("box_ids"):
+        return [_box_external_ref(snapshot, value) for value in snapshot["box_ids"]]
+    refs = [snapshot.get("inventory_dispatch_external_ref"), snapshot.get("external_ref"),
+            f"PROD-DISPATCH-REQUEST-{snapshot.get('dispatch_request_id') or dispatch.id}"]
+    return [str(ref) for ref in dict.fromkeys(refs) if ref]
+
+
+def _sales_counts_shipment(job_card: JobCard, sales_ref: str, token: str, plant_id: str) -> bool:
+    """True when the order line already has this shipment's dispatch log (Sales recorded it)."""
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.get(f"{settings.SALES_SERVICE_URL}/sales-orders/lines/{job_card.sales_order_line_id}",
+                                  headers={"Authorization": f"Bearer {token}", "X-Plant-ID": plant_id})
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail="Sales could not be reached to check this shipment. Nothing was cancelled; try again.") from exc
+    if response.status_code >= 400:
+        raise HTTPException(status_code=502, detail=f"Sales could not show this order line: {_downstream_detail(response)}. Nothing was cancelled.")
+    logs = (response.json() or {}).get("dispatch_logs") or []
+    return any(str(row.get("dispatch_line_ref") or "") == sales_ref for row in logs if isinstance(row, dict))
+
+
+def _reverse_shipment_stock(refs: list[str], *, reversal_ref: str, choice, token: str, plant_id: str) -> list[dict[str, Any]]:
+    """Put back whatever stock this draft moved out (idempotent per stock-out key in Stores)."""
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            response = client.post(f"{settings.INVENTORY_SERVICE_URL}/dispatch/reverse",
+                                   headers={"Authorization": f"Bearer {token}", "X-Plant-ID": plant_id},
+                                   json={"external_refs": refs, "reversal_ref": reversal_ref, "reason": choice.text,
+                                         "reason_code": choice.code, "reason_label": choice.label, "reason_note": choice.note})
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail="Stores could not be reached to put the stock back. Nothing was cancelled; try again.") from exc
+    if response.status_code not in (200, 201):
+        raise HTTPException(status_code=response.status_code if response.status_code < 500 else 502,
+                            detail=f"Stores could not put this shipment's stock back: {_downstream_detail(response)}. Nothing was cancelled.")
+    return list((response.json() or {}).get("results") or [])
+
+
+@router.post("/{dispatch_id}/cancel")
+def cancel_unfinished_shipment(
+    dispatch_id: uuid.UUID,
+    payload: CancelShipmentInput,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(sorted(DISPATCH_SEAL_ROLES))),
+):
+    """Cancel a shipment whose seal failed half way (3 Nov 2026): any stock it moved out goes back, its boxes are
+    ready again and a new challan can be made. Refused once Sales counts it (then Retry shipment finishes it)."""
+    plant_uuid = _plant_uuid(plant_id)
+    found = db.query(Dispatch).join(JobCard, JobCard.id == Dispatch.job_card_id).filter(
+        Dispatch.id == dispatch_id, JobCard.plant_id == plant_uuid).first()
+    if not found:
+        raise HTTPException(status_code=404, detail="Dispatch not found")
+    job_id = found.job_card_id
+    line_id = db.query(JobCard.sales_order_line_id).filter(JobCard.id == job_id).scalar()
+    db.rollback()
+    # The same leases as sealing, so a Retry and a Cancel never run together.
+    with _sales_line_posting_lease(plant_id, line_id), card_posting_lease(job_id):
+        return _cancel_unfinished_shipment(db, dispatch_id, job_id, payload, plant_id, plant_uuid, current_user)
+
+
+def _cancel_unfinished_shipment(db, dispatch_id, job_id, payload, plant_id, plant_uuid, current_user):
+    from .planning import _record_audit_event
+    from ..reasons import resolve_reason
+    _acquire_dispatch_lock(db, f"dispatch-job:{plant_uuid}:{job_id}")
+    job_card = db.query(JobCard).filter(JobCard.id == job_id, JobCard.plant_id == plant_uuid).first()
+    dispatch = db.query(Dispatch).filter(Dispatch.id == dispatch_id, Dispatch.job_card_id == job_id).with_for_update().first()
+    if not job_card or not dispatch:
+        raise HTTPException(status_code=404, detail="Dispatch not found")
+    snapshot = dict(dispatch.dispatch_snapshot or {})
+    state = snapshot.get("orchestration_state")
+    if dispatch.status != "DRAFT" or state not in {"PENDING", "FAILED"}:
+        raise HTTPException(status_code=409, detail="Only a shipment that stopped half way can be cancelled here. A plain draft is simply changed or left; a sealed challan stays.")
+    request_id = str(snapshot.get("dispatch_request_id") or "")
+    idem = db.query(DispatchIdempotency).filter(DispatchIdempotency.request_id == request_id).with_for_update().first() if request_id else None
+    if state == "PENDING":
+        since = getattr(idem, "updated_at", None) or getattr(idem, "created_at", None) if idem else None
+        if since and (datetime.utcnow() - since).total_seconds() < 120:
+            raise HTTPException(status_code=409, detail="This shipment is being saved right now. Wait two minutes, then cancel it if it is still stuck.")
+    if snapshot.get("sales_dispatch_status") == "POSTED":
+        raise HTTPException(status_code=409, detail="The sales order already counts this shipment, so it cannot be cancelled. Press Retry shipment to finish it.")
+    choice = resolve_reason(category="ENTRY_CORRECTION", code=payload.reason_code, note=payload.reason_note, plant_id=plant_id,
+                            token=current_user.get("token", ""), what="cancelling this shipment")
+    token = current_user.get("token", "")
+    sales_ref = str(snapshot.get("sales_dispatch_ref") or "")
+    if job_card.sales_order_line_id and sales_ref and _sales_counts_shipment(job_card, sales_ref, token, plant_id):
+        raise HTTPException(status_code=409, detail="The sales order already counts this shipment, so it cannot be cancelled. Press Retry shipment to finish it.")
+    refs = _shipment_stock_refs(dispatch, snapshot)
+    reversed_rows = _reverse_shipment_stock(refs, reversal_ref=f"PROD-DISPATCH-CANCEL-{dispatch.id}", choice=choice, token=token, plant_id=plant_id) if refs else []
+    now = datetime.utcnow()
+    # Boxes are marked shipped only when a seal finishes; any left pointing at this draft are ready again.
+    released = []
+    for box in db.query(FgBox).filter(FgBox.dispatch_id == dispatch.id, FgBox.job_card_id == job_card.id).all():
+        box.status = "PACKED"; box.dispatch_id = None; box.dispatched_at = None; box.row_version = int(box.row_version or 1) + 1
+        released.append(box.box_code)
+    record = {"cancelled_at": now.isoformat(), "cancelled_by": current_user.get("sub"), "reason": choice.text, "reason_code": choice.code,
+              "reason_label": choice.label, "reason_note": choice.note, "stock_reversals": reversed_rows, "boxes_released": released}
+    if idem is not None:
+        idem.status = "FAILED"
+        idem.error_message = f"Cancelled: {choice.text}"[:500]
+        idem.response_snapshot = {**dict(idem.response_snapshot or {}), "orchestration_state": "CANCELLED", "cancelled": record}
+    _record_audit_event(db=db, plant_id=job_card.plant_id, entity_type="dispatch", entity_id=dispatch.id, action="SHIPMENT_CANCELLED",
+                        actor_id=current_user.get("sub"), actor_role=",".join(current_user.get("roles") or []), job_card_id=job_card.id,
+                        request_id=request_id or None, payload={**record, "dispatch_id": str(dispatch.id), "box_ids": snapshot.get("box_ids") or [],
+                                                                "challan_no": snapshot.get("challan_no"), "dispatch_qty": snapshot.get("dispatch_qty")},
+                        before_payload={"dispatch_snapshot": snapshot})
+    # The unposted draft goes; its full contents stay in the audit (as Retain surplus does).
+    db.delete(dispatch)
+    db.commit()
+    return {"cancelled": True, "dispatch_id": str(dispatch_id), "job_card_id": str(job_card.id), **record}
 
 
 @router.get("/job-cards/{job_card_id}/boxes")

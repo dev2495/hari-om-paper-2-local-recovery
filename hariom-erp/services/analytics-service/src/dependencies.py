@@ -148,8 +148,11 @@ def get_plant_scope(
     if not requested:
         raise HTTPException(status_code=403, detail="Missing plant context")
 
-    if not is_owner and token_plant_id and str(requested) != str(token_plant_id):
-        raise HTTPException(status_code=403, detail="Cross-plant access is not permitted")
+    # Plants are isolated (owner decision 3 Nov 2026): a non-owner reads only the plants assigned to them.
+    if not is_owner:
+        assigned = {str(value) for value in allowed_plants} | ({str(token_plant_id)} if token_plant_id else set())
+        if str(requested) not in assigned:
+            raise HTTPException(status_code=403, detail="Cross-plant access is not permitted")
 
     if is_owner and allowed_plants and requested not in allowed_plants:
         raise HTTPException(status_code=403, detail="Requested plant is outside allowed scope")

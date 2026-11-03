@@ -320,6 +320,56 @@ def issue_tool(asset_id: str, payload: ToolIssue, db: Session = Depends(get_db),
     return {"assignment_id": assignment.id, "asset": _asset_payload(asset)}
 
 
+class ToolUsageReversal(BaseModel):
+    job_card_id: str = Field(min_length=1, max_length=80)
+    stage_type: str = Field(min_length=1, max_length=40)
+    usage_keys: list[str] = Field(default_factory=list, max_length=200)
+    usage_key_prefix: Optional[str] = Field(default=None, max_length=160)
+    uncertain: bool = False
+    reversal_key: str = Field(min_length=1, max_length=200)
+    reason: Optional[str] = Field(default=None, max_length=300)
+    reason_code: Optional[str] = Field(default=None, max_length=80)
+
+
+@router.post("/usage/reverse")
+def reverse_tool_usage(payload: ToolUsageReversal, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "ProductionEffects"]))):
+    """Take back the tool usage a stage close posted when that stage is reopened (3 Nov 2026).
+
+    Matches this plant's usage rows of the card and stage by the exact usage keys that landed (or, when the
+    posting was uncertain, every key under the stage's prefix), subtracts what each added, and frees the key
+    so a re-close posts again. Idempotent: a reversed row no longer carries its key, so a retry finds nothing."""
+    stage = payload.stage_type.strip().upper()
+    keys = {key for key in payload.usage_keys if key}
+    rows = db.query(ToolAssetAssignment, ToolAsset).join(ToolAsset, ToolAsset.id == ToolAssetAssignment.asset_id).filter(
+        ToolAsset.plant_id.in_(_plant_values(plant_id)), ToolAssetAssignment.job_card_id == payload.job_card_id,
+        ToolAssetAssignment.stage_type == stage, ToolAssetAssignment.usage_key.isnot(None),
+    ).all()
+    prefix = (payload.usage_key_prefix or "").strip()
+    reversed_keys: list[str] = []
+    for assignment, asset in rows:
+        key = assignment.usage_key
+        if key not in keys and not (payload.uncertain and prefix and key.startswith(prefix)):
+            continue
+        usage = db.query(ToolAssetEvent).filter(
+            ToolAssetEvent.asset_id == asset.id, ToolAssetEvent.event_type == "PRODUCTION_USAGE",
+            ToolAssetEvent.job_card_id == payload.job_card_id,
+        ).order_by(ToolAssetEvent.event_at.desc()).all()
+        posted = next((row for row in usage if (row.metadata_json or {}).get("usage_key") == key), None)
+        good = float(posted.good_qty or 0) if posted else 0.0
+        scrap = float(posted.scrap_qty or 0) if posted else 0.0
+        assignment.good_qty = max(0.0, float(assignment.good_qty or 0) - good)
+        assignment.scrap_qty = max(0.0, float(assignment.scrap_qty or 0) - scrap)
+        assignment.usage_key = None
+        asset.usage_count = max(0, int(asset.usage_count or 0) - 1)
+        asset.produced_qty = max(0.0, float(asset.produced_qty or 0) - good)
+        asset.scrap_qty = max(0.0, float(asset.scrap_qty or 0) - scrap)
+        _event(db, asset, "USAGE_REVERSED", current_user, job_card_id=payload.job_card_id, stage_type=stage, good_qty=-good, scrap_qty=-scrap,
+               metadata={"usage_key": key, "reversal_key": payload.reversal_key, "reason": payload.reason, "reason_code": payload.reason_code})
+        reversed_keys.append(key)
+    db.commit()
+    return {"reversal_key": payload.reversal_key, "reversed": reversed_keys, "count": len(reversed_keys)}
+
+
 @router.post("/{asset_id}/usage")
 def record_tool_usage(asset_id: str, payload: ToolUsage, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(require_role(["Admin", "Owner", "Production", "PlantManager", "Operator", "ProductionEffects"]))):
     asset = _asset(db, asset_id, plant_id)

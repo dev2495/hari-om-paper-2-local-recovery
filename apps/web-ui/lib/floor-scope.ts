@@ -32,8 +32,10 @@ const sameEmail = (a: any, b: any) => {
 export type FloorScope =
   /** Not an Operator-only login: the full entry form, exactly as before. */
   | { kind: "full" }
-  /** Operator-only, but no single stage could be found for the login: the full form with a note. */
-  | { kind: "unlinked"; why: "no-employee" | "no-stage" | "several"; employees: any[] }
+  /** Operator-only, but its employee rows give no single stage: the full form with a note. */
+  | { kind: "unlinked"; why: "no-stage" | "several"; employees: any[] }
+  /** Operator-only and not linked to any employee: no stage at all (owner, 3 Nov 2026). */
+  | { kind: "none" }
   /** Operator-only and linked: only this stage, logged as this employee. */
   | { kind: "stage"; stage: string; employee: any }
 
@@ -44,7 +46,7 @@ export type FloorScope =
 export function floorScope({ roles, email, employees }: { roles: Array<string | null | undefined>; email?: string | null; employees: any[] }): FloorScope {
   if (!isOperatorOnly(roles)) return { kind: "full" }
   const linked = (employees || []).filter((e) => activeEmployee(e) && sameEmail(e.email, email))
-  if (!linked.length) return { kind: "unlinked", why: "no-employee", employees: [] }
+  if (!linked.length) return { kind: "none" }
   const withStage = linked.filter((e) => stageForDepartment(e.department))
   const stages = Array.from(new Set(withStage.map((e) => stageForDepartment(e.department) as string)))
   if (!stages.length) return { kind: "unlinked", why: "no-stage", employees: linked }
@@ -52,15 +54,19 @@ export function floorScope({ roles, email, employees }: { roles: Array<string | 
   return { kind: "stage", stage: stages[0], employee: withStage[0] }
 }
 
-/** The note an unlinked operator sees above the full form. */
+/** What an Operator-only login not linked to an employee sees instead of any stage. */
+export const NOT_LINKED_MESSAGE = "Your login is not linked to an employee; ask the Owner."
+
+/** The note an unlinked operator sees above the full form (or, not linked at all, instead of it). */
 export function unlinkedNote(scope: FloorScope): string {
+  if (scope.kind === "none") return NOT_LINKED_MESSAGE
   if (scope.kind !== "unlinked") return ""
   if (scope.why === "no-stage") {
     const dept = String(scope.employees[0]?.department || "").trim()
     return `Your employee row (${scope.employees[0]?.name || "you"}) is in ${dept ? `the ${dept} department` : "no department"}, which runs no floor stage, so every stage is shown. Ask the Admin to set your department in Masters › Employees.`
   }
   if (scope.why === "several") return `Your login email is on more than one employee in different departments (${scope.employees.map((e) => e.name).join(", ")}), so every stage is shown. Ask the Admin to keep it on one row in Masters › Employees.`
-  return "Your login is not linked to an employee, so every stage is shown. Ask the Admin to link your login in Masters › Employees (your login email on your employee row)."
+  return ""
 }
 
 export type StageGate = {

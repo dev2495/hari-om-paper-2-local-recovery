@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import SalesOrderReleaseLot, SalesOrderReleaseLotReturn, SalesOrderStatus
+from ..models import SalesOrder, SalesOrderReleaseLot, SalesOrderReleaseLotReturn, SalesOrderStatus
 from ..order_closure import CANCELLED as CLOSURE_CANCELLED, SHORT_CLOSED as CLOSURE_SHORT_CLOSED, active_released
 from ..utils.auth import get_current_plant, require_role
 from .sales_orders import _drop_unreleased_balance, _emit_lot_audit, _locked_line, _lot_payload, _released_qty, _sync_release_status
@@ -156,7 +156,13 @@ def reverse_stage_return(release_lot_id: uuid.UUID, payload: StageReturnReverseP
 @router.get("/release-lots/{release_lot_id}/stage-returns")
 def list_stage_returns(release_lot_id: uuid.UUID, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant),
                        current_user: dict = Depends(require_role(["Owner", "Admin", "Planner", "PlantManager", "Sales", "ProductionEffects"]))):
-    lot = db.query(SalesOrderReleaseLot).filter(SalesOrderReleaseLot.id == release_lot_id).first()
+    # Only a lot of an order in the caller's plant: another plant's lot is "not found".
+    lot = (
+        db.query(SalesOrderReleaseLot)
+        .join(SalesOrder, SalesOrderReleaseLot.sales_order_id == SalesOrder.id)
+        .filter(SalesOrderReleaseLot.id == release_lot_id, SalesOrder.plant_id == plant_id)
+        .first()
+    )
     if not lot:
         raise HTTPException(status_code=404, detail="Release lot not found")
     rows = db.query(SalesOrderReleaseLotReturn).filter_by(release_lot_id=lot.id).order_by(SalesOrderReleaseLotReturn.created_at).all()

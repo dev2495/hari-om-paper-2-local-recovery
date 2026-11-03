@@ -105,6 +105,17 @@ def over_receipt(received: Any, open_qty: Any) -> Decimal:
     return extra if extra > 0 else Decimal("0")
 
 
+def quantity_claim(billed_qty: Any, received_qty: Any, billed_rate: Any) -> Decimal:
+    """Claim on a bill for more than came in: (billed - received) x billed rate, before tax.
+
+    Zero when received is at least billed (under-billing is reviewed, never claimed). Same rule as a
+    manual GRN's quantity case."""
+    extra = decimal_value(billed_qty, "billed_qty") - decimal_value(received_qty, "received_qty")
+    if extra <= 0 or billed_rate is None:
+        return Decimal("0.00")
+    return (extra * rate(billed_rate, "billed_rate")).quantize(MONEY_QUANT, rounding=ROUND_HALF_UP)
+
+
 def po_number(prefix: str, sequence: int) -> str:
     if sequence <= 0:
         raise ProcurementRuleError("document sequence must be positive")

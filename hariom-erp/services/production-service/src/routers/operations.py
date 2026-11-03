@@ -175,6 +175,16 @@ def _scope_uuid(plant_scope: dict, *, action: str) -> Optional[uuid.UUID]:
         raise HTTPException(status_code=403, detail=f"Invalid plant scope for {action}")
 
 
+def _write_scope(plant_scope: dict, *, action: str) -> uuid.UUID:
+    """A write runs in one selected plant: All plants is the Owner/Admin read-only view (3 Nov 2026)."""
+    if plant_scope.get("scope_all") or not plant_scope.get("selected_plant_id"):
+        raise HTTPException(status_code=400, detail=f"Select one plant at the top for {action}; All plants is view only.")
+    selected = _scope_uuid(plant_scope, action=action)
+    if selected is None:
+        raise HTTPException(status_code=403, detail=f"Invalid plant scope for {action}")
+    return selected
+
+
 def _apply_plant_scope(query, column, plant_scope: dict, *, action: str):
     selected = _scope_uuid(plant_scope, action=action)
     if selected is None:
@@ -532,7 +542,8 @@ def short_close_job_card(
     plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(require_role(["PlantManager", "Admin", "Owner"])),
 ):
-    candidate = db.query(JobCard).filter_by(id=job_card_id).first()
+    plant_uuid = _write_scope(plant_scope, action="a short close")
+    candidate = db.query(JobCard).filter_by(id=job_card_id, plant_id=plant_uuid).first()
     if candidate and _is_v2(candidate):
         # This lease survives Sales calls and local commit checkpoints and shares
         # its key with final QC, ledger writers and dispatch posting.
@@ -907,8 +918,9 @@ def resolve_short_close_hold(
     plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(require_role(["PlantManager", "Admin", "Owner"])),
 ):
-    short = db.query(JobCardShortClose).filter_by(id=short_close_id).first()
-    candidate = db.query(JobCard).filter_by(id=short.job_card_id).first() if short else None
+    plant_uuid = _write_scope(plant_scope, action="resolving a short close")
+    short = db.query(JobCardShortClose).filter_by(id=short_close_id, plant_id=plant_uuid).first()
+    candidate = db.query(JobCard).filter_by(id=short.job_card_id, plant_id=plant_uuid).first() if short else None
     if candidate and _is_v2(candidate):
         with card_posting_lease(candidate.id):
             db.expire_all()
@@ -1227,6 +1239,7 @@ def create_downtime(
     plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(require_role(["PlantManager", "Planner", "Admin", "Owner"])),
 ):
+    _write_scope(plant_scope, action="logging downtime")
     reason = (payload.reason_code or "").strip().upper()
     if not reason:
         raise HTTPException(status_code=422, detail="Choose a reason for the downtime from the list (Masters › Reason codes).")
@@ -1330,8 +1343,8 @@ def update_downtime(
     plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(require_role(["PlantManager", "Planner", "Admin", "Owner"])),
 ):
-    query = db.query(MachineDowntime).filter(MachineDowntime.id == downtime_id)
-    query = _apply_plant_scope(query, MachineDowntime.plant_id, plant_scope, action="downtime update")
+    query = db.query(MachineDowntime).filter(MachineDowntime.id == downtime_id,
+                                             MachineDowntime.plant_id == _write_scope(plant_scope, action="changing downtime"))
     row = query.first()
     if not row:
         raise HTTPException(status_code=404, detail="Downtime row not found")
@@ -1472,10 +1485,8 @@ def update_downtime_reschedule_status(
     if status_value not in {"DONE", "DISMISSED"}:
         raise HTTPException(status_code=422, detail="status must be DONE or DISMISSED")
 
-    query = db.query(MachineDowntime).filter(MachineDowntime.id == downtime_id)
-    query = _apply_plant_scope(
-        query, MachineDowntime.plant_id, plant_scope, action="downtime reschedule status"
-    )
+    query = db.query(MachineDowntime).filter(MachineDowntime.id == downtime_id,
+                                             MachineDowntime.plant_id == _write_scope(plant_scope, action="the downtime reschedule"))
     row = query.first()
     if not row:
         raise HTTPException(status_code=404, detail="Downtime row not found")

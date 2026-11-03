@@ -53,6 +53,7 @@ from ..order_closure import (
     CANCELLED as CLOSURE_CANCELLED,
     CLOSURE_ROLES,
     SHORT_CLOSED as CLOSURE_SHORT_CLOSED,
+    cancel_stuck_lots,
     closure_options,
     display_status,
     lines_after_drop,
@@ -1603,6 +1604,11 @@ def _group_rows_by_line(rows: List[DeliveryScheduleRowInput]) -> dict[str, list[
     return grouped
 
 
+def _write_scope(plant_id: str) -> dict:
+    """A write changes an order of one concrete plant only (never "All visible plants")."""
+    return {"scope_all": False, "selected_plant_id": plant_id, "allowed_plants": [], "is_owner": False}
+
+
 @router.get("/{order_id}/delivery-schedules")
 def get_order_delivery_schedules(
     order_id: uuid.UUID,
@@ -1633,10 +1639,10 @@ def commit_order_delivery_schedules(
     order_id: uuid.UUID,
     payload: DeliveryScheduleCommitPayload,
     db: Session = Depends(get_db),
-    plant_scope: dict = Depends(get_current_plant_scope),
+    plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Owner", "Admin", "Sales", "Planner"])),
 ):
-    order = load_order_for_schedule(db, order_id, plant_scope)
+    order = load_order_for_schedule(db, order_id, _write_scope(plant_id))
     return commit_line_schedules(
         db,
         order=order,
@@ -1671,10 +1677,10 @@ def commit_schedule_entire_po(
     order_id: uuid.UUID,
     payload: ScheduleEntirePoPayload,
     db: Session = Depends(get_db),
-    plant_scope: dict = Depends(get_current_plant_scope),
+    plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Owner", "Admin", "Sales", "Planner"])),
 ):
-    order = load_order_for_schedule(db, order_id, plant_scope)
+    order = load_order_for_schedule(db, order_id, _write_scope(plant_id))
     splits = None
     if payload.line_splits:
         splits = {
@@ -1697,10 +1703,10 @@ def patch_delivery_schedule_row(
     schedule_id: uuid.UUID,
     payload: DeliverySchedulePatchPayload,
     db: Session = Depends(get_db),
-    plant_scope: dict = Depends(get_current_plant_scope),
+    plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Owner", "Admin", "Sales", "Planner"])),
 ):
-    order = load_order_for_schedule(db, order_id, plant_scope)
+    order = load_order_for_schedule(db, order_id, _write_scope(plant_id))
     return mutate_schedule_row(
         db,
         order=order,
@@ -1715,10 +1721,10 @@ def group_move_order_remainder(
     order_id: uuid.UUID,
     payload: GroupMoveRemainderPayload,
     db: Session = Depends(get_db),
-    plant_scope: dict = Depends(get_current_plant_scope),
+    plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Owner", "Admin", "Sales", "Planner"])),
 ):
-    order = load_order_for_schedule(db, order_id, plant_scope)
+    order = load_order_for_schedule(db, order_id, _write_scope(plant_id))
     return group_move_remainder(
         db,
         order=order,
@@ -2827,6 +2833,8 @@ def cancel_sales_order(
     if not option["allowed"]:
         raise HTTPException(status_code=409, detail=option["reason"])
     _end_hold(order, action="ENDED_BY_CANCEL", by=current_user.get("sub", "unknown"), code=code, label=label, note=note)
+    # A lot whose job card was never made goes with the order, so a later sync cannot revive it.
+    cancel_stuck_lots(order.lines, f"Order cancelled before its job card was made ({code})")
     for line in order.lines:
         for row in line.delivery_schedules or []:
             if str(row.status or "").lower() != "delivered":
@@ -2886,6 +2894,8 @@ def _drop_unreleased_balance(order: SalesOrder) -> float:
 
     Then the order status follows: closed when everything left is dispatched.
     """
+    # A lot whose job card was never made is not on a job card: it is dropped with the balance.
+    cancel_stuck_lots(order.lines, "Order short-closed before its job card was made")
     dropped = 0.0
     for line, drop in lines_after_drop(order.lines):
         line.qty = round(float(line.qty or 0.0) - drop, 4)
@@ -3198,6 +3208,9 @@ def sync_release_lot_job_card(
     )
     if not lot:
         raise HTTPException(status_code=404, detail="Release lot not found")
+    if str(lot.status or "").lower() == "cancelled" and lot.job_card_id != payload.job_card_id:
+        # Cancel / short close dropped this lot because its job card never came back.
+        raise HTTPException(status_code=409, detail="This release lot was cancelled with its order; its job card cannot be linked")
     lot.job_card_id = payload.job_card_id
     db.commit()
     db.refresh(lot)

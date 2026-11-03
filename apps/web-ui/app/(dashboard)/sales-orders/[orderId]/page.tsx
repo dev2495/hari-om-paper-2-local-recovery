@@ -45,13 +45,14 @@ import { CustomerPoDialog, awaitingCustomerPo, poChangeOptions } from "@/compone
 import { OrderCardStepper } from "@/components/sales/order-card-stepper"
 import { Chip, DueCell, OrderStatusChip, PlanChip, QcFlagChip, StageDots } from "@/components/sales/order-chips"
 import { OrderHistoryTimeline } from "@/components/sales/order-history-timeline"
+import { salesActionRoles } from "@/components/sales/sales-action-roles"
 import { LineDeliveryEditor } from "@/components/sales/line-delivery-editor"
 import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
-import { apiErrorText, useUpdateLineColors, type JobCardLifecycle } from "@/hooks/use-lifecycle"
+import { apiErrorText, type JobCardLifecycle } from "@/hooks/use-lifecycle"
 import { useCustomers, useParchments } from "@/hooks/use-master-data"
 import { usePlanningJobCards } from "@/hooks/use-production"
-import { useApproveSalesOrder, useMoveDeliverySchedule, useOrderDeliverySchedules, useOrderHistory, useSalesOrder, useSubmitSalesOrder } from "@/hooks/use-sales"
+import { useApproveSalesOrder, useMoveDeliverySchedule, useOrderDeliverySchedules, useOrderHistory, useSalesOrder, useSubmitSalesOrder, useUpdateSalesLineColors } from "@/hooks/use-sales"
 import { dispatchApi, productionApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { peopleInText, personLabel } from "@/lib/people"
@@ -83,6 +84,8 @@ export default function SalesOrderPage() {
   const searchParams = useSearchParams()
   const { showToast } = useApp()
   const { user, activePlant } = useAuth()
+  // Buttons follow the roles the sales service enforces; one a role can never use is not shown.
+  const can = useMemo(() => salesActionRoles(user), [user])
   const tabParam = String(searchParams?.get("tab") || "overview")
   const tab: TabKey = (TABS.some((row) => row.key === tabParam) ? tabParam : "overview") as TabKey
   const setTab = (next: TabKey) => {
@@ -168,12 +171,14 @@ export default function SalesOrderPage() {
   const canRelease = ["approved", "released", "partially_released", "partially_dispatched"].includes(status) && !order?.is_held && releasableLineIds.length > 0
   const closure = orderClosureAction(order)
   const editable = !["closed", "cancelled"].includes(status) && !order?.is_held
-  const finished = ["closed", "cancelled"].includes(status)
+  // A held order is stored as closed until Resume: it is not finished, so Cancel / Short close stay
+  // (the service ends the hold first).
+  const finished = ["closed", "cancelled"].includes(status) && !order?.is_held
   // Issue #9: a closed, cancelled or short-closed order shows no Release / Short close; nor does an order with
   // nothing left unreleased (a draft still shows Release, disabled, as the next step after approval).
   const shortClosed = String(order?.closure_kind || "").toUpperCase() === "SHORT_CLOSED"
-  const showRelease = !finished && !shortClosed && (canApprove || releasableLineIds.length > 0)
-  const showClosure = !finished && !shortClosed && Boolean(closure.kind)
+  const showRelease = can.release && !finished && !shortClosed && (canApprove || releasableLineIds.length > 0)
+  const showClosure = can.close && !finished && !shortClosed && Boolean(closure.kind)
   const unsyncedReleaseLots = useMemo(
     () => (order?.lines || []).flatMap((line: any) => (Array.isArray(line.release_lots) ? line.release_lots : []).filter((lot: any) => !lot.job_card_id && String(lot.status || "").toLowerCase() !== "cancelled")),
     [order?.lines],
@@ -190,7 +195,7 @@ export default function SalesOrderPage() {
     try { await task(); showToast(done, "success"); return true } catch (error) { showToast(apiErrorText(error, "The action did not go through."), "error"); return false }
   }
   const handleApprove = () => run(() => approveOrder.mutateAsync({ orderId, plantId }), "Sales order approved. Next: release its lines.")
-  const handleSubmit = () => run(() => submitOrder.mutateAsync({ orderId }), "Sent for approval.")
+  const handleSubmit = () => run(() => submitOrder.mutateAsync({ orderId, plantId }), "Sent for approval.")
   // Lifting a hold asks why (ORDER_RESUME reason, 1 Nov 2026).
   const handleResume = () => setResumeOpen(true)
   const handleOpenRelease = (lineIds?: string[]) => {
@@ -249,29 +254,29 @@ export default function SalesOrderPage() {
         {canApprove ? (
           isMine ? (
             status === "draft"
-              ? <button type="button" className="erp-btn-primary !h-11 sm:!h-9" onClick={() => void handleSubmit()} disabled={submitOrder.isPending} title="You entered this order, so another user approves it (maker-checker)" data-testid="sales-order:submit"><Send className="h-4 w-4" />Send for approval</button>
+              ? (can.submit ? <button type="button" className="erp-btn-primary !h-11 sm:!h-9" onClick={() => void handleSubmit()} disabled={submitOrder.isPending} title="You entered this order, so another user approves it (maker-checker)" data-testid="sales-order:submit"><Send className="h-4 w-4" />Send for approval</button> : null)
               : <span className="rounded-lg border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-[12.5px] font-medium text-signal-amber-ink" title="Maker-checker: the person who created the order cannot approve it, even after switching role.">Waiting for another user to approve</span>
-          ) : (
+          ) : can.approve ? (
             <button type="button" className="erp-btn-primary !h-11 sm:!h-9" onClick={() => void handleApprove()} disabled={approveOrder.isPending} title={enteredByMe && selfApprove ? `You entered this order; as ${selfApprove} you may approve it yourself. The history records it as approved by the same person.` : undefined} data-testid="sales-order:approve"><CheckCircle2 className="h-4 w-4" />Approve</button>
-          )
+          ) : null
         ) : null}
         {showRelease ? <button type="button" className={cn(canApprove ? actionBtn : "erp-btn-primary !h-11 sm:!h-9")} disabled={!canRelease} title={!canRelease ? (order.is_held ? "Lift the customer hold to release" : canApprove ? "Approve the order first" : finished ? "The order is closed" : "All lines are already released to job cards") : "Make job cards for the open lines"} onClick={() => handleOpenRelease()} data-testid="sales-order:release"><Rocket className="h-4 w-4" />Release lines</button> : null}
         {/* On a phone the buttons that cannot be used yet are left out so the bar stays short. */}
-        {cards.total ? <Link href={`/planning/board?section=winder&order_id=${order.id}&view=calendar`} className={actionBtn}><CalendarDays className="h-4 w-4" />Plan</Link> : <button type="button" className={cn(actionBtn, "max-sm:!hidden")} disabled title="Nothing to plan — release the lines first"><CalendarDays className="h-4 w-4" />Plan</button>}
+        {!can.plan ? null : cards.total ? <Link href={`/planning/board?section=winder&order_id=${order.id}&view=calendar`} className={actionBtn}><CalendarDays className="h-4 w-4" />Plan</Link> : <button type="button" className={cn(actionBtn, "max-sm:!hidden")} disabled title="Nothing to plan — release the lines first"><CalendarDays className="h-4 w-4" />Plan</button>}
         {cards.ready && !canChallan ? <span className={cn(actionBtn, "cursor-default opacity-80")} data-testid="sales-order:waiting-dc" title="Dispatch makes the delivery challan for the packed pieces"><Truck className="h-4 w-4" />Waiting for dispatch · {fmt(cards.readyQty)} ready</span> : cards.ready ? <Link href={dcHref} className={actionBtn} data-testid="sales-order:make-dc" title="Make the delivery challan for the packed pieces"><Truck className="h-4 w-4" />Make challan · {fmt(cards.readyQty)} ready</Link> : canChallan ? <button type="button" className={cn(actionBtn, "max-sm:!hidden")} disabled title="No packed pieces waiting for a delivery challan"><Truck className="h-4 w-4" />Make challan</button> : null}
         <span className="hidden h-6 w-px bg-border sm:block" aria-hidden="true" />
         {order.is_held ? (
-          <button type="button" className={cn(actionBtn, "!text-signal-emerald-ink")} onClick={() => handleResume()} data-testid="sales-order:resume"><PlayCircle className="h-4 w-4" />Resume</button>
-        ) : (
+          can.resume ? <button type="button" className={cn(actionBtn, "!text-signal-emerald-ink")} onClick={() => handleResume()} data-testid="sales-order:resume"><PlayCircle className="h-4 w-4" />Resume</button> : null
+        ) : can.hold ? (
           <button type="button" className={cn(actionBtn, "!text-signal-amber-ink")} disabled={finished || totals.pending <= 0} title={finished ? "The order is closed" : totals.pending <= 0 ? "Nothing pending to hold" : "Customer hold: the undelivered balance is held and the PO closes until Resume"} onClick={() => setHoldOpen(true)} data-testid="sales-order:hold"><PauseCircle className="h-4 w-4" />Hold</button>
-        )}
+        ) : null}
         {showClosure ? <button type="button" className={cn(actionBtn, closure.kind === "cancel" ? "!text-signal-rose-ink" : "!text-signal-amber-ink")} disabled={!closure.kind} title={closure.kind === "cancel" ? "Nothing is released or dispatched yet: cancel the whole order with a reason" : closure.kind === "short_close" ? "Drop the balance not yet released; released job cards still finish" : closure.reason || "Nothing to close"} onClick={() => setClosureOpen(true)} data-testid={closure.kind === "cancel" ? "sales-order-detail:cancel" : "sales-order-detail:short-close"}>
           {closure.kind === "cancel" ? <Ban className="h-4 w-4" /> : <CircleSlash2 className="h-4 w-4" />}{closure.kind === "cancel" ? "Cancel order" : "Short close"}
         </button> : null}
         <span className="hidden h-6 w-px bg-border sm:block" aria-hidden="true" />
         <button type="button" className={cn(actionBtn, "max-sm:!hidden")} onClick={() => window.print()}><Printer className="h-4 w-4" />Print</button>
-        {canApprove ? <Link href={`/sales-orders/${order.id}/edit`} className={actionBtn} title="Edit the order, its lines and the customer PO" data-testid="sales-order:edit"><Pencil className="h-4 w-4" />Edit</Link> : null}
-        {awaitingPo && poOptions.allowed ? (
+        {canApprove && can.edit ? <Link href={`/sales-orders/${order.id}/edit`} className={actionBtn} title="Edit the order, its lines and the customer PO" data-testid="sales-order:edit"><Pencil className="h-4 w-4" />Edit</Link> : null}
+        {!can.customerPo ? null : awaitingPo && poOptions.allowed ? (
           <button type="button" className={cn(actionBtn, "!text-signal-amber-ink")} onClick={() => setPoOpen(true)} data-testid="sales-order:add-po" title={poOptions.mode === "once" ? "Released: the PO can be added once, then it locks" : "Add the customer's PO to confirm this order"}><FileCheck2 className="h-4 w-4" />Add customer PO</button>
         ) : !awaitingPo && poOptions.allowed && !canApprove ? (
           /* A draft changes its PO through Edit; one way to the same change is enough. */
@@ -283,7 +288,7 @@ export default function SalesOrderPage() {
           <button type="button" className="erp-btn-secondary !h-11 !w-11 !px-0 sm:!h-9 sm:!w-9" aria-label="More actions" aria-expanded={moreOpen} onClick={() => setMoreOpen((value) => !value)}><MoreHorizontal className="h-4 w-4" /></button>
           {moreOpen ? (
             <div className="tube-popover right-0 top-full mt-1 w-56" role="menu" onMouseLeave={() => setMoreOpen(false)}>
-              <Link role="menuitem" href={`/sales-orders/new?copy=${order.id}`} className="flex min-h-11 items-center gap-2 rounded-md px-2 py-1.5 text-[13px] hover:bg-foreground/[.05] sm:min-h-0"><Plus className="h-3.5 w-3.5 opacity-80" />Copy as new order</Link>
+              {can.create ? <Link role="menuitem" href={`/sales-orders/new?copy=${order.id}`} className="flex min-h-11 items-center gap-2 rounded-md px-2 py-1.5 text-[13px] hover:bg-foreground/[.05] sm:min-h-0"><Plus className="h-3.5 w-3.5 opacity-80" />Copy as new order</Link> : null}
               <button role="menuitem" type="button" onClick={() => { setMoreOpen(false); window.print() }} className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] hover:bg-foreground/[.05] sm:hidden"><Printer className="h-3.5 w-3.5 opacity-80" />Print</button>
               <button role="menuitem" type="button" onClick={() => { setMoreOpen(false); setTab("history") }} className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] hover:bg-foreground/[.05] sm:min-h-0"><History className="h-3.5 w-3.5 opacity-80" />Full history</button>
               {cards.total ? <Link role="menuitem" href={`/inventory/genealogy?job_card_id=${orderJobs[0].id}`} className="flex min-h-11 items-center gap-2 rounded-md px-2 py-1.5 text-[13px] hover:bg-foreground/[.05] sm:min-h-0"><ExternalLink className="h-3.5 w-3.5 opacity-80" />Trace materials</Link> : null}
@@ -299,7 +304,7 @@ export default function SalesOrderPage() {
       {order.closure_kind ? <ClosureBanner order={order} /> : null}
       {unsyncedReleaseLots.length > 0 ? (
         <div data-testid="sales-order-detail:unsynced-release-lots" className="rounded-xl border border-signal-rose-line bg-signal-rose-soft px-4 py-2.5 text-[13px] text-signal-rose-ink">
-          {unsyncedReleaseLots.length} released lot{unsyncedReleaseLots.length === 1 ? " is" : "s are"} not in planning yet — the job card sync did not finish. Click Release lines to resume; the pending lot is picked up automatically.
+          {unsyncedReleaseLots.length} released lot{unsyncedReleaseLots.length === 1 ? " is" : "s are"} not in planning yet — the job card sync did not finish. Click Release lines to resume; the pending lot is picked up automatically. If the customer no longer wants it, Cancel or Short close drops a lot that has no job card.
         </div>
       ) : null}
       {jobCardsQuery.isError ? (
@@ -365,9 +370,10 @@ export default function SalesOrderPage() {
                         line={line}
                         jobs={orderJobs.filter((job) => String(job.sales_order_line_id || "") === String(line.id))}
                         lifecycleById={lifecycleById}
-                        editable={editable}
+                        editable={editable && can.colours}
+                        plantId={plantId}
                         onOpenCard={setSheetJobId}
-                        onRelease={canRelease && Number(line.release_remaining_qty ?? 0) > 0 ? () => handleOpenRelease([String(line.id)]) : undefined}
+                        onRelease={can.release && canRelease && Number(line.release_remaining_qty ?? 0) > 0 ? () => handleOpenRelease([String(line.id)]) : undefined}
                       />
                     ))}
                   </tbody>
@@ -441,12 +447,12 @@ export default function SalesOrderPage() {
       {tab === "deliveries" ? (
         <div className="grid gap-3 xl:grid-cols-2" data-testid="sales-order:deliveries">
           <div className="space-y-3">
-            <DeliveryPlan order={order} items={scheduleItems} revision={scheduleRevision} loading={schedulesQuery.isLoading} failed={schedulesQuery.isError} totals={totals} />
+            <DeliveryPlan order={order} canShift={can.schedule} items={scheduleItems} revision={scheduleRevision} loading={schedulesQuery.isLoading} failed={schedulesQuery.isError} totals={totals} />
             {(order.lines || []).map((line: any) => (
               <section key={line.id} className="erp-panel rounded-xl p-4" aria-label={`Call-offs of line ${line.line_no}`}>
                 <h3 className="text-[13.5px] font-semibold">Line {line.line_no} · {line.size_label || line.product_code || "—"} · {fmt(line.qty)} pcs</h3>
                 <p className="text-[12px] text-muted-foreground">Dispatched {fmt(line.fulfilled_qty)} · what the customer asked for, by date</p>
-                <div className="mt-2">{schedulesQuery.isLoading ? <p className="text-[12.5px] text-muted-foreground">Loading call-offs…</p> : <LineDeliveryEditor orderId={orderId} line={line} schedule={scheduleItems} revision={scheduleRevision} disabled={!editable} />}</div>
+                <div className="mt-2">{schedulesQuery.isLoading ? <p className="text-[12.5px] text-muted-foreground">Loading call-offs…</p> : <LineDeliveryEditor orderId={orderId} line={line} schedule={scheduleItems} revision={scheduleRevision} disabled={!editable || !can.schedule} />}</div>
               </section>
             ))}
           </div>
@@ -526,7 +532,7 @@ function ClosureBanner({ order }: { order: any }) {
 }
 
 /** One line of the Overview table, with its colour splits and an inline colour editor. */
-function LineRow({ line, jobs, lifecycleById, editable, onOpenCard, onRelease }: { line: any; jobs: any[]; lifecycleById: Map<string, JobCardLifecycle>; editable: boolean; onOpenCard: (id: string) => void; onRelease?: () => void }) {
+function LineRow({ line, jobs, lifecycleById, editable, plantId, onOpenCard, onRelease }: { line: any; jobs: any[]; lifecycleById: Map<string, JobCardLifecycle>; editable: boolean; plantId?: string; onOpenCard: (id: string) => void; onRelease?: () => void }) {
   const [editing, setEditing] = useState(false)
   const splits: any[] = Array.isArray(line.color_splits) ? line.color_splits : []
   const made = jobs.reduce((sum, job) => sum + Number(lifecycleById.get(String(job.id))?.made_qty ?? ((cardState(job) === "COMPLETED" || cardState(job) === "FORCE_CLOSED") ? Number(job.planned_qty || 0) - Number(job.returned_qty || 0) : 0)), 0)
@@ -591,7 +597,7 @@ function LineRow({ line, jobs, lifecycleById, editable, onOpenCard, onRelease }:
               {splits.map((split) => <div key={split.color} className="h-full" title={`${split.color}: ${fmt(split.qty)}`} style={{ width: `${(Number(split.qty) / Number(line.qty)) * 100}%`, background: swatchFor(split.color) }} />)}
             </div>
           ) : null}
-          <ColorEditor line={line} onDone={() => setEditing(false)} />
+          <ColorEditor line={line} plantId={plantId} onDone={() => setEditing(false)} />
         </td></tr>
       ) : null}
     </>
@@ -651,7 +657,7 @@ function CardBlock({ job, jobs, lifecycle, onManage }: { job: any; jobs: any[]; 
 }
 
 /** Every call-off of the order in date order, with whether production has covered it yet, and a date shift. */
-function DeliveryPlan({ order, items, revision, loading, failed, totals }: { order: any; items: any[]; revision: number; loading: boolean; failed: boolean; totals: ReturnType<typeof orderTotals> }) {
+function DeliveryPlan({ order, canShift, items, revision, loading, failed, totals }: { order: any; canShift: boolean; items: any[]; revision: number; loading: boolean; failed: boolean; totals: ReturnType<typeof orderTotals> }) {
   const { showToast } = useApp()
   const move = useMoveDeliverySchedule()
   const [shift, setShift] = useState("")
@@ -680,7 +686,7 @@ function DeliveryPlan({ order, items, revision, loading, failed, totals }: { ord
     const delta = Number(shift)
     if (!Number.isInteger(delta) || delta === 0) { showToast("Enter whole days to shift, e.g. 3 or -2.", "error"); return }
     try {
-      const response = await move.mutateAsync({ orderId: String(order.id), data: { day_delta: previewOnly ? delta : shiftPreview.day_delta, expected_revision: previewOnly ? revision : shiftPreview.schedule_revision, preview_only: previewOnly } })
+      const response = await move.mutateAsync({ orderId: String(order.id), plantId: orderPlantId(order), data: { day_delta: previewOnly ? delta : shiftPreview.day_delta, expected_revision: previewOnly ? revision : shiftPreview.schedule_revision, preview_only: previewOnly } })
       if (previewOnly) setShiftPreview(response.data)
       else { setShiftPreview(null); setShift(""); showToast(response.data?.message || "Delivery dates shifted.", "success") }
     } catch (error) { setShiftPreview(null); showToast(apiErrorText(error), "error") }
@@ -725,7 +731,7 @@ function DeliveryPlan({ order, items, revision, loading, failed, totals }: { ord
               {!rows.length && !unscheduled.length ? <tr><td colSpan={7} className="text-[12.5px] text-muted-foreground">Everything is delivered.</td></tr> : null}
             </tbody>
           </table>
-          {rows.some((row) => !row.immutable) ? (
+          {canShift && rows.some((row) => !row.immutable) ? (
             <div className="border-t border-border px-4 py-3">
               <div className="flex flex-wrap items-end gap-2">
                 <label className="grid gap-0.5 text-[11px] text-muted-foreground">Shift all open call-offs by days
@@ -749,9 +755,10 @@ function DeliveryPlan({ order, items, revision, loading, failed, totals }: { ord
   )
 }
 
-function ColorEditor({ line, onDone }: { line: any; onDone: () => void }) {
+function ColorEditor({ line, plantId, onDone }: { line: any; plantId?: string; onDone: () => void }) {
   const { showToast } = useApp()
-  const update = useUpdateLineColors()
+  // Saved in the order's own plant, so it also works under "All visible plants".
+  const update = useUpdateSalesLineColors()
   const { data: parchments } = useParchments()
   const options = (Array.isArray(parchments) ? parchments : []).filter((row: any) => row?.color_name && row?.id && !String(row.id).startsWith("vendor:"))
   const [rows, setRows] = useState<Array<{ key: string; color: string; color_id: string | null; qty: string; rate: string; released: number }>>(
@@ -761,7 +768,7 @@ function ColorEditor({ line, onDone }: { line: any; onDone: () => void }) {
   const over = total > Number(line.qty || 0)
   const save = async () => {
     try {
-      await update.mutateAsync({ lineId: String(line.id), colorSplits: rows.filter((row) => row.color && Number(row.qty) > 0).map((row) => ({ color: row.color, color_id: row.color_id, qty: Number(row.qty), rate_per_pc: row.rate.trim() === "" ? null : Number(row.rate) })) })
+      await update.mutateAsync({ lineId: String(line.id), plantId, colorSplits: rows.filter((row) => row.color && Number(row.qty) > 0).map((row) => ({ color: row.color, color_id: row.color_id, qty: Number(row.qty), rate_per_pc: row.rate.trim() === "" ? null : Number(row.rate) })) })
       showToast("Colours saved.", "success")
       onDone()
     } catch (error) {

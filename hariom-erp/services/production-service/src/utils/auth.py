@@ -94,6 +94,9 @@ def _resolve_scope(
 
     raw_requested = str(requested_plant_id or "").strip()
     if raw_requested.upper() == "ALL":
+        # All plants is the Owner/Admin read-only view (owner decision 3 Nov 2026); others stay in their plants.
+        if not is_owner:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="ALL scope is only allowed for owner/admin")
         if not allow_all:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

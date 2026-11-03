@@ -164,7 +164,8 @@ function breakdown(type: ReportType, data: any, chart: { rows: any[]; keys: stri
     const s = data?.summary || {}
     const ready = Number(s.ready_job_count || 0)
     const sealed = Number(s.sealed_dispatches || 0)
-    return { title: "Gate readiness", center: "Ready jobs", slices: [{ label: "Sealed", value: sealed, color: "hsl(var(--chart-7))" }, { label: "Awaiting seal", value: Math.max(0, ready - sealed), color: "hsl(var(--chart-6))" }] }
+    // Sealed counts challans in the period, ready counts cards not yet fully shipped: shown side by side, never subtracted.
+    return { title: "Gate this period", center: "Cards & challans", slices: [{ label: "Challans sealed", value: sealed, color: "hsl(var(--chart-7))" }, { label: "Cards ready, not shipped", value: ready, color: "hsl(var(--chart-6))" }] }
   }
   if (type === "exceptions") {
     const s = data?.summary || {}
