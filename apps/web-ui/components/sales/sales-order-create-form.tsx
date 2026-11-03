@@ -535,7 +535,7 @@ export function SalesOrderCreateForm({ orderId, copyFromOrderId }: { orderId?: s
       {needsPlant ? (
         <p role="alert" data-testid="sales-orders:pick-plant" className="flex items-center gap-2 rounded-xl border border-signal-amber-line bg-signal-amber-soft px-4 py-3 text-sm font-medium text-signal-amber-ink">
           <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
-          Pick one plant at the top to create an order. "All visible plants" only shows orders.
+          Pick one plant at the top to create an order. &ldquo;All visible plants&rdquo; only shows orders.
         </p>
       ) : null}
       <form data-testid="sales-orders:create-form" onSubmit={handleSubmit} className="space-y-6">
