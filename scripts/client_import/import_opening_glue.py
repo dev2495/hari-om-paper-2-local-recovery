@@ -65,7 +65,10 @@ def main() -> int:
     parser.add_argument("--file", default=str(DATA))
     parser.add_argument("--go-live", default=GO_LIVE)
     args = parser.parse_args()
-    tanks = json.loads(Path(args.file).read_text())["tanks"]
+    data = json.loads(Path(args.file).read_text())
+    tanks = data["tanks"]
+    # Owner-confirmed product -> master grade code (e.g. "21100"); a mapped product never creates a master.
+    master_map = {product: str(code) for product, code in (data.get("master_map") or {}).items()}
     erp, plant, ApiError = connect(args)
     bff = args.bff_url
 
@@ -84,8 +87,20 @@ def main() -> int:
         problems.append(f"This plant's go-live date is {state['go_live_date']}, not {args.go_live}.")
 
     products = sorted({t["item"] for t in tanks})
-    mapping = {p: match_master(p, masters) for p in products}
-    to_create = [p for p, m in mapping.items() if m is None]
+    mapping: dict[str, dict | None] = {}
+    for product in products:
+        if product in master_map:
+            code = key(master_map[product])
+            hits = [m for m in masters if code in key(m.get("internal_code")) or code in key(m.get("name"))]
+            if len(hits) == 1:
+                mapping[product] = hits[0]
+            else:
+                mapping[product] = None
+                problems.append(f"{product}: {'no' if not hits else len(hits)} adhesive master(s) with {master_map[product]} in code or name; "
+                                + (", ".join(f"{m.get('internal_code')} · {m.get('name')}" for m in hits) or "add it in Masters › Adhesives"))
+        else:
+            mapping[product] = match_master(product, masters)
+    to_create = [p for p, m in mapping.items() if m is None and p not in master_map]
     created: list[str] = []
     if args.apply and not problems and to_create:
         for product in to_create:

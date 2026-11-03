@@ -2,7 +2,8 @@
  "source": "Glue stock.xlsx, Sheet2 (Amigo Industries, stock as on 03-11-2026; closing till 31-10-2026)",
  "extracted_on": "2026-11-03",
  "notes": [
-  "Every row is one 1000 kg tank in stock (open, not consumed) on 31 Oct 2026; loaded as opening stock dated 1 Nov 2026, QC cleared, keeping its AIT tank number (owner 2026-11-03)."
+  "Every row is one 1000 kg tank in stock (open, not consumed) on 31 Oct 2026; loaded as opening stock dated 1 Nov 2026, QC cleared, keeping its AIT tank number (owner 2026-11-03).",
+  "Owner 2026-11-03: products map to existing Adhesive masters by grade code \u2014 TL4 LV and VINSOL-TL4 -> TL4 LV/21100, VINSOL-HV -> VINSOL/20100, Wellcol EM30100 -> ACOSOL/30100. Mapped products never create a master."
  ],
  "tanks": [
   {
@@ -295,5 +296,11 @@
    "weight_kg": 1000.0,
    "ait_no": "AIT 01000"
   }
- ]
+ ],
+ "master_map": {
+  "TL4 LV": "21100",
+  "VINSOL-TL4": "21100",
+  "VINSOL-HV": "20100",
+  "Wellcol EM30100": "30100"
+ }
 }
