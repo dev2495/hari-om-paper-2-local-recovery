@@ -6,7 +6,7 @@ from sqlalchemy import inspect, text
 
 from . import models
 from .database import engine
-from .routers import adhesive, contact_directory, customer, machine, mandrel, packaging, paper, parchment, shop_floor, supplier, tool, tube_size
+from .routers import adhesive, common_masters, contact_directory, customer, machine, mandrel, packaging, paper, parchment, shop_floor, supplier, tool, tube_size
 
 app = FastAPI(
     title="Hari Om Paper ERP - Master Data Service",
@@ -29,6 +29,7 @@ app.include_router(shop_floor.employee_router)
 app.include_router(shop_floor.shift_router)
 app.include_router(shop_floor.holiday_router)
 app.include_router(shop_floor.reason_router)
+app.include_router(common_masters.router)
 
 # Base table creation for fresh environments.
 models.Base.metadata.create_all(bind=engine)

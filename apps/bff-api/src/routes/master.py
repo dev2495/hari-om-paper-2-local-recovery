@@ -31,6 +31,25 @@ def _after_master_save(response, request: Request, token: str):
     return response
 
 
+@router.post("/copy-common")
+async def copy_common_masters(request: Request, token: str = Depends(get_token)):
+    """Owner/Admin: copy materials, customers, suppliers and the tool list into another plant
+    (owner decision 3 Nov 2026). After a real copy the new plant's stock items are made from the
+    copied materials, so purchase, inward and issue lists show them at once."""
+    response = await proxy_to_service(MASTER_SERVICE_URL, "/master/copy-common", request, token)
+    from src.services.workspace import response_body_json
+    body = response_body_json(response)
+    if response.status_code >= 300 or not isinstance(body, dict) or body.get("dry_run") is not False:
+        return response
+    from src.services.master_items import sync_master_items
+    try:
+        sync = await sync_master_items(token, str(body.get("target_plant_id") or ""))
+        body["stock_items"] = {"created": len(sync.get("created") or []), "conflicts": len(sync.get("conflicts") or [])}
+    except Exception as exc:  # the masters are copied; the stock items also catch up on first use
+        body["stock_items"] = {"error": f"Stock items will be made the next time the stores pages open ({exc})"}
+    return JSONResponse(status_code=response.status_code, content=body)
+
+
 @router.get("/papers")
 async def get_papers(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(MASTER_SERVICE_URL, "/master/papers/", request, token)

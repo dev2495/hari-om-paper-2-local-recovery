@@ -3,12 +3,14 @@
 import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { AlertTriangle, Building2, CheckCircle2, Factory, Pencil, Plus, Users2, Wrench } from "lucide-react"
+import { AlertTriangle, Building2, CheckCircle2, Copy, Factory, Pencil, Plus, Users2, Wrench } from "lucide-react"
 import { useCreatePlant, useDeletePlant, usePlants, useUpdatePlant } from "@/hooks/use-system"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { ReelSerialSetting } from "@/components/inventory/reel-serial-setting"
+import { CopyCommonMasters } from "@/components/system/copy-common-masters"
+import { useAuth } from "@/context/AuthContext"
 import { labelHeading } from "@/lib/reel-label"
 import { fromGstin, gstinError } from "@/lib/party-formats"
 import { errorText } from "@/lib/season-api"
@@ -72,6 +74,11 @@ function PlantsBody() {
     const createPlant = useCreatePlant()
     const updatePlant = useUpdatePlant()
     const deletePlant = useDeletePlant()
+    const { user, activeRole } = useAuth()
+    // Copying common masters between plants is for the Owner and Admin only (owner decision 3 Nov 2026).
+    const viewerRoles = new Set([user?.role, activeRole, ...(user?.roles || [])].filter(Boolean) as string[])
+    const canCopyMasters = viewerRoles.has("Owner") || viewerRoles.has("Admin")
+    const [copyTarget, setCopyTarget] = useState<Plant | null>(null)
 
     const [editing, setEditing] = useState<Plant | "new" | null>(null)
     const [form, setForm] = useState<PlantForm>(EMPTY)
@@ -201,7 +208,10 @@ function PlantsBody() {
                             </dl>
                             {missing.length ? <p className="mt-2 text-xs text-signal-amber-ink">Add the {missing.join(" and ")} so challans from this plant can be sealed.</p> : null}
                             <ReelSerialSetting plantId={plant.id} />
-                            <div className="mt-auto flex justify-end pt-3">
+                            <div className="mt-auto flex flex-wrap justify-end gap-2 pt-3">
+                                {canCopyMasters && plants.length > 1 ? (
+                                    <Button variant="outline" className="min-h-11 sm:min-h-0" onClick={() => setCopyTarget(plant)} data-testid={`plant-copy-masters-${plant.code}`}><Copy className="h-4 w-4" aria-hidden="true" />Copy common masters</Button>
+                                ) : null}
                                 <Button variant="outline" className="min-h-11 sm:min-h-0" onClick={() => open(plant)} data-testid={`plant-edit-${plant.code}`}><Pencil className="h-4 w-4" aria-hidden="true" />Edit plant</Button>
                             </div>
                         </article>
@@ -209,6 +219,8 @@ function PlantsBody() {
                 })}
                 {!plantsQuery.isLoading && !plants.length ? <p className="rounded-xl border border-dashed border-border bg-muted p-6 text-center text-sm text-muted-foreground md:col-span-2">No plants yet. Add the first one.</p> : null}
             </div>
+
+            {canCopyMasters ? <CopyCommonMasters target={copyTarget} plants={plants} onClose={() => setCopyTarget(null)} /> : null}
 
             <Dialog open={editing !== null} onOpenChange={(next) => { if (!next) close() }}>
                 <DialogContent className="max-h-[92vh] overflow-y-auto">

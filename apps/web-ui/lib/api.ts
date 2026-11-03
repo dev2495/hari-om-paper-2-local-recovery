@@ -183,6 +183,8 @@ export const analyticsApi = {
 }
 
 export const masterApi = {
+  // Owner/Admin: copy materials, customers, suppliers and the tool list into another plant (3 Nov 2026).
+  copyCommonMasters: (data: { source_plant_id: string; target_plant_id: string; dry_run: boolean }) => api.post("/api/master/copy-common", data),
   getPapers: (params?: any) => api.get("/api/master/papers", { params }),
   createPaper: (data: any) => api.post("/api/master/papers", data),
   updatePaper: (id: string, data: any) => api.put(`/api/master/papers/${id}`, data),
