@@ -361,6 +361,16 @@ class OpeningLoadLinePayload(BaseModel):
     unit_cost: Optional[float] = Field(default=None, ge=0)
     cost_source: Optional[str] = None
     notes: Optional[str] = Field(default=None, max_length=500)
+    # A reel that already carries the plant's serial keeps it (client 2026-11-03), with what its receipt said:
+    # mill short name, mill invoice no. / date, PO, the day it came in, and the mill's variety and ply bond.
+    serial: Optional[str] = Field(default=None, max_length=20)
+    mill_name: Optional[str] = Field(default=None, max_length=60)
+    invoice_no: Optional[str] = Field(default=None, max_length=80)
+    invoice_date: Optional[date] = None
+    po_ref: Optional[str] = Field(default=None, max_length=80)
+    received_on: Optional[date] = None
+    mill_variety: Optional[str] = Field(default=None, max_length=60)
+    plybond: Optional[float] = Field(default=None, gt=0)
 
     @field_validator("stock_status")
     @classmethod

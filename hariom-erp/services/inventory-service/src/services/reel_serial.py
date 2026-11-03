@@ -141,6 +141,52 @@ def next_reel_serial(db: Session, plant_id: Any, on_date: date) -> dict[str, Any
     }
 
 
+def kept_serial_number(typed: Any) -> Optional[int]:
+    """The number of a reel's own serial typed for opening stock (``AIT 06243`` -> 6243); None when it is not a
+    whole-reel serial of the series (coil serials ``AIT 06243-1`` are made by slitting, not typed)."""
+    serial = normal_serial(typed)
+    if serial is None or "-" in serial:
+        return None
+    number = int(serial.split()[1])
+    return number if 1 <= number <= MAX_NUMBER else None
+
+
+def keep_reel_serial(db: Session, plant_id: Any, on_date: date, typed: Any) -> dict[str, Any]:
+    """Give an opening-stock reel the serial it already carries in the plant (client 2026-11-03: the reel
+    register's AIT numbers stay), in the financial year of ``on_date``. The counter moves past it, so the
+    next goods inward continues after the highest kept number and never repeats one. 409 when it is taken.
+    Same return shape as ``next_reel_serial``."""
+    number = kept_serial_number(typed)
+    if number is None:
+        raise HTTPException(status_code=422, detail=f"{typed} is not a reel serial like AIT 06243")
+    fy = financial_year(on_date)
+    _lock(db, plant_id, fy)
+    counter = _counter(db, plant_id, fy, create=True)
+    serial = serial_text(number)
+    if _number_used(db, plant_id, fy, serial):
+        raise HTTPException(status_code=409, detail=f"{serial} is already a reel of {year_label(fy)} in this plant")
+    if int(counter.next_value or 1) <= number:
+        counter.next_value = number + 1
+        counter.version = int(counter.version or 1) + 1
+    return {
+        "serial": serial,
+        "reel_code": _reel_code_for(db, plant_id, fy, serial),
+        "metadata": {"amigo_no": serial, "serial_no": number, "serial_fy": fy, "serial_kept": True},
+    }
+
+
+def serials_in_use(db: Session, plant_id: Any, on_date: date, serials: set[str]) -> set[str]:
+    """Which of ``serials`` (normal ``AIT 06243`` texts) are already reels of the plant in that year."""
+    if not serials:
+        return set()
+    fy = financial_year(on_date)
+    rows = db.query(PaperReel.inward_metadata["amigo_no"].as_string()).filter(
+        PaperReel.plant_id == _plant_uuid(plant_id), _this_year(fy),
+        PaperReel.inward_metadata["amigo_no"].as_string().in_(sorted(serials)),
+    ).all()
+    return {str(row[0]) for row in rows}
+
+
 def child_serial(db: Session, parent: PaperReel, index: int) -> dict[str, Any]:
     """Serial of the ``index``-th coil slit from ``parent``: printed ``AIT 06243-1``; reel_code from the parent's
     (unique) reel_code the same way, so an old AT-… reel's coils read ``AT-261030-004-1``."""

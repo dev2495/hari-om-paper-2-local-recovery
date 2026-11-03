@@ -288,8 +288,10 @@ def planned_default(locations: Iterable[InventoryLocation]) -> Optional[Inventor
     return store
 
 
-def check_lines(db: Session, plant_id: str, lines: list[Any]) -> dict[str, Any]:
+def check_lines(db: Session, plant_id: str, lines: list[Any], on_date: Optional[date] = None) -> dict[str, Any]:
     """Per-line errors and warnings plus the totals the page reviews before posting (nothing is written).
+
+    ``on_date`` is the go-live date: a reel's own AIT serial is checked against that financial year's reels.
 
     Totals are per item and unit, and per unit: kg and pcs are never added together.
     """
@@ -315,6 +317,12 @@ def check_lines(db: Session, plant_id: str, lines: list[Any]) -> dict[str, Any]:
         for mark, batch_no in db.query(lot_mark, StockBatch.batch_no).filter(StockBatch.id.in_(opening_lots), lot_mark.in_(wanted)).order_by(StockBatch.created_at.asc()).all():
             marks_in_plant.setdefault(str(mark), f"lot {batch_no}")
     seen_marks: dict[str, int] = {}
+    from .reel_serial import kept_serial_number, serial_text, serials_in_use
+    serial_day = on_date or go_live_date(db, plant_id) or ist_today()
+    typed_serials = {str(getattr(line, "serial", None) or "").strip() for line in lines} - {""}
+    kept = {serial_text(number) for number in (kept_serial_number(value) for value in typed_serials) if number}
+    serials_taken = serials_in_use(db, plant_id, serial_day, kept) if plant_uuid else set()
+    seen_serials: dict[str, int] = {}
 
     checked: list[dict[str, Any]] = []
     by_item: dict[tuple[str, str], dict[str, Any]] = {}
@@ -377,6 +385,22 @@ def check_lines(db: Session, plant_id: str, lines: list[Any]) -> dict[str, Any]:
         # posting checks the code against the master.
         if status == ON_HOLD and not _clean(getattr(line, "hold_reason_code", None), 80):
             errors.append({"field": "hold_reason", "message": "Choose why this lot is on hold."})
+        typed_serial = str(getattr(line, "serial", None) or "").strip()
+        serial = None
+        if typed_serial:
+            number = kept_serial_number(typed_serial)
+            if item is not None and kind != "REEL":
+                errors.append({"field": "serial", "message": "Only reels and coils carry an AIT number."})
+            elif number is None:
+                errors.append({"field": "serial", "message": f"{typed_serial} is not an AIT number like AIT 06243."})
+            else:
+                serial = serial_text(number)
+                if serial in seen_serials:
+                    errors.append({"field": "serial", "message": f"{serial} is also on row {seen_serials[serial]}."})
+                else:
+                    seen_serials[serial] = index
+                if serial in serials_taken:
+                    errors.append({"field": "serial", "message": f"{serial} is already a reel in this plant this year."})
         mark = _old_mark(line)
         if mark:
             key = mark.upper()
@@ -411,6 +435,7 @@ def check_lines(db: Session, plant_id: str, lines: list[Any]) -> dict[str, Any]:
             "stock_status": status,
             "location": location_brief(location),
             "rate": rate if rate is not None else (float(item.unit_cost) if item is not None and item.unit_cost else None),
+            "serial": serial,
         }
         checked.append(row)
         # The review totals are what will post: a row with an error adds nothing until it is fixed.
@@ -441,7 +466,7 @@ def check_lines(db: Session, plant_id: str, lines: list[Any]) -> dict[str, Any]:
 
 
 def preview(db: Session, plant_id: str, effective_date: Optional[date], lines: list[Any]) -> dict[str, Any]:
-    result = check_lines(db, plant_id, lines)
+    result = check_lines(db, plant_id, lines, effective_date)
     refusal = date_refusal(db, plant_id, effective_date)
     detail = refusal.detail if refusal is not None else None
     result["date"] = {
@@ -531,7 +556,7 @@ def post_batch(db: Session, plant_id: str, payload: Any, actor: str) -> dict[str
     refusal = date_refusal(db, plant_id, payload.effective_date)
     if refusal is not None:
         raise refusal
-    checked = check_lines(db, plant_id, payload.lines)
+    checked = check_lines(db, plant_id, payload.lines, payload.effective_date)
     problems = [f"Row {row['index']}: {error['message']}" for row in checked["lines"] for error in row["errors"]]
     if problems:
         raise refuse(422, "OPENING_ROWS_INVALID", " ".join(problems[:5]) + (f" (+{len(problems) - 5} more)" if len(problems) > 5 else ""))
@@ -590,12 +615,17 @@ def post_batch(db: Session, plant_id: str, payload: Any, actor: str) -> dict[str
             "rate": unit_cost if unit_cost > 0 else None,
             "location_code": location.code if location else None,
             "hold_reason": hold_reason,
+            **_receipt_facts(line),
             **({"hold_reason_code": getattr(line, "hold_reason_code", None), "hold_reason_label": getattr(line, "hold_reason_label", None),
                 "hold_reason_note": getattr(line, "hold_reason_note", None)} if hold_reason else {}),
             "notes": line.notes,
         }
         if _line_kind(item) == "REEL":
-            serial = _next_reel_code(db, plant_uuid, go_live)
+            if getattr(line, "serial", None):
+                from .reel_serial import keep_reel_serial
+                serial = keep_reel_serial(db, plant_uuid, go_live, line.serial)
+            else:
+                serial = _next_reel_code(db, plant_uuid, go_live)
             reel_code = serial["reel_code"]
             nominals = item.qc_nominals or {}
             form = (line.physical_form or ("COIL" if _enum(item.type) == ItemType.PARCHMENT.value else "REEL")).upper()
@@ -726,6 +756,24 @@ def request_changed(db: Session, plant_id: str, header: InventoryOpeningLoad) ->
     )
 
 
+def _receipt_facts(line: Any) -> dict[str, Any]:
+    """What the plant's own register says about a reel kept with its serial (client 2026-11-03), for the
+    label and the reel page: only the facts that were given."""
+    def day(value: Any) -> Optional[str]:
+        return value.isoformat() if isinstance(value, date) else (_clean(value, 10) if value else None)
+
+    facts = {
+        "mill_name": _clean(getattr(line, "mill_name", None), 60),
+        "invoice_no": _clean(getattr(line, "invoice_no", None), 80),
+        "invoice_date": day(getattr(line, "invoice_date", None)),
+        "po_no": _clean(getattr(line, "po_ref", None), 80),
+        "received_on": day(getattr(line, "received_on", None)),
+        "mill_variety": _clean(getattr(line, "mill_variety", None), 60),
+        "plybond": getattr(line, "plybond", None),
+    }
+    return {key: value for key, value in facts.items() if value not in (None, "")}
+
+
 def _line_note(old_mark: Optional[str], hold_reason: Optional[str], notes: Optional[str]) -> Optional[str]:
     parts = [f"Old mark {old_mark}" if old_mark else "", f"On hold: {hold_reason}" if hold_reason else "", notes or ""]
     joined = " · ".join(part for part in parts if part)
@@ -789,9 +837,18 @@ def batch_labels(db: Session, header: InventoryOpeningLoad) -> list[dict[str, An
         if line.reel_id:
             # The readable reel / coil lines (client 2026-10-30): QC averages, else the spec marked "(spec)";
             # the vendor typed on the batch, received on the go-live date.
-            row.update(reel_label_facts(db, entity, item, vendor=meta.get("vendor_name"), received=header.effective_date))
+            # A reel kept with its register serial prints the day it really came in (client 2026-11-03).
+            received = _iso_day(meta.get("received_on")) or header.effective_date
+            row.update(reel_label_facts(db, entity, item, vendor=meta.get("vendor_name"), received=received))
         labels.append(row)
     return labels
+
+
+def _iso_day(value: Any) -> Optional[date]:
+    try:
+        return date.fromisoformat(str(value)[:10]) if value else None
+    except ValueError:
+        return None
 
 
 def serialize_batch(db: Session, header: InventoryOpeningLoad, *, ordinal: Optional[int] = None, with_labels: bool = False) -> dict[str, Any]:

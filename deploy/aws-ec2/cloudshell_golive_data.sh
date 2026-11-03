@@ -11,6 +11,8 @@
 #   cleanup-apply  <fingerprint>   backup, then applies exactly the reviewed list (fingerprint from the preview)
 #   packing-preview | packing-apply   spec packing from the client's SPECS sheet (apply takes a backup first)
 #   orders-preview  | orders-apply    outstanding Tally sales orders, approved (apply takes a backup first)
+#   reels-preview   | reels-apply     paper reel register (closing 31 Oct 2026) as opening stock dated 1 Nov 2026,
+#                                     each reel keeping its AIT number (apply takes a backup first)
 #
 # Usage: bash cloudshell_golive_data.sh <40-char deployed sha> <step> [reset-id | fingerprint]
 # Options (export before running): ERP_IMPORT_PLANT (default PLANT_A), ERP_IMPORT_AS (Owner/Admin
@@ -20,10 +22,10 @@
 # /opt/hariom/imports/<stamp>-<step>/ (resets: /opt/hariom/testing-resets/<reset-id>/).
 set -euo pipefail
 deployed="${1:?exact 40-character deployed Git commit required}"
-step="${2:?step required: reset-preview|reset-apply|reset-cancel|cleanup-preview|cleanup-apply|packing-preview|packing-apply|orders-preview|orders-apply}"
+step="${2:?step required: reset-preview|reset-apply|reset-cancel|cleanup-preview|cleanup-apply|packing-preview|packing-apply|orders-preview|orders-apply|reels-preview|reels-apply}"
 arg="${3:-}"
 [[ "$deployed" =~ ^[a-f0-9]{40}$ ]] || { echo "Deployed commit must be the full 40-character sha"; exit 1; }
-[[ "$step" =~ ^(reset-preview|reset-apply|reset-cancel|cleanup-preview|cleanup-apply|packing-preview|packing-apply|orders-preview|orders-apply)$ ]] || { echo "Unknown step $step"; exit 1; }
+[[ "$step" =~ ^(reset-preview|reset-apply|reset-cancel|cleanup-preview|cleanup-apply|packing-preview|packing-apply|orders-preview|orders-apply|reels-preview|reels-apply)$ ]] || { echo "Unknown step $step"; exit 1; }
 if [[ "$step" == reset-preview || "$step" == reset-apply ]]; then
   [[ "$arg" =~ ^[a-zA-Z0-9_-]{8,100}$ ]] || { echo "reset steps need a reset id (8-100 letters, digits, - or _), the same for preview and apply"; exit 1; }
 fi
@@ -106,6 +108,9 @@ PY
   exit \$code
 fi
 compose exec -T erp-app test -f "$data/sales_orders.json" || { echo "This release has no $data"; exit 3; }
+if [[ "\$step" == reels-* ]]; then
+  compose exec -T erp-app test -f data/client_import_2026-11-03/reel_stock.json || { echo "This release has no data/client_import_2026-11-03"; exit 3; }
+fi
 stamp="\$(date -u +%Y%m%dT%H%M%SZ)"
 work="/opt/hariom/imports/\$stamp-\$step"
 mkdir -p "\$work"
@@ -137,13 +142,18 @@ case "\$step" in
     cmd=(python scripts/client_import/import_sales_orders.py --plant "$plant" --report /tmp/golive-\$step/report.json "\${extra[@]}")
     out_dir=/tmp/golive-\$step; report_name=report
     ;;
+  reels-*)
+    extra=(); [[ "\$step" == reels-apply ]] && extra=(--apply)
+    cmd=(python scripts/client_import/import_opening_reels.py --plant "$plant" --report /tmp/golive-\$step/report.json "\${extra[@]}")
+    out_dir=/tmp/golive-\$step; report_name=report
+    ;;
 esac
 set +e
 compose exec -T "\${login[@]}" erp-app "\${cmd[@]}" > "\$work/run.log" 2>&1
 code=\$?
 set -e
 compose cp "erp-app:\$out_dir/." "\$work/" >/dev/null 2>&1 || true
-grep -E '^(Signed in|Spec packing|Tally sales|CLEANUP_FINGERPRINT|Nothing left|\{)' "\$work/run.log" || true
+grep -E '^(Signed in|Spec packing|Tally sales|Reel register|POSTED|NOT POSTED|CLEANUP_FINGERPRINT|Nothing left|\{)' "\$work/run.log" || true
 if [[ "\$code" != 0 ]]; then
   echo "--- \$step stopped (exit \$code); last lines of its log:"
   tail -n 25 "\$work/run.log"

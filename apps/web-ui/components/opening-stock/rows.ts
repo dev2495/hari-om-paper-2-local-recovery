@@ -22,6 +22,8 @@ export type DraftRow = {
   location_id: string
   location_text: string
   old_mark: string
+  /** The reel's own AIT number when it already carries one (client 2026-11-03): kept instead of a new one. */
+  serial: string
   vendor_name: string
   vendor_ref: string
   rate: string
@@ -44,16 +46,16 @@ export function rowKey(): string {
 }
 
 export function blankRow(kind: RowKind = "REEL", location_id = ""): DraftRow {
-  return { key: rowKey(), kind, item_id: "", item_text: "", qty: "", location_id, location_text: "", old_mark: "", vendor_name: "", vendor_ref: "", rate: "", on_hold: false, hold_reason: "", hold_reason_code: "", hold_reason_note: "", note: "" }
+  return { key: rowKey(), kind, item_id: "", item_text: "", qty: "", location_id, location_text: "", old_mark: "", serial: "", vendor_name: "", vendor_ref: "", rate: "", on_hold: false, hold_reason: "", hold_reason_code: "", hold_reason_note: "", note: "" }
 }
 
 /** A copy of the row under it: same material, place, vendor and rate; the old mark and weight are left to type. */
 export function duplicateRow(row: DraftRow): DraftRow {
-  return { ...row, key: rowKey(), qty: "", old_mark: "", note: "" }
+  return { ...row, key: rowKey(), qty: "", old_mark: "", serial: "", note: "" }
 }
 
 export function isBlank(row: DraftRow): boolean {
-  return !row.item_id && !row.item_text && !row.qty.trim() && !row.old_mark.trim() && !row.vendor_name.trim() && !row.rate.trim()
+  return !row.item_id && !row.item_text && !row.qty.trim() && !row.old_mark.trim() && !row.serial.trim() && !row.vendor_name.trim() && !row.rate.trim()
 }
 
 /** Reel-tracked materials (paper reels, parchment coils) are entered as reels; everything else as bulk lots. */
@@ -144,7 +146,7 @@ export function parsePaste(text: string, items: ItemOption[], places: PlaceOptio
   const lines = String(text || "").replace(/\r/g, "").split("\n").filter((line) => line.trim())
   const rows: DraftRow[] = []
   lines.forEach((line, index) => {
-    const [itemCell = "", typeCell = "", qtyCell = "", placeCell = "", markCell = "", vendorCell = "", rateCell = ""] = splitLine(line)
+    const [itemCell = "", typeCell = "", qtyCell = "", placeCell = "", markCell = "", vendorCell = "", rateCell = "", serialCell = ""] = splitLine(line)
     if (index === 0 && HEADER.test(itemCell) && !/\d/.test(qtyCell)) return
     const itemFound = findItem(itemCell, items)
     const placeFound = findPlace(placeCell, places)
@@ -162,6 +164,7 @@ export function parsePaste(text: string, items: ItemOption[], places: PlaceOptio
       qty: cleanNumber(qtyCell),
       location_text: place || !placeCell.trim() ? "" : placeCell.trim(),
       old_mark: markCell,
+      serial: kind === "REEL" ? serialCell.trim() : "",
       vendor_name: vendorCell,
       rate: rateCell ? cleanNumber(rateCell) : "",
       note,
@@ -210,6 +213,7 @@ export function toLine(row: DraftRow) {
     qty: Number(row.qty) || 0,
     location_id: row.location_id || undefined,
     old_mark: row.old_mark.trim() || undefined,
+    serial: row.kind === "REEL" ? row.serial.trim() || undefined : undefined,
     vendor_name: row.vendor_name.trim() || undefined,
     vendor_ref: row.vendor_ref.trim() || undefined,
     on_hold: row.on_hold || undefined,

@@ -420,9 +420,19 @@ function RowsEditor({ rows, items, itemById, places, defaultPlace, checked, onCh
                 </button>
               </div>
             </div>
-            <div className={cn("mt-2 grid grid-cols-2 gap-2 lg:pl-[32px]", row.on_hold
-              ? "lg:grid-cols-[minmax(0,0.9fr)_120px_minmax(0,1.1fr)_minmax(0,0.9fr)_minmax(0,1.3fr)_92px]"
-              : "lg:grid-cols-[minmax(0,0.9fr)_120px_minmax(0,1.2fr)_minmax(0,1fr)_92px]")}>
+            <div className={cn("mt-2 grid grid-cols-2 gap-2 lg:pl-[32px]", row.kind === "REEL"
+              ? row.on_hold
+                ? "lg:grid-cols-[112px_minmax(0,0.8fr)_120px_minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,1.3fr)_92px]"
+                : "lg:grid-cols-[112px_minmax(0,0.8fr)_120px_minmax(0,1.1fr)_minmax(0,0.9fr)_92px]"
+              : row.on_hold
+                ? "lg:grid-cols-[minmax(0,0.9fr)_120px_minmax(0,1.1fr)_minmax(0,0.9fr)_minmax(0,1.3fr)_92px]"
+                : "lg:grid-cols-[minmax(0,0.9fr)_120px_minmax(0,1.2fr)_minmax(0,1fr)_92px]")}>
+              {row.kind === "REEL" ? (
+                <label className="col-span-1 block">
+                  <span className={caption}>AIT no.</span>
+                  <input className={cn(fieldClass, "mt-1 text-[13px] tabular-nums lg:mt-0.5", bad("serial") && errorCls)} value={row.serial} maxLength={20} placeholder="New if blank" aria-label={`Row ${index + 1} AIT number the reel already carries`} data-testid="opening-row-serial" onChange={(event) => onChange(row.key, { serial: event.target.value })} />
+                </label>
+              ) : null}
               <label className="col-span-1 block">
                 <span className={caption}>Old mark</span>
                 <input className={cn(fieldClass, "mt-1 text-[13px] lg:mt-0.5")} value={row.old_mark} maxLength={120} placeholder="Old no. / mark" aria-label={`Row ${index + 1} old reel number or mark`} onChange={(event) => onChange(row.key, { old_mark: event.target.value })} />
@@ -550,7 +560,7 @@ function PasteSheet({ open, onOpenChange, items, places, loading, onAdd }: {
   useEffect(() => { if (!open) setText("") }, [open])
   return (
     <Sheet open={open} onOpenChange={onOpenChange} wide title="Paste from Excel" testId="opening-paste"
-      description="Copy the rows in Excel and paste them here. Columns in this order: item code or name, type (reel / coil / bulk), weight or qty, location, old mark, vendor, rate. A header row is skipped."
+      description="Copy the rows in Excel and paste them here. Columns in this order: item code or name, type (reel / coil / bulk), weight or qty, location, old mark, vendor, rate, AIT no. (if the reel already has one). A header row is skipped."
       footer={<>
         <button type="button" className="erp-btn-secondary !h-11" onClick={() => onAdd(parsed, true)} disabled={!parsed.length || loading}>Replace rows</button>
         <button type="button" className="erp-btn-primary !h-11" onClick={() => onAdd(parsed, false)} disabled={!parsed.length || loading} data-testid="opening-paste-add">{loading ? "Loading materials…" : `Add ${plural(parsed.length, "row")}`}</button>

@@ -456,3 +456,55 @@ def test_a_held_opening_lot_cleared_by_incoming_qc_is_usable_in_the_ledger():
         assert db.get(StockBatch, lot.id).stock_status == "UNRESTRICTED"
         assert [row.stock_status for row in db.query(StockTransaction).filter_by(batch_id=lot.id).all()] == ["UNRESTRICTED"]
         assert get_usable_item_qty(str(glue.id), db) == 100
+
+
+def test_reels_from_the_plant_register_keep_their_ait_number_and_receipt_facts():
+    """Client 2026-11-03: the reel register's AIT numbers stay; the next inward continues after the highest."""
+    from src.services.reel_serial import next_reel_serial, series_state
+
+    plant = str(uuid.uuid4())
+    with SessionLocal() as db:
+        paper = _item(db, plant, cost=31.5, code="351")
+        rack = _rack(db, plant)
+        register = {"item_id": paper.id, "qty": 1073, "serial": "AIT 00528", "old_mark": "3407", "vendor_name": "AKSHAT",
+                    "mill_name": "AKSHAT", "invoice_no": "116", "invoice_date": "2026-04-11", "po_ref": "U3/1",
+                    "received_on": "2026-04-12", "mill_variety": "350CEDAR", "plybond": 400, "unit_cost": 30.5,
+                    "location_id": rack.id}
+
+        check = preview_opening_load(PreviewPayload(effective_date=GO_LIVE, lines=[
+            PreviewLine(item_id=str(paper.id), qty=1073, serial="ait528"),
+            PreviewLine(item_id=str(paper.id), qty=900, serial="AIT 00528"),
+            PreviewLine(item_id=str(paper.id), qty=900, serial="AIT 00528-1"),
+        ]), db, plant, OWNER)
+        assert check["lines"][0]["serial"] == "AIT 00528" and check["lines"][0]["ok"]
+        assert check["lines"][1]["errors"][0]["message"] == "AIT 00528 is also on row 1."
+        assert check["lines"][2]["errors"][0]["field"] == "serial" and check["can_post"] is False
+
+        posted = _post(db, plant, [register, {**register, "serial": "AIT 06279", "old_mark": "3771", "qty": 1398},
+                                   {"item_id": paper.id, "qty": 640, "old_mark": "NO-SERIAL"}])
+        # Kept numbers in the order given; a row without one takes the next after the highest kept.
+        assert [line["reel_code"] for line in posted["lines"]] == ["AIT 00528", "AIT 06279", "AIT 06280"]
+        reel = db.query(PaperReel).filter_by(plant_id=uuid.UUID(plant), reel_code="AIT 00528").one()
+        meta = reel.inward_metadata
+        assert (meta["amigo_no"], meta["serial_no"], meta["serial_kept"]) == ("AIT 00528", 528, True)
+        assert (meta["invoice_no"], meta["invoice_date"], meta["po_no"], meta["received_on"], meta["mill_variety"]) == (
+            "116", "2026-04-11", "U3/1", "2026-04-12", "350CEDAR")
+        assert reel.inward_date == GO_LIVE and reel.source_reel_no == "3407" and float(reel.unit_cost) == 30.5
+        assert series_state(db, plant, GO_LIVE)["next_serial"] == "AIT 06281"
+        assert next_reel_serial(db, uuid.UUID(plant), GO_LIVE)["serial"] == "AIT 06281"
+        db.rollback()
+
+        label = opening_load_labels(uuid.UUID(posted["id"]), db, plant, STORE)["labels"][0]
+        facts = label["facts"]
+        assert label["code"] == "AIT 00528" and label["qr_value"].endswith("|AIT 00528")
+        assert (facts["serial"], facts["mill"], facts["invoice_no"], facts["received_date"], facts["roll_no"]) == (
+            "AIT 00528", "AKSHAT", "116", "12-Apr-26", "3407")
+        assert (facts["variety"], facts["gsm"], facts["plybond"]) == ("350CEDAR", "351", "400")
+
+        # Taken numbers are refused at the check and at the post.
+        again = preview_opening_load(PreviewPayload(effective_date=GO_LIVE, lines=[
+            PreviewLine(item_id=str(paper.id), qty=500, serial="AIT 06279")]), db, plant, OWNER)
+        assert again["lines"][0]["errors"][0]["message"] == "AIT 06279 is already a reel in this plant this year."
+        with pytest.raises(HTTPException) as refused:
+            _post(db, plant, [{**register, "serial": "AIT 06279"}])
+        assert refused.value.status_code == 422

@@ -150,7 +150,10 @@ def reel_label_facts(db, reel: PaperReel, item: ItemMaster | None = None, *, ven
                 break  # a slit coil or concession child reel was measured as its parent
 
     item_code = str(getattr(resolved_item, "item_code", None) or "").strip()
-    variety = item_code or str(snapshot.get("variety") or metadata.get("variety") or "").strip()
+    paper_variety = item_code or str(snapshot.get("variety") or metadata.get("variety") or "").strip()
+    # A reel kept from the plant's register prints the mill's variety as the register wrote it (``350CEDAR``);
+    # GSM stays the paper's own code (``350``).
+    variety = str(metadata.get("mill_variety") or "").strip() or paper_variety
     facts: dict[str, str] = {}
     sources: dict[str, str | None] = {}
 
@@ -172,10 +175,15 @@ def reel_label_facts(db, reel: PaperReel, item: ItemMaster | None = None, *, ven
     if measured_gsm is not None:
         facts["gsm"], sources["gsm"] = _number_text(measured_gsm), "QC"
     else:
-        facts["gsm"], sources["gsm"] = (variety, "VARIETY") if variety else ("", None)
+        facts["gsm"], sources["gsm"] = (paper_variety, "VARIETY") if paper_variety else ("", None)
 
     weight = _positive(getattr(reel, "inward_weight_kg", None)) or _positive(getattr(reel, "net_weight_kg", None))
-    when = received or getattr(reel, "inward_date", None)
+    kept_day = str(metadata.get("received_on") or "")[:10]
+    try:
+        kept_day = date.fromisoformat(kept_day) if kept_day else None
+    except ValueError:
+        kept_day = None
+    when = received or kept_day or getattr(reel, "inward_date", None)
     if received is None and getattr(reel, "parent_reel_id", None) and db is not None:
         # A slit coil prints its parent reel's received date (the mill's invoice and date stay together).
         parent = db.get(PaperReel, reel.parent_reel_id)

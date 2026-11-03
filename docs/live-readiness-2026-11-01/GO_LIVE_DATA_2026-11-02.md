@@ -36,3 +36,12 @@ The client fill-in workbook with every open item is `TubeOS-Data-To-Complete-202
 6. Masters › Vendors: mill short names (label MILL NAME).
 7. Stores: opening stock (reels and lots get new AIT labels) and re-inward the physical tools on Masters › Physical tools.
 8. Masters › Reason codes: review the lists in your own words.
+
+## Paper reel opening stock (3 Nov 2026, to load)
+From `Reel stock.xlsx` (sheet Stock; closing till 31 Oct 2026): 351 reels, 410,094 kg, ₹1,41,60,237, AIT 00528 to AIT 06279. Data file `data/client_import_2026-11-03/reel_stock.json`, loaded by `scripts/client_import/import_opening_reels.py` (golive steps `reels-preview` / `reels-apply`).
+- One opening batch dated **1 Nov 2026** (this fixes the go-live date; later manual opening entries use the same date).
+- Every reel **keeps its own AIT number**; the next goods inward continues at **AIT 06280** (after the highest kept number, unless the plant setting is already higher: the preview prints it).
+- QC cleared and ready to issue, except AIT 02131, 02132, 02133 (352FDY*, marked HOLD) on QC hold (QH-OTHER).
+- Paper item = the register's GSM code (220, 301, 350–355, 401); SLITTED = reel, coil = coil; mill reel no. = ROLL NO.; vendor code = mill name; bill no./date, PO, inward date, mill variety (350CEDAR) and ply bond kept on the reel and printed on its QR label (Opening stock › Labels).
+- Left out: 224 empty pre-numbered rows (AIT 06830–07053); the 19 coils on sheet "Manual Entries" (the client types them on Opening stock, with the new **AIT no.** field so they keep their numbers).
+- Vendor codes (AKSHAT, UPPM, VATSALYA, BN, KALYANI) matched no single vendor master locally; the code is used as vendor and mill name.

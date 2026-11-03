@@ -66,6 +66,7 @@ export type OpeningLineInput = {
   qty: number
   location_id?: string
   old_mark?: string
+  serial?: string
   vendor_name?: string
   vendor_ref?: string
   on_hold?: boolean
