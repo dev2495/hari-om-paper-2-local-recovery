@@ -1186,6 +1186,31 @@ async def create_inventory_quality_inspection(request: Request, token: str = Dep
     return response
 
 
+# Incoming QC by bill (6 Nov 2026): bill cards, one bill, weigh-in rows, re-weigh a lot.
+@router.get("/quality/incoming/bills")
+async def list_incoming_bills(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/quality/incoming/bills", request, token)
+
+
+@router.get("/quality/incoming/bills/{bill_key}")
+async def get_incoming_bill(bill_key: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/quality/incoming/bills/{bill_key}", request, token)
+
+
+@router.post("/quality/incoming/bills/{bill_key}/entries")
+async def save_incoming_bill_entries(bill_key: str, request: Request, token: str = Depends(get_token)):
+    from src.services.incoming_bill_events import notify_bill_entries
+
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/quality/incoming/bills/{bill_key}/entries", request, token)
+    await notify_bill_entries(response, request, token)
+    return response
+
+
+@router.post("/quality/lots/{entity_type}/{entity_id}/reweigh")
+async def reweigh_incoming_lot(entity_type: str, entity_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/quality/lots/{entity_type}/{entity_id}/reweigh", request, token)
+
+
 @router.get("/quality/analytics")
 async def inventory_quality_analytics(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/quality/analytics", request, token)

@@ -270,8 +270,10 @@ def test_qct017_every_inward_category_has_type_appropriate_fields_not_paper_or_r
         assert "reject_reason" not in fg_required
         assert "rework_possible" not in fg_required
         assert "gsm" not in fg_required
+        # 6 Nov 2026 (inward QC by bill): every incoming check is optional; GSM is still a paper check.
         paper_required = {row.parameter_key for row in by_type["RAW_PAPER"] if row.required}
-        assert "gsm" in paper_required
+        assert "gsm" not in paper_required
+        assert "gsm" in {row.parameter_key for row in by_type["RAW_PAPER"]}
         assert {item.type.value if hasattr(item.type, "value") else str(item.type) for item in created} == {
             "RAW_PAPER",
             "ADHESIVE",

@@ -62,6 +62,9 @@ def _receive(db, po, lots):
 
 def _pass_incoming_qc(db, *reel_ids):
     for reel_id in reel_ids:
+        reel = db.get(PaperReel, reel_id)  # 6 Nov 2026: Accept needs QC's actual weight first
+        reel.actual_qty = reel.inward_weight_kg
+        db.commit()
         create_quality_inspection(QualityInspectionCreate(entity_type="REEL", entity_id=reel_id, readings={"gsm": 230},
                                                           disposition="ACCEPT"), db, PLANT, QC)
 

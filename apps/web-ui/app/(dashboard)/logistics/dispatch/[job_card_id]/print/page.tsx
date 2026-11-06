@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button"
 import { useAuth } from "@/context/AuthContext"
 import { errorText } from "@/lib/season-api"
 import { useBreadcrumbLabel } from "@/components/workspace/breadcrumb-label"
+import { QRCodeSVG } from "qrcode.react"
+import { resolveAppBaseUrl } from "@/lib/app-url"
 
 export default function PrintDispatchPage() {
     const params = useParams()
@@ -24,6 +26,8 @@ export default function PrintDispatchPage() {
     // The last crumb names the challan ("Challan DC/…"), not the URL word "Print".
     const challanNo = dispatchRecord?.dispatch_snapshot?.challan_no || dispatchRecord?.dispatch_snapshot?.dispatch_ref
     useBreadcrumbLabel(challanNo ? `Challan ${challanNo}` : "Challan")
+    // Only a sealed challan leaves the gate; its stock-out key is the dispatch_ref.
+    const gateRef = dispatchRecord?.status === "SEALED" ? String(dispatchRecord?.dispatch_snapshot?.dispatch_ref || dispatchRecord?.dispatch_snapshot?.challan_no || "") : ""
 
     useEffect(() => {
         // Optional auto-print trigger
@@ -57,6 +61,16 @@ export default function PrintDispatchPage() {
                     </Button>
                 </div>
                 <DispatchDocument dispatchData={dispatchRecord.dispatch_snapshot} printMode={true} />
+                {/* Gate (2026-11-06): the watchman scans this when the truck leaves (Gate › Goods out). */}
+                {gateRef ? (
+                    <div data-testid="challan-gate-qr" className="mt-6 flex items-center justify-end gap-3 border-t border-dashed border-border pt-4 print:break-inside-avoid">
+                        <div className="text-right text-xs leading-5 text-muted-foreground print:text-black">
+                            <p className="font-semibold text-foreground print:text-black">Gate pass · challan {gateRef}</p>
+                            <p>Watchman: scan when the truck leaves.</p>
+                        </div>
+                        <QRCodeSVG value={`${resolveAppBaseUrl()}/gate?out=${encodeURIComponent(gateRef)}`} size={84} level="M" marginSize={0} bgColor="#ffffff" fgColor="#000000" />
+                    </div>
+                ) : null}
             </div>
         </div>
     )

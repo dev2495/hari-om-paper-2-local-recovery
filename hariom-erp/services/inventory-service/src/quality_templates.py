@@ -21,29 +21,35 @@ RETURN_DEFECT_KEYS = frozenset({"reject_reason", "rework_possible", "visual_defe
 # Supplier, batch/lot and quantity come from the GRN line itself. Other long-standing checks stay
 # registered but disabled (active=False) so QC can switch them on in Quality > Material standards.
 # QC owns this list (add / rename / disable); Masters own the tolerance bands (2026-10-18).
+# Inward QC by bill (6 Nov 2026): every incoming check is optional; only the actual weight (built into the
+# bill sheet, not a template check) is needed, and only to Accept. The old typed weight checks (paper
+# reel_weight_kg, parchment weight_kg) are retired: their readings were copied into the lot's actual qty.
+# Customer-return checks (FINISHED_GOOD) are a different desk and keep their own rule.
+RETIRED_WEIGHT_PARAMETERS = (("RAW_PAPER", "reel_weight_kg"), ("PARCHMENT", "weight_kg"))
+INCOMING_OPTIONAL_TYPES = ("RAW_PAPER", "ADHESIVE", "PARCHMENT", "PACKAGING", "TOOL", "OTHER")
 QC_TEMPLATE_PRESETS: tuple[dict[str, Any], ...] = (
-    {"material_type": "RAW_PAPER", "parameter_key": "gsm", "label": "GSM", "unit": "g/m²", "input_type": "number", "options": [], "required": True, "sort_order": 10},
-    {"material_type": "RAW_PAPER", "parameter_key": "width_mm", "label": "Paper width", "unit": "mm", "input_type": "number", "options": [], "required": True, "sort_order": 11},
-    {"material_type": "RAW_PAPER", "parameter_key": "reel_weight_kg", "label": "Reel weight", "unit": "kg", "input_type": "number", "options": [], "required": True, "sort_order": 12},
-    {"material_type": "RAW_PAPER", "parameter_key": "moisture_pct", "label": "Moisture", "unit": "%", "input_type": "number", "options": [], "required": True, "sort_order": 20},
-    {"material_type": "RAW_PAPER", "parameter_key": "caliper_mm", "label": "Thickness", "unit": "mm", "input_type": "number", "options": [], "required": True, "sort_order": 30},
-    {"material_type": "RAW_PAPER", "parameter_key": "bf", "label": "BF", "unit": "", "input_type": "number", "options": [], "required": True, "sort_order": 40},
-    {"material_type": "RAW_PAPER", "parameter_key": "ply_bond", "label": "Polybond", "unit": "", "input_type": "number", "options": [], "required": True, "sort_order": 50},
+    {"material_type": "RAW_PAPER", "parameter_key": "gsm", "label": "GSM", "unit": "g/m²", "input_type": "number", "options": [], "required": False, "sort_order": 10},
+    {"material_type": "RAW_PAPER", "parameter_key": "width_mm", "label": "Paper width", "unit": "mm", "input_type": "number", "options": [], "required": False, "sort_order": 11},
+    {"material_type": "RAW_PAPER", "parameter_key": "reel_weight_kg", "label": "Reel weight", "unit": "kg", "input_type": "number", "options": [], "required": False, "sort_order": 12, "active": False},
+    {"material_type": "RAW_PAPER", "parameter_key": "moisture_pct", "label": "Moisture", "unit": "%", "input_type": "number", "options": [], "required": False, "sort_order": 20},
+    {"material_type": "RAW_PAPER", "parameter_key": "caliper_mm", "label": "Thickness", "unit": "mm", "input_type": "number", "options": [], "required": False, "sort_order": 30},
+    {"material_type": "RAW_PAPER", "parameter_key": "bf", "label": "BF", "unit": "", "input_type": "number", "options": [], "required": False, "sort_order": 40},
+    {"material_type": "RAW_PAPER", "parameter_key": "ply_bond", "label": "Polybond", "unit": "", "input_type": "number", "options": [], "required": False, "sort_order": 50},
     {"material_type": "RAW_PAPER", "parameter_key": "remark", "label": "Remark", "unit": "", "input_type": "text", "options": [], "required": False, "sort_order": 95},
     {"material_type": "RAW_PAPER", "parameter_key": "bs", "label": "BS", "unit": "", "input_type": "number", "options": [], "required": False, "sort_order": 60, "active": False},
     {"material_type": "RAW_PAPER", "parameter_key": "bulk", "label": "Bulk", "unit": "", "input_type": "number", "options": [], "required": False, "sort_order": 70, "active": False},
     {"material_type": "RAW_PAPER", "parameter_key": "rct", "label": "RCT", "unit": "", "input_type": "number", "options": [], "required": False, "sort_order": 75, "active": False},
     {"material_type": "RAW_PAPER", "parameter_key": "cobb", "label": "COBB", "unit": "", "input_type": "number", "options": [], "required": False, "sort_order": 80, "active": False},
     {"material_type": "RAW_PAPER", "parameter_key": "clear_for_slitting", "label": "Clear for slitting", "unit": "", "input_type": "select", "options": ["YES", "NO", "HOLD"], "required": False, "sort_order": 90, "active": False},
-    {"material_type": "ADHESIVE", "parameter_key": "viscosity", "label": "Viscosity", "unit": "", "input_type": "number", "options": [], "required": True, "sort_order": 10},
-    {"material_type": "ADHESIVE", "parameter_key": "solid_content", "label": "Solid", "unit": "%", "input_type": "number", "options": [], "required": True, "sort_order": 20},
-    {"material_type": "ADHESIVE", "parameter_key": "ph", "label": "pH", "unit": "", "input_type": "number", "options": [], "required": True, "sort_order": 30},
+    {"material_type": "ADHESIVE", "parameter_key": "viscosity", "label": "Viscosity", "unit": "", "input_type": "number", "options": [], "required": False, "sort_order": 10},
+    {"material_type": "ADHESIVE", "parameter_key": "solid_content", "label": "Solid", "unit": "%", "input_type": "number", "options": [], "required": False, "sort_order": 20},
+    {"material_type": "ADHESIVE", "parameter_key": "ph", "label": "pH", "unit": "", "input_type": "number", "options": [], "required": False, "sort_order": 30},
     {"material_type": "ADHESIVE", "parameter_key": "remark", "label": "Remark", "unit": "", "input_type": "text", "options": [], "required": False, "sort_order": 60},
     {"material_type": "ADHESIVE", "parameter_key": "temperature", "label": "Temperature", "unit": "°C", "input_type": "number", "options": [], "required": False, "sort_order": 40, "active": False},
     {"material_type": "ADHESIVE", "parameter_key": "color", "label": "Colour", "unit": "", "input_type": "text", "options": [], "required": False, "sort_order": 50, "active": False},
-    {"material_type": "PARCHMENT", "parameter_key": "gsm", "label": "GSM", "unit": "g/m²", "input_type": "number", "options": [], "required": True, "sort_order": 10},
-    {"material_type": "PARCHMENT", "parameter_key": "color", "label": "Colour", "unit": "", "input_type": "text", "options": [], "required": True, "sort_order": 20},
-    {"material_type": "PARCHMENT", "parameter_key": "weight_kg", "label": "Weight", "unit": "kg", "input_type": "number", "options": [], "required": True, "sort_order": 30},
+    {"material_type": "PARCHMENT", "parameter_key": "gsm", "label": "GSM", "unit": "g/m²", "input_type": "number", "options": [], "required": False, "sort_order": 10},
+    {"material_type": "PARCHMENT", "parameter_key": "color", "label": "Colour", "unit": "", "input_type": "text", "options": [], "required": False, "sort_order": 20},
+    {"material_type": "PARCHMENT", "parameter_key": "weight_kg", "label": "Weight", "unit": "kg", "input_type": "number", "options": [], "required": False, "sort_order": 30, "active": False},
     {"material_type": "PARCHMENT", "parameter_key": "remark", "label": "Remark", "unit": "", "input_type": "text", "options": [], "required": False, "sort_order": 60},
     {"material_type": "PARCHMENT", "parameter_key": "color_bleeding", "label": "Colour bleeding", "unit": "", "input_type": "select", "options": ["PASS", "FAIL"], "required": False, "sort_order": 40, "active": False},
     {"material_type": "PARCHMENT", "parameter_key": "bf", "label": "BF", "unit": "", "input_type": "number", "options": [], "required": False, "sort_order": 50, "active": False},
@@ -52,12 +58,12 @@ QC_TEMPLATE_PRESETS: tuple[dict[str, Any], ...] = (
     {"material_type": "FINISHED_GOOD", "parameter_key": "visual_defect", "label": "Visual Defect", "input_type": "text", "options": [], "required": False, "sort_order": 30},
     {"material_type": "FINISHED_GOOD", "parameter_key": "reject_reason", "label": "Reject Reason", "input_type": "text", "options": [], "required": False, "sort_order": 40},
     {"material_type": "FINISHED_GOOD", "parameter_key": "rework_possible", "label": "Rework Possible", "input_type": "select", "options": ["YES", "NO"], "required": False, "sort_order": 50},
-    {"material_type": "PACKAGING", "parameter_key": "seal_integrity", "label": "Seal integrity", "input_type": "select", "options": ["PASS", "FAIL"], "required": True, "sort_order": 10},
-    {"material_type": "PACKAGING", "parameter_key": "print_registration", "label": "Print registration", "input_type": "text", "options": [], "required": True, "sort_order": 20},
+    {"material_type": "PACKAGING", "parameter_key": "seal_integrity", "label": "Seal integrity", "input_type": "select", "options": ["PASS", "FAIL"], "required": False, "sort_order": 10},
+    {"material_type": "PACKAGING", "parameter_key": "print_registration", "label": "Print registration", "input_type": "text", "options": [], "required": False, "sort_order": 20},
     {"material_type": "PACKAGING", "parameter_key": "burst", "label": "Burst", "input_type": "number", "options": [], "required": False, "sort_order": 30},
-    {"material_type": "TOOL", "parameter_key": "asset_identity", "label": "Asset identity", "input_type": "text", "options": [], "required": True, "sort_order": 10},
-    {"material_type": "TOOL", "parameter_key": "calibration_due", "label": "Calibration due", "input_type": "text", "options": [], "required": True, "sort_order": 20},
-    {"material_type": "TOOL", "parameter_key": "condition", "label": "Condition", "input_type": "select", "options": ["OK", "HOLD", "SCRAP"], "required": True, "sort_order": 30},
-    {"material_type": "OTHER", "parameter_key": "visual_ok", "label": "Visual OK", "input_type": "select", "options": ["YES", "NO"], "required": True, "sort_order": 10},
-    {"material_type": "OTHER", "parameter_key": "identity_confirmed", "label": "Identity confirmed", "input_type": "select", "options": ["YES", "NO"], "required": True, "sort_order": 20},
+    {"material_type": "TOOL", "parameter_key": "asset_identity", "label": "Asset identity", "input_type": "text", "options": [], "required": False, "sort_order": 10},
+    {"material_type": "TOOL", "parameter_key": "calibration_due", "label": "Calibration due", "input_type": "text", "options": [], "required": False, "sort_order": 20},
+    {"material_type": "TOOL", "parameter_key": "condition", "label": "Condition", "input_type": "select", "options": ["OK", "HOLD", "SCRAP"], "required": False, "sort_order": 30},
+    {"material_type": "OTHER", "parameter_key": "visual_ok", "label": "Visual OK", "input_type": "select", "options": ["YES", "NO"], "required": False, "sort_order": 10},
+    {"material_type": "OTHER", "parameter_key": "identity_confirmed", "label": "Identity confirmed", "input_type": "select", "options": ["YES", "NO"], "required": False, "sort_order": 20},
 )

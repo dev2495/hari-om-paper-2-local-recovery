@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert"
-import { EMPTY_ENTRY, cellVerdict, groupIncomingQueue, incomingReadingsPayload, incomingReasonFields, incomingReasonsPayload, previewIncomingLot } from "../lib/incoming-qc"
+import { EMPTY_BILL_ROW, EMPTY_ENTRY, acceptAllWeighed, billRowPayload, billRules, billTiles, cellVerdict, findLotByCode, groupIncomingQueue, incomingReadingsPayload, incomingReasonFields, incomingReasonsPayload, planRow, previewIncomingLot, rowDiff, typoWarning } from "../lib/incoming-qc"
 
 const rules: any[] = [
   { code: "gsm", label: "GSM", unit: "g/m²", min: 291, max: 309, required: true },
@@ -69,5 +69,66 @@ assert.equal(groups[0].key, "line:L1")
 assert.equal(groups[0].lots.length, 2)
 assert.equal(groups[0].qty, 950)
 assert.equal(groups[0].title, "Kraft 300")
+
+// ── Bill-wise QC (6 Nov 2026) ──
+const gsmRule: any = { code: "gsm", label: "GSM", unit: "g/m²", min: 115, max: 125, required: false }
+const lot = (code: string, bill: number | null, extra: any = {}): any => ({
+  key: `REEL:${code}`, entity_type: "REEL", entity_id: `id-${code}`, code, vendor_ref: `R-${code}`, uom: "KG", bill_qty: bill, actual_qty: null,
+  queue_state: "AWAITING_INSPECTION", stock_status: "QC_HOLD", can_enter: true, weight_required_for_accept: bill != null,
+  quality_profile: { parameters: [gsmRule, { code: "reel_weight_kg", label: "Reel weight", required: true }] }, ...extra,
+})
+const row = (extra: any = {}) => ({ ...EMPTY_BILL_ROW, ...extra })
+const reels = [lot("AIT 06281", 1182), lot("AIT 06284", 1210), lot("AIT 06288", 1189, { actual_qty: 1180, queue_state: "FAILED" }), lot("AIT 06290", 1000, { rejected: true, queue_state: "REJECTED" })]
+
+// The retired typed weight check never shows as a column: the actual weight is built in.
+assert.deepEqual(billRules(reels).map((rule) => rule.code), ["gsm"])
+// Diff is actual - bill; the saved weight wins over a typed one.
+assert.equal(rowDiff(reels[0], row({ actual: "1175" })), -7)
+assert.equal(rowDiff(reels[2], row({ actual: "9" })), -9)
+assert.equal(rowDiff(reels[1], row()), null)
+
+// Typo guard at 15 %.
+assert.equal(typoWarning(11750, 1182), "Check: 11,750 kg vs bill 1,182 kg")
+assert.equal(typoWarning(1182 * 1.15, 1182), null)
+assert.equal(typoWarning(1000, null), null)
+
+// Accept (the default) needs the weight; Hold and Reject do not, but need a reason.
+assert.equal(planRow(reels[0], row()).dirty, false)
+assert.equal(planRow(reels[0], row({ decision: "ACCEPT" })).problem, "Weigh it first: Accept needs the actual weight")
+assert.equal(planRow(reels[0], row({ decision: "HOLD" })).problem, "Choose a reason")
+assert.equal(planRow(reels[0], row({ decision: "HOLD", reasonCode: "IQ-MOISTURE" })).problem, null)
+const weighed = planRow(reels[0], row({ actual: "1175" }))
+assert.deepEqual([weighed.dirty, weighed.decision, weighed.problem], [true, "ACCEPT", null])
+// Out of band reading with Accept still holds and needs an INCOMING_QC code.
+const wet = planRow(reels[0], row({ actual: "1175", readings: { gsm: "140" } }))
+assert.equal(wet.needsReason, true)
+assert.equal(wet.problem, "Choose why GSM is out of band")
+// A held lot weighed later sends the weight only; its decision stays.
+assert.equal(planRow(lot("AIT 1", 900, { queue_state: "FAILED" }), row({ actual: "899" })).decision, "NONE")
+// Far from the bill: asks to confirm.
+assert.equal(planRow(reels[0], row({ actual: "11750" })).problem, "Check: 11,750 kg vs bill 1,182 kg. Confirm it.")
+assert.equal(planRow(reels[0], row({ actual: "11750", confirmFar: true })).problem, null)
+// Other needs a note.
+assert.equal(planRow(reels[0], row({ decision: "REJECT", reasonCode: "IQ-OTHER" })).problem, "Write a short note for Other")
+
+// Payload: only typed weight, decision, readings as numbers, base inspection for the two-user check.
+const payload = billRowPayload(reels[0], row({ actual: "1,175.5", readings: { gsm: "120" } }), "key-1")
+assert.deepEqual([payload.actual_qty, payload.decision, payload.readings, payload.base_inspection_id, payload.reason_code], [1175.5, "ACCEPT", { gsm: 120 }, "", undefined])
+
+// Tiles: rejected lots are left out; the diff counts weighed lots only (saved or typed).
+const tiles = billTiles(reels, { "REEL:AIT 06281": row({ actual: "1175" }) })
+assert.deepEqual([tiles.bill, tiles.counted, tiles.weighedCount, tiles.weighedActual, tiles.diff], [3581, 3, 2, 2355, -16])
+
+// Accept all weighed: weighed + no out-of-band reading; an out-of-band row is left for a reason.
+const all = acceptAllWeighed(reels, { "REEL:AIT 06281": row({ actual: "1175" }), "REEL:AIT 06284": row({ actual: "1200", readings: { gsm: "150" } }) })
+assert.equal(all["REEL:AIT 06281"].decision, "ACCEPT")
+assert.equal(all["REEL:AIT 06284"].decision, null)
+assert.equal(all["REEL:AIT 06290"], undefined)
+
+// Scan: AIT label (any spacing, leading zeros), vendor reel, or the id inside a QR.
+assert.equal(findLotByCode(reels, "ait6284")?.code, "AIT 06284")
+assert.equal(findLotByCode(reels, "R-AIT 06288")?.code, "AIT 06288")
+assert.equal(findLotByCode(reels, "", "id-AIT 06281")?.code, "AIT 06281")
+assert.equal(findLotByCode(reels, "AIT 09999"), null)
 
 console.log("incoming-qc tests passed")

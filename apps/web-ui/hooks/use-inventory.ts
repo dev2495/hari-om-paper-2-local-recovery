@@ -744,6 +744,54 @@ export function useCreateInventoryQualityInspection() {
   })
 }
 
+// Incoming QC by bill (6 Nov 2026): the bill cards (per tab, or a search / linked lot) and one bill.
+export function useIncomingBills(params: { tab?: string; q?: string; lot?: string }, enabled = true) {
+  return useQuery({
+    queryKey: ["inventory-incoming-bills", params],
+    queryFn: async () => {
+      const { data } = await inventoryApi.getIncomingBills(params)
+      return { items: Array.isArray(data?.items) ? data.items : [], counts: data?.counts || {} } as { items: any[]; counts: Record<string, number> }
+    },
+    enabled,
+    refetchInterval: 60_000,
+  })
+}
+
+export function useIncomingBill(key: string | null | undefined, plantId?: string, enabled = true) {
+  return useQuery({
+    queryKey: ["inventory-incoming-bill", key, plantId || ""],
+    queryFn: async () => (await inventoryApi.getIncomingBill(String(key), plantId)).data,
+    enabled: enabled && Boolean(key),
+  })
+}
+
+export function useSaveIncomingBillEntries() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ key, rows, plantId }: { key: string; rows: any[]; plantId?: string }) => inventoryApi.saveIncomingBillEntries(key, rows, plantId),
+    onSuccess: () => {
+      invalidateIncomingQc(queryClient)
+      queryClient.invalidateQueries({ queryKey: ["inventory-incoming-bills"] })
+      // The open bill too: its weights, the weight-check banner and "Ready for issue" come from it.
+      queryClient.invalidateQueries({ queryKey: ["inventory-incoming-bill"] })
+      queryClient.invalidateQueries({ queryKey: ["purchase-v2"] })
+    },
+  })
+}
+
+export function useReweighIncomingLot() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ entityType, entityId, data, plantId }: { entityType: string; entityId: string; data: any; plantId?: string }) =>
+      inventoryApi.reweighIncomingLot(entityType, entityId, data, plantId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-incoming-bills"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-incoming-bill"] })
+      queryClient.invalidateQueries({ queryKey: ["purchase-v2"] })
+    },
+  })
+}
+
 function invalidateIncomingQc(queryClient: ReturnType<typeof useQueryClient>) {
   for (const key of [
     "inventory-quality-pending",

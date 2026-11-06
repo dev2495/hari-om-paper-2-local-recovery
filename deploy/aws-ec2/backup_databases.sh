@@ -81,6 +81,23 @@ resume_app
 sha256sum "${backup_dir}"/*.dump "${backup_dir}"/*.counts "${backup_dir}/CONSISTENCY" > "${backup_dir}/SHA256SUMS"
 tar -C "${backup_dir}" -czf "${archive_path}" .
 aws s3 cp "${archive_path}" "s3://${BACKUP_S3_BUCKET}/database/${timestamp}/$(basename "${archive_path}")" --sse AES256 --only-show-errors
+
+# Doc Vault files (2026-11-06): copy new files from the erp_documents volume to the backup bucket.
+# Vault files are never changed or deleted, so a plain sync (no --delete) is a complete incremental
+# copy that needs no local disk. Skipped when documents are stored in S3 already. A failed copy is
+# reported but does not fail the database backup. Restore: docs/runbooks/doc-vault-storage.md.
+docs_backend="$(dotenv_get DOCS_STORAGE_BACKEND)"
+docs_volume="$(docker volume ls -q --filter label=com.docker.compose.volume=erp_documents \
+  --filter label=com.docker.compose.project=hariom-erp-production | head -n 1)"
+if [[ "${docs_backend:-local}" != "s3" && -n "${docs_volume}" ]]; then
+  docs_dir="$(docker volume inspect --format '{{ .Mountpoint }}' "${docs_volume}")"
+  if aws s3 sync "${docs_dir}" "s3://${BACKUP_S3_BUCKET}/documents/" --sse AES256 --only-show-errors --exclude '*.part'; then
+    echo "Document files synced: s3://${BACKUP_S3_BUCKET}/documents/"
+  else
+    echo "WARNING: document files were not copied to S3 this time; the database backup is complete" >&2
+    aws cloudwatch put-metric-data --namespace HariOmERP --metric-name DocumentBackupSuccess --value 0 --unit Count >/dev/null 2>&1 || true
+  fi
+fi
 if [[ -n "${BACKUP_RESULT_FILE:-}" ]]; then
   export BACKUP_RESULT_FILE BACKUP_RESULT_ARCHIVE="$archive_path" BACKUP_RESULT_KEY="database/${timestamp}/$(basename "$archive_path")"
   python3 - <<'PY'

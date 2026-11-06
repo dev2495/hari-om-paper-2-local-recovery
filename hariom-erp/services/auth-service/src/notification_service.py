@@ -135,8 +135,17 @@ def create_notifications(
     required_permissions: Iterable[str] | None = None,
     assigned_user_ids: Iterable[str | uuid.UUID] | None = None,
     event_id: str | None = None,
+    recipient_user_emails: Iterable[str] | None = None,
 ) -> int:
     recipients: dict[uuid.UUID, tuple[models.User, str | None]] = {}
+    # Named people by login e-mail (6 Nov 2026): services that record people by e-mail (inventory: the PO
+    # raiser) address them this way. Resolved to the user ids here; the plant check below still applies.
+    emails = sorted({str(value or "").strip().lower() for value in (recipient_user_emails or []) if str(value or "").strip()})
+    if emails:
+        from sqlalchemy import func as _func
+
+        matched = [row.id for row in db.query(models.User).filter(_func.lower(models.User.email).in_(emails)).all()]
+        recipient_user_ids = [*(recipient_user_ids or []), *matched]
     excluded_ids = _uuid_set(exclude_user_ids or [])
     assigned_ids = _uuid_set(assigned_user_ids or [])
     event_payload = dict(payload or {})
@@ -247,7 +256,7 @@ NOTIFICATION_CATEGORIES: dict[str, tuple[str, ...]] = {
     "planning": ("JOB_CARDS_READY", "JOB_CARD_SCHEDULED", "JOB_CARD_STAGE", "MACHINE_", "MRP_"),
     "production": ("JOB_CARD_READY_FOR", "JOB_CARD_CLOSED", "JOB_CARD_SHORT", "STATUS_CHANGE", "COIL_", "REEL_"),
     "quality": ("QC_", "INVENTORY_QC_", "RECIPE_", "CUSTOMER_REJECTION_"),
-    "stores": ("INVENTORY_", "FG_", "TOOL_"),
+    "stores": ("INVENTORY_", "FG_", "TOOL_", "GATE_"),
     "purchase": ("PURCHASE_",),
     "dispatch": ("DISPATCH_",),
     "design": ("SPEC_",),
@@ -337,4 +346,6 @@ def serialize_notification(notification: models.Notification) -> dict[str, Any]:
         "category": notification_category(notification.event_type),
         "priority": notification_priority(notification.event_type, payload),
         "action": payload.get("action") if isinstance(payload, dict) else None,
+        # What a button on this notification answered (POST /notifications/{id}/action-result).
+        "action_result": payload.get("action_result") if isinstance(payload, dict) else None,
     }

@@ -77,6 +77,7 @@ _PLANT_GUARD_BYPASS_PREFIXES = (
     "/api/auth/logout",
     "/api/auth/me",
     "/api/auth/refresh",
+    "/api/public/visit/",
     "/health",
     "/docs",
     "/openapi.json",
@@ -118,6 +119,28 @@ async def one_books_locked_shape(request: Request, call_next):
     return JSONResponse(status_code=409, content=body, headers={k: v for k, v in headers.items() if k.lower() != "content-type"})
 
 
+# A Watchman-only login (gate, 6 Nov 2026) reaches the gate desk and what it needs, nothing else: its own
+# session and notifications, the reason lists, vendor names for a bill, and the Doc Vault upload (the
+# vault itself limits a watchman to their own uploads of the day).
+WATCHMAN_PATHS = (
+    "/api/gate/", "/api/auth/", "/api/documents", "/api/master/reason-codes",
+)
+WATCHMAN_DENIED_AUTH = ("/api/auth/users", "/api/auth/roles", "/api/auth/audit-events", "/api/auth/plants/admin")
+
+
+def watchman_may_open(path: str, validation) -> bool:
+    try:
+        me = validation.json()
+    except ValueError:
+        return True
+    roles = {str(role) for role in (me.get("roles") or [])} | ({str(me["role"])} if me.get("role") else set())
+    if "Watchman" not in roles or roles - {"Watchman"}:
+        return True
+    if path.startswith(WATCHMAN_DENIED_AUTH) and not path.startswith("/api/auth/users/directory"):
+        return False
+    return path.startswith(WATCHMAN_PATHS)
+
+
 @app.middleware("http")
 async def live_session_guard(request: Request, call_next):
     """Validate current database access before every protected public API call.
@@ -127,7 +150,9 @@ async def live_session_guard(request: Request, call_next):
     on the next request, including requests without a plant header.
     """
     public = {"/api/auth/login", "/api/auth/logout", "/api/auth/register"}
-    if request.url.path.startswith("/api/") and request.url.path.rstrip("/") not in public:
+    # The visitor's own phone (gate QR, 6 Nov 2026): no login; src/routes/gate.py rate-limits it.
+    is_public_visit = request.url.path.startswith("/api/public/visit/")
+    if request.url.path.startswith("/api/") and request.url.path.rstrip("/") not in public and not is_public_visit:
         token = extract_token(request)
         if not token:
             return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
@@ -141,6 +166,8 @@ async def live_session_guard(request: Request, call_next):
         if validation.status_code != 200:
             code = 401 if validation.status_code in {401, 403} else 503
             return JSONResponse(status_code=code, content={"detail": "Your session expired or access changed. Sign in again." if code == 401 else "Unable to verify access. Please retry."})
+        if not watchman_may_open(request.url.path, validation):
+            return JSONResponse(status_code=403, content={"detail": "The gate desk login opens only the gate desk."})
     response = await call_next(request)
     if request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store, private"
@@ -226,6 +253,11 @@ app.include_router(purchase.router, prefix="/api/purchase", tags=["Purchase"])
 app.include_router(dispatch.router, prefix="/api/dispatch", tags=["Dispatch"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
 app.include_router(workspace.router, prefix="/api/workspace", tags=["Workspace"])
+from src.routes import documents as _documents  # noqa: E402  Doc Vault (2026-11-06)
+app.include_router(_documents.router, prefix="/api/documents", tags=["Doc Vault"])
+from src.routes import gate as _gate  # noqa: E402  Gate (2026-11-06)
+app.include_router(_gate.router, prefix="/api/gate", tags=["Gate"])
+app.include_router(_gate.public_router, prefix="/api/public/visit", tags=["Gate public"])
 
 
 @app.get("/")

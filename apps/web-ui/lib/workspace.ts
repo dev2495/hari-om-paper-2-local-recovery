@@ -14,6 +14,7 @@ export type LandingRole =
   | "GRN"
   | "RMIssue"
   | "Operator"
+  | "Watchman"
 
 type QuickAction = {
   href: string
@@ -35,9 +36,10 @@ export const LANDING_LABELS: Record<LandingRole, string> = {
   GRN: "GRN / Goods Receipt",
   RMIssue: "Raw Material Issue",
   Operator: "Operator",
+  Watchman: "Watchman (gate)",
 }
 
-export const ROLE_PRIORITY: LandingRole[] = ["Owner", "Admin", "PlantManager", "QC", "Planner", "Store", "Dispatch", "Sales", "InwardQC", "InProcessQC", "GRN", "RMIssue", "Operator"]
+export const ROLE_PRIORITY: LandingRole[] = ["Owner", "Admin", "PlantManager", "QC", "Planner", "Store", "Dispatch", "Sales", "InwardQC", "InProcessQC", "GRN", "RMIssue", "Operator", "Watchman"]
 
 // Legacy role aliases are normalized here only so old auth/session rows land on a canonical workspace.
 // User-facing navigation policy should use the condensed role matrix above.
@@ -61,6 +63,7 @@ export const ROLE_TO_LANDING: Record<string, LandingRole> = {
   GRN: "GRN",
   RMIssue: "RMIssue",
   Operator: "Operator",
+  Watchman: "Watchman",
 }
 
 export function resolveLandingRole(roles: string[] = []): LandingRole {
@@ -151,6 +154,12 @@ export const LANDING_QUICK_ACTIONS: Record<LandingRole, QuickAction[]> = {
     { href: "/inventory/production-issue", label: "Material issue", detail: "Issue adhesive, parchment and packing to the floor by shift." },
     { href: "/inventory/genealogy", label: "Genealogy", detail: "Trace where every issued reel went." },
     { href: "/inventory", label: "Stock overview", detail: "What is available to issue." },
+  ],
+  Watchman: [
+    { href: "/gate", label: "Gate desk", detail: "Visitors waiting and inside, bills in, goods out." },
+    { href: "/gate?tab=bill", label: "Bill in", detail: "Photograph a bill or challan and send it to Stores or Accounts." },
+    { href: "/gate?tab=out", label: "Goods out", detail: "Challans leaving today: Tally bill and challan photos, then Out." },
+    { href: "/gate?tab=today", label: "Today", detail: "Everything you recorded at the gate today." },
   ],
   Operator: [
     { href: "/production/entry", label: "Log output", detail: "Scan or pick a job card and log the run of your stage." },

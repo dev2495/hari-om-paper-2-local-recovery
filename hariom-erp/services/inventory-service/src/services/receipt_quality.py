@@ -11,6 +11,21 @@ from ..models import (InventoryQualityHold, InventoryQualityInspection, PaperRee
 
 CLEAR_COMMERCIAL = frozenset({"CLEAR", "RELEASED_WITH_CLAIM"})
 QUALITY_BLOCK_DISPOSITIONS = frozenset({"REJECT", "BLOCK"})
+# Inward QC by bill (owner decision 6 Nov 2026): a lot that came in on a purchase receipt is released for
+# issue by incoming QC only once QC has entered its actual weight (actual qty for bulk). Opening-stock lots
+# and customer returns have no receipt allocation and are exempt; Hold and Reject never need the weight.
+WEIGH_FIRST = ("Weigh it first: a purchase lot is released for issue only after QC enters its actual weight "
+               "(Quality › Incoming inspection, open the bill). Hold or Reject do not need it.")
+
+
+def is_purchase_lot(db, entity_type, entity_id):
+    column = ReceiptStockAllocation.reel_id if str(entity_type).upper() == "REEL" else ReceiptStockAllocation.batch_id
+    return db.query(ReceiptStockAllocation.id).filter(column == entity_id).first() is not None
+
+
+def awaits_actual_weight(db, entity_type, entity):
+    """True when releasing this lot for issue must wait for QC's actual weight."""
+    return entity is not None and getattr(entity, "actual_qty", None) is None and is_purchase_lot(db, entity_type, entity.id)
 
 
 def initial_quality(item, plant_id, received_date, metadata=None):
@@ -69,6 +84,11 @@ def refresh_receipt_stock(db, line):
             or (str(inspection.status or "").upper() == "FAIL" and disposition == "ACCEPT" and entity.stock_status == "BLOCKED")
         )
         status = "BLOCKED" if quality_block else ("QC_HOLD" if holds or not acceptable else "UNRESTRICTED")
+        # An inspection Accept releases a purchase lot only once it is weighed (a lot already issuable stays so;
+        # an exempt item with no inspection is not inspected and needs no weight).
+        if (status == "UNRESTRICTED" and entity.stock_status != "UNRESTRICTED" and verdict == "PASS"
+                and getattr(entity, "actual_qty", None) is None):
+            status = "QC_HOLD"
         entity.stock_status = status
         if hasattr(entity, "commercial_status"):
             entity.commercial_status = line.commercial_status

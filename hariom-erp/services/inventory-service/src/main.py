@@ -843,6 +843,45 @@ def ensure_reason_code_schema() -> None:
 ensure_reason_code_schema()
 
 
+# Inward QC by bill (6 Nov 2026, alembic 013_incoming_bill_qc): QC's scale weight on each reel / lot (a
+# record only, stock stays on the bill weight), the billed qty of bulk lots, and a source on purchase cases
+# so a weighed-short case can sit beside the GRN's own quantity case on one invoice line.
+from .schema_incoming_bill import DROP_OLD_DISCREPANCY_KEY_SQL  # noqa: E402
+
+INCOMING_BILL_QC_SCHEMA_STATEMENTS = (
+  "ALTER TABLE paper_reels ADD COLUMN IF NOT EXISTS actual_qty NUMERIC(14,3)",
+  "ALTER TABLE paper_reels ADD COLUMN IF NOT EXISTS weighed_at TIMESTAMP",
+  "ALTER TABLE paper_reels ADD COLUMN IF NOT EXISTS weighed_by VARCHAR(200)",
+  "ALTER TABLE paper_reels ADD COLUMN IF NOT EXISTS weigh_note TEXT",
+  "ALTER TABLE stock_batch ADD COLUMN IF NOT EXISTS billed_qty NUMERIC(14,3)",
+  "ALTER TABLE stock_batch ADD COLUMN IF NOT EXISTS actual_qty NUMERIC(14,3)",
+  "ALTER TABLE stock_batch ADD COLUMN IF NOT EXISTS weighed_at TIMESTAMP",
+  "ALTER TABLE stock_batch ADD COLUMN IF NOT EXISTS weighed_by VARCHAR(200)",
+  "ALTER TABLE stock_batch ADD COLUMN IF NOT EXISTS weigh_note TEXT",
+  "UPDATE stock_batch SET billed_qty = received_qty WHERE billed_qty IS NULL",
+  "ALTER TABLE purchase_discrepancies ADD COLUMN IF NOT EXISTS case_source VARCHAR(20) NOT NULL DEFAULT 'GRN'",
+  # The new (allocation, type, source) key first, then drop the old (allocation, type) key whatever it is
+  # called (constraint or bare unique index). Rows already unique on the pair stay unique on the triple,
+  # so no row changes; safe to run on every start.
+  "CREATE UNIQUE INDEX IF NOT EXISTS uq_purchase_discrepancy_allocation_type_source "
+  "ON purchase_discrepancies (allocation_id, discrepancy_type, case_source)",
+  "ALTER TABLE purchase_discrepancies DROP CONSTRAINT IF EXISTS uq_purchase_discrepancy_allocation_type",
+  DROP_OLD_DISCREPANCY_KEY_SQL,
+)
+
+
+def ensure_incoming_bill_qc_schema() -> None:
+  from .schema_incoming_bill import migrate_incoming_bill_qc_data
+
+  with engine.begin() as connection:
+    for statement in INCOMING_BILL_QC_SCHEMA_STATEMENTS:
+      connection.execute(text(statement))
+    migrate_incoming_bill_qc_data(connection)
+
+
+ensure_incoming_bill_qc_schema()
+
+
 def backfill_fail_accept_concession_eligibility() -> dict[str, int]:
     """Classify pre-existing FAIL+ACCEPT inspections that never got a concession.
 
@@ -1176,6 +1215,7 @@ from .routers import reel_serial; app.include_router(reel_serial.router)  # noqa
 app.include_router(reel_serial.tank_router)  # glue tank number setting (2026-11-03)
 app.include_router(books.router)
 app.include_router(tool_assets.router)
+from .routers import documents; app.include_router(documents.router)  # noqa: E402,E702 Doc Vault (2026-11-06)
 
 
 @app.get("/")
@@ -1189,3 +1229,40 @@ def health():
 
 from .routers import production_effects
 app.include_router(production_effects.router)
+
+# Inward QC by bill and the bill weight check (2026-11-06): bills, weigh-in rows, re-weigh, weight
+# differences, plant weight limits; and the 48 h Owner reminder sweep.
+from .routers import incoming_bills  # noqa: E402
+app.include_router(incoming_bills.quality_router)
+app.include_router(incoming_bills.procurement_router)
+
+
+@app.on_event("startup")
+def start_weight_reminder_sweep():
+  from .weight_variance_worker import start
+  start()
+
+
+@app.on_event("shutdown")
+def stop_weight_reminder_sweep():
+  from .weight_variance_worker import stop
+  stop()
+
+
+# Gate (2026-11-06, alembic 015_gate): gates, watchman desk, bills in, visitors (public check-in through
+# the BFF), goods out with the Tally bill no.; and the gate sweep (24 h reminders, digests, photo purge).
+from .routers import gate as gate_routes  # noqa: E402
+app.include_router(gate_routes.router)
+app.include_router(gate_routes.public_router)
+
+
+@app.on_event("startup")
+def start_gate_sweep():
+  from .gate_worker import start
+  start()
+
+
+@app.on_event("shutdown")
+def stop_gate_sweep():
+  from .gate_worker import stop
+  stop()

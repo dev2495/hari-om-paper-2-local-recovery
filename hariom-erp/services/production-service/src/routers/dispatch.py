@@ -1136,7 +1136,10 @@ def get_ready_jobs_for_dispatch(
             "created_at": jc.created_at, "entry_model": (jc.spec_snapshot or {}).get("entry_model"),
             "shipments": [], "draft": None})
         if dispatch and dispatch.status == "SEALED":
-            entry["shipments"].append({"id": str(dispatch.id), "qty": float((dispatch.dispatch_snapshot or {}).get("dispatch_qty") or (dispatch.dispatch_snapshot or {}).get("qty") or 0), "created_at": dispatch.created_at})
+            # dispatch_ref / challan_no (gate, 6 Nov 2026): the register shows "Tally T-… ✓" / "Not out of gate" per challan.
+            entry["shipments"].append({"id": str(dispatch.id), "qty": float((dispatch.dispatch_snapshot or {}).get("dispatch_qty") or (dispatch.dispatch_snapshot or {}).get("qty") or 0), "created_at": dispatch.created_at,
+                                       "dispatch_ref": (dispatch.dispatch_snapshot or {}).get("dispatch_ref") or (dispatch.dispatch_snapshot or {}).get("challan_no"),
+                                       "challan_no": (dispatch.dispatch_snapshot or {}).get("challan_no") or (dispatch.dispatch_snapshot or {}).get("dispatch_ref")})
         elif dispatch:
             entry["draft"] = str(dispatch.id)
     ids = list(grouped)

@@ -118,7 +118,8 @@ def _queue_qc_task(db: Session, lot, *, plant_id: str, receipt: PurchaseReceipt,
 
 @router.post("/manual-receipts")
 def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(require_role(["Store", "PlantManager", "GRN"]))):
-    fingerprint = canonical_hash(payload.model_dump(mode="json", exclude={"request_id"}))
+    # gate_entry_id stays out of the fingerprint when not sent (gate, 6 Nov 2026), so older replays still match.
+    fingerprint = canonical_hash(payload.model_dump(mode="json", exclude={"request_id"} | ({"gate_entry_id"} if payload.gate_entry_id is None else set())))
     existing = db.query(PurchaseReceipt).filter_by(plant_id=plant_id, request_id=payload.request_id).first()
     if existing:
         if existing.request_fingerprint != fingerprint:
@@ -126,6 +127,9 @@ def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_
         return {**_receipt_payload(existing, db), "idempotent": True}
     rows = _manual_checks(payload, db, plant_id)
     assert_books_open(db, plant_id, payload.received_date)
+    if payload.gate_entry_id:
+        from ..services import gate as gate_service
+        gate_service.check_linkable(db, plant_id, payload.gate_entry_id)
     choice = _manual_reason(payload, plant_id, current_user)
     invoice = None
     if not payload.invoice_pending:
@@ -230,6 +234,9 @@ def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_
                 batch = db.get(StockBatch, receipt_line.batch_id)
                 batch.inward_metadata = {**(batch.inward_metadata or {}), "bill_no": payload.invoice_no}
                 batch.inward_metadata = {**batch.inward_metadata, "saved_label": batch_label_payload(batch, inward_date=payload.received_date)}
+        if payload.gate_entry_id:
+            from ..services import gate as gate_service
+            gate_service.link_on_grn_post(db, plant_id, payload.gate_entry_id, receipt, _actor(current_user))
         db.commit()
     except IntegrityError as exc:
         db.rollback()

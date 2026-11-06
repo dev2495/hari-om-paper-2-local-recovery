@@ -21,7 +21,7 @@ import uuid
 from datetime import date, datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy.orm import Session
 
@@ -827,6 +827,34 @@ def validate_reason_choice(
         return check_reason_choice(rows, payload.category, code, payload.reason_note if payload.reason_note is not None else payload.note)
     except ReasonChoiceError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+# The visitor's public check-in page (gate QR, 6 Nov 2026) has no login: the BFF reads the plant's visit
+# purposes here with the internal token. Only lists that are safe to show the public are served.
+PUBLIC_REASON_CATEGORIES = {"VISIT_PURPOSE"}
+
+
+@reason_router.get("/internal/public-list")
+def internal_public_reason_list(
+    category: str,
+    plant_id: str,
+    db: Session = Depends(get_db),
+    x_internal_token: Optional[str] = Header(default=None, alias="X-Internal-Token"),
+):
+    import hmac
+    import os as _os
+
+    expected = _os.getenv("INTERNAL_EVENT_TOKEN", "hariom-internal-events")
+    if not x_internal_token or not hmac.compare_digest(str(x_internal_token), expected):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    cat = str(category or "").strip().upper()
+    if cat not in PUBLIC_REASON_CATEGORIES:
+        raise HTTPException(status_code=404, detail="Not found")
+    ensure_plant_reason_codes(plant_id)
+    rows = (db.query(models.ReasonCode).filter(models.ReasonCode.plant_id.in_(accepted_persisted_plant_ids(plant_id)),
+                                               models.ReasonCode.category == cat, models.ReasonCode.active == True)  # noqa: E712
+            .order_by(models.ReasonCode.code.asc()).all())
+    return [{"code": row.code, "label": row.label} for row in rows]
 
 
 @reason_router.get("/", response_model=List[ReasonResponse])

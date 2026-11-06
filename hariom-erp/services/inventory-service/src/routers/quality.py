@@ -1137,6 +1137,19 @@ def create_quality_inspection(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "Store", "InwardQC"])),
 ):
+    return record_quality_inspection(payload, db, plant_id, current_user)
+
+
+def record_quality_inspection(
+    payload: QualityInspectionCreate,
+    db: Session,
+    plant_id: str,
+    current_user: dict,
+    *,
+    commit: bool = True,
+) -> QualityInspectionResponse:
+    """One inspection of one lot. ``commit=False`` (bill-wise weigh-in, 6 Nov 2026) only flushes, so the
+    caller saves each row of a bill in its own savepoint together with the lot's actual weight."""
     # Inward QC is the incoming-material desk: received lots (BATCH/REEL) only, never customer returns.
     quality_roles = {"QC", "Owner", "Admin"} | ({"InwardQC"} if payload.entity_type in {"BATCH", "REEL"} else set())
     if not quality_roles.intersection(current_user.get("actual_roles", current_user.get("roles")) or []) or not quality_roles.intersection(current_user.get("roles") or []):
@@ -1267,6 +1280,15 @@ def create_quality_inspection(
             ),
         )
     reject_fail_accept_shortcut("FAIL" if status in {"FAIL", "INVALID", "INCOMPLETE"} else status, payload.disposition)
+    # Inward QC by bill (6 Nov 2026): every incoming path (bill desk, old desk, holds, scan) releases a
+    # purchase lot only once its actual weight is in. Opening stock and customer returns are exempt.
+    lot_entity = batch or reel
+    if (lot_entity is not None and status == "PASS"
+            and stock_status_for_disposition(payload.disposition or "ACCEPT") == "UNRESTRICTED"
+            and str(lot_entity.stock_status or "").upper() != "UNRESTRICTED"):
+        from ..services.receipt_quality import WEIGH_FIRST, awaits_actual_weight
+        if awaits_actual_weight(db, payload.entity_type, lot_entity):
+            raise HTTPException(status_code=422, detail=WEIGH_FIRST)
     if reason_choice is not None:
         # Keep the reason only against the checks that failed; the notes carry it for the whole lot.
         failed_codes = {str(row.get("code") or row.get("parameter") or "") for row in computed_failures if isinstance(row, dict)}
@@ -1413,8 +1435,11 @@ def create_quality_inspection(
                     if txn.stock_status == "UNRESTRICTED":
                         txn.stock_status = "QC_HOLD"
         stock_status = entity.stock_status
-    db.commit()
-    db.refresh(inspection)
+    if commit:
+        db.commit()
+        db.refresh(inspection)
+    else:
+        db.flush()
     response = _inspection_response(inspection, stock_status=stock_status)
     # Name the lot the way the floor knows it (AT / batch number) for notifications and the desk.
     lot_label = (reel.reel_code if reel is not None else batch.batch_no if batch is not None else None)
@@ -1701,6 +1726,10 @@ def create_quality_concession(
         db, plant_id=plant_id, entity_type=inspection.entity_type, entity_id=inspection.entity_id
     )
     independent_qty = remaining_hold_quantity(open_holds, excluding_inspection_id=str(inspection.id))
+    if payload.release_stock and released_status == "UNRESTRICTED" and (batch or reel) is not None:
+        from ..services.receipt_quality import WEIGH_FIRST, awaits_actual_weight
+        if awaits_actual_weight(db, inspection.entity_type, batch or reel):
+            raise HTTPException(status_code=422, detail=WEIGH_FIRST)
     lot_qty = lot_quantity(batch=batch, reel=reel, rejection=rejection)
     try:
         release_qty, residual_qty = validate_concession_quantity(

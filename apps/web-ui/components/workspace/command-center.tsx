@@ -102,6 +102,7 @@ const ROLE_KPIS: Record<LandingRole, KpiKey[]> = {
   GRN: ["inventoryValue", "lowStock", "qcHolds", "activeCards"],
   RMIssue: ["activeCards", "lowStock", "inventoryValue", "produced"],
   Operator: ["activeCards", "overdue", "produced", "qcHolds"],
+  Watchman: [],
 }
 
 type ChartKey = "output" | "orderFlow" | "pipeline" | "machines" | "quality" | "inventory" | "customers" | "orderStatus" | "stageDonut" | "commercial"
@@ -119,6 +120,7 @@ const ROLE_CHARTS: Record<LandingRole, ChartKey[]> = {
   GRN: ["inventory"],
   RMIssue: ["inventory", "pipeline"],
   Operator: ["pipeline", "output"],
+  Watchman: [],
 }
 
 // Where each figure comes from: sales aggregates, job-card aggregates, or the analytics owner pack.

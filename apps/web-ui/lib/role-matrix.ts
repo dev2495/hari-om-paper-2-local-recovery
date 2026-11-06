@@ -33,6 +33,7 @@ export const ROLE_DEFINITIONS: RoleDefinition[] = [
   { key: "Store", label: "Store", group: "Stores", landing: "/inventory", landingLabel: "Stock overview", summary: "All stores work: inward, issue, stock count, reservations and stock close." },
   { key: "GRN", label: "GRN / Goods Receipt", group: "Stores", landing: "/purchase/inward", landingLabel: "Goods inward", summary: "Goods receipt only: receive against POs, weigh reels/coils, print labels, GRN register." },
   { key: "RMIssue", label: "Raw Material Issue", group: "Stores", landing: "/inventory/reels/issue", landingLabel: "Reel & material issue", summary: "Raw material issue only: issue reels, coils and materials to the floor by shift; take part in stock counts." },
+  { key: "Watchman", label: "Watchman (gate)", group: "Stores", landing: "/gate", landingLabel: "Gate desk", summary: "Gate desk only: let visitors in and out, photograph bills coming in and goods going out with the Tally bill number." },
 ]
 
 export const ROLE_BY_KEY: Record<string, RoleDefinition> = Object.fromEntries(ROLE_DEFINITIONS.map((role) => [role.key, role]))
@@ -82,6 +83,10 @@ export const MATRIX_SCREENS: Array<{ area: string; screen: string; href: string;
   // Anyone signed in may start a count and count; only the Owner approves counts and corrections (client 2026-10-28).
   { area: "Stores", screen: "Stock counts & book (count, raise corrections)", href: "/inventory/stock-control", access: { Store: "work", GRN: "work", RMIssue: "work", PlantManager: "work", Planner: "work", Operator: "work", QC: "work", InwardQC: "work", InProcessQC: "work", Sales: "work", Dispatch: "work" } },
   { area: "Stores", screen: "Locations, moves & rack labels", href: "/inventory/locations", access: { Store: "work", PlantManager: "work", GRN: "work", RMIssue: "work", Dispatch: "work", Planner: "view", Operator: "view", QC: "view", InwardQC: "view", InProcessQC: "view", Sales: "view" } },
+  // Gate (2026-11-06): the watchman's desk; Stores links gate bills on Goods inward; Accounts files expense bills.
+  { area: "Stores", screen: "Gate desk (visitors, bills in, goods out)", href: "/gate", access: { Watchman: "work", PlantManager: "work" } },
+  { area: "Stores", screen: "Gate bills inbox (expense bills)", href: "/gate/bills", access: { Accounts: "work", PlantManager: "work" } },
+  { area: "Stores", screen: "Gate register", href: "/gate/history", access: { PlantManager: "view" } },
   { area: "Purchasing", screen: "Purchase orders (send scheduled drafts)", href: "/purchase", access: { Store: "work", Planner: "work", PlantManager: "work" } },
   { area: "Purchasing", screen: "RM inward calendar (the Owner approves arrivals)", href: "/purchase/scheduler", access: { Planner: "work", Store: "work", PlantManager: "work", GRN: "view" } },
   { area: "Design", screen: "Specifications", href: "/specifications", access: {} },

@@ -93,6 +93,40 @@ def _seed_plant(connection, plant: str, aliases: list[str]) -> int:
                 text("INSERT INTO reason_seed_log (plant_id, category) VALUES (:plant_id, :category) ON CONFLICT DO NOTHING"),
                 {"plant_id": plant, "category": row["key"]},
             )
+    created += _seed_added_codes(connection, plant, aliases, seeded)
+    return created
+
+
+def _seed_added_codes(connection, plant: str, aliases: list[str], seeded: set[str]) -> int:
+    """A standard code added to a list after the plant was seeded (e.g. DN-WEIGHT-SHORT, 6 Nov 2026) is
+    inserted once, logged as "<LIST>+<CODE>". A code the plant already has, or deleted after this ran, is
+    never inserted again."""
+    created = 0
+    taken = {str(row[0]).upper() for row in connection.execute(
+        text("SELECT code FROM reason_code WHERE plant_id = ANY(:aliases)"), {"aliases": aliases},
+    )}
+    for row in CATEGORIES:
+        labels = {code.upper(): label for code, label in row["seeds"]}
+        for code in row.get("added") or []:
+            marker = f"{row['key']}+{code}"[:40]
+            if marker in seeded:
+                continue
+            if code not in taken and code in labels:
+                result = connection.execute(
+                    text(
+                        "INSERT INTO reason_code (id, code, label, category, severity, description, plant_id, active, created_at, updated_at) "
+                        "VALUES (:id, :code, :label, :category, 'WATCH', :description, :plant_id, TRUE, NOW(), NOW()) "
+                        "ON CONFLICT (plant_id, code) DO NOTHING"
+                    ),
+                    {"id": str(uuid.uuid4()), "code": code, "label": labels[code], "category": row["key"],
+                     "description": "Standard reason (seeded)", "plant_id": plant},
+                )
+                created += int(result.rowcount or 0)
+                taken.add(code)
+            connection.execute(
+                text("INSERT INTO reason_seed_log (plant_id, category) VALUES (:plant_id, :category) ON CONFLICT DO NOTHING"),
+                {"plant_id": plant, "category": marker},
+            )
     return created
 
 

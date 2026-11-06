@@ -59,7 +59,10 @@
 :where(:root[data-theme="dark"]) .text-amber-700:not(:where(.tube-paper, .tube-paper *)) { color: hsl(26 70% 73.6%); }
 :where(:root[data-theme="dark"]) .text-amber-800:not(:where(.tube-paper, .tube-paper *)) { color: hsl(22.7 70% 76.7%); }
 :where(:root[data-theme="dark"]) .text-amber-900:not(:where(.tube-paper, .tube-paper *)) { color: hsl(21.7 70% 79.4%); }
+:where(:root[data-theme="dark"]) .text-black:not(:where(.tube-paper, .tube-paper *)) { color: hsl(220 16% 94%); }
 :where(:root[data-theme="dark"]) .text-emerald-700:not(:where(.tube-paper, .tube-paper *)) { color: hsl(162.9 70% 80.6%); }
+:where(:root[data-theme="dark"]) .text-neutral-500:not(:where(.tube-paper, .tube-paper *)) { color: hsl(220 16% 69.2%); }
+:where(:root[data-theme="dark"]) .text-neutral-700:not(:where(.tube-paper, .tube-paper *)) { color: hsl(220 16% 80.2%); }
 :where(:root[data-theme="dark"]) .text-rose-600:not(:where(.tube-paper, .tube-paper *)) { color: hsl(346.8 70% 66.6%); }
 :where(:root[data-theme="dark"]) .text-slate-500:not(:where(.tube-paper, .tube-paper *)) { color: hsl(215.4 16.3% 68.2%); }
 :where(:root[data-theme="dark"]) .text-slate-600:not(:where(.tube-paper, .tube-paper *)) { color: hsl(215.3 19.3% 75%); }

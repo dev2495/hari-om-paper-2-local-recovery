@@ -130,7 +130,8 @@ test("job card, spec dialog, and quality desks keep stage-specific fields", () =
     assert.doesNotMatch(source, /Pass and release/)
     assert.doesNotMatch(source, /status: "PASS"/)
   }
-  assert.match(incomingEntry, /Save inspection/)
+  // Bill-wise QC (6 Nov 2026): one save for the weighed rows of a bill.
+  assert.match(incomingEntry, /Save weighed rows/)
 })
 
 test("floor QC forms keep the stage measurement rules (min 2 readings, moisture optional, flagged not held)", () => {

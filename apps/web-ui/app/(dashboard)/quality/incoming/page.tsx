@@ -2,19 +2,19 @@
 
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { Suspense, useEffect, useMemo, useRef, useState } from "react"
+import { Suspense, useEffect, useMemo, useState } from "react"
 import {
   AlarmClock,
   ArrowLeft,
   ArrowRight,
   BadgeCheck,
-  Ban,
   ChevronDown,
   ClipboardList,
+  FileWarning,
   FlaskConical,
-  Hourglass,
   PackageOpen,
   RotateCcw,
+  Scale,
   Search,
   ShieldCheck,
   TriangleAlert,
@@ -33,32 +33,20 @@ import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
 import {
   useCreateInventoryQualityConcession,
+  useIncomingBill,
+  useIncomingBills,
   useInventoryQualityConcessions,
   useInventoryQualityInspections,
-  usePendingInventoryQuality,
   useReturnRejectedLotToSupplier,
 } from "@/hooks/use-inventory"
-import { applicableRules, groupIncomingQueue, lotItemName, lotKey, lotName, materialLabel, type IncomingQueueGroup } from "@/lib/incoming-qc"
-import { parseScanCode } from "@/lib/scan-code"
-import { reelSerial } from "@/lib/lot-find"
+import { BAND_WORD, BILL_TABS, VARIANCE_STATUS_WORD, materialLabel, type BillTab } from "@/lib/incoming-qc"
 import { personLabel } from "@/lib/people"
-import { dayText, unitWord } from "@/lib/stock-format"
+import { dayText, qtyText, signedQty, unitWord } from "@/lib/stock-format"
 import { RackLabelHint } from "@/components/inventory/rack-label-hint"
 import { ReasonPicker, useReasonChoice } from "@/components/reasons"
 import { cn } from "@/lib/utils"
 
 const asArray = (value: any) => (Array.isArray(value) ? value : [])
-
-const QUEUES = [
-  { key: "AWAITING_INSPECTION", label: "To inspect", icon: Hourglass, tone: "blue" },
-  { key: "FAILED", label: "Failed · on hold", icon: TriangleAlert, tone: "amber" },
-  { key: "REJECTED", label: "Rejected", icon: Ban, tone: "rose" },
-  // Retired 2026-10-27 (QC is the only gate); shown only while older lots still sit in it.
-  { key: "COMMERCIAL_HOLD", label: "Older holds", icon: AlarmClock, tone: "slate" },
-] as const
-type QueueKey = (typeof QUEUES)[number]["key"]
-
-const queueOf = (row: any): QueueKey => (row?.queue_state || "AWAITING_INSPECTION") as QueueKey
 
 function errorText(error: any, fallback: string) {
   const detail = error?.response?.data?.detail
@@ -69,7 +57,6 @@ function errorText(error: any, fallback: string) {
 
 const RECENT_WORD: Record<string, string> = { PASS: "Passed", FAIL: "Failed", INVALID: "Readings not valid", INCOMPLETE: "Readings incomplete", SKIPPED: "Skipped" }
 const humanize = (value: any) => String(value || "").replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase())
-/** A failed check is saved as an object; show what it says, never "[object Object]". */
 const failureText = (failure: any) => typeof failure === "string" ? failure : String(failure?.message || failure?.label || failure?.detail || failure?.code || "Check failed")
 
 /** ?lot=REEL:<id>, BATCH:<id> or a bare <id>. */
@@ -80,10 +67,7 @@ function parseLinkedLot(value?: string | null): { type: "REEL" | "BATCH" | ""; i
   return { type: "", id: text.toLowerCase() }
 }
 
-/** ?from=/purchase/receipts/<id>: only a path inside this app, never another site.
- * Browsers read a backslash as "/" and drop tabs and new lines, so "/" + backslash + "evil.example" would leave the app:
- * refuse those,
- * then check that the path resolves on this origin. */
+/** ?from=/purchase/receipts/<id>: only a path inside this app, never another site. */
 function safeBack(value?: string | null): { href: string; label: string } | null {
   const raw = String(value || "")
   if (!raw.startsWith("/") || raw.startsWith("//") || raw.includes("\\") || /[\u0000-\u001f\u007f]/.test(raw)) return null
@@ -101,60 +85,25 @@ function safeBack(value?: string | null): { href: string; label: string } | null
   return { href, label }
 }
 
-/** What was ordered, in the words on the PO: "300 GSM · BF 18 · 900 mm". */
-function nominalText(nominal?: Record<string, unknown> | null) {
-  const parts = Object.entries(nominal || {}).filter(([, value]) => value != null && value !== "").map(([key, value]) => {
-    const name = key.toLowerCase()
-    if (name === "gsm") return `${value} GSM`
-    if (name === "bf") return `BF ${value}`
-    if (name === "width_mm") return `${value} mm wide`
-    return `${humanize(name)} ${value}`
-  })
-  return parts.length ? parts.join(" · ") : "—"
-}
-
 function when(value?: string | null) {
   if (!value) return "—"
   return new Date(/Z$|[+-]\d{2}:\d{2}$/.test(value) ? value : `${value}Z`).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
 }
 
-function dueText(group: IncomingQueueGroup) {
-  if (!group.dueAt) return null
-  const hours = Math.round((new Date(group.dueAt).getTime() - Date.now()) / 36e5)
-  const late = Math.max(1, -hours)
-  if (group.overdue || hours < 0) return { text: late >= 48 ? `Overdue ${Math.floor(late / 24)} d` : `Overdue ${late} h`, tone: "rose" as const }
-  return { text: hours < 1 ? "Due within the hour" : `Due in ${hours} h`, tone: hours <= 6 ? ("amber" as const) : ("slate" as const) }
-}
-
-function Kpi({ label, value, hint, icon: Icon, tone, active, onClick, testId }: { label: string; value: number; hint: string; icon: any; tone: string; active?: boolean; onClick?: () => void; testId?: string }) {
-  const ring: Record<string, string> = {
-    blue: "text-signal-blue-ink bg-signal-blue-soft border-signal-blue-line",
-    amber: "text-signal-amber-ink bg-signal-amber-soft border-signal-amber-line",
-    rose: "text-signal-rose-ink bg-signal-rose-soft border-signal-rose-line",
-    emerald: "text-signal-emerald-ink bg-signal-emerald-soft border-signal-emerald-line",
-    slate: "text-muted-foreground bg-muted border-border",
+function varianceChip(card: any) {
+  const variance = card.variance
+  if (variance && variance.status !== "PROVISIONAL") {
+    const short = Number(variance.short_qty || 0)
+    const unit = card.uom === "MIXED" ? "" : card.uom
+    if (variance.status === "WITHIN") return { tone: "emerald" as const, text: short > 0 ? `−${qtyText(short, unit)} · within limit` : Number(variance.excess_qty) > 0 ? `+${qtyText(variance.excess_qty, unit)} · over` : "Matches the bill" }
+    return { tone: (["AWAITING_OWNER", "CLAIM_RAISED", "WAITING_INVOICE", "DN_DRAFTED"].includes(variance.status) ? "rose" : "amber") as "rose" | "amber",
+      text: `${short > 0 ? `−${qtyText(short, unit)} · ` : ""}${VARIANCE_STATUS_WORD[variance.status] || BAND_WORD[variance.band] || variance.status}` }
   }
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      data-testid={testId}
-      aria-pressed={active}
-      className={cn(
-        "erp-panel group flex items-center gap-3 rounded-xl p-3.5 text-left transition-all hover:-translate-y-px hover:shadow-md",
-        active && "ring-2 ring-primary/70",
-      )}
-    >
-      <span className={cn("grid h-10 w-10 shrink-0 place-items-center rounded-xl border", ring[tone] || ring.slate)}>
-        <Icon className="h-5 w-5" />
-      </span>
-      <span className="min-w-0">
-        <span className="block text-[22px] font-semibold leading-none tabular-nums text-foreground">{value}</span>
-        <span className="mt-1 block text-[12.5px] font-semibold text-foreground/85">{label}</span>
-        <span className="block truncate text-[11.5px] text-muted-foreground">{hint}</span>
-      </span>
-    </button>
-  )
+  if (card.lots_weighed) {
+    const diff = Number(card.diff_so_far || 0)
+    return { tone: diff < 0 ? ("amber" as const) : ("slate" as const), text: `${signedQty(diff, card.uom === "MIXED" ? "" : card.uom)} so far` }
+  }
+  return null
 }
 
 const GATE_ROLES = ["QC", "InwardQC", "Store", "PlantManager"]
@@ -164,7 +113,6 @@ function IncomingQualityPage() {
   const { showToast } = useApp()
   const { user, activeRole } = useAuth()
   const roles = useMemo(() => new Set([user?.role, activeRole, ...(user?.roles || [])].filter(Boolean) as string[]), [user?.role, activeRole, user?.roles])
-  // The same roles as the page gate below: a refused role makes no QC calls at all.
   const canView = VIEW_ROLES.some((role) => roles.has(role))
   const canInspect = ["QC", "InwardQC", "Owner", "Admin"].some((role) => roles.has(role))
   const canConcede = ["Owner", "Admin", "PlantManager"].some((role) => roles.has(role)) || (user?.permissions || []).includes("qc:disposition:approve")
@@ -172,152 +120,90 @@ function IncomingQualityPage() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const linked = parseLinkedLot(searchParams?.get("lot"))
+  const linkedBill = String(searchParams?.get("bill") || "").trim()
   const backTo = safeBack(searchParams?.get("from"))
 
-  const pendingQuery = usePendingInventoryQuality(canView)
+  const [tab, setTab] = useState<BillTab>("TO_WEIGH")
+  const [search, setSearch] = useState("")
+  const [query, setQuery] = useState("")
+  useEffect(() => { const timer = window.setTimeout(() => setQuery(search.trim()), 300); return () => window.clearTimeout(timer) }, [search])
+  const [selected, setSelected] = useState<{ key: string; plantId?: string } | null>(linkedBill ? { key: linkedBill } : null)
+  const [focusKey, setFocusKey] = useState<string | null>(null)
+
+  const listQuery = useIncomingBills({ q: query || undefined }, canView)
+  const linkedQuery = useIncomingBills({ lot: linked.id && linked.type ? `${linked.type}:${linked.id}` : undefined }, canView && Boolean(linked.id && linked.type))
+  const billQuery = useIncomingBill(selected?.key, selected?.plantId, canView)
   const concessionsQuery = useInventoryQualityConcessions(undefined, canView)
   const recentQuery = useInventoryQualityInspections({ source: "INWARD", limit: 12 }, canView)
   const createConcession = useCreateInventoryQualityConcession()
   const returnLot = useReturnRejectedLotToSupplier()
 
-  const [tab, setTab] = useState<QueueKey>("AWAITING_INSPECTION")
-  const [material, setMaterial] = useState("ALL")
-  const [search, setSearch] = useState("")
-  const [selection, setSelection] = useState<{ key: string; lots: any[] } | null>(null)
+  const cards = useMemo(() => asArray(listQuery.data?.items), [listQuery.data?.items])
+  const counts = (listQuery.data?.counts || {}) as Record<string, number>
+  const visible = query ? cards : cards.filter((card: any) => (card.tabs || []).includes(tab))
+
+  // A link such as /quality/incoming?lot=REEL:<id> opens that lot's bill with its Actual cell focused.
+  const linkedCard = useMemo(() => asArray(linkedQuery.data?.items).find((card: any) => card.matched_lot) || null, [linkedQuery.data?.items])
+  const [linkedOpened, setLinkedOpened] = useState("")
+  useEffect(() => {
+    if (!linkedCard || linkedOpened === linkedCard.key) return
+    setLinkedOpened(linkedCard.key)
+    setSelected({ key: linkedCard.key, plantId: linkedCard.plant_id || undefined })
+    setFocusKey(`${linked.type}:${linked.id}`)
+    const first = BILL_TABS.find((item) => (linkedCard.tabs || []).includes(item.key))
+    if (first) setTab(first.key)
+  }, [linkedCard]) // eslint-disable-line react-hooks/exhaustive-deps
+  const linkedMissing = Boolean(linked.id) && (!linked.type || (linkedQuery.isSuccess && !linkedCard))
+  const linkedHistory = useInventoryQualityInspections({ entity_id: linked.id, ...(linked.type ? { entity_type: linked.type } : {}), limit: 5 }, linkedMissing)
+
+  // A scanned label or a search with one hit opens it.
+  useEffect(() => {
+    if (!query || !cards.length) return
+    if (cards.length === 1 && cards[0].key !== selected?.key) setSelected({ key: cards[0].key, plantId: cards[0].plant_id || undefined })
+  }, [query, cards.length]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const bill = billQuery.data
+  const lots = asArray(bill?.lots)
+  const check = bill?.weight_check
+
+  function openBill(key: string, plantId?: string) {
+    setSelected({ key, plantId })
+    setFocusKey(null)
+    window.setTimeout(() => document.querySelector('[data-testid="incoming-lot-context"]')?.scrollIntoView({ block: "start", behavior: "smooth" }), 60)
+  }
+
+  // Resolve a failed or rejected lot of the open bill: concession or return to the supplier (unchanged flow).
   const [resolveKey, setResolveKey] = useState("")
   const [concessionQty, setConcessionQty] = useState("")
   const [concessionExpiry, setConcessionExpiry] = useState("")
   const [returnRef, setReturnRef] = useState("")
   const [showAllConcessions, setShowAllConcessions] = useState(false)
-
-  const all = useMemo(() => asArray(pendingQuery.data), [pendingQuery.data])
-  // Customer returns are judged on the Customer complaints desk, not against an inward standard.
-  const inward = useMemo(() => all.filter((row: any) => row.entity_type !== "CUSTOMER_REJECTION"), [all])
-  const customerReturns = all.length - inward.length
-  const liveLots = useMemo(() => new Map(inward.map((row: any) => [lotKey(row), row])), [inward])
-  const counts = useMemo(() => {
-    const out: Record<string, number> = {}
-    for (const row of inward) out[queueOf(row)] = (out[queueOf(row)] || 0) + 1
-    return out
-  }, [inward])
-  const overdue = inward.filter((row: any) => queueOf(row) === "AWAITING_INSPECTION" && row.overdue).length
-  const materials = useMemo(() => Array.from(new Set(inward.map((row: any) => String(row.material_type || "OTHER")))).sort(), [inward])
-  // A scanned label (QR text or its /scan link) is matched by the lot's id; typed text by number, supplier, PO…
-  const scanned = parseScanCode(search)
-  const scannedLot = (scanned.kind === "REEL" || scanned.kind === "BATCH") && scanned.id ? `${scanned.kind}:${scanned.id.toLowerCase()}` : ""
-  const query = (scanned.kind === "REEL" || scanned.kind === "BATCH" ? scanned.code : search).trim().toLowerCase()
-  const querySerial = reelSerial(query)
-  const matchesSearch = (row: any) => {
-    if (scannedLot) return `${String(row.entity_type || "").toUpperCase()}:${String(row.entity_id || "").toLowerCase()}` === scannedLot
-    if (!query) return true
-    // A loosely typed AIT serial (ait6284, AIT-06284) finds the reel labelled "AIT 06284".
-    if (querySerial && [row.unit_label, row.label].some((value) => String(value || "").toUpperCase().startsWith(querySerial))) return true
-    return [row.label, row.grn_no, row.supplier_or_customer, row.unit_ref, row.po_no, row.invoice_no, row.challan_no].some((value) => String(value || "").toLowerCase().includes(query))
-  }
-  const inMaterial = (row: any) => material === "ALL" || String(row.material_type || "OTHER") === material
-  const visible = inward.filter((row: any) => queueOf(row) === tab && inMaterial(row) && matchesSearch(row))
-  const groups = useMemo(() => groupIncomingQueue(visible), [visible])
-
-  function openGroup(group: IncomingQueueGroup) {
-    setSelection({ key: group.key, lots: group.lots })
-    setResolveKey("")
-  }
-
-  // Search looks in every list: when the lot sits in another one (say Failed), show that list, and open a scanned lot.
-  useEffect(() => {
-    if (!scannedLot && !query) return
-    const hits = inward.filter(matchesSearch)
-    if (!hits.length) return
-    if (!scannedLot && hits.some((row: any) => queueOf(row) === tab && inMaterial(row))) return
-    const row = hits[0]
-    setTab(queueOf(row))
-    if (!inMaterial(row)) setMaterial("ALL")
-    if (!scannedLot) return
-    const group = groupIncomingQueue(inward.filter((item: any) => queueOf(item) === queueOf(row))).find((item) => item.lots.some((lot) => lotKey(lot) === lotKey(row)))
-    if (group) openGroup(group)
-  }, [search, inward.length]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // A link such as /quality/incoming?lot=REEL:<id> (GRN page, inward, issue desk, scan) opens that lot's
-  // entry form with its first reading focused; ?lot=<id> alone works too. A decided lot opens read-only.
-  const linkedRow = useMemo(() => (linked.id ? inward.find((item: any) => String(item.entity_id).toLowerCase() === linked.id && (!linked.type || String(item.entity_type).toUpperCase() === linked.type)) || null : null), [linked.id, linked.type, inward])
-  const linkedDecided = Boolean(linked.id) && pendingQuery.isSuccess && !linkedRow
-  const linkedHistory = useInventoryQualityInspections({ entity_id: linked.id, ...(linked.type ? { entity_type: linked.type } : {}), limit: 5 }, linkedDecided)
-  const [linkedOpened, setLinkedOpened] = useState("")
-  useEffect(() => {
-    if (!linkedRow || linkedOpened === lotKey(linkedRow)) return
-    setLinkedOpened(lotKey(linkedRow))
-    setTab(queueOf(linkedRow))
-    if (!inMaterial(linkedRow)) setMaterial("ALL")
-    const group = groupIncomingQueue(inward.filter((item: any) => queueOf(item) === queueOf(linkedRow))).find((item) => item.lots.some((lot) => lotKey(lot) === lotKey(linkedRow)))
-    if (group) openGroup(group)
-  }, [linkedRow, inward.length]) // eslint-disable-line react-hooks/exhaustive-deps
-  // Once the sheet is open, land on it (not on the list): first reading of the linked lot focused.
-  const focusedFor = useRef("")
-  useEffect(() => {
-    if (!linkedRow || !selection || focusedFor.current === lotKey(linkedRow)) return
-    const index = Math.max(0, selection.lots.findIndex((lot) => lotKey(lot) === lotKey(linkedRow)))
-    const timer = window.setTimeout(() => {
-      const panel = document.querySelector<HTMLElement>('[data-testid="incoming-entry-panel"]')
-      if (!panel) return
-      focusedFor.current = lotKey(linkedRow)
-      const first = panel.querySelector<HTMLElement>(`[data-cell="${selection.lots.length > 1 ? index : 0}:0"]`)
-      // Lot name and readings together; on a phone the first reading is brought into view if it is below.
-      ;(document.querySelector<HTMLElement>('[data-testid="incoming-lot-context"]') || panel).scrollIntoView({ block: "start", behavior: "auto" })
-      // A read-only viewer (Store, plant head) has no reading cells: land on the lot's name instead.
-      ;(first || document.querySelector<HTMLElement>('[data-testid="incoming-lot-heading"]'))?.focus({ preventScroll: true })
-      const box = first?.getBoundingClientRect()
-      if (first && box && (box.bottom > window.innerHeight - 80 || box.top < 64)) first.scrollIntoView({ block: "center", behavior: "auto" })
-    }, 60)
-    return () => window.clearTimeout(timer)
-  }, [linkedRow, selection])
-  useEffect(() => {
-    if (!linkedDecided) return
-    document.querySelector<HTMLElement>('[data-testid="incoming-decided-lot"], [data-testid="incoming-linked-missing"]')?.scrollIntoView({ block: "start" })
-  }, [linkedDecided, linkedHistory.isSuccess])
-
-  const lots = selection?.lots || []
-  const head = lots[0] ? liveLots.get(lotKey(lots[0])) || lots[0] : null
-  const profile = head?.quality_profile || {}
-  const rules = applicableRules(profile.parameters)
-  const groupQty = lots.reduce((sum: number, lot: any) => sum + Number(lot.qty || 0), 0)
-  const resolvable = lots
-    .map((lot: any) => liveLots.get(lotKey(lot)))
-    .filter((lot: any) => {
-      const last = lot?.last_inspection
-      return last && (String(last.status).toUpperCase() === "FAIL" || ["REJECT", "BLOCK", "SCRAP"].includes(String(last.disposition || "").toUpperCase()))
-    })
-  const resolving = resolvable.find((lot: any) => lotKey(lot) === resolveKey) || resolvable[0] || null
-  // Concession (CONCESSION) and return to supplier (RM_ISSUE) pick a code from Masters › Reason codes of
-  // the lot's plant (owner decision 4, 1 Nov 2026).
+  const resolvable = lots.filter((lot: any) => {
+    const last = lot?.last_inspection
+    return ["QC_HOLD", "BLOCKED"].includes(String(lot.stock_status)) && last && (String(last.status).toUpperCase() === "FAIL" || ["REJECT", "BLOCK", "SCRAP"].includes(String(last.disposition || "").toUpperCase()))
+  })
+  const resolving = resolvable.find((lot: any) => lot.key === resolveKey) || resolvable[0] || null
   const concessionReason = useReasonChoice("CONCESSION", resolving?.plant_id)
   const returnReason = useReasonChoice("RM_ISSUE", resolving?.plant_id)
   const failedInspection = resolving?.last_inspection && String(resolving.last_inspection.status).toUpperCase() === "FAIL" ? resolving.last_inspection : null
   const concessions = asArray(concessionsQuery.data)
   const recent = asArray(recentQuery.data)
 
-  const resetResolution = () => {
-    concessionReason.reset()
-    setConcessionQty("")
-    setConcessionExpiry("")
-    returnReason.reset()
-    setReturnRef("")
-  }
+  const resetResolution = () => { concessionReason.reset(); setConcessionQty(""); setConcessionExpiry(""); returnReason.reset(); setReturnRef("") }
 
   async function handleConcession() {
     if (!failedInspection) return
     if (!concessionReason.validate()) return showToast("Choose why this material is still fit for use.", "error")
     try {
       await createConcession.mutateAsync({
-        plantId: resolving?.plant_id || undefined,
-        inspection_id: failedInspection.id,
-        ...concessionReason.payload("reason"),
-        quantity: concessionQty.trim() ? Number(concessionQty) : undefined,
-        release_stock: true,
+        plantId: resolving?.plant_id || undefined, inspection_id: failedInspection.id, ...concessionReason.payload("reason"),
+        quantity: concessionQty.trim() ? Number(concessionQty) : undefined, release_stock: true,
         operation_id: `concession-${failedInspection.id}-${concessionQty || "all"}`,
         expires_at: concessionExpiry ? new Date(concessionExpiry).toISOString() : undefined,
       })
       showToast("Concession recorded. The FAIL stays on record; the released quantity can now be issued.", "success")
       resetResolution()
+      void billQuery.refetch()
     } catch (error: any) {
       showToast(errorText(error, "Concession could not be recorded."), "error")
     }
@@ -329,161 +215,118 @@ function IncomingQualityPage() {
     if (!window.confirm(`Return ${Number(resolving.qty || 0).toLocaleString("en-IN")} ${unitWord(resolving.uom || "KG")} of ${resolving.label} to the supplier? It is written out of stock.`)) return
     try {
       const response = await returnLot.mutateAsync({
-        plantId: resolving.plant_id || undefined,
-        entity_type: resolving.entity_type,
-        entity_id: String(resolving.entity_id),
-        ...returnReason.payload("reason"),
-        return_reference: returnRef.trim() || undefined,
+        plantId: resolving.plant_id || undefined, entity_type: resolving.entity_type, entity_id: String(resolving.entity_id),
+        ...returnReason.payload("reason"), return_reference: returnRef.trim() || undefined,
       })
       showToast(response?.data?.message || "Returned to supplier.", "success")
       resetResolution()
+      void billQuery.refetch()
     } catch (error: any) {
       showToast(errorText(error, "Return could not be recorded."), "error")
     }
   }
 
-  const tabs = QUEUES.filter((item) => item.key !== "COMMERCIAL_HOLD" || (counts[item.key] || 0) > 0)
-
   return (
     <RoleGate allow={GATE_ROLES}>
       <div className="space-y-5" data-testid="quality-incoming-page">
         {backTo ? (
-          <Link href={backTo.href} className="erp-btn-secondary !h-11 w-fit" data-testid="incoming-back">
-            <ArrowLeft className="h-4 w-4" /> {backTo.label}
-          </Link>
+          <Link href={backTo.href} className="erp-btn-secondary !h-11 w-fit" data-testid="incoming-back"><ArrowLeft className="h-4 w-4" /> {backTo.label}</Link>
         ) : linked.id ? (
-          <button type="button" className="erp-btn-secondary !h-11 w-fit" data-testid="incoming-back" onClick={() => router.back()}>
-            <ArrowLeft className="h-4 w-4" /> Back
-          </button>
+          <button type="button" className="erp-btn-secondary !h-11 w-fit" data-testid="incoming-back" onClick={() => router.back()}><ArrowLeft className="h-4 w-4" /> Back</button>
         ) : null}
         <PageHeader
           badge="Quality · Incoming"
           title="Incoming inspection"
-          description="Check what came in against its approved standard. A lot that passes can be issued to the floor straight away — invoice or rate questions stay with Accounts and never hold material."
+          description="One card per bill or challan. Weigh every reel, type the actual weight and decide. Stock stays on the bill weight; a shortage beyond the plant's limit goes to the Owner or straight to a debit note."
           actions={
-            <button type="button" className="erp-btn-secondary !h-11 sm:!h-9" onClick={() => { void pendingQuery.refetch(); void recentQuery.refetch() }}>
+            <button type="button" className="erp-btn-secondary !h-11 sm:!h-9" onClick={() => { void listQuery.refetch(); void billQuery.refetch(); void recentQuery.refetch() }}>
               <RotateCcw className="h-4 w-4" /> Refresh
             </button>
           }
         />
         <QualityDeskNav />
 
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" data-testid="incoming-kpis">
-          <Kpi label="To inspect" value={counts.AWAITING_INSPECTION || 0} hint="Inspect within 24 h of inward" icon={Hourglass} tone="blue" active={tab === "AWAITING_INSPECTION"} onClick={() => setTab("AWAITING_INSPECTION")} testId="incoming-tab-AWAITING_INSPECTION" />
-          <Kpi label="Overdue" value={overdue} hint={overdue ? "Past the 24 h window" : "Nothing late"} icon={AlarmClock} tone={overdue ? "rose" : "emerald"} onClick={() => setTab("AWAITING_INSPECTION")} />
-          <Kpi label="Failed · on hold" value={counts.FAILED || 0} hint="Re-check, concede or return" icon={TriangleAlert} tone="amber" active={tab === "FAILED"} onClick={() => setTab("FAILED")} testId="incoming-tab-FAILED" />
-          <Kpi label="Rejected" value={counts.REJECTED || 0} hint="Return to supplier" icon={Ban} tone="rose" active={tab === "REJECTED"} onClick={() => setTab("REJECTED")} testId="incoming-tab-REJECTED" />
-        </div>
-
-        <div className="grid items-start gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
-          {/* Queue */}
+        <div className="grid items-start gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
+          {/* Bills */}
           <section className="erp-panel rounded-xl xl:sticky xl:top-4" data-testid="incoming-queue">
             <div className="space-y-3 border-b border-border p-3.5">
-              <div className="flex gap-1 rounded-lg bg-muted p-1" role="tablist" data-testid="incoming-queue-tabs">
-                {tabs.map((item) => (
-                  <button
-                    key={item.key}
-                    type="button"
-                    role="tab"
-                    aria-selected={tab === item.key}
-                    onClick={() => setTab(item.key)}
-                    className={cn("min-h-11 flex-1 whitespace-nowrap rounded-md px-2 py-1.5 text-[12px] font-semibold transition-colors sm:min-h-0", tab === item.key ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
-                  >
-                    {item.label} <span className="tabular-nums opacity-70">{counts[item.key] || 0}</span>
+              <div className="flex gap-1 overflow-x-auto rounded-lg bg-muted p-1" role="tablist" data-testid="incoming-queue-tabs">
+                {BILL_TABS.map((item) => (
+                  <button key={item.key} type="button" role="tab" aria-selected={!query && tab === item.key} title={item.hint} onClick={() => { setTab(item.key); setSearch("") }}
+                    data-testid={`incoming-tab-${item.key}`}
+                    className={cn("min-h-11 shrink-0 whitespace-nowrap rounded-md px-2.5 py-1.5 text-[12px] font-semibold transition-colors sm:min-h-0", !query && tab === item.key ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>
+                    {item.label} <span className={cn("tabular-nums opacity-70", item.key === "OWNER_DECISION" && counts[item.key] ? "font-bold text-signal-rose-ink opacity-100" : "")}>{counts[item.key] || 0}</span>
                   </button>
                 ))}
               </div>
               <label className="relative block">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Scan the label, or search reel, inward no., supplier, PO…" aria-label="Search queue" className="h-11 w-full rounded-lg border border-input bg-card pl-9 pr-3 text-base sm:h-9 sm:text-[13px]" />
+                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Bill, challan, GRN, AIT, vendor reel or vendor" aria-label="Search bills" data-testid="incoming-search"
+                  className="h-11 w-full rounded-lg border border-input bg-card pl-9 pr-3 text-base sm:h-9 sm:text-[13px]" />
               </label>
-              <RackLabelHint value={search} expected="lot label to inspect it" />
-              {materials.length > 1 ? (
-                <div className="flex flex-wrap gap-2 sm:gap-1.5">
-                  {["ALL", ...materials].map((value) => (
-                    <button key={value} type="button" aria-pressed={material === value} onClick={() => setMaterial(value)} className={cn("min-h-11 rounded-full border px-3.5 text-[13px] font-semibold sm:min-h-0 sm:px-2.5 sm:py-0.5 sm:text-[11.5px]", material === value ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground hover:text-foreground")}>
-                      {value === "ALL" ? "All material" : materialLabel(value)}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
+              <RackLabelHint value={search} expected="lot label to find its bill" />
             </div>
-            <div className="max-h-[calc(100vh-18rem)] space-y-2 overflow-y-auto p-3">
-              {pendingQuery.isLoading ? (
-                <LoadingState label="Loading inward material…" />
-              ) : pendingQuery.isError ? (
-                <ErrorState message="The QC queue could not be loaded. This is not an empty queue." onRetry={() => void pendingQuery.refetch()} />
-              ) : groups.length === 0 ? (
-                <EmptyState label={query || material !== "ALL" ? "Nothing matches this search." : tab === "AWAITING_INSPECTION" ? "All inward material is inspected." : "Nothing in this list."} />
+            <div className="max-h-[calc(100vh-16rem)] space-y-2 overflow-y-auto p-3">
+              {listQuery.isLoading ? (
+                <LoadingState label="Loading bills…" />
+              ) : listQuery.isError ? (
+                <ErrorState message="The bills could not be loaded. This is not an empty list." onRetry={() => void listQuery.refetch()} />
+              ) : visible.length === 0 ? (
+                <EmptyState label={query ? "No bill matches this search." : tab === "TO_WEIGH" ? "Nothing waiting to be weighed." : "Nothing in this list."} />
               ) : (
-                groups.map((group) => {
-                  const active = selection?.key === group.key
-                  const due = tab === "AWAITING_INSPECTION" ? dueText(group) : null
-                  const last = group.lots.find((lot) => lot.last_inspection)?.last_inspection
+                visible.map((card: any) => {
+                  const active = selected?.key === card.key
+                  const counted = Math.max(0, Number(card.lots_total || 0) - Number(card.lots_excluded || 0))
+                  const progress = counted ? Math.round((Number(card.lots_weighed || 0) / counted) * 100) : 0
+                  const chip = varianceChip(card)
                   return (
-                    <button
-                      key={group.key}
-                      type="button"
-                      onClick={() => openGroup(group)}
-                      data-testid={`incoming-group-${group.key}`}
-                      className={cn(
-                        "w-full rounded-xl border px-3.5 py-3 text-left transition-all",
-                        active ? "border-primary bg-primary/[.06] ring-1 ring-primary/40" : "border-border bg-card hover:border-foreground/25 hover:shadow-sm",
-                      )}
-                    >
+                    <button key={card.key} type="button" onClick={() => openBill(card.key, card.plant_id || undefined)} data-testid={`incoming-bill-${card.key}`}
+                      className={cn("w-full rounded-xl border px-3.5 py-3 text-left transition-all", active ? "border-primary bg-primary/[.06] ring-1 ring-primary/40" : "border-border bg-card hover:border-foreground/25 hover:shadow-sm")}>
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <p className="truncate text-[13.5px] font-semibold text-foreground">{group.title}</p>
-                          <p className="truncate text-[12px] text-muted-foreground">{group.supplier || "—"}</p>
+                          <p className="text-[13.5px] font-semibold leading-5 text-foreground">{card.title}</p>
+                          <p className="truncate text-[12px] text-muted-foreground">{card.supplier_name || "—"}{card.received_date ? ` · ${dayText(card.received_date)}` : ""}</p>
                         </div>
-                        {due ? <Chip tone={due.tone} size="xs" icon={due.tone === "rose" ? AlarmClock : undefined}>{due.text}</Chip> : null}
+                        {card.overdue ? <Chip tone="rose" size="xs" icon={AlarmClock}>Overdue</Chip> : null}
                       </div>
                       <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                        <Chip tone="slate" size="xs">{materialLabel(group.materialType)}</Chip>
-                        {group.grn ? <Chip tone="blue" size="xs">{group.grn}</Chip> : null}
-                        <span className="text-[11.5px] font-semibold tabular-nums text-foreground/80">
-                          {group.lots.length > 1 ? `${group.lots.length} lots · ` : ""}{group.qty.toLocaleString("en-IN")} {unitWord(group.uom || "KG")}
-                        </span>
+                        {card.grn_nos?.length ? <Chip tone="blue" size="xs">GRN {card.grn_nos.join(", ")}</Chip> : <Chip tone="slate" size="xs">Opening stock</Chip>}
+                        {card.po_nos?.length ? <Chip tone="slate" size="xs">PO {card.po_nos.join(", ")}</Chip> : null}
+                        {(card.material_types || []).slice(0, 2).map((type: string) => <Chip key={type} tone="slate" size="xs">{materialLabel(type)}</Chip>)}
                       </div>
-                      {group.lots.length > 1 ? (
-                        <p className="mt-1.5 truncate text-[11.5px] text-muted-foreground">{group.lots.map((lot) => lotName(lot)).join(" · ")}</p>
-                      ) : (
-                        <p className="mt-1.5 truncate text-[11.5px] text-muted-foreground">{lotName(group.lots[0])}{group.lots[0].unit_ref ? ` · vendor ${group.lots[0].unit_ref}` : ""}</p>
-                      )}
-                      {last ? (
-                        <p className="mt-1 text-[11.5px] font-semibold text-signal-amber-ink">
-                          Last check {last.status}{last.disposition ? ` · ${last.disposition}` : ""}{last.failures?.length ? ` · ${last.failures.join(", ")}` : ""}
-                        </p>
+                      {counted ? (
+                        <div className="mt-2.5">
+                          <div className="flex items-center justify-between text-[11.5px] font-semibold text-foreground/80">
+                            <span>{card.lots_weighed} of {counted} weighed{card.lots_excluded ? ` · ${card.lots_excluded} rejected` : ""}</span>
+                            <span className="tabular-nums text-muted-foreground">{qtyText(card.bill_total, card.uom === "MIXED" ? "" : card.uom)}</span>
+                          </div>
+                          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted"><div className={cn("h-full rounded-full", progress === 100 ? "bg-signal-emerald-ink" : "bg-primary")} style={{ width: `${progress}%` }} /></div>
+                        </div>
                       ) : null}
+                      {chip ? <div className="mt-2"><Chip tone={chip.tone} size="xs" icon={Scale}>{chip.text}</Chip></div> : null}
                     </button>
                   )
                 })
               )}
             </div>
-            {customerReturns ? (
-              <Link href="/quality/returns" className="flex min-h-11 items-center justify-between gap-2 border-t border-border px-4 py-2.5 text-[12.5px] font-semibold text-muted-foreground hover:text-foreground">
-                <span>{customerReturns} customer return{customerReturns === 1 ? "" : "s"} wait on Customer complaints</span>
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-            ) : null}
           </section>
 
-          {/* Workspace (opened from a link: shown before the list on a phone, so the form is what you land on) */}
-          <div className={cn("min-w-0 space-y-5", linked.id && "max-xl:order-first")}>
-            {!head && linkedDecided ? (
+          {/* Bill */}
+          <div className={cn("min-w-0 space-y-5", (linked.id || linkedBill) && "max-xl:order-first")}>
+            {!selected && linkedMissing ? (
               <IncomingDecidedLot inspections={asArray(linkedHistory.data)} loading={linkedHistory.isLoading} back={backTo} />
-            ) : !head ? (
+            ) : !selected ? (
               <section className="erp-panel rounded-xl p-6" data-testid="incoming-empty-workspace">
                 <div className="mx-auto max-w-xl text-center">
                   <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl border border-signal-blue-line bg-signal-blue-soft text-signal-blue-ink"><FlaskConical className="h-6 w-6" /></span>
-                  <h2 className="mt-3 text-[17px] font-semibold">Pick an inward entry from the list</h2>
-                  <p className="mt-1 text-[13px] text-muted-foreground">All reels, coils or batches that came in together open in one sheet.</p>
+                  <h2 className="mt-3 text-[17px] font-semibold">Pick a bill from the list</h2>
+                  <p className="mt-1 text-[13px] text-muted-foreground">Every reel, coil or lot of the bill opens in one sheet.</p>
                 </div>
                 <ol className="mx-auto mt-6 grid max-w-3xl gap-3 sm:grid-cols-3">
                   {[
-                    { icon: ClipboardList, title: "Enter readings", text: "Each check shows its allowed band. Cells turn green or red as you type." },
-                    { icon: ShieldCheck, title: "Decide per lot", text: "By readings releases a lot only if every check is in band. Hold or Reject when needed." },
-                    { icon: PackageOpen, title: "Issue to floor", text: "Passed lots appear on the issue desk at once. Failed ones can be conceded or returned." },
+                    { icon: Scale, title: "Weigh each reel", text: "Type the scale weight beside the bill weight. Enter goes to the next reel." },
+                    { icon: ShieldCheck, title: "Decide", text: "Accept needs the weight. Hold or Reject do not. Checks are optional." },
+                    { icon: PackageOpen, title: "Issue to floor", text: "Accepted reels can be issued at once. A short bill goes to the Owner." },
                   ].map((step, index) => (
                     <li key={step.title} className="rounded-xl border border-border bg-[hsl(var(--surface-2))] p-3.5">
                       <p className="flex items-center gap-2 text-[13px] font-semibold"><step.icon className="h-4 w-4 text-primary" />{index + 1}. {step.title}</p>
@@ -492,30 +335,32 @@ function IncomingQualityPage() {
                   ))}
                 </ol>
               </section>
+            ) : billQuery.isLoading ? (
+              <section className="erp-panel rounded-xl p-6"><LoadingState label="Opening the bill…" /></section>
+            ) : billQuery.isError || !bill ? (
+              <section className="erp-panel rounded-xl p-6"><ErrorState message={errorText(billQuery.error, "The bill could not be opened.")} onRetry={() => void billQuery.refetch()} /></section>
             ) : (
               <>
                 <section className="erp-panel scroll-mt-20 rounded-xl p-4 sm:p-5" data-testid="incoming-lot-context">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">{materialLabel(head.material_type)}{head.grn_no ? ` · Inward ${head.grn_no}` : ""}</p>
-                      <h2 tabIndex={-1} data-testid="incoming-lot-heading" className="mt-0.5 text-[19px] font-semibold tracking-tight text-foreground outline-none">{lotItemName(head)}</h2>
-                      <p className="text-[13px] text-muted-foreground">
-                        {lots.length > 1 ? `${lots.length} lots` : lotName(head)} · {groupQty.toLocaleString("en-IN", { maximumFractionDigits: 3 })} {unitWord(head.uom || "KG")} · {head.supplier_or_customer || "—"}
-                      </p>
+                      <p className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">{(bill.material_types || []).map(materialLabel).join(" · ")}{bill.receipt_kind === "MANUAL" ? " · GRN without PO" : ""}</p>
+                      <h2 tabIndex={-1} data-testid="incoming-lot-heading" className="mt-0.5 text-[19px] font-semibold tracking-tight text-foreground outline-none">{bill.title}</h2>
+                      <p className="text-[13px] text-muted-foreground">{bill.supplier_name || "—"} · {lots.length} lot{lots.length === 1 ? "" : "s"}</p>
                     </div>
                     <div className="flex flex-wrap gap-1.5">
-                      {profile.revision ? <Chip tone="emerald" icon={BadgeCheck}>Standard rev {profile.revision}</Chip> : <Chip tone="amber" icon={TriangleAlert}>No approved standard</Chip>}
-                      <StatusBadge value={liveLots.has(lotKey(head)) ? head.stock_status : "UNRESTRICTED"} />
+                      {bill.invoice_pending ? <Chip tone="amber" icon={FileWarning}>Invoice to follow</Chip> : null}
+                      {check ? <Chip tone={["AWAITING_OWNER", "DN_DRAFTED", "CLAIM_RAISED", "WAITING_INVOICE"].includes(check.status) ? "rose" : check.status === "WITHIN" ? "emerald" : "slate"} icon={Scale}>{VARIANCE_STATUS_WORD[check.status] || check.status}</Chip> : null}
                     </div>
                   </div>
                   <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2.5 rounded-xl bg-[hsl(var(--surface-2))] px-4 py-3 text-[12.5px] sm:grid-cols-3 2xl:grid-cols-6">
                     {[
-                      ["Received", head.received_date ? dayText(head.received_date) : when(head.created_at)],
-                      ["Challan", head.challan_no || "—"],
-                      ["PO", head.po_no || "—"],
-                      ["Invoice", head.invoice_no || "Not yet (Accounts)"],
-                      ["QC due", head.due_at ? when(head.due_at) : "—"],
-                      ["Ordered", nominalText(head.nominal)],
+                      ["Vendor", bill.supplier_name || "—"],
+                      ["PO", (bill.po_nos || []).join(", ") || "No PO"],
+                      ["GRN", (bill.grn_nos || []).join(", ") || "—"],
+                      ["Challan", (bill.challan_nos || []).join(", ") || "—"],
+                      ["Invoice", bill.invoice_no || "To follow (Accounts)"],
+                      ["Received", bill.received_date ? dayText(bill.received_date) : "—"],
                     ].map(([label, value]) => (
                       <div key={label} className="min-w-0">
                         <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</dt>
@@ -523,76 +368,57 @@ function IncomingQualityPage() {
                       </div>
                     ))}
                   </dl>
+                  {check && check.status !== "PROVISIONAL" ? <WeightCheckBanner check={check} /> : null}
+                  {bill.weights_frozen ? <p className="mt-3 rounded-lg border border-border bg-muted px-3 py-2 text-[12.5px] text-muted-foreground">{bill.weights_frozen}</p> : null}
                 </section>
 
                 <section className="erp-panel rounded-xl p-4 sm:p-5" data-testid="incoming-entry-panel">
-                  <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
-                    <div>
-                      <h3 className="text-[15px] font-semibold">Readings &amp; decision</h3>
-                      <p className="text-[12.5px] text-muted-foreground">
-                        {rules.length} check{rules.length === 1 ? "" : "s"} from the approved standard · <span className="text-signal-rose-ink">*</span> required
-                      </p>
-                    </div>
+                  <div className="mb-3">
+                    <h3 className="text-[15px] font-semibold">Weigh &amp; decide</h3>
+                    <p className="text-[12.5px] text-muted-foreground">Bill weight is read-only. <span className="text-signal-rose-ink">*</span> Actual weight is needed to Accept; every other check is optional, and a reading out of band still holds the reel.</p>
                   </div>
-                  {!rules.length ? (
-                    <div className="rounded-xl border border-signal-amber-line bg-signal-amber-soft px-4 py-3 text-[13px] text-signal-amber-ink">
-                      This material has no approved standard yet, so it cannot pass QC. Approve one in{" "}
-                      <Link className="font-semibold underline" href="/quality/material-standards">Material standards</Link>, then come back.
-                    </div>
-                  ) : (
-                    <>
-                      {!canInspect ? (
-                        <p className="mb-3 rounded-lg border border-border bg-muted px-3 py-2 text-[12.5px] text-muted-foreground" data-testid="incoming-read-only">
-                          Only QC, Owner or Admin enters readings. You can see the standard and, where allowed, resolve a failed lot below.
-                        </p>
-                      ) : null}
-                      <IncomingInspectionEntry
-                        key={selection?.key}
-                        lots={lots}
-                        liveLots={liveLots}
-                        rules={rules}
-                        canInspect={canInspect}
-                        onSaved={(summary, tone) => showToast(summary, tone)}
-                      />
-                    </>
-                  )}
+                  {!canInspect ? (
+                    <p className="mb-3 rounded-lg border border-border bg-muted px-3 py-2 text-[12.5px] text-muted-foreground" data-testid="incoming-read-only">
+                      Only QC, Inward QC, Owner or Admin weighs and decides. You can see the bill and, where allowed, resolve a held lot below.
+                    </p>
+                  ) : null}
+                  <IncomingInspectionEntry key={bill.key} bill={bill} canInspect={canInspect && !bill.weights_frozen} focusKey={focusKey}
+                    onSaved={(summary, tone) => showToast(summary, tone)} onOpenBill={(key) => openBill(key)} />
                 </section>
 
                 {resolving ? (
                   <section className="erp-panel rounded-xl p-4 sm:p-5" data-testid="incoming-resolution">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
-                        <h3 className="text-[15px] font-semibold">Resolve a failed lot</h3>
+                        <h3 className="text-[15px] font-semibold">Resolve a held or rejected lot</h3>
                         <p className="text-[12.5px] text-muted-foreground">Re-check it in the sheet above, allow use by concession, or send it back.</p>
                       </div>
                       {resolvable.length > 1 ? (
-                        <select aria-label="Lot to resolve" value={lotKey(resolving)} onChange={(event) => { setResolveKey(event.target.value); resetResolution() }} className="h-11 rounded-lg border border-input bg-card px-2 text-[13px] sm:h-9">
-                          {resolvable.map((lot: any) => <option key={lotKey(lot)} value={lotKey(lot)}>{lotName(lot)} · {lot.last_inspection?.failures?.join(", ") || lot.last_inspection?.status}</option>)}
+                        <select aria-label="Lot to resolve" value={resolving.key} onChange={(event) => { setResolveKey(event.target.value); resetResolution() }} className="h-11 rounded-lg border border-input bg-card px-2 text-[13px] sm:h-9">
+                          {resolvable.map((lot: any) => <option key={lot.key} value={lot.key}>{lot.code} · {lot.last_inspection?.failures?.join(", ") || lot.last_inspection?.disposition || lot.last_inspection?.status}</option>)}
                         </select>
                       ) : (
-                        <Chip tone="amber">{lotName(resolving)} · {resolving.last_inspection?.failures?.join(", ") || resolving.last_inspection?.status}</Chip>
+                        <Chip tone="amber">{resolving.code} · {resolving.last_inspection?.failures?.join(", ") || resolving.last_inspection?.disposition || resolving.last_inspection?.status}</Chip>
                       )}
                     </div>
                     <div className="mt-4 grid gap-4 lg:grid-cols-2">
                       <div className="space-y-3 rounded-xl border border-border p-4">
-                        <p className="flex items-center gap-2 text-[13.5px] font-semibold"><ShieldCheck className="h-4 w-4 text-signal-amber-ink" /> Concession — use despite FAIL</p>
+                        <p className="flex items-center gap-2 text-[13.5px] font-semibold"><ShieldCheck className="h-4 w-4 text-signal-amber-ink" /> Concession · use despite FAIL</p>
                         {!failedInspection ? (
                           <p className="text-[12.5px] text-muted-foreground">Only a lot whose last check failed can be conceded. A rejected lot is returned.</p>
                         ) : canConcede ? (
                           <>
-                            <p className="text-[12px] text-muted-foreground">The FAIL stays on record. Plant head, Owner or Admin — never the inspector. Critical checks cannot be conceded.</p>
+                            <p className="text-[12px] text-muted-foreground">The FAIL stays on record. Plant head, Owner or Admin, never the inspector.</p>
                             <ReasonPicker category="CONCESSION" plantId={resolving?.plant_id} label="Why it is still fit for use" value={concessionReason.value} onChange={concessionReason.setValue} showErrors={concessionReason.touched} compact testIdPrefix="incoming-concession" />
                             <div className="grid gap-3 sm:grid-cols-2">
                               <label className="block text-[12px] font-medium">Quantity (blank = whole lot)
-                                <input type="number" min={0} step="0.001" className="mt-1 h-11 w-full sm:h-9 rounded-lg border border-input bg-card px-3" value={concessionQty} onChange={(event) => setConcessionQty(event.target.value)} />
+                                <input type="number" min={0} step="0.001" className="mt-1 h-11 w-full rounded-lg border border-input bg-card px-3 sm:h-9" value={concessionQty} onChange={(event) => setConcessionQty(event.target.value)} />
                               </label>
                               <label className="block text-[12px] font-medium">Valid until (optional)
-                                <input type="date" className="mt-1 h-11 w-full sm:h-9 rounded-lg border border-input bg-card px-3" value={concessionExpiry} onChange={(event) => setConcessionExpiry(event.target.value)} />
+                                <input type="date" className="mt-1 h-11 w-full rounded-lg border border-input bg-card px-3 sm:h-9" value={concessionExpiry} onChange={(event) => setConcessionExpiry(event.target.value)} />
                               </label>
                             </div>
-                            <button type="button" data-testid="incoming-concession-submit" disabled={createConcession.isPending} onClick={() => void handleConcession()} className="erp-btn-secondary w-full">
-                              Record concession
-                            </button>
+                            <button type="button" data-testid="incoming-concession-submit" disabled={createConcession.isPending} onClick={() => void handleConcession()} className="erp-btn-secondary w-full">Record concession</button>
                           </>
                         ) : (
                           <p className="text-[12.5px] text-muted-foreground">The plant head, an Owner or an Admin (not the inspector) can authorise a concession.</p>
@@ -605,9 +431,7 @@ function IncomingQualityPage() {
                             <p className="text-[12px] text-muted-foreground">Writes the whole lot out of stock and marks the inward line rejected. With an invoice attached, a quality claim opens for the debit note.</p>
                             <ReasonPicker category="RM_ISSUE" plantId={resolving?.plant_id} label="Reason for the return" value={returnReason.value} onChange={returnReason.setValue} showErrors={returnReason.touched} compact testIdPrefix="incoming-return" />
                             <input className="h-11 w-full rounded-lg border border-input bg-card px-3 text-[13px] sm:h-9" value={returnRef} onChange={(event) => setReturnRef(event.target.value)} placeholder="Return challan / vehicle no. (optional)" />
-                            <button type="button" data-testid="incoming-return-submit" disabled={returnLot.isPending} onClick={() => void handleReturn()} className="inline-flex h-11 w-full items-center justify-center rounded-lg border border-signal-rose-line sm:h-9 bg-signal-rose-soft text-[13px] font-semibold text-signal-rose-ink disabled:opacity-60">
-                              Return to supplier
-                            </button>
+                            <button type="button" data-testid="incoming-return-submit" disabled={returnLot.isPending} onClick={() => void handleReturn()} className="inline-flex h-11 w-full items-center justify-center rounded-lg border border-signal-rose-line bg-signal-rose-soft text-[13px] font-semibold text-signal-rose-ink disabled:opacity-60 sm:h-9">Return to supplier</button>
                           </>
                         ) : (
                           <p className="text-[12.5px] text-muted-foreground">Store, Plant Manager, Owner or Admin records the physical return.</p>
@@ -665,9 +489,6 @@ function IncomingQualityPage() {
                           <p className="text-[13px] font-semibold">Measured {row.measured_status || "FAIL"} · released {row.released_stock_status || row.stock_status || "held"}</p>
                           <StatusBadge value={row.released_stock_status || "CONCESSION"} />
                         </div>
-                        <p className="mt-0.5 text-[12px] text-muted-foreground" data-testid="quality-incoming-concession-separate">
-                          Separate record · quantity {row.quantity ?? "whole lot"} · rest stays held · inspection {row.inspection_id}
-                        </p>
                         <p className="text-[12px] text-muted-foreground">{row.reason} · by {personLabel(row.approved_by)}{row.expires_at ? ` · until ${row.expires_at}` : ""}</p>
                       </div>
                     ))
@@ -688,7 +509,35 @@ function IncomingQualityPage() {
   )
 }
 
-// useSearchParams needs a Suspense boundary in Next 15 (SPEC section 6), or the build bails out.
+/** The bill's weight check once every lot is weighed: band, who acts next, and the case / debit note. */
+function WeightCheckBanner({ check }: { check: any }) {
+  const unit = check.uom === "MIXED" ? "" : check.uom
+  const short = Number(check.short_qty || 0)
+  const next: Record<string, string> = {
+    WITHIN: short > 0 ? `Short ${qtyText(short, unit)}, within the ${qtyText(check.notify_kg, "KG")} limit: recorded only.` : Number(check.excess_qty) > 0 ? `Over the bill by ${qtyText(check.excess_qty, unit)}: recorded only.` : "The scale matches the bill.",
+    INFO_SENT: "Short on items not billed in kg: the Owner was told. No debit note is made automatically.",
+    AWAITING_OWNER: `Short ${qtyText(short, unit)} (limit ${qtyText(check.notify_kg, "KG")}–${qtyText(check.auto_kg, "KG")}): the Owner decides to make a debit note or skip it.${check.reminder_due ? " Reminder due." : ""}`,
+    SKIPPED: `Owner skipped the debit note: ${check.reason_label || "reason on the case"}${check.note ? ` (${check.note})` : ""}.`,
+    CLAIM_RAISED: `Case raised for ${qtyText(short, unit)}. ${check.last_error || "The debit note is being drafted."}`,
+    WAITING_INVOICE: `Case raised for ${qtyText(short, unit)}; the debit note drafts as soon as the invoice is attached to the GRN.`,
+    DN_DRAFTED: `Debit note ${check.debit_note_no || ""} (${String(check.debit_note_status || "draft").toLowerCase()}) for ₹${Number(check.claim_amount || 0).toLocaleString("en-IN")}. ${check.po_raiser ? `${personLabel(check.po_raiser)} follows up with the vendor.` : ""}`,
+    CLOSED: `Closed: debit note ${check.debit_note_no || ""} is ${String(check.debit_note_status || "").toLowerCase()}.`,
+  }
+  const tone = ["AWAITING_OWNER", "CLAIM_RAISED", "WAITING_INVOICE", "DN_DRAFTED"].includes(check.status) ? "border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink"
+    : check.status === "WITHIN" ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink" : "border-border bg-muted text-foreground"
+  return (
+    <div className={cn("mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3.5 py-2.5 text-[13px] font-semibold", tone)} data-testid="incoming-weight-check">
+      <span className="flex items-start gap-2"><Scale className="mt-0.5 h-4 w-4 shrink-0" />{next[check.status] || check.status}</span>
+      {["AWAITING_OWNER", "DN_DRAFTED", "WAITING_INVOICE", "CLAIM_RAISED", "SKIPPED", "CLOSED"].includes(check.status) ? (
+        <Link href={`/purchase/discrepancies?view=weight&variance=${check.id}`} className="inline-flex min-h-11 items-center gap-1 text-[12.5px] underline-offset-2 hover:underline sm:min-h-0">
+          Weight differences <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
+      ) : null}
+    </div>
+  )
+}
+
+// useSearchParams needs a Suspense boundary in Next 15, or the build bails out.
 export default function IncomingQualityPageWithSearch() {
   return (
     <Suspense fallback={<LoadingState label="Opening incoming QC…" />}>

@@ -86,6 +86,8 @@ export type Discrepancy = {
   assignee?: string | null
   /** The decision text ("Label — note" of the INVOICE_DIFF reason, owner decision 4, 1 Nov 2026). */
   resolution_reason?: string | null
+  /** Case evidence; source "QC_WEIGH" = the bill weighed short at incoming QC (6 Nov 2026). */
+  evidence?: Record<string, any> | null
 }
 
 export type ProcurementPlanEntry = {

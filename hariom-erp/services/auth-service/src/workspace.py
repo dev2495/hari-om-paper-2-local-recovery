@@ -18,6 +18,9 @@ LANDING_PRIORITY = [
     "GRN",
     "RMIssue",
     "Operator",
+    # Gate desk only (6 Nov 2026): visitors in and out, bill-in photos, goods-out photos. Last, so a person
+    # who holds another role as well lands on that role's desk.
+    "Watchman",
 ]
 
 BUSINESS_ROLE_ORDER = LANDING_PRIORITY.copy()
@@ -45,6 +48,7 @@ ROLE_TO_LANDING = {
     "InProcessQC": "InProcessQC",
     "GRN": "GRN",
     "RMIssue": "RMIssue",
+    "Watchman": "Watchman",
 }
 
 LEGACY_ROLE_NAMES = sorted({role for role in ROLE_TO_LANDING if role not in BUSINESS_ROLE_SET})
@@ -63,6 +67,7 @@ LANDING_LABELS = {
     "GRN": "GRN / Goods Receipt",
     "RMIssue": "Raw Material Issue",
     "Operator": "Operator",
+    "Watchman": "Watchman (gate)",
 }
 
 ROLE_CAPABILITIES = {
@@ -163,6 +168,10 @@ ROLE_CAPABILITIES = {
         "summary": "QR scan, assigned job card, and simple floor input only.",
         "permissions": ["operator:scan", "production:entry"],
     },
+    "Watchman": {
+        "summary": "Gate desk only: let visitors in and out, photograph bills coming in and goods going out with the Tally bill number. Sees only their own gate entries of the day.",
+        "permissions": ["gate:desk"],
+    },
 }
 
 OVERRIDE_RIGHTS = [
@@ -177,6 +186,7 @@ OVERRIDE_RIGHTS = [
     {"key": "grn", "label": "Goods receipt (GRN) rights", "roles": ["GRN"]},
     {"key": "rm_issue", "label": "Raw material issue rights", "roles": ["RMIssue"]},
     {"key": "operator", "label": "QR operator rights", "roles": ["Operator"]},
+    {"key": "watchman", "label": "Gate desk (watchman) rights", "roles": ["Watchman"]},
     {"key": "reports", "label": "Reports and analytics visibility", "roles": ["Owner"]},
     {"key": "system", "label": "System setup rights", "roles": ["Admin"]},
 ]

@@ -110,6 +110,11 @@ const LANDING_COPY: Record<LandingRole, LandingCopy> = {
     title: "QR scan work, assigned stages, and simple input actions for the floor",
     description: "A narrow landing for job-card scanning, stage entry, and work that needs operator input.",
   },
+  Watchman: {
+    badge: "Gate desk",
+    title: "Visitors, bills coming in and goods going out",
+    description: "The watchman works on the gate desk only; this page opens it.",
+  },
 }
 
 const ROLE_ICONS = {
@@ -126,6 +131,7 @@ const ROLE_ICONS = {
   GRN: PackageCheck,
   RMIssue: Warehouse,
   Operator: Wrench,
+  Watchman: ShieldAlert,
 } satisfies Record<LandingRole, any>
 
 function statusCounts(rows: any[], key: string): CountRow[] {

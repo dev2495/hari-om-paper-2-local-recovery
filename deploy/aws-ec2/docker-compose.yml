@@ -78,6 +78,16 @@ services:
       PUBLIC_WEB_PORT: 13000
       BFF_INTERNAL_URL: http://127.0.0.1:14000
       NEXT_PUBLIC_BFF_URL: http://127.0.0.1:14000
+      # Doc Vault (2026-11-06): bills, challans and photos. Local files live on the erp_documents volume
+      # (never the container filesystem). To move to S3 see docs/runbooks/doc-vault-storage.md.
+      DOCS_STORAGE_BACKEND: ${DOCS_STORAGE_BACKEND:-local}
+      DOCS_STORAGE_DIR: /data/documents
+      DOCS_S3_BUCKET: ${DOCS_S3_BUCKET:-}
+      DOCS_S3_REGION: ${DOCS_S3_REGION:-}
+      DOCS_S3_PREFIX: ${DOCS_S3_PREFIX:-}
+      DOCS_S3_DELIVERY: ${DOCS_S3_DELIVERY:-proxy}
+    volumes:
+      - erp_documents:/data/documents
     expose:
       - "13000"
     healthcheck:
@@ -114,5 +124,6 @@ services:
 
 volumes:
   postgres_data:
+  erp_documents:
   caddy_data:
   caddy_config:

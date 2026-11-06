@@ -158,6 +158,9 @@ class GovernedReceiptCreate(BaseModel):
     # The vendor's short / mill name printed on reel labels (vendor master "Mill / short name"), e.g. AKSHAT.
     mill_name: Optional[str] = Field(default=None, max_length=60)
     lines: list[GovernedReceiptLineInput] = Field(min_length=1)
+    # Gate (6 Nov 2026): the bill photographed at the gate (Goods inward › At the gate). Optional; posting
+    # links the entry and its photos to this GRN and to every reel and lot of it.
+    gate_entry_id: Optional[uuid.UUID] = None
 
     @field_validator("invoice_no", "over_receipt_reason")
     @classmethod
@@ -517,7 +520,8 @@ def post_governed_receipt(
     current_user: dict = Depends(require_role(["Store", "PlantManager", "GRN"])),
 ):
     _validate_receipt(payload, db, plant_id)
-    fingerprint = canonical_hash(payload.model_dump(mode="json", exclude={"request_id"}))
+    # gate_entry_id stays out of the fingerprint when not sent, so replays of older requests still match.
+    fingerprint = canonical_hash(payload.model_dump(mode="json", exclude={"request_id"} | ({"gate_entry_id"} if payload.gate_entry_id is None else set())))
     existing = db.query(PurchaseReceipt).filter(PurchaseReceipt.plant_id == plant_id, PurchaseReceipt.request_id == payload.request_id).first()
     if existing:
         if existing.request_fingerprint != fingerprint:
@@ -526,6 +530,9 @@ def post_governed_receipt(
         response["idempotent"] = True
         return response
     assert_books_open(db, plant_id, payload.received_date)
+    if payload.gate_entry_id:
+        from ..services import gate as gate_service
+        gate_service.check_linkable(db, plant_id, payload.gate_entry_id)
     order = db.query(PurchaseOrder).filter(PurchaseOrder.id == payload.purchase_order_id, PurchaseOrder.plant_id == plant_id).with_for_update().first()
     if not order or order.status not in {"APPROVED", "PARTIALLY_RECEIVED"}:
         raise HTTPException(status_code=409, detail="Only an approved purchase order can receive material")
@@ -769,6 +776,9 @@ def post_governed_receipt(
         else "REVIEW_REQUIRED" if "RATE_REVIEW" in commercial_states
         else "CLEAR"
     )
+    if payload.gate_entry_id:
+        from ..services import gate as gate_service
+        gate_service.link_on_grn_post(db, plant_id, payload.gate_entry_id, receipt, _actor(current_user))
     try:
         db.commit()
     except IntegrityError as exc:
@@ -1083,6 +1093,10 @@ def attach_invoice_to_receipt(
     receipt.invoice_pending = False
     receipt.commercial_status = "MANUAL_REVIEW" if receipt.receipt_kind == "MANUAL" else ("REVIEW_REQUIRED" if review_required else "CLEAR")
     receipt.posting_version += 1
+    # Weight check of the bill (6 Nov 2026): regroup by invoice and let a waiting weight claim draft its
+    # debit note now that the invoice is here. Never stops the attachment.
+    from ..services.weight_variance import Context as WeightContext, on_invoice_attached
+    on_invoice_attached(db, receipt, WeightContext(actor=_actor(current_user), token=token_of(current_user)))
     try:
         db.commit()
     except IntegrityError as exc:
@@ -1286,38 +1300,18 @@ def create_debit_note(
     payload: DebitNoteCreate, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Accounts", "PlantManager"])),
 ):
+    # The rules live in services/debit_notes.py, shared with the weight check of a bill (6 Nov 2026).
+    from ..services.debit_notes import create_debit_note as create_debit_note_record
+
     request_fingerprint = canonical_hash(payload.model_dump(mode="json", exclude={"request_id"}))
-    existing = db.query(PurchaseDebitNote).filter(PurchaseDebitNote.plant_id == plant_id, PurchaseDebitNote.request_id == payload.request_id).first()
-    if existing:
-        if existing.request_fingerprint != request_fingerprint:
-            raise HTTPException(status_code=409, detail="This debit-note request key already exists with different details")
-        return _debit_payload(existing)
     code, note_text = reason_input(payload)
-    choice = resolve_reason(category="DEBIT_NOTE", code=code, note=note_text, plant_id=plant_id,
-                            token=token_of(current_user), what="the debit note")
-    rows = db.query(PurchaseDiscrepancy).filter(PurchaseDiscrepancy.plant_id == plant_id, PurchaseDiscrepancy.id.in_(payload.discrepancy_ids)).with_for_update().all()
-    if len(rows) != len(set(payload.discrepancy_ids)):
-        raise HTTPException(status_code=404, detail="One or more discrepancies were not found")
-    if any(row.claimable_amount <= 0 or row.status not in {"OPEN", "UNDER_REVIEW"} for row in rows):
-        raise HTTPException(status_code=409, detail="Only open positive claim amounts can create a debit note")
-    source = [_discrepancy_payload(row, db) for row in rows]
-    if any(row["invoice_pending"] for row in source):
-        raise HTTPException(status_code=409, detail="A debit note needs the supplier invoice. Attach the invoice to the GRN first; the rate case stays open.")
-    supplier_ids = {row["supplier_id"] for row in source}
-    if len(supplier_ids) != 1:
-        raise HTTPException(status_code=422, detail="A debit note cannot mix vendors")
-    note = PurchaseDebitNote(plant_id=plant_id, request_id=payload.request_id, request_fingerprint=request_fingerprint,
-        debit_note_no=_next_doc_no(db, PurchaseDebitNote, plant_id, "debit_note_no", "DN"),
-        supplier_id=uuid.UUID(next(iter(supplier_ids))), supplier_name_snapshot=source[0]["supplier_name"],
-        note_date=payload.note_date, reason=choice.text, status="DRAFT",
-        reason_code=choice.code, reason_label=choice.label, reason_note=choice.note,
-        total_amount=sum((row.claimable_amount for row in rows), Decimal("0")), created_by=_actor(current_user))
-    db.add(note)
-    db.flush()
-    for row in rows:
-        db.add(PurchaseDebitNoteLine(debit_note_id=note.id, discrepancy_id=row.id, claimed_amount=row.claimable_amount))
-        row.status = "CLAIM_DRAFTED"
-        row.version += 1
+    note, created = create_debit_note_record(
+        db, plant_id=plant_id, request_id=payload.request_id, request_fingerprint=request_fingerprint,
+        note_date=payload.note_date, discrepancy_ids=payload.discrepancy_ids, reason_code=code, reason_note=note_text,
+        actor=_actor(current_user), token=token_of(current_user),
+    )
+    if not created:
+        return _debit_payload(note)
     db.commit()
     db.refresh(note)
     return _debit_payload(note)
@@ -1389,6 +1383,9 @@ def act_on_debit_note(
             discrepancy = db.query(PurchaseDiscrepancy).filter(PurchaseDiscrepancy.id == line.discrepancy_id).first()
             if discrepancy:
                 discrepancy.status = "CLAIMED"; discrepancy.version += 1
+        # Doc Vault (6 Nov 2026): keep a frozen copy of the issued PDF, linked to the note. Never blocks the issue.
+        from ..services.doc_vault import snapshot_debit_note
+        snapshot_debit_note(db, note, actor=actor, describe=lambda row: _discrepancy_payload(row, db))
     elif payload.action == "VOID" and note.status in {"DRAFT", "SUBMITTED", "APPROVED", "ISSUED"}:
         if Decimal(note.settled_amount or 0) > 0:
             raise HTTPException(status_code=409, detail="A debit note with settlement history cannot be voided; record a controlled adjustment")

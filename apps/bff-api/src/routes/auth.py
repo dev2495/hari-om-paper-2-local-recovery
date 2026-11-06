@@ -460,6 +460,25 @@ async def mark_all_notifications_read(request: Request):
     return JSONResponse(status_code=response.status_code, content=_safe_json(response, "Unable to mark notifications read"))
 
 
+@router.post("/notifications/{notification_id}/action-result")
+async def record_notification_action_result(notification_id: str, request: Request):
+    """Outcome of a notification button (6 Nov 2026); the button's own API already did the work."""
+    token = extract_token(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        response = await http_client.post(
+            f"{AUTH_SERVICE_URL}/notifications/{notification_id}/action-result",
+            headers={"Authorization": f"Bearer {token}"},
+            json=body if isinstance(body, dict) else {},
+        )
+    except httpx.RequestError:
+        return JSONResponse(status_code=503, content={"detail": "Auth service unavailable"})
+    return JSONResponse(status_code=response.status_code, content=_safe_json(response, "Unable to record the outcome"))
+
+
 @router.post("/notifications/{notification_id}/read")
 async def mark_notification_read(notification_id: str, request: Request):
     token = extract_token(request)

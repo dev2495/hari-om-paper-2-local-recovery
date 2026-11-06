@@ -227,3 +227,231 @@ export const MATERIAL_LABEL: Record<string, string> = {
 export function materialLabel(value: string) {
   return MATERIAL_LABEL[String(value || "").toUpperCase()] || String(value || "Other").replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase())
 }
+
+// ── Incoming QC by bill (6 Nov 2026) ─────────────────────────────────────────────────────────────
+// One card per bill (a GRN, or one supplier invoice across GRNs); every reel / lot of it in one grid.
+// Stock stays on the bill weight: the actual weight only feeds the weight check of the bill.
+
+export type BillTab = "TO_WEIGH" | "PART_DONE" | "OWNER_DECISION" | "DONE_TODAY" | "HELD"
+export const BILL_TABS: Array<{ key: BillTab; label: string; hint: string }> = [
+  { key: "TO_WEIGH", label: "To weigh", hint: "Nothing weighed yet" },
+  { key: "PART_DONE", label: "Part done", hint: "Some lots still to weigh" },
+  { key: "OWNER_DECISION", label: "Owner decision", hint: "Weight short: Owner decides" },
+  { key: "DONE_TODAY", label: "Done today", hint: "Every lot weighed" },
+  { key: "HELD", label: "Held", hint: "On hold or rejected" },
+]
+
+/** Above this share away from the bill weight, the desk asks "Check: 11,750 kg vs bill 1,182 kg". */
+export const TYPO_GUARD_SHARE = 0.15
+
+export type BillDecision = "ACCEPT" | "HOLD" | "REJECT"
+
+export type BillRowEntry = {
+  actual: string
+  /** Set only when the person picked it (or Accept all weighed): otherwise Accept is the default. */
+  decision: BillDecision | null
+  readings: Record<string, string>
+  reasonCode: string
+  reasonNote: string
+  note: string
+  closeHolds: boolean
+  confirmFar: boolean
+}
+
+export const EMPTY_BILL_ROW: BillRowEntry = { actual: "", decision: null, readings: {}, reasonCode: "", reasonNote: "", note: "", closeHolds: true, confirmFar: false }
+
+export type BillLot = {
+  key: string
+  entity_type: "REEL" | "BATCH"
+  entity_id: string
+  code: string
+  vendor_ref?: string | null
+  item_name?: string | null
+  uom: string
+  bill_qty: number | null
+  actual_qty: number | null
+  queue_state: string
+  stock_status: string
+  rejected?: boolean
+  can_enter?: boolean
+  can_weigh?: boolean
+  weight_required_for_accept?: boolean
+  last_inspection?: { id: string; status: string; disposition?: string | null; failures?: string[]; readings?: Record<string, any>; reason_label?: string | null } | null
+  inspection_holds?: Array<{ id: string; reason: string }>
+  quality_profile?: { parameters?: QcParameterRule[] } | null
+  [key: string]: any
+}
+
+export const parseQty = (value: unknown): number | null => {
+  const text = String(value ?? "").replace(/,/g, "").trim()
+  if (!text) return null
+  const number = Number(text)
+  return Number.isFinite(number) ? number : null
+}
+
+/** The weight that counts for a row: the one saved, else the one typed now. */
+export function rowActual(lot: BillLot, entry?: BillRowEntry): number | null {
+  if (lot.actual_qty != null) return Number(lot.actual_qty)
+  return parseQty(entry?.actual)
+}
+
+/** Actual − bill (negative = short), or null until weighed. */
+export function rowDiff(lot: BillLot, entry?: BillRowEntry): number | null {
+  const actual = rowActual(lot, entry)
+  if (actual == null || lot.bill_qty == null) return null
+  return Math.round((actual - Number(lot.bill_qty)) * 1000) / 1000
+}
+
+/** "Check: 11,750 kg vs bill 1,182 kg" when the typed weight is more than 15 % away from the bill. */
+export function typoWarning(actual: number | null, bill: number | null | undefined, uom = "KG"): string | null {
+  if (actual == null || bill == null || Number(bill) <= 0) return null
+  if (Math.abs(actual - Number(bill)) / Number(bill) <= TYPO_GUARD_SHARE) return null
+  const unit = String(uom).toUpperCase() === "KG" ? "kg" : String(uom).toLowerCase()
+  const fmt = (value: number) => value.toLocaleString("en-IN", { maximumFractionDigits: 3 })
+  return `Check: ${fmt(actual)} ${unit} vs bill ${fmt(Number(bill))} ${unit}`
+}
+
+export function lotRules(lot: BillLot): QcParameterRule[] {
+  return applicableRules(lot.quality_profile?.parameters).filter((rule) => !["reel_weight_kg", "weight_kg"].includes(rule.code))
+}
+
+/** Every check of the bill once, in order of first appearance (a bill is nearly always one material). */
+export function billRules(lots: BillLot[]): QcParameterRule[] {
+  const seen = new Map<string, QcParameterRule>()
+  for (const lot of lots) for (const rule of lotRules(lot)) if (!seen.has(rule.code)) seen.set(rule.code, rule)
+  return Array.from(seen.values())
+}
+
+export function failingChecks(lot: BillLot, entry?: BillRowEntry): string[] {
+  if (!entry) return []
+  return lotRules(lot)
+    .filter((rule) => {
+      const verdict = cellVerdict(rule, entry.readings[rule.code])
+      return verdict === "FAIL" || verdict === "INVALID"
+    })
+    .map((rule) => rule.label || rule.code)
+}
+
+export type BillRowPlan = {
+  /** Something to save on this row. */
+  dirty: boolean
+  /** What the server is asked: ACCEPT / HOLD / REJECT, or NONE (weight only, the lot keeps its decision). */
+  decision: BillDecision | "NONE"
+  needsReason: boolean
+  /** Plain reason the row cannot be saved yet ("Weigh it first…"), else null. */
+  problem: string | null
+  typo: string | null
+  failing: string[]
+}
+
+const hasReadings = (entry?: BillRowEntry) => Boolean(entry && Object.values(entry.readings).some((value) => String(value ?? "").trim() !== ""))
+
+/** What saving this row would send, and whether it can be sent. */
+export function planRow(lot: BillLot, entry?: BillRowEntry): BillRowPlan {
+  const row = entry || EMPTY_BILL_ROW
+  const typed = lot.actual_qty == null ? parseQty(row.actual) : null
+  const newWeight = typed != null
+  const awaiting = lot.queue_state === "AWAITING_INSPECTION"
+  const explicit = row.decision
+  const decision: BillDecision | "NONE" = explicit || (awaiting || hasReadings(row) ? "ACCEPT" : "NONE")
+  const dirty = newWeight || Boolean(explicit) || hasReadings(row)
+  const failing = failingChecks(lot, row)
+  const needsReason = decision === "HOLD" || decision === "REJECT" || (decision === "ACCEPT" && failing.length > 0) ||
+    (decision === "ACCEPT" && (lot.inspection_holds || []).length > 0 && row.closeHolds)
+  let problem: string | null = null
+  const typo = newWeight ? typoWarning(typed, lot.bill_qty, lot.uom) : null
+  if (dirty) {
+    if (String(row.actual).trim() && typed == null && lot.actual_qty == null) problem = "Type the weight as a number"
+    else if (typed != null && typed <= 0) problem = "The weight must be above zero"
+    else if (decision === "ACCEPT" && lot.weight_required_for_accept !== false && rowActual(lot, row) == null) problem = "Weigh it first: Accept needs the actual weight"
+    else if (decision !== "NONE" && lot.can_enter === false) problem = "This lot cannot be inspected now"
+    else if (needsReason && !row.reasonCode) problem = failing.length ? `Choose why ${failing.join(", ")} is out of band` : "Choose a reason"
+    else if (needsReason && /(^|[^A-Z0-9])OTHERS?($|[^A-Z0-9])/.test(row.reasonCode.toUpperCase()) && row.reasonNote.trim().length < 5) problem = "Write a short note for Other"
+    else if (typo && !row.confirmFar) problem = `${typo}. Confirm it.`
+    else if (decision === "NONE" && !newWeight) problem = "Nothing to save"
+  }
+  return { dirty, decision, needsReason, problem, typo, failing }
+}
+
+/** The request row for POST /quality/incoming/bills/{key}/entries. */
+export function billRowPayload(lot: BillLot, entry: BillRowEntry, idempotencyKey: string) {
+  const plan = planRow(lot, entry)
+  const typed = lot.actual_qty == null ? parseQty(entry.actual) : null
+  const rules = lotRules(lot)
+  return {
+    entity_type: lot.entity_type,
+    entity_id: lot.entity_id,
+    actual_qty: typed,
+    decision: plan.decision,
+    readings: incomingReadingsPayload(rules, entry.readings),
+    reason_code: plan.needsReason && entry.reasonCode ? entry.reasonCode : undefined,
+    reason_note: plan.needsReason && entry.reasonNote.trim() ? entry.reasonNote.trim() : undefined,
+    note: !plan.needsReason && entry.note.trim() ? entry.note.trim() : undefined,
+    close_holds: Boolean(entry.closeHolds && (lot.inspection_holds || []).length),
+    base_inspection_id: lot.last_inspection?.id || "",
+    confirm_far: Boolean(entry.confirmFar),
+    idempotency_key: idempotencyKey,
+  }
+}
+
+/** "Accept all weighed": Accept on every weighed row with no out-of-band reading that is still open. */
+export function acceptAllWeighed(lots: BillLot[], entries: Record<string, BillRowEntry>): Record<string, BillRowEntry> {
+  const next = { ...entries }
+  for (const lot of lots) {
+    const entry = next[lot.key] || EMPTY_BILL_ROW
+    if (rowActual(lot, entry) == null || lot.rejected || lot.can_enter === false) continue
+    if (lot.queue_state !== "AWAITING_INSPECTION" && !entry.decision) continue
+    if (failingChecks(lot, entry).length) continue
+    next[lot.key] = { ...entry, decision: "ACCEPT" }
+  }
+  return next
+}
+
+export type BillTiles = { bill: number; weighedCount: number; counted: number; weighedActual: number; weighedBill: number; diff: number; ready: number; uom: string }
+
+/** The four tiles, live while typing: Bill weight, Weighed so far, Difference (so far), Ready for issue. */
+export function billTiles(lots: BillLot[], entries: Record<string, BillRowEntry> = {}): BillTiles {
+  const counted = lots.filter((lot) => !lot.rejected && lot.bill_qty != null)
+  let weighedCount = 0, weighedActual = 0, weighedBill = 0
+  for (const lot of counted) {
+    const actual = rowActual(lot, entries[lot.key])
+    if (actual == null) continue
+    weighedCount += 1
+    weighedActual += actual
+    weighedBill += Number(lot.bill_qty)
+  }
+  const units = Array.from(new Set(counted.map((lot) => String(lot.uom || "KG").toUpperCase())))
+  return {
+    bill: counted.reduce((sum, lot) => sum + Number(lot.bill_qty), 0),
+    weighedCount, counted: counted.length,
+    weighedActual: Math.round(weighedActual * 1000) / 1000,
+    weighedBill: Math.round(weighedBill * 1000) / 1000,
+    diff: Math.round((weighedActual - weighedBill) * 1000) / 1000,
+    ready: lots.filter((lot) => lot.stock_status === "UNRESTRICTED").length,
+    uom: units.length === 1 ? units[0] : "MIXED",
+  }
+}
+
+const compact = (value: unknown) => String(value ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "")
+
+/** The row a scanned or typed code points at: AIT / lot number (leading zeros ignored), vendor reel, or the lot id. */
+export function findLotByCode(lots: BillLot[], raw: string, id?: string): BillLot | null {
+  if (id) {
+    const hit = lots.find((lot) => lot.entity_id.toLowerCase() === id.toLowerCase())
+    if (hit) return hit
+  }
+  const wanted = compact(raw)
+  if (!wanted) return null
+  const digits = wanted.replace(/^AIT/, "").replace(/^0+/, "")
+  return (
+    lots.find((lot) => compact(lot.code) === wanted) ||
+    lots.find((lot) => lot.vendor_ref && compact(lot.vendor_ref) === wanted) ||
+    (digits && /^\d+(-\d+)?$/.test(digits) ? lots.find((lot) => compact(lot.code).replace(/^AIT/, "").replace(/^0+/, "") === digits) || null : null)
+  )
+}
+
+export const BAND_WORD: Record<string, string> = { WITHIN: "Within limit", EXCESS: "Over the bill", OWNER_DECIDES: "Owner decides", AUTO_DEBIT: "Debit note", OWNER_INFO: "Short on count" }
+export const VARIANCE_STATUS_WORD: Record<string, string> = {
+  PROVISIONAL: "So far", WITHIN: "Within limit", INFO_SENT: "Owner told", AWAITING_OWNER: "Owner decides", SKIPPED: "Skipped",
+  CLAIM_RAISED: "Case raised", WAITING_INVOICE: "Waits for invoice", DN_DRAFTED: "Debit note drafted", CLOSED: "Closed",
+}

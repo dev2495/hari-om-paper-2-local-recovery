@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { CalendarRange, ClipboardPen, Scissors, LockKeyhole, AlertTriangle, BarChart3, Boxes, CheckCircle2, Inbox, TrendingUp, Users, Wrench, ChevronRight, ClipboardList, Factory, FileText, Gauge, Info, Layers, LineChart, LogOut, Menu, Package, PanelLeftClose, PanelLeftOpen, BookOpen, ScrollText, Search, ShieldCheck, Sparkles, Truck, X, CircleDot, CornerDownLeft, Undo2, CalendarCheck2, ClipboardCheck, CalendarClock, BookCheck } from "lucide-react"
+import { DoorOpen, CalendarRange, ClipboardPen, Scissors, LockKeyhole, AlertTriangle, BarChart3, Boxes, CheckCircle2, Inbox, TrendingUp, Users, Wrench, ChevronRight, ClipboardList, Factory, FileText, Gauge, Info, Layers, LineChart, LogOut, Menu, Package, PanelLeftClose, PanelLeftOpen, BookOpen, ScrollText, Search, ShieldCheck, Sparkles, Truck, X, CircleDot, CornerDownLeft, Undo2, CalendarCheck2, ClipboardCheck, CalendarClock, BookCheck } from "lucide-react"
 import { Suspense, useEffect, useMemo, useRef, useState } from "react"
 import { PlantSwitcher } from "@/components/PlantSwitcher"
 import { BooksLockedChip } from "@/components/workspace/books-locked-chip"
@@ -187,12 +187,21 @@ const navigationUnits: NavGroup[] = [
       },
       { name: "Stock alerts", href: "/inventory/stock-alerts", icon: AlertTriangle, description: "Materials running low, and the reorder levels that raise the alerts.", roles: ["Owner", "Admin", "Store", "Planner", "PlantManager"] },
       { name: "RM costing", href: "/inventory/rm-costing", icon: ScrollText, description: "Standard cost versions of raw materials, their impact and history.", roles: ["Owner", "Admin"] },
+      // Doc Vault (2026-11-06): the server shows each role only its kinds (Store: material bills, Dispatch: outward).
+      { name: "Doc Vault", href: "/documents", icon: FileText, description: "Every bill, challan and photo: search, view, link to GRNs, void.", roles: ["Owner", "Admin", "PlantManager", "Accounts", "Store", "GRN", "InwardQC", "QC", "Dispatch"] },
     ],
   },
   {
     title: "Dispatch",
     items: [
       { name: "Dispatch", href: "/logistics/dispatch", icon: Truck, description: "Packing handoff, boxes, challans and finished-goods release; FG in without a job card.", roles: ["Owner", "Admin", "Dispatch", "Sales", "Store", "PlantManager"] },
+    ],
+  },
+  {
+    // Gate (2026-11-06): the watchman's desk, the Accounts bills inbox and the gate register (tabs of one entry).
+    title: "Gate",
+    items: [
+      { name: "Gate", href: "/gate", icon: DoorOpen, description: "Visitors in and out, bills and challans coming in, goods going out with the Tally bill.", roles: ["Owner", "Admin", "Watchman", "PlantManager", "Accounts"] },
     ],
   },
   {
@@ -263,7 +272,13 @@ const navigationUnits: NavGroup[] = [
   },
 ]
 
+/** A watchman-only login (gate, 2026-11-06) sees the gate desk and nothing else. */
+function isGateOnly(roles: Set<string>) {
+  return roles.has("Watchman") && Array.from(roles).every((role) => role === "Watchman")
+}
+
 function canSeeLink(item: NavLink, roles: Set<string>) {
+  if (isGateOnly(roles)) return item.href === "/gate"
   if (item.ownerOnly) return roles.has("Owner")
   if (!item.roles?.length || roles.has("Owner") || roles.has("Admin")) return true
   return item.roles.some(role => roles.has(role))
@@ -418,6 +433,9 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
     router.replace(`/login?reason=session&next=${encodeURIComponent(window.location.pathname + window.location.search)}`)
   }, [isLoading, user, router])
   useEffect(() => { setMobileNavOpen(false); setSearchOpen(false) }, [pathname])
+  // The gate desk login opens only /gate (the server refuses everything else for it too).
+  const gateOnly = isGateOnly(userRoles)
+  useEffect(() => { if (user && gateOnly && pathname !== "/gate" && !pathname.startsWith("/gate/")) router.replace("/gate") }, [user, gateOnly, pathname, router])
   const toggleSidebar = () => {
     setSidebarPinned(!sidebarPinned)
     try { localStorage.setItem(SIDEBAR_STORAGE_KEY, String(!sidebarPinned)) } catch { /* Session-only layout. */ }
@@ -490,7 +508,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
           </DialogContent>
         </Dialog>
         <div className="ml-auto flex shrink-0 items-center gap-1 sm:ml-0">
-          <SeasonChip /><ThemeToggle /><AppearanceControls /><BooksLockedChip compact /><RoleSwitcher compact /><NotificationCenter />
+          {gateOnly ? null : <SeasonChip />}<ThemeToggle /><AppearanceControls /><BooksLockedChip compact /><RoleSwitcher compact /><NotificationCenter />
           {userRoles.has("Owner") || userRoles.has("Admin") ? <PlantSwitcher compact /> : null}
           <Link href={`/help?route=${encodeURIComponent(pathname)}`} className="tube-icon-button max-[400px]:!hidden" aria-label="Open page guide" title="Open page guide"><BookOpen size={17} /></Link>
         </div>

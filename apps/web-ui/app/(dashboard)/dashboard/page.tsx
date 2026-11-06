@@ -13,7 +13,7 @@ export default function DashboardPage() {
   const landingRole = resolveLandingRole(activeRole ? [activeRole] : user?.roles || (user?.role ? [user.role] : []))
 
   useEffect(() => {
-    if (landingRole === "Owner" || landingRole === "Admin" || landingRole === "QC") {
+    if (landingRole === "Owner" || landingRole === "Admin" || landingRole === "QC" || landingRole === "Watchman") {
       router.replace(landingPathForRole(landingRole))
     }
   }, [landingRole, router])

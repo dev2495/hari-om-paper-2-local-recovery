@@ -102,6 +102,8 @@ def test_owner_sets_the_next_number_once_then_receipts_count_on_from_it():
         assert facts == {**facts, "serial": "AIT 06280", "mill": "AKSHAT", "invoice_no": "2525", "received_date": "28-Oct-26",
                          "plybond": "400", "variety": "351", "gsm": "351", "roll_no": "65686", "weight_kg": "1161", "form": "REEL"}
         # Incoming QC measured GSM: the label prints the measured average instead of the variety.
+        reel.actual_qty = reel.inward_weight_kg  # 6 Nov 2026: Accept needs QC's actual weight first
+        db.commit()
         with patch("src.routers.quality.emit_audit_event", create=True):
             create_quality_inspection(QualityInspectionCreate(entity_type="REEL", entity_id=reel.id,
                                                               readings={"gsm": 353, "ply_bond": 410}), db, plant, QC)

@@ -72,3 +72,6 @@ apps/web-ui/.next-client-*/
 
 hariom-erp/runtime-season/
 apps/web-ui/.next-verify/
+
+# Doc Vault local files written by tests / dev without DOCS_STORAGE_DIR (2026-11-06)
+hariom-erp/services/*/data/documents/

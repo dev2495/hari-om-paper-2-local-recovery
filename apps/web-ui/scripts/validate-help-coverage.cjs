@@ -15,6 +15,8 @@ const routePatterns = [
   { pattern: /^\/purchase\/supplier-deliveries(?:\/.*)?$/, guideId: "supplier-promises" },
   { pattern: /^\/purchase\/(?:inward|receipts)(?:\/.*)?$/, guideId: "purchase-inward" },
   { pattern: /^\/purchase\/(?:discrepancies|debit-notes)(?:\/.*)?$/, guideId: "purchase-commercial" },
+  { pattern: /^\/documents(?:\/.*)?$/, guideId: "doc-vault" },
+  { pattern: /^\/gate(?:\/.*)?$/, guideId: "gate" },
   { pattern: /^\/purchase(?:\/.*)?$/, guideId: "purchase" },
   { pattern: /^\/analytics\/mrp(?:\/.*)?$/, guideId: "purchase-scheduler" },
   { pattern: /^\/analytics(?:-|\/|$)/, guideId: "reports" },

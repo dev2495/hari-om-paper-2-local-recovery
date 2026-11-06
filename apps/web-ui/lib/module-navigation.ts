@@ -159,6 +159,10 @@ export const MODULE_NAVIGATION: Record<string, ModuleLink[]> = {
       "href": "/system/plants"
     },
     {
+      "name": "Gates",
+      "href": "/system/gates"
+    },
+    {
       "name": "Machines",
       "href": "/system/machines"
     },
@@ -224,5 +228,13 @@ export const MODULE_NAVIGATION: Record<string, ModuleLink[]> = {
   "/logistics/dispatch": [
     { name: "Dispatch", href: "/logistics/dispatch", roles: ["Dispatch", "Sales", "Store"] },
     { name: "FG in without a job card", href: "/inventory/fg-inward", roles: ["PlantManager"] },
-  ]
+  ],
+  // Gate (2026-11-06): the watchman's desk (its Today tab is their own list), the Accounts bills inbox,
+  // the gate register.
+  "/gate": [
+    { name: "Gate desk", href: "/gate", roles: ["Watchman", "PlantManager"] },
+    { name: "Bills inbox", href: "/gate/bills", roles: ["Accounts", "PlantManager"] },
+    { name: "Gate register", href: "/gate/history", roles: ["PlantManager"] },
+    { name: "Gates & QR posters", href: "/system/gates", roles: ["Admin"] },
+  ],
 }

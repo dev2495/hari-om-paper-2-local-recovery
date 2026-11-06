@@ -93,6 +93,46 @@ def list_active_owner_recipients(request: Request, db: Session = Depends(get_db)
     return {"items": [{"id": str(u.id), "email": u.email, "name": u.name} for u in (role.users if role else []) if u.is_active]}
 
 
+# Whom a visitor can meet (gate, 6 Nov 2026): each active person of the plant by name and department.
+# Department = the person's main desk. Keep the keys identical to inventory-service services/gate.py
+# DEPARTMENTS (a department host is notified through these roles).
+GATE_DEPARTMENTS = [
+    ("MANAGEMENT", "Management", ("Owner",)),
+    ("PLANT", "Plant head", ("PlantManager",)),
+    ("ACCOUNTS", "Accounts", ("Accounts",)),
+    ("STORES", "Stores", ("Store", "GRN", "RMIssue")),
+    ("QUALITY", "Quality", ("QC", "InwardQC", "InProcessQC")),
+    ("PLANNING", "Planning", ("Planner",)),
+    ("DISPATCH", "Dispatch", ("Dispatch",)),
+    ("SALES", "Sales", ("Sales",)),
+    ("ADMIN", "Office / admin", ("Admin",)),
+    ("PRODUCTION", "Production floor", ("Operator",)),
+]
+
+
+@router.get("/internal/gate-hosts")
+def gate_hosts(request: Request, plant_id: str, db: Session = Depends(get_db)):
+    """Internal only (BFF, internal token). The BFF passes name + department to the public page and keeps
+    the e-mail to address the host's notification; the visitor never sees e-mails or phone numbers."""
+    require_internal_event_request(request)
+    from ..notification_service import user_can_receive_for_plant
+
+    items = []
+    for user in db.query(models.User).filter(models.User.is_active.is_(True)).order_by(models.User.name.asc()).all():
+        roles = {role.name for role in user.roles}
+        if not roles or roles <= {"Watchman"} or not user_can_receive_for_plant(user, plant_id, None):
+            continue
+        email = str(user.email or "").strip().lower()
+        if email.startswith(("release.", "qa.", "accept.")):
+            continue
+        department = next(((key, label) for key, label, members in GATE_DEPARTMENTS if roles & set(members)), None)
+        if not department:
+            continue
+        items.append({"id": str(user.id), "name": str(user.name or "").strip() or email, "email": email,
+                      "department_key": department[0], "department": department[1]})
+    return {"items": items, "departments": [{"key": key, "label": label} for key, label, _ in GATE_DEPARTMENTS]}
+
+
 @router.get("/directory")
 def people_directory(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     """Names behind the logins pages show ("by owner2.e2e" → "by Owner two"), for every signed-in role.

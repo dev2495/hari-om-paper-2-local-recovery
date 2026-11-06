@@ -21,7 +21,10 @@ def reason_needs_note(code: Optional[str]) -> bool:
     return bool(_OTHER_WORD.search(str(code or "").strip().upper()))
 
 
-def _cat(key, label, group, used_in, seeds=(), owner_only=False, linked=True):
+def _cat(key, label, group, used_in, seeds=(), owner_only=False, linked=True, added=()):
+    """``added``: standard codes added to the list after plants were first seeded (they are in ``seeds``
+    too). ``reason_seed`` inserts each one once into plants that already had the list, unless the plant
+    already has that code."""
     return {
         "key": key,
         "label": label,
@@ -30,10 +33,11 @@ def _cat(key, label, group, used_in, seeds=(), owner_only=False, linked=True):
         "seeds": [tuple(item) for item in seeds],
         "owner_only": owner_only,
         "linked": linked,
+        "added": [str(code).upper() for code in added],
     }
 
 
-GROUPS = ("Sales", "Job cards and floor", "Quality", "Stores and stock", "Purchase", "Specifications", "Dispatch", "Not linked yet")
+GROUPS = ("Sales", "Job cards and floor", "Quality", "Stores and stock", "Purchase", "Specifications", "Dispatch", "Gate", "Not linked yet")
 
 CATEGORIES: list[dict[str, Any]] = [
     # ── Sales ──────────────────────────────────────────────────────────────
@@ -138,6 +142,12 @@ CATEGORIES: list[dict[str, Any]] = [
           ("IQ-STRENGTH", "Strength / burst low"), ("IQ-WEIGHT", "Weight short"), ("IQ-DAMAGED", "Damaged in transit"),
           ("IQ-WRONG-ITEM", "Wrong item or grade supplied"), ("IQ-NO-DOCS", "Test certificate or documents missing"),
           ("IQ-RECHECK-OK", "Re-check passed, earlier hold can close"), ("IQ-OTHER", "Other (write a note)")]),
+    # Inward weigh-in (6 Nov 2026): fixing a typed actual weight after it was saved.
+    _cat("WEIGH_CORRECTION", "Re-weigh / weight correction", "Quality",
+         ["Quality › Incoming › Re-weigh a lot"],
+         [("WC-TYPO", "Typing mistake"), ("WC-REWEIGHED", "Weighed again on the scale"),
+          ("WC-WRONG-LOT", "Weight entered on the wrong reel or lot"), ("WC-SCALE", "Scale was not zeroed"),
+          ("WC-OTHER", "Other (write a note)")]),
     _cat("QC_RULE_CHANGE", "QC rule / band change", "Quality",
          ["Quality › Stage QC rules › Save as new version", "Quality › Stage QC rules › Customer / spec override",
           "Masters › Inward QC › Band change", "Specification › Stage QC values"],
@@ -187,6 +197,36 @@ CATEGORIES: list[dict[str, Any]] = [
          [("SP-FIRST", "First policy for this material"), ("SP-USAGE", "Usage changed"), ("SP-LEAD-TIME", "Supplier lead time changed"),
           ("SP-MOQ", "Supplier minimum order changed"), ("SP-SEASON", "Season demand change"),
           ("SP-CORRECTION", "Correct a wrong entry"), ("SP-OTHER", "Other (write a note)")]),
+    # Doc Vault (6 Nov 2026): a document is never deleted; Owner or Admin voids it with one of these.
+    _cat("DOC_VOID", "Document void", "Stores and stock",
+         ["Doc Vault › Void a document"],
+         [("DV-DUPLICATE", "Uploaded twice"), ("DV-WRONG-FILE", "Wrong photo or file"),
+          ("DV-UNREADABLE", "Photo not readable"), ("DV-NOT-OURS", "Not our document"),
+          ("DV-RETENTION", "Retention period over (visitor photo)"),
+          ("DV-OTHER", "Other (write a note)")],
+         added=("DV-RETENTION",)),
+    # ── Gate (6 Nov 2026) ──────────────────────────────────────────────────
+    # Bill types the watchman taps. GB-MATERIAL goes to Stores (GRN); every other code goes to the
+    # Accounts bills inbox. The plant may add more (Water, Rent, Transport …) in Masters › Reason codes.
+    _cat("BILL_CATEGORY", "Gate bill type", "Gate",
+         ["Gate › Bill in › Type of bill", "Gate › Bills inbox › Re-categorise", "Goods inward › At the gate › Re-categorise"],
+         [("GB-MATERIAL", "Material (stores)"), ("GB-ELECTRICITY", "Electricity"),
+          ("GB-MAINTENANCE", "Maintenance & service"), ("GB-COURIER", "Courier & post"), ("GB-OTHER", "Other (write a note)")],
+         added=("GB-OTHER",)),
+    _cat("COST_HEAD", "Expense cost head", "Gate",
+         ["Gate › Bills inbox › File a bill"],
+         [("CO-ELECTRICAL", "Electrical"), ("CO-MECHANICAL", "Mechanical"), ("CO-CIVIL", "Civil"),
+          ("CO-HOUSEKEEPING", "Housekeeping"), ("CO-UTILITIES", "Utilities"), ("CO-ADMIN", "Office & admin"),
+          ("CO-TRANSPORT", "Transport & courier"), ("CO-OTHER", "Other (write a note)")]),
+    _cat("VISIT_PURPOSE", "Visit purpose", "Gate",
+         ["Visitor check-in (gate QR)", "Gate › + Visitor"],
+         [("VP-MEETING", "Meeting"), ("VP-VENDOR", "Vendor visit"), ("VP-SERVICE", "Service / repair"),
+          ("VP-INTERVIEW", "Interview"), ("VP-DELIVERY", "Delivery"), ("VP-OTHER", "Other (write a note)")]),
+    _cat("GATE_DENY", "Visitor not let in", "Gate",
+         ["Gate › Waiting at gate › Deny"],
+         [("GD-NO-ID", "No ID shown"), ("GD-HOST-NA", "Host not available"), ("GD-NO-APPOINTMENT", "No appointment"),
+          ("GD-NOT-ALLOWED", "Not allowed in the plant"), ("GD-SAFETY", "Safety rule not met"),
+          ("GD-OTHER", "Other (write a note)")]),
     # ── Purchase ───────────────────────────────────────────────────────────
     _cat("PURCHASE_REJECT", "Purchase approval rejected", "Purchase",
          ["Purchase › Approvals › Reject PO", "Requisitions › Reject", "Purchase plans › Reject"],
@@ -218,7 +258,14 @@ CATEGORIES: list[dict[str, Any]] = [
          ["Purchase › Debit notes › Raise", "Purchase › Debit notes › Void"],
          [("DN-SHORT", "Short supply"), ("DN-REJECT", "Material rejected / returned"), ("DN-RATE", "Rate difference"),
           ("DN-QUALITY", "Quality deduction"), ("DN-DAMAGE", "Transit damage"), ("DN-VOID-ERROR", "Made by mistake (void)"),
-          ("DN-OTHER", "Other (write a note)")]),
+          ("DN-WEIGHT-SHORT", "Weighed short at QC"), ("DN-OTHER", "Other (write a note)")],
+         added=("DN-WEIGHT-SHORT",)),
+    # Weight check of a bill (6 Nov 2026): the Owner skips a debit note for a 20–50 kg shortage.
+    _cat("WEIGHT_SHORT_SKIP", "Weight short · no debit note", "Purchase",
+         ["Purchase › Weight differences › Skip", "Inbox › Weight short › Skip"],
+         [("WS-VENDOR-CREDIT", "Vendor credit agreed"), ("WS-SCALE-DOUBT", "Scale doubt"),
+          ("WS-TOLERANCE", "Within contract tolerance"), ("WS-OTHER", "Other (write a note)")],
+         owner_only=True),
     _cat("SUPPLIER_SCHEDULE", "Supplier schedule change", "Purchase",
          ["Supplier schedules › Change a delivery", "RM calendar › Cancel a delivery"],
          [("SCH-SUPPLIER-DELAY", "Supplier asked to delay"), ("SCH-PLAN-CHANGE", "Production plan changed"),

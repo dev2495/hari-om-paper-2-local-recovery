@@ -85,7 +85,10 @@ def test_rejected_reel_leaves_overdue_queue_and_returns_with_quality_claim():
         assert claim.discrepancy_type == 'QUALITY' and claim.status == 'OPEN'
         assert all(row.entity_id != bad for row in list_pending_quality(db, SCOPE, QC))
 
-        # The good reel on the same line is not blocked by the quality claim.
+        # The good reel on the same line is not blocked by the quality claim (weighed first, 6 Nov 2026).
+        good_reel = db.get(PaperReel, good)
+        good_reel.actual_qty = good_reel.inward_weight_kg
+        db.commit()
         create_quality_inspection(QualityInspectionCreate(entity_type='REEL', entity_id=good,
             readings={'gsm': 230}, disposition='ACCEPT'), db, PLANT, QC)
         db.expire_all()

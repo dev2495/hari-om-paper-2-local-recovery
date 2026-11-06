@@ -6,7 +6,7 @@ import pytest
 if 'procurement_test' not in os.environ.get('DATABASE_URL', ''):
     pytest.skip('Requires isolated procurement_test database', allow_module_level=True)
 from src.database import SessionLocal
-from src.models import ItemMaster, PaperReel, InventoryQualityHold
+from src.models import ItemMaster, PaperReel, InventoryQualityHold, InventoryQualityInspection
 from src.routers.manual_receipts import ManualReceiptCreate, post_manual_receipt, approve_manual_receipt
 from src.routers.procurement import VersionAction
 from src.routers.quality import QualityInspectionCreate, create_quality_inspection
@@ -30,7 +30,15 @@ def receipt(db):
     return result, [uuid.UUID(lot['id']) for lot in result['lots']]
 
 
+def weigh(db, reel_id):
+    # Inward QC by bill (6 Nov 2026): an Accept releases a purchase lot only once QC has weighed it.
+    reel = db.get(PaperReel, reel_id)
+    reel.actual_qty = reel.inward_weight_kg
+    db.commit()
+
+
 def inspect(db, reel_id):
+    weigh(db, reel_id)
     return create_quality_inspection(QualityInspectionCreate(entity_type='REEL', entity_id=reel_id,
         readings={'gsm':230}, disposition='ACCEPT'), db, PLANT, QC)
 
@@ -219,3 +227,33 @@ def test_startup_release_moves_plain_fail_to_qc_hold_and_uninspected_to_waiting(
         db.commit()
         assert db.get(PaperReel, ids[0]).stock_status == 'QC_HOLD'
         assert db.get(PaperReel, ids[1]).stock_status == 'QC_HOLD'
+
+
+def test_accept_of_unweighed_purchase_lot_is_refused_on_every_path_but_hold_is_not():
+    """6 Nov 2026: the old desk, scan and holds paths cannot release a purchase lot without its actual weight."""
+    from fastapi import HTTPException
+    with SessionLocal() as db:
+        result, ids = receipt(db)
+        with pytest.raises(HTTPException) as refused:
+            create_quality_inspection(QualityInspectionCreate(entity_type='REEL', entity_id=ids[0],
+                readings={'gsm': 230}, disposition='ACCEPT'), db, PLANT, QC)
+        assert refused.value.status_code == 422 and 'Weigh it first' in refused.value.detail
+        db.rollback()
+        assert db.get(PaperReel, ids[0]).stock_status == 'QC_HOLD'
+        held = create_quality_inspection(QualityInspectionCreate(entity_type='REEL', entity_id=ids[0],
+            readings={'gsm': 230}, disposition='HOLD', reason_code='IQ-MOISTURE', reason_note='Wet edges'), db, PLANT, QC)
+        assert held.stock_status == 'QC_HOLD'
+        # A later refresh (invoice attach, case release) never releases a passed but unweighed lot either.
+        from src.models import PurchaseReceiptLine, ReceiptStockAllocation
+        from src.services.receipt_quality import refresh_receipt_stock
+        reel = db.get(PaperReel, ids[1])
+        create_quality_inspection(QualityInspectionCreate(entity_type='REEL', entity_id=ids[1], readings={'gsm': 230},
+            disposition='HOLD', reason_code='IQ-MOISTURE', reason_note='Recheck'), db, PLANT, QC)
+        db.query(InventoryQualityInspection).filter_by(entity_id=ids[1]).update({'status': 'PASS', 'disposition': None})
+        db.commit()
+        line = db.get(PurchaseReceiptLine, db.query(ReceiptStockAllocation).filter_by(reel_id=ids[1]).one().receipt_line_id)
+        refresh_receipt_stock(db, line); db.commit()
+        assert db.get(PaperReel, ids[1]).stock_status == 'QC_HOLD'
+        weigh(db, ids[1])
+        refresh_receipt_stock(db, line); db.commit()
+        assert db.get(PaperReel, ids[1]).stock_status == 'UNRESTRICTED'

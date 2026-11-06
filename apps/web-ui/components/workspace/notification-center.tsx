@@ -7,6 +7,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { ArrowRight, Bell, CheckCheck, Circle, Inbox } from "lucide-react"
 
 import { WorkQueue } from "@/components/workspace/work-queue"
+import { NotificationActions } from "@/components/workspace/notification-actions"
 import { useApp } from "@/context/AppContext"
 import { useNotifications, useNotificationSummary, useNotificationUnreadCount } from "@/hooks/use-workspace"
 import { usePeopleVersion } from "@/hooks/use-people"
@@ -60,7 +61,8 @@ export function NotificationRow({
         <Icon className="h-4 w-4" aria-hidden="true" />
         {priority === "critical" ? <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-destructive ring-2 ring-popover" aria-label="Critical" /> : null}
       </span>
-      <button type="button" className="min-w-0 flex-1 text-left outline-none" onClick={() => onOpen(item)}>
+      <div className="min-w-0 flex-1">
+      <button type="button" className="w-full min-w-0 text-left outline-none" onClick={() => onOpen(item)}>
         <span className="flex items-start gap-2">
           <span className={cn("min-w-0 flex-1 text-[13px] leading-5", item.is_read ? "font-medium text-foreground/80" : "font-semibold text-foreground")}>{item.title}</span>
           <span className="shrink-0 pt-0.5 text-[11px] tabular-nums text-muted-foreground">{relativeTime(item.created_at)}</span>
@@ -77,6 +79,9 @@ export function NotificationRow({
           ) : null}
         </span>
       </button>
+      {/* Action buttons carried by the notification (6 Nov 2026): Make debit note / Skip… / Open bill. */}
+      <NotificationActions item={item} />
+      </div>
       <button
         type="button"
         onClick={() => onToggleRead(item)}
@@ -125,7 +130,8 @@ export function NotificationCenter() {
 
   useEffect(() => {
     if (!open) return
-    const onPointer = (event: PointerEvent) => { if (!wrapper.current?.contains(event.target as Node)) setOpen(false) }
+    // A reason dialog opened by a notification button lives outside the popover; clicks in it keep the popover open.
+    const onPointer = (event: PointerEvent) => { if (!wrapper.current?.contains(event.target as Node) && !(event.target as Element | null)?.closest?.("[data-notification-dialog]")) setOpen(false) }
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false) }
     document.addEventListener("pointerdown", onPointer)
     document.addEventListener("keydown", onKey)

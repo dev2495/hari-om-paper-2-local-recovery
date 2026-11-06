@@ -10,6 +10,8 @@ import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { ReelSerialSetting, TankSerialSetting } from "@/components/inventory/reel-serial-setting"
 import { CopyCommonMasters } from "@/components/system/copy-common-masters"
+import { WeightLimitsSetting } from "@/components/system/weight-limits-setting"
+import { GateSettingsSetting } from "@/components/system/gate-settings-setting"
 import { useAuth } from "@/context/AuthContext"
 import { labelHeading } from "@/lib/reel-label"
 import { fromGstin, gstinError } from "@/lib/party-formats"
@@ -209,6 +211,8 @@ function PlantsBody() {
                             {missing.length ? <p className="mt-2 text-xs text-signal-amber-ink">Add the {missing.join(" and ")} so challans from this plant can be sealed.</p> : null}
                             <ReelSerialSetting plantId={plant.id} />
                             <TankSerialSetting plantId={plant.id} />
+                            <WeightLimitsSetting plantId={plant.id} />
+                            <GateSettingsSetting plantId={plant.id} />
                             <div className="mt-auto flex flex-wrap justify-end gap-2 pt-3">
                                 {canCopyMasters && plants.length > 1 ? (
                                     <Button variant="outline" className="min-h-11 sm:min-h-0" onClick={() => setCopyTarget(plant)} data-testid={`plant-copy-masters-${plant.code}`}><Copy className="h-4 w-4" aria-hidden="true" />Copy common masters</Button>

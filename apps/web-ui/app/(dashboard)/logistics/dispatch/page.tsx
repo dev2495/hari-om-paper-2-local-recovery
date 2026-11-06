@@ -13,6 +13,7 @@ import { jobCardRef } from "@/lib/job-card-display"
 import { usePlants } from "@/hooks/use-system"
 import { errorText } from "@/lib/season-api"
 import { RetainSurplusButton } from "@/components/production/RetainSurplusButton"
+import { DispatchGateChips, useDispatchGateStatus } from "@/components/gate/dispatch-gate-chips"
 
 const handoffLabels: Record<string, string> = { AWAITING_PACKING: "Waiting for Process to close", AWAITING_QC: "Waiting for Process to close", AWAITING_FG: "Waiting for the stock posting", QC_HOLD: "On QC hold", REJECTED_QC: "Nothing accepted at final QC", RETAINED_FG: "Extra pieces kept in stock", UNSEALED: "Ready for a challan", SEALED: "Challan sealed", BOXES_READY: "Boxes ready for a challan", PACKING: "Packing boxes" }
 const STAGE_WORDS: Record<string, string> = { SLITTING: "Slitting", WINDER: "Winding", OVEN: "Oven", PROCESS: "Process", PACKING: "Packing", QC: "Final QC", DISPATCH: "Dispatch", DONE: "Done" }
@@ -80,6 +81,8 @@ function DispatchRegister() {
     const [filterJobNo, setFilterJobNo] = useState("")
     const [filterStatus, setFilterStatus] = useState("")
     const [shown, setShown] = useState(PAGE_SIZE)
+    // Gate (2026-11-06): Tally bill no. and out-of-gate state of each sealed challan.
+    const gateStatus = useDispatchGateStatus((readyJobs || []).flatMap((job: any) => (job.shipments || []).map((shipment: any) => String(shipment.dispatch_ref || ""))))
 
     if (!activePlant || isLoading || customersQuery.isLoading) {
         return <div className="p-6 text-muted-foreground">Loading ready dispatches...</div>
@@ -199,7 +202,7 @@ function DispatchRegister() {
                                     <FlaggedChip job={job} />
                                 </div>
                             ) : <p className="mt-1.5 text-xs text-muted-foreground">{pcs(job.dispatchable_qty)} accepted · {pcs(job.dispatched_qty)} shipped · {pcs(maxShipQty)} pcs can ship now</p>}
-                            {(job.shipments || []).map((shipment: any, index: number) => <Link key={shipment.id} href={`/logistics/dispatch/${job.id}/print?dispatch_id=${shipment.id}`} className="mt-1 flex min-h-11 items-center text-sm text-signal-teal-ink underline">Challan {job.shipments.length - index}: {pcs(shipment.qty)} pcs</Link>)}
+                            {(job.shipments || []).map((shipment: any, index: number) => <div key={shipment.id} className="mt-1"><Link href={`/logistics/dispatch/${job.id}/print?dispatch_id=${shipment.id}`} className="flex min-h-11 items-center text-sm text-signal-teal-ink underline">Challan {job.shipments.length - index}: {pcs(shipment.qty)} pcs</Link><DispatchGateChips dispatchRef={shipment.dispatch_ref} status={gateStatus.data?.[shipment.dispatch_ref]} /></div>)}
                             {canPrepare && maxShipQty > 0 && canStartChallan(job) ? <Button asChild className="mt-2 min-h-11 w-full"><Link href={`/logistics/dispatch/new?job_card_id=${job.id}`}>{job.dispatch_status === "DRAFT" ? "Edit draft challan" : job.box_mode ? "Make challan from boxes" : "Make challan"}</Link></Button> : !latestShipment ? <p className="mt-2 text-xs text-muted-foreground">{handoffLabels[job.handoff_state] || "Not ready to ship"}</p> : null}
                             {canRetain && canRetainBoxes(job) && <RetainSurplusButton job={job} />}
                         </li>
@@ -295,7 +298,7 @@ function DispatchRegister() {
                                                 {job.current_stage && !["DISPATCH", "DONE"].includes(String(job.current_stage).toUpperCase()) ? <p className="mt-1 text-xs text-muted-foreground">Now at {STAGE_WORDS[String(job.current_stage).toUpperCase()] || String(job.current_stage).toLowerCase()}</p> : null}
                                             </td>
                                             <td className="px-4 py-3 align-top text-right">
-                                                {(job.shipments || []).map((shipment: any, index: number) => <Link key={shipment.id} href={`/logistics/dispatch/${job.id}/print?dispatch_id=${shipment.id}`} className="mr-3 block text-xs text-signal-teal-ink underline">Challan {job.shipments.length - index}: {pcs(shipment.qty)} pcs</Link>)}
+                                                {(job.shipments || []).map((shipment: any, index: number) => <div key={shipment.id} className="mb-1"><Link href={`/logistics/dispatch/${job.id}/print?dispatch_id=${shipment.id}`} className="mr-3 block text-xs text-signal-teal-ink underline">Challan {job.shipments.length - index}: {pcs(shipment.qty)} pcs</Link><DispatchGateChips dispatchRef={shipment.dispatch_ref} status={gateStatus.data?.[shipment.dispatch_ref]} /></div>)}
                                                 {canPrepare && maxShipQty > 0 && canStartChallan(job) ? <Button asChild size="sm"><Link href={`/logistics/dispatch/new?job_card_id=${job.id}`}>{job.dispatch_status === "DRAFT" ? "Edit draft challan" : job.box_mode ? "Make challan from boxes" : "Make challan"}</Link></Button> : latestShipment ? <Button asChild size="sm" variant="outline"><Link href={`/logistics/dispatch/${job.id}/print?dispatch_id=${latestShipment.id}`}>View challan</Link></Button> : null}
                                                 {canRetain && !job.box_mode && job.entry_model === "V2" && job.remaining_qty > 0 && job.dispatched_qty >= job.shipping_allowance && job.handoff_state === "UNSEALED" && <RetainSurplusButton job={job} />}
                                                 {canRetain && canRetainBoxes(job) && <RetainSurplusButton job={job} />}

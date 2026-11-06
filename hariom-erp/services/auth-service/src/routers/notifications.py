@@ -30,6 +30,8 @@ class NotificationEventCreate(BaseModel):
     href: str | None = None
     recipient_roles: list[str] = Field(default_factory=list)
     recipient_user_ids: list[uuid.UUID] = Field(default_factory=list)
+    # People by login e-mail (inventory records the PO raiser this way); plant-checked like everyone else.
+    recipient_user_emails: list[str] = Field(default_factory=list, max_length=50)
     exclude_user_ids: list[uuid.UUID] = Field(default_factory=list)
     actor_user_id: uuid.UUID | None = None
     role_context: str | None = None
@@ -228,9 +230,52 @@ def ingest_event(
         required_permissions=payload.required_permissions,
         assigned_user_ids=payload.assigned_user_ids,
         event_id=payload.event_id,
+        recipient_user_emails=payload.recipient_user_emails,
     )
     db.commit()
     return {"created": created}
+
+
+class NotificationActionResult(BaseModel):
+    key: str = Field(min_length=1, max_length=40)
+    ok: bool
+    message: str = Field(default="", max_length=500)
+
+
+@router.post("/{notification_id}/action-result")
+def record_action_result(
+    notification_id: uuid.UUID,
+    payload: NotificationActionResult,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """The outcome of a button on the user's own notification (6 Nov 2026), so the inbox shows what was
+    done ("Debit note DN-261106-001 drafted", "Skipped: Scale doubt") instead of the buttons again. The
+    button's own API did the work and checked the role; this only records what it answered."""
+    notification = db.query(models.Notification).filter(
+        models.Notification.id == notification_id,
+        models.Notification.user_id == current_user.id,
+    ).first()
+    if not notification:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    try:
+        data = json.loads(notification.payload) if notification.payload else {}
+    except ValueError:
+        data = {}
+    action = data.get("action") if isinstance(data, dict) else None
+    buttons = action.get("buttons") if isinstance(action, dict) else None
+    if not isinstance(buttons, list) or not any(isinstance(button, dict) and button.get("key") == payload.key for button in buttons):
+        raise HTTPException(status_code=422, detail="This notification has no such button")
+    from datetime import datetime as _dt
+
+    result = {"key": payload.key, "ok": payload.ok, "message": payload.message.strip(), "by": current_user.email, "at": _dt.utcnow().isoformat()}
+    data["action_result"] = result
+    notification.payload = json.dumps(data, sort_keys=True)
+    if payload.ok:
+        notification.is_read = True
+    db.commit()
+    db.refresh(notification)
+    return serialize_notification(notification)
 
 
 @router.get("/admin/recent")

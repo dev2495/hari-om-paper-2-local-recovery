@@ -116,6 +116,8 @@ export const authApi = {
   markNotificationRead: (id: string) => api.post(`/api/auth/notifications/${id}/read`),
   markNotificationUnread: (id: string) => api.post(`/api/auth/notifications/${id}/unread`),
   markNotificationsRead: (ids: string[]) => api.post("/api/auth/notifications/read", { ids }),
+  recordNotificationActionResult: (id: string, data: { key: string; ok: boolean; message: string }) =>
+    api.post(`/api/auth/notifications/${id}/action-result`, data),
   getNotificationSummary: () => api.get("/api/auth/notifications/summary"),
   getPlants: () => api.get("/api/auth/plants"),
   createPlant: (data: any) => api.post("/api/auth/plants", data),
@@ -682,6 +684,13 @@ export const inventoryApi = {
   getInventoryQualityConcessions: (params?: any) => api.get("/api/inventory/quality/concessions", { params }),
   createInventoryQualityInspection: ({ plantId, ...data }: any) => api.post("/api/inventory/quality/inspections", data, onPlant(plantId)),
   createInventoryQualityConcession: ({ plantId, ...data }: any) => api.post("/api/inventory/quality/concessions", data, onPlant(plantId)),
+  // Incoming QC by bill (6 Nov 2026): bill cards, one bill, weigh-in rows, re-weigh a lot.
+  getIncomingBills: (params?: { tab?: string; q?: string; lot?: string }) => api.get("/api/inventory/quality/incoming/bills", { params }),
+  getIncomingBill: (key: string, plantId?: string) => api.get(`/api/inventory/quality/incoming/bills/${encodeURIComponent(key)}`, onPlant(plantId)),
+  saveIncomingBillEntries: (key: string, rows: any[], plantId?: string) =>
+    api.post(`/api/inventory/quality/incoming/bills/${encodeURIComponent(key)}/entries`, { rows }, onPlant(plantId)),
+  reweighIncomingLot: (entityType: string, entityId: string, data: any, plantId?: string) =>
+    api.post(`/api/inventory/quality/lots/${entityType}/${entityId}/reweigh`, data, onPlant(plantId)),
   getIncomingQualityAnalytics: (params?: { date_from?: string; date_to?: string }) =>
     api.get("/api/inventory/quality/analytics", { params }),
   returnRejectedLotToSupplier: ({ plantId, ...data }: { entity_type: string; entity_id: string; reason?: string; reason_code?: string; reason_note?: string; return_reference?: string; plantId?: string }) =>
@@ -738,6 +747,13 @@ export const purchaseApi = {
   createDebitNote: (data: any) => api.post("/api/purchase/v2/debit-notes", data),
   actOnDebitNote: (id: string, data: any) => api.post(`/api/purchase/v2/debit-notes/${id}/action`, data),
   settleDebitNote: (id: string, data: any) => api.post(`/api/purchase/v2/debit-notes/${id}/settlements`, data),
+  // Weight check of a bill (6 Nov 2026): Weight differences on Invoice differences, Owner decision, plant limits.
+  getWeightVariances: (params?: Record<string, unknown>) => api.get("/api/purchase/v2/weight-variances", { params }),
+  decideWeightVariance: (id: string, data: { decision: "MAKE_DEBIT_NOTE" | "SKIP"; reason_code?: string; reason_note?: string; expected_version?: number }, plantId?: string) =>
+    api.post(`/api/purchase/v2/weight-variances/${id}/decide`, data, onPlant(plantId)),
+  getPlantSettings: (plantId?: string) => api.get("/api/purchase/v2/plant-settings", onPlant(plantId)),
+  savePlantSettings: (data: { weight_short_notify_kg: number; weight_short_auto_kg: number; expected_version: number }, plantId?: string) =>
+    api.put("/api/purchase/v2/plant-settings", data, onPlant(plantId)),
   getStockPolicies: () => api.get("/api/purchase/v2/stock-alert-policies"),
   createStockPolicy: (data: any) => api.post("/api/purchase/v2/stock-alert-policies", data),
   activateStockPolicy: (id: string, data: any) => api.post(`/api/purchase/v2/stock-alert-policies/${id}/activate`, data),

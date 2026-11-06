@@ -27,6 +27,38 @@ export type InboxNotification = {
   priority?: NotificationPriority
   action?: string | null
   payload?: Record<string, any>
+  /** What a button on this notification answered (6 Nov 2026). */
+  action_result?: NotificationActionResult | null
+}
+
+/**
+ * Action buttons on a notification (6 Nov 2026, shared contract). The sender puts in the payload:
+ *   action = { kind, id, buttons: [{ key, label, method?, path?, body?, href?, reason_category?, tone? }] }
+ * A button with `path` calls that same-origin /api/ route (the API checks the role and the state itself);
+ * one with `reason_category` asks for a reason code first and sends reason_code / reason_note with the body;
+ * one with `href` is a link. The outcome is recorded on the notification (action_result) and shown instead.
+ */
+export type NotificationButton = {
+  key: string
+  label: string
+  method?: "POST" | "PUT" | "PATCH" | "GET"
+  path?: string
+  body?: Record<string, any>
+  href?: string
+  reason_category?: string
+  tone?: "primary" | "secondary" | "danger" | "link"
+}
+export type NotificationAction = { kind: string; id: string; buttons: NotificationButton[] }
+export type NotificationActionResult = { key: string; ok: boolean; message: string; by?: string; at?: string }
+
+/** The buttons of a notification (from payload.action), only ones that are safe to call or open. */
+export function notificationButtons(item: InboxNotification): NotificationButton[] {
+  const raw: any = (item as any)?.payload?.action ?? (typeof (item as any)?.action === "object" ? (item as any).action : null)
+  if (!raw || typeof raw !== "object" || !Array.isArray(raw.buttons)) return []
+  return raw.buttons.filter((button: any) => button && typeof button.key === "string" && typeof button.label === "string" && (
+    (typeof button.path === "string" && /^\/api\/[\w\-/.:%]+$/.test(button.path) && !button.path.includes("..")) ||
+    (typeof button.href === "string" && button.href.startsWith("/") && !button.href.startsWith("//"))
+  ))
 }
 
 export type CategoryMeta = { label: string; icon: LucideIcon; chip: string }

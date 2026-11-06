@@ -302,6 +302,13 @@ class StockBatch(Base):
     spec_id = Column(UUID(as_uuid=True), nullable=True)
     inward_metadata = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Inward QC by bill (6 Nov 2026): the billed qty of the lot and the qty QC found on the scale. Stock
+    # stays on the bill (owner decision): actual_qty is a record for the weight check, never a posting.
+    billed_qty = Column(Numeric(14, 3), nullable=True)
+    actual_qty = Column(Numeric(14, 3), nullable=True)
+    weighed_at = Column(DateTime, nullable=True)
+    weighed_by = Column(String(200), nullable=True)
+    weigh_note = Column(Text, nullable=True)
 
     item = relationship("ItemMaster", back_populates="batches")
     transactions = relationship("StockTransaction", back_populates="batch")
@@ -629,6 +636,12 @@ class PaperReel(Base):
     inward_metadata = Column(JSON, nullable=True)
     inward_date = Column(Date, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Inward QC by bill (6 Nov 2026): inward_weight_kg is the bill weight; actual_qty is what QC weighed.
+    # A record for the weight check only: current / net weight, the ledger and the AIT label never change.
+    actual_qty = Column(Numeric(14, 3), nullable=True)
+    weighed_at = Column(DateTime, nullable=True)
+    weighed_by = Column(String(200), nullable=True)
+    weigh_note = Column(Text, nullable=True)
 
     paper = relationship("ItemMaster", back_populates="reels")
     issues = relationship("ReelIssue", back_populates="reel")
@@ -1602,9 +1615,12 @@ class PurchaseDiscrepancy(Base):
     version = Column(Integer, nullable=False, default=1)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     resolved_at = Column(DateTime, nullable=True)
+    # Where the case came from (6 Nov 2026): GRN (invoice vs GRN, the original cases) or QC_WEIGH (the bill
+    # weighed short at incoming QC). One case per allocation, type and source.
+    case_source = Column(String(20), nullable=False, default="GRN", server_default="GRN")
 
     __table_args__ = (
-        UniqueConstraint("allocation_id", "discrepancy_type", name="uq_purchase_discrepancy_allocation_type"),
+        UniqueConstraint("allocation_id", "discrepancy_type", "case_source", name="uq_purchase_discrepancy_allocation_type_source"),
         CheckConstraint("status IN ('OPEN','UNDER_REVIEW','ACCEPTED','CLAIM_DRAFTED','CLAIMED','RESOLVED','REJECTED')", name="ck_purchase_discrepancy_status"),
     )
 
@@ -1991,3 +2007,11 @@ class PurchaseRequisition(Base):
         CheckConstraint("quantity > 0", name="ck_pr_positive_quantity"),
         CheckConstraint("status IN ('SUBMITTED','APPROVED','REJECTED','CONVERTED')", name="ck_pr_status"),
     )
+
+
+# Doc Vault (6 Nov 2026): documents, pages, links and their history live in their own module.
+from .models_vault import Document, DocumentEvent, DocumentLink, DocumentPage  # noqa: E402,F401
+# Gate (6 Nov 2026): gates, bills in, visitors, goods out with the Tally bill number.
+from .models_gate import DispatchGateOut, Gate, GateEntry, GateNoticeLog, GatePlantSetting, GateVisit, GateVisitor  # noqa: E402,F401
+# Inward QC by bill (6 Nov 2026): weight check of each bill, plant settings, weigh-in request keys.
+from .models_weight import IncomingQcEntryKey, PlantSetting, PurchaseWeightVariance  # noqa: E402,F401

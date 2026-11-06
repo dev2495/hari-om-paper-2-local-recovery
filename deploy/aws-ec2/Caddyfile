@@ -17,8 +17,9 @@ http://{$ELASTIC_IP} {
         -Server
     }
 
+    # 15 MB: one Doc Vault file (10 MB at most) plus the form fields.
     request_body {
-        max_size 10MB
+        max_size 15MB
     }
 
     handle /healthz {
