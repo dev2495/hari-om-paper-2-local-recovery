@@ -20,6 +20,8 @@ export type GateEntry = {
   route: "STORES" | "ACCOUNTS" | "DISPATCH"; status: EntryStatus; status_label: string
   vehicle_no: string | null; party_id: string | null; party_text: string | null; note: string | null
   receipt_id: string | null; grn_no: string | null; dispatch_ref: string | null
+  /** Goods out: the challans Store linked the photos to (the first one picked leads), each with its Tally bill no. */
+  dispatch_refs?: string[]; links?: GoneOutLinkRow[]
   bill_no: string | null; bill_date: string | null; bill_amount: number | null; cost_head_code: string | null; cost_head_label: string | null
   filed_by: string | null; filed_at: string | null; linked_by: string | null; linked_at: string | null
   created_by: string; created_at: string | null; version: number; documents: VaultDocument[]; document_count: number
@@ -28,6 +30,13 @@ export type GateEntry = {
   photos_missing?: string[]
   /** Every saved photo of the entry, also those this login may not open. */
   photo_count?: number
+}
+
+export type GoneOutLinkRow = { dispatch_ref: string; tally_bill_no: string | null; tally_bill_date: string | null; linked_by: string | null; linked_at: string | null; out_at: string | null }
+/** A challan with no gate-out photo linked yet (Store's link screen). */
+export type ChallanToLink = {
+  dispatch_ref: string; items: Array<{ item_code: string; item_name: string; uom: string; qty: number }>; qty_total: number
+  posted_at: string | null; posted_day: string | null; same_day: boolean; tally_bill_no: string | null; tally_bill_date: string | null; version: number | null
 }
 
 export type VisitStatus = "ARRIVED" | "IN" | "OUT" | "DENIED" | "NO_SHOW"
@@ -52,7 +61,7 @@ export type LeavingRow = {
 
 export type GateDesk = {
   gate: Gate; settings: GateSettings
-  counts: { waiting: number; inside: number; people_inside: number; overstay: number; bills_today: number; vehicles_today: number; leaving: number; out_today: number }
+  counts: { waiting: number; inside: number; people_inside: number; overstay: number; bills_today: number; vehicles_today: number; leaving: number; out_today: number; to_link?: number }
   waiting: GateVisit[]; inside: GateVisit[]; vehicles: GateEntry[]
   today: { entries: GateEntry[]; visits: GateVisit[] }
   /** Goods out today still waiting for a photo upload (Tally bill / challan). */
@@ -62,7 +71,12 @@ export type GateDesk = {
 
 export type Host = { id: string; name: string; department: string | null; department_key: string | null }
 export type HostList = { items: Host[]; departments: Array<{ key: string; label: string }> }
-export type DispatchGateStatus = { tally_bill_no: string | null; tally_bill_date: string | null; out: boolean; out_at: string | null; vehicle_no: string | null; version: number; gate_entry_id: string | null; photos_missing?: string[] }
+export type DispatchGateStatus = {
+  tally_bill_no: string | null; tally_bill_date: string | null; out: boolean; out_at: string | null; vehicle_no: string | null; version: number
+  gate_entry_id: string | null; photos_missing?: string[]
+  /** A goods-out gate photo is linked to this challan (by Store); out_at is when the watchman took it. */
+  linked?: boolean; linked_by?: string | null; linked_at?: string | null; gate_entry_no?: string | null; gate_entry_version?: number | null
+}
 
 export type HistoryRow = {
   type: "VISITOR" | "BILL_IN" | "GOODS_OUT"; type_label: string; id: string; no: string; at: string | null; gate: string | null
@@ -109,8 +123,15 @@ export const gateApi = {
   scanOut: (code: string) => api.post<{ action: "OUT" | "WAITING"; visit: GateVisit }>("/api/gate/visits/scan-out", { code }).then((r) => r.data),
   setVisitPhoto: (id: string, documentId: string) => api.post<GateVisit>(`/api/gate/visits/${id}/photo`, { document_id: documentId }).then((r) => r.data),
 
-  goodsOut: (body: { request_id: string; gate_id: string; dispatch_ref: string; tally_bill_no: string; tally_bill_date?: string; vehicle_no?: string }) =>
-    api.post<{ created: boolean; entry: GateEntry; dispatch: DispatchGateStatus }>("/api/gate/goods-out", body).then((r) => r.data),
+  /** Watchman: photos (sent next through the vault outbox) and the vehicle no. only. Store links it later. */
+  goodsOut: (body: { request_id: string; gate_id: string; vehicle_no: string }) =>
+    api.post<{ created: boolean; entry: GateEntry; document_kinds: string[] }>("/api/gate/goods-out", body).then((r) => r.data),
+  goneOut: () => api.get<{ items: GateEntry[] }>("/api/gate/gone-out").then((r) => r.data.items),
+  challansToLink: (params: { entry_id?: string; q?: string }) => api.get<{ items: ChallanToLink[]; day: string }>("/api/gate/gone-out/challans", { params: clean(params) }).then((r) => r.data),
+  linkGoneOut: (id: string, body: { expected_version?: number; links: Array<{ dispatch_ref: string; tally_bill_no: string; tally_bill_date?: string }> }) =>
+    api.post<GateEntry>(`/api/gate/gone-out/${id}/link`, body).then((r) => r.data),
+  unlinkGoneOut: (id: string, body: { expected_version: number; reason_code: string; reason_note?: string; dispatch_ref?: string }) =>
+    api.post<GateEntry>(`/api/gate/gone-out/${id}/unlink`, body).then((r) => r.data),
   dispatchStatus: (refs: string[]) => api.get<{ items: Record<string, DispatchGateStatus> }>("/api/gate/dispatch-status", { params: { refs: refs.join(",") } }).then((r) => r.data.items),
   setTally: (body: { dispatch_ref: string; tally_bill_no: string; tally_bill_date?: string; expected_version?: number }) => api.put<DispatchGateStatus>("/api/gate/dispatch/tally", body).then((r) => r.data),
 

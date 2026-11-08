@@ -1,5 +1,5 @@
 HARI OM TUBEOS HELP GUIDE - Chapter 04: Sales orders
-Section: Start here, sales and design. Accurate as of 31 October 2026. Hari Om TubeOS is the ERP for a paper tube plant (sales orders, planning, shop floor, quality, purchasing, stores, reports).
+Section: Start here, sales and design. Accurate as of 8 November 2026. Hari Om TubeOS is the ERP for a paper tube plant (sales orders, planning, shop floor, quality, purchasing, stores, reports).
 Screenshots named in this file are in the visual handbook (Hari-Om-TubeOS-Help-Guide.html or .pdf), chapter 04.
 
 # Sales orders

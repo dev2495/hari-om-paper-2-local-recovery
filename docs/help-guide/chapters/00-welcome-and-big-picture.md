@@ -7,10 +7,11 @@
 ## At a glance
 - TubeOS runs two loops that meet on the floor: **SELL → MAKE → SHIP** (customer order to dispatch) and **BUY → STORE → FEED** (raw material planning to issue on the floor).
 - The **job card** is the floor's truth. Planning is only the plan: nothing in planning stops the floor from logging a run.
-- Quality has two different rules. **Incoming QC** holds a lot whose reading is outside its band, and a held lot cannot be issued. **Job card QC** (winding, oven, process and final) only **flags** an out-of-band reading; it never holds or rejects the card and never blocks dispatch. Only a hold that the plant head, QC, Owner or Admin places on purpose stops a card.
+- Quality has two different rules. **Incoming QC** works by bill: QC weighs every reel, and **Accept needs the actual weight**; a lot that is held, rejected or has a reading outside its band cannot be issued. Stock stays on the bill weight; a bill weighed short goes to the Owner or a debit note. **Job card QC** (winding, oven, process and final) only **flags** an out-of-band reading; it never holds or rejects the card and never blocks dispatch. Only a hold that the plant head, QC, Owner or Admin places on purpose stops a card.
 - **Finished tubes are packed in boxes.** Process good pcs fill boxes of the spec's qty per box; each box has a code and a QR label, goes into stock on its own, and ships whole on a challan. The last pcs go into a **part box**.
 - **Any stage can close short.** The pcs not made go back to the sales order at once; Sales releases them again or short closes the order.
 - **Every "why" is a reason code** picked from Masters › Reason codes, with an optional note.
+- **The gate photographs, the office links.** The watchman photographs every bill coming in and the papers of every truck going out; Store links them to the GRN or the challan. Every bill, challan and photo is kept in the **Doc Vault** and never deleted.
 - Numbers are made by the system: SO numbers, job card numbers, PO numbers, GRN (inward) numbers and reel labels. You never type them.
 - Every page shows plain status words (for example **Ready to release**, **Running**, **Waiting for QC**). The cheat sheet below lists them.
 
@@ -28,8 +29,9 @@ The customer's PO becomes a **sales order**. A second person approves it (the Ow
 
 ```flow
 title: BUY → STORE → FEED
-RM inward calendar [Planner/Store] -> Owner approves arrivals [Owner] (draft PO) -> Purchase order [Store] -> PO approval [Owner/Admin] -> Goods inward / GRN [GRN/Store] (one label per reel) -> Incoming QC [Inward QC] -> Stock (usable) -> Reel and material issue [RM issue] -> Floor
-after Incoming QC: Reading out of band -> Lot held -> Re-inspect, concession or return to supplier [QC/Plant Manager]
+RM inward calendar [Planner/Store] -> Owner approves arrivals [Owner] (draft PO) -> Purchase order [Store] -> PO approval [Owner/Admin] -> Bill photographed at the gate [Watchman] -> Goods inward / GRN [GRN/Store] (one label per reel) -> Incoming QC, weigh every reel [Inward QC] -> Stock (usable) -> Reel and material issue [RM issue]
+after Incoming QC, weigh every reel: Reading out of band, Hold or Reject -> Lot held -> Re-inspect, concession or return to supplier [QC/Plant Manager]
+after Incoming QC, weigh every reel: Bill weighed short -> Owner decides or debit note drafted [Owner]
 ```
 
 Raw material demand from orders and planned job cards is compared with stock day by day on the **RM inward calendar**. Arrivals the Owner approves become draft POs. Stores receive goods against the approved PO, every reel or coil gets its own label, and the lot waits for incoming QC. Only QC-cleared stock can be issued. Issue is to the floor by shift (never to a machine or a job card) and everything issued is used in full; nothing returns from the floor.
@@ -108,6 +110,14 @@ What you see:
 
 **GRN line, incoming QC**: **Waiting for QC**, **QC passed**, **QC failed**, **Cleared** (no inspection needed, for example go-live opening stock). Stock words: **On QC hold**, **Usable**. Commercial words on the GRN: "rates match the PO", "invoice to follow", "differs from the PO · goes to Accounts", "manual GRN · goes to Accounts".
 
+**Incoming QC by bill**: tabs **To weigh**, **Part done**, **Owner decision**, **Done today**, **Held**; reel status **Waiting**, **Issuable**, **Held**, **Rejected**, **Concession**, **Returned to supplier**. **Weight check of a bill** (band, with the code the system keeps): **Within limit** (WITHIN: short up to 20 kg, recorded only), **Owner decides** (OWNER_DECIDES: above 20 up to 50 kg), **Debit note** (AUTO_DEBIT: above 50 kg, drafted automatically), **Short on count** (OWNER_INFO: items not billed in kg), **Over the bill** (EXCESS). The 20 and 50 kg limits are per plant. Case status: **So far**, **Within limit**, **Owner told**, **Owner decides**, **Skipped**, **Case raised**, **Waits for invoice**, **Debit note drafted**, **Closed**.
+
+**Gate entry** (GE-): **At the gate**, **With Stores** (a material bill waiting for its GRN, or a goods out waiting for Store to link its challan), **With Accounts** (expense bill waiting to be filed), **Linked to GRN**, **Linked to challan**, **Filed**, **Void** (goods out recorded before 8 Nov 2026 show **Gone out**). Dispatch chips: **Not out of gate**, **Out · Tally T-1189 ✓**, **Photos missing**.
+
+**Visit** (V-): **Waiting at gate**, **Inside**, **Out**, **Denied**, **Did not come in** (still waiting after 12 hours). **After closing** marks someone inside after the gate close time.
+
+**Doc Vault document** (DV-): active, or **Void** (hidden, kept in history).
+
 **In-process QC**: "Still needs QC" (run without its readings), "needs more readings" (fewer than 2 per check), **Flagged QC · N runs** (reading outside the band, saved and flagged).
 
 **Specification**: **Draft**, **Review**, **Trial**, **Approved**, **Obsolete**; each season's recipe shows **Ready** or **Needs attention**.
@@ -122,6 +132,10 @@ What you see:
 | GRN (inward) | P/YY/NNN, A/YY/NNN, IN/YY/NNN | P/26/001 | P paper, A adhesive, IN everything else. Restarts on 1 April: P/26/… is financial year 2026-27, so January to March 2027 is still P/26/…; 1 April 2027 starts P/27/001. |
 | Reel / coil label | AIT serial | AIT 06243; coil AIT 06243-1 | One series per plant and financial year, restarting at AIT 00001 on 1 April. Printed at inward; reprints never create stock. Older reels keep AT-yymmdd-nnn numbers. |
 | Finished-goods box | B + card number + 3 digits | B2610315-001 | One per box packed on a job card; the part box is the last one. Label reprints never create stock. |
+| Gate entry | GE-YYMM-NNN | GE-2611-020 | Every bill in and goods out at the gate; per plant, restarts every month (India time). |
+| Visitor pass | V-YYMM-NNN | V-2611-014 | Every visit; per plant, restarts every month. |
+| Doc Vault document | DV-YYMM-NNNN | DV-2611-0019 | Every bill, challan, photo and saved debit-note PDF; per plant, restarts every month. |
+| Debit note | DN-YYMMDD-NNN | DN-261107-003 | Numbered by the date it is made. |
 
 ## How the pages connect
 
@@ -131,7 +145,8 @@ What you see:
 | Operations | Orders, Job Cards, Job card manager, Planner, Log output, Log QC, Month-end close | Orders release job cards; Planner places them; Log output and Log QC fill them. |
 | Quality | QC desk, Incoming QC, In-process QC, Holds & inspections, Customer complaints, Material standards, Process stage rules, Production season | Incoming QC clears stock for issue; stage rules set floor tolerances. |
 | Purchasing | Purchase orders, RM inward calendar, Expected arrivals, Create purchase order, Purchase requisitions, PO approvals, Invoice differences, Debit notes, Purchase reports | Approved POs are received in Goods inward. |
-| Stores & inventory | Goods inward, GRN register & labels, Reel & coil issue, Material issue, Issue history, Stock counts & book, Opening stock, Inventory, Genealogy, Manual FG, Stock alerts, RM Costing, Dispatch | Issue feeds the floor; Dispatch ships finished job cards. |
+| Stores & inventory | Goods inward (with At the gate), GRN register & labels, Doc Vault, Reel & coil issue, Material issue, Issue history, Stock counts & book, Opening stock, Inventory, Genealogy, Manual FG, Stock alerts, RM Costing, Dispatch | Issue feeds the floor; Dispatch ships finished job cards. |
+| Gate | Gate desk, Bills inbox, Gate register, Gates & QR posters | Gate bills go to Goods inward (Store) or the Bills inbox; goods-out photos go to the dispatch register. |
 | Design | Specifications | Specs feed sales order lines, job cards and month-end use. |
 | Reports | Intelligence and role reports | Read only. |
 | Foundation | Masters, System, Audit | Customers, vendors, materials, reasons, users and machines used everywhere. |
@@ -144,7 +159,8 @@ What you see:
 - Out-of-band job card readings are saved and flagged, never held (FLAG only). Out-of-band incoming readings hold the lot (BLOCKS issue). Only holds placed on purpose block a card's next stage and dispatch.
 - Every reason is a code from Masters › Reason codes; free text alone is refused, and OTHER codes need a note (BLOCKS).
 - A stage short close returns (stage target − stage good) pcs to the order at once; returns + pcs in boxes always equal the pcs released (AUTOMATIC).
-- Only QC-cleared stock can be issued; nothing returns from the floor.
+- Only QC-cleared stock can be issued, and a purchase lot is cleared only after QC types its actual weight; nothing returns from the floor.
+- The watchman never types bill or Tally numbers; the truck is never held for a photo upload (AUTOMATIC).
 - A closed month refuses stock and floor entries dated in it until the Owner re-opens it.
 
 ## Sample

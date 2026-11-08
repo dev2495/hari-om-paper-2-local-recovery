@@ -6,8 +6,9 @@
   documents linked GATE_ENTRY → entry id.
 - ``gate_visitors`` / ``gate_visits``: one visitor per mobile number and plant; one visit per arrival
   (V-YYMM-NNN) with its own pass token. The watchman lets in, the host is told and may reply.
-- ``dispatch_gate_out``: one row per dispatch (challan) of a plant: the Tally bill number the dispatch desk
-  or the watchman typed, and when it left the gate.
+- ``dispatch_gate_out``: one row per dispatch (challan) of a plant: the Tally bill number (typed by Store or
+  the dispatch desk, never the watchman) and, once Store links the watchman's goods-out photos to it, the gate
+  entry and when it left the gate. One goods-out entry may cover several challans (8 Nov 2026).
 - ``gate_plant_settings``: gate close time and visitor photo retention per plant (Owner).
 - ``gate_notice_log``: once-a-day notices (overstay digest, dispatch not out, unlinked-material reminders).
 
@@ -210,16 +211,19 @@ class DispatchGateOut(Base):
     tally_by = Column(String(200), nullable=True)
     tally_at = Column(DateTime, nullable=True)
     vehicle_no = Column(String(30), nullable=True)
-    gate_entry_id = Column(UUID(as_uuid=True), nullable=True)
+    gate_entry_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    # out_at / out_by come from the gate entry (when the watchman took the photos); linked_* is the Store user.
     out_at = Column(DateTime, nullable=True)
     out_by = Column(String(200), nullable=True)
+    linked_by = Column(String(200), nullable=True)
+    linked_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
     version = Column(Integer, nullable=False, default=1)
 
     __table_args__ = (
         UniqueConstraint("plant_id", "dispatch_ref", name="uq_dispatch_gate_out_plant_ref"),
-        UniqueConstraint("gate_entry_id", name="uq_dispatch_gate_out_entry"),
+        # No unique key on gate_entry_id since 8 Nov 2026: one truck's photos may cover several challans.
         CheckConstraint("out_at IS NULL OR (tally_bill_no IS NOT NULL AND gate_entry_id IS NOT NULL)", name="ck_dispatch_gate_out_complete"),
     )
 

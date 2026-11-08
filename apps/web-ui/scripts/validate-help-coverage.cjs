@@ -16,6 +16,8 @@ const routePatterns = [
   { pattern: /^\/purchase\/(?:inward|receipts)(?:\/.*)?$/, guideId: "purchase-inward" },
   { pattern: /^\/purchase\/(?:discrepancies|debit-notes)(?:\/.*)?$/, guideId: "purchase-commercial" },
   { pattern: /^\/documents(?:\/.*)?$/, guideId: "doc-vault" },
+  { pattern: /^\/gate\/bills(?:\/.*)?$/, guideId: "gate-bills" },
+  { pattern: /^\/gate\/history(?:\/.*)?$/, guideId: "gate-history" },
   { pattern: /^\/gate(?:\/.*)?$/, guideId: "gate" },
   { pattern: /^\/purchase(?:\/.*)?$/, guideId: "purchase" },
   { pattern: /^\/analytics\/mrp(?:\/.*)?$/, guideId: "purchase-scheduler" },
@@ -40,9 +42,11 @@ const routePatterns = [
   { pattern: /^\/production\/boxes(?:\/.*)?$/, guideId: "job-cards" },
   { pattern: /^\/production\/reconciliation\/limits(?:\/.*)?$/, guideId: "usage-limits" },
   { pattern: /^\/production\/reconciliation(?:\/.*)?$/, guideId: "month-end-close" },
+  { pattern: /^\/quality\/incoming(?:\/.*)?$/, guideId: "incoming-qc" },
   { pattern: /^\/quality(?:\/.*)?$/, guideId: "quality" },
   { pattern: /^\/(?:dispatch|logistics\/dispatch)(?:\/.*)?$/, guideId: "dispatch" },
   { pattern: /^\/masters?(?:\/.*)?$/, guideId: "masters" },
+  { pattern: /^\/system\/gates(?:\/.*)?$/, guideId: "system-gates" },
   { pattern: /^\/system(?:\/.*)?$/, guideId: "system" },
 ]
 
@@ -90,6 +94,17 @@ const requiredGuides = {
   "/production/reconciliation/limits": "usage-limits",
   "/purchase/scheduler": "purchase-scheduler",
   "/purchase/supplier-deliveries": "supplier-promises",
+  // Gate, Doc Vault and incoming QC by bill (release 2026-11-06, guides 2026-11-08).
+  "/gate": "gate",
+  "/gate/bills": "gate-bills",
+  "/gate/history": "gate-history",
+  "/system/gates": "system-gates",
+  "/system/gates/[id]/poster": "system-gates",
+  "/documents": "doc-vault",
+  "/quality/incoming": "incoming-qc",
+  "/purchase/discrepancies": "purchase-commercial",
+  "/purchase/inward": "purchase-inward",
+  "/logistics/dispatch": "dispatch",
 }
 const wrongGuides = Object.entries(requiredGuides).filter(([route, guideId]) => guideIdForRoute(route) !== guideId || !guideIds.has(guideId))
 if (wrongGuides.length) {

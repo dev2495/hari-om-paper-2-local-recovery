@@ -13,8 +13,11 @@ Flow in short
 - Visitors: self check-in from the gate QR (or the watchman's walk-in form) makes an ARRIVED visit with
   its own pass. The watchman lets in (IN) or denies (GATE_DENY reason). Let in tells the host, who may
   reply Send in / Ask to wait / Not available. Out by tapping Out or scanning the pass.
-- Goods out: a dispatch (DISPATCH stock transactions of one dispatch_ref) leaves with the Tally bill
-  number and two photos (Tally bill, our challan); one ``dispatch_gate_out`` row per dispatch.
+- Goods out (owner correction, 8 Nov 2026): the watchman only photographs. "+ Goods out" takes the Tally bill
+  and our challan photos and the vehicle no. and makes a GOODS_OUT entry WITH_STORES (no challan, no Tally
+  no.). Store (or Dispatch / the plant head) links it on the dispatch register: one or more challans, each with
+  its Tally bill no. One ``dispatch_gate_out`` row per dispatch (challan); the plant head may unlink with a
+  GATE_OUT_UNLINK reason. Same principle as bills in: the watchman photographs, Store links.
 """
 from __future__ import annotations
 
@@ -67,6 +70,10 @@ ACCOUNTS_ROLES = ["Accounts", "PlantManager"]
 RECATEGORISE_ROLES = ["Store", "GRN", "Accounts", "PlantManager"]
 HISTORY_ROLES = ["PlantManager"]
 DISPATCH_DESK_ROLES = ["Dispatch", "PlantManager"]
+# Goods out (8 Nov 2026): who links the watchman's photos to challans and types / changes a Tally bill no.
+GOODS_OUT_LINK_ROLES = ["Store", "Dispatch", "PlantManager"]
+TALLY_ROLES = GOODS_OUT_LINK_ROLES
+GOODS_OUT_UNLINK_ROLES = ["PlantManager"]
 GATE_READ_ROLES = sorted(set(DESK_ROLES + STORE_LINK_ROLES + ACCOUNTS_ROLES + DISPATCH_DESK_ROLES))
 # Visitor phone numbers and photos (plan §4 privacy).
 PRIVACY_ROLES = frozenset({"Watchman", "PlantManager", "Owner", "Admin"})
@@ -78,6 +85,9 @@ MAX_OPEN_VISITS_PER_MOBILE = 3
 NO_SHOW_AFTER = timedelta(hours=12)
 UNLINKED_REMINDER_AFTER = timedelta(hours=24)
 LEAVING_LOOKBACK_DAYS = 3
+CHALLAN_LOOKBACK_DAYS = 30
+# A goods-out entry of the 7 Nov release (watchman picked the challan) is OUT; startup moves it to LINKED.
+LINKED_STATES = ("LINKED", "OUT")
 PUBLIC_PHOTO_WINDOW = timedelta(minutes=30)
 DEFAULT_CLOSE = time(19, 0)
 DEFAULT_RETENTION_DAYS = 365
@@ -99,9 +109,11 @@ DEPARTMENTS: dict[str, tuple[str, tuple[str, ...]]] = {
 REPLY_WORDS = {"SEND_IN": "Send in", "WAIT": "Ask to wait", "NOT_AVAILABLE": "Not available"}
 STATUS_WORDS = {
     "AT_GATE": "At the gate", "WITH_STORES": "With Stores", "WITH_ACCOUNTS": "With Accounts", "LINKED": "Linked to GRN",
-    "FILED": "Filed", "OUT": "Out of gate", "VOID": "Void",
+    "FILED": "Filed", "OUT": "Gone out", "VOID": "Void",
     "ARRIVED": "Waiting at gate", "IN": "Inside", "DENIED": "Denied", "NO_SHOW": "Did not come in",
 }
+# A visitor who went out has "Left"; a goods-out gate entry has "Gone out".
+VISIT_STATUS_WORDS = {**STATUS_WORDS, "OUT": "Left"}
 
 
 def _zone() -> ZoneInfo:
@@ -472,13 +484,20 @@ def receipt_stock_targets(db: Session, receipt: PurchaseReceipt) -> list[tuple[s
 
 def sync_entry_links(db: Session, entry: GateEntry, actor: str) -> int:
     """Give every photo of a linked entry the GRN and stock links (photos that uploaded after the link);
-    the Tally bill and challan photos of a goods-out entry get the dispatch link."""
-    if entry.kind == "GOODS_OUT" and entry.dispatch_ref:
+    the Tally bill and challan photos of a goods-out entry get a link to every challan Store linked it to."""
+    if entry.kind == "GOODS_OUT":
+        if entry.status not in LINKED_STATES:
+            return 0
+        refs = [row.dispatch_ref for row in entry_links(db, entry.plant_id, [entry.id]).get(str(entry.id), [])]
+        if not refs and entry.dispatch_ref:
+            refs = [entry.dispatch_ref]
         made = 0
         for document in entry_documents(db, entry):
-            if ("DISPATCH", entry.dispatch_ref) not in {(link.entity_type, link.entity_id) for link in document.links or []}:
-                _, created = vault.link_document(db, document, "DISPATCH", entry.dispatch_ref, actor, plant_id=entry.plant_id)
-                made += 1 if created else 0
+            have = {(link.entity_type, link.entity_id) for link in document.links or []}
+            for ref in refs:
+                if ("DISPATCH", ref) not in have:
+                    _, created = vault.link_document(db, document, "DISPATCH", ref, actor, plant_id=entry.plant_id)
+                    made += 1 if created else 0
         return made
     if entry.status != "LINKED" or not entry.receipt_id:
         return 0
@@ -575,11 +594,61 @@ def file_bill(db: Session, entry: GateEntry, *, party_name: str, party_id: Optio
     return entry
 
 
+def entry_links(db: Session, plant_id: str, entry_ids: Iterable[Any]) -> dict[str, list[DispatchGateOut]]:
+    """The challans each goods-out entry is linked to (dispatch_gate_out rows), oldest link first."""
+    keys = [key for key in (_as_uuid(value) for value in entry_ids) if key]
+    if not keys:
+        return {}
+    out: dict[str, list[DispatchGateOut]] = {}
+    for row in (db.query(DispatchGateOut).filter(DispatchGateOut.plant_id == str(plant_id), DispatchGateOut.gate_entry_id.in_(keys))
+                .order_by(DispatchGateOut.linked_at.asc().nullsfirst(), DispatchGateOut.dispatch_ref.asc()).all()):
+        out.setdefault(str(row.gate_entry_id), []).append(row)
+    return out
+
+
+def _as_uuid(value: Any) -> Optional[uuid.UUID]:
+    if isinstance(value, uuid.UUID):
+        return value
+    try:
+        return uuid.UUID(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def challan_words(refs: list[str]) -> str:
+    if not refs:
+        return ""
+    return f"challan {refs[0]}" + (f" + {len(refs) - 1} more" if len(refs) > 1 else "")
+
+
+def status_label(entry: GateEntry, refs: Optional[list[str]] = None) -> str:
+    if entry.kind == "GOODS_OUT":
+        if entry.status in LINKED_STATES:
+            words = challan_words(refs or ([entry.dispatch_ref] if entry.dispatch_ref else []))
+            return f"Linked to {words}" if words else "Linked"
+        if entry.status == "WITH_STORES":
+            return "With Stores"
+    return STATUS_WORDS.get(entry.status, entry.status)
+
+
+def link_payload(row: DispatchGateOut) -> dict[str, Any]:
+    return {"dispatch_ref": row.dispatch_ref, "tally_bill_no": row.tally_bill_no,
+            "tally_bill_date": row.tally_bill_date.isoformat() if row.tally_bill_date else None,
+            "linked_by": row.linked_by, "linked_at": iso(row.linked_at), "out_at": iso(row.out_at)}
+
+
 def entry_payload(db: Session, entry: GateEntry, *, gates: Optional[dict[str, Gate]] = None, documents: Optional[list[Document]] = None,
                   receipts: Optional[dict[str, PurchaseReceipt]] = None, access: Optional[vault.DocumentAccess] = None,
-                  photos_missing: Optional[list[str]] = None) -> dict[str, Any]:
+                  photos_missing: Optional[list[str]] = None, links: Optional[list[DispatchGateOut]] = None) -> dict[str, Any]:
     gate = (gates or {}).get(str(entry.gate_id)) if gates is not None else (db.get(Gate, entry.gate_id) if entry.gate_id else None)
     docs = documents if documents is not None else entry_documents(db, entry, access)
+    if entry.kind == "GOODS_OUT" and links is None:
+        links = entry_links(db, entry.plant_id, [entry.id]).get(str(entry.id), [])
+    # The first challan Store picked (entry.dispatch_ref) leads; the rest follow in link order.
+    links = sorted(links or [], key=lambda row: row.dispatch_ref != entry.dispatch_ref)
+    refs = [row.dispatch_ref for row in links] or ([entry.dispatch_ref] if entry.kind == "GOODS_OUT" and entry.dispatch_ref else [])
+    # A goods-out entry of the 7 Nov release still OUT (startup not yet run) reads as linked.
+    shown_status = "LINKED" if entry.kind == "GOODS_OUT" and entry.status == "OUT" else entry.status
     receipt = None
     if entry.receipt_id:
         receipt = (receipts or {}).get(str(entry.receipt_id)) if receipts is not None else db.get(PurchaseReceipt, entry.receipt_id)
@@ -587,10 +656,11 @@ def entry_payload(db: Session, entry: GateEntry, *, gates: Optional[dict[str, Ga
         "id": str(entry.id), "entry_no": entry.entry_no, "plant_id": entry.plant_id, "kind": entry.kind, "direction": entry.direction,
         "gate_id": str(entry.gate_id) if entry.gate_id else None, "gate_name": gate.name if gate else None,
         "category_code": entry.category_code, "category_label": entry.category_label, "route": entry.route,
-        "status": entry.status, "status_label": STATUS_WORDS.get(entry.status, entry.status),
+        "status": shown_status, "status_label": status_label(entry, refs),
         "vehicle_no": entry.vehicle_no, "party_id": entry.party_id, "party_text": entry.party_text, "note": entry.note,
         "receipt_id": str(entry.receipt_id) if entry.receipt_id else None, "grn_no": receipt.grn_no if receipt else None,
-        "dispatch_ref": entry.dispatch_ref, "bill_no": entry.bill_no, "bill_date": entry.bill_date.isoformat() if entry.bill_date else None,
+        "dispatch_ref": entry.dispatch_ref, "dispatch_refs": refs, "links": [link_payload(row) for row in links],
+        "bill_no": entry.bill_no, "bill_date": entry.bill_date.isoformat() if entry.bill_date else None,
         "bill_amount": float(entry.bill_amount) if entry.bill_amount is not None else None,
         "cost_head_code": entry.cost_head_code, "cost_head_label": entry.cost_head_label,
         "filed_by": entry.filed_by, "filed_at": iso(entry.filed_at), "linked_by": entry.linked_by, "linked_at": iso(entry.linked_at),
@@ -625,8 +695,10 @@ def entries_payload(db: Session, entries: list[GateEntry], access: Optional[vaul
         by_entry.setdefault(str(entity_id), []).append(document)
     # Goods-out photo status is counted over every photo (not only those this login may open).
     photos = goods_out_photos_missing(db, entries[0].plant_id, [(entry.id, entry.dispatch_ref) for entry in entries if entry.kind == "GOODS_OUT"])
+    links = entry_links(db, entries[0].plant_id, [entry.id for entry in entries if entry.kind == "GOODS_OUT"])
     return [{**entry_payload(db, entry, gates=gates, documents=by_entry.get(str(entry.id), []), receipts=receipts,
-                             photos_missing=photos.get(str(entry.id), [])), "photo_count": int(counts.get(str(entry.id), 0))}
+                             photos_missing=photos.get(str(entry.id), []), links=links.get(str(entry.id), [])),
+             "photo_count": int(counts.get(str(entry.id), 0))}
             for entry in entries]
 
 
@@ -794,7 +866,7 @@ def let_in(db: Session, visit: GateVisit, *, actor: str, expected_version: Optio
     if visit.status == "IN":
         return visit
     if visit.status != "ARRIVED":
-        raise HTTPException(status_code=409, detail=f"{visit.visit_no} is {STATUS_WORDS.get(visit.status, visit.status).lower()}; it cannot be let in.")
+        raise HTTPException(status_code=409, detail=f"{visit.visit_no} is {VISIT_STATUS_WORDS.get(visit.status, visit.status).lower()}; it cannot be let in.")
     visit.status, visit.in_at, visit.in_by = "IN", datetime.utcnow(), actor
     visit.version = int(visit.version or 1) + 1
     db.flush()
@@ -821,7 +893,7 @@ def deny(db: Session, visit: GateVisit, *, reason_code: str, reason_label: str, 
     if visit.status == "DENIED":
         return visit
     if visit.status != "ARRIVED":
-        raise HTTPException(status_code=409, detail=f"{visit.visit_no} is {STATUS_WORDS.get(visit.status, visit.status).lower()}; only a visitor waiting at the gate can be denied.")
+        raise HTTPException(status_code=409, detail=f"{visit.visit_no} is {VISIT_STATUS_WORDS.get(visit.status, visit.status).lower()}; only a visitor waiting at the gate can be denied.")
     visit.status, visit.denied_by = "DENIED", actor
     visit.deny_code, visit.deny_label, visit.deny_note = reason_code, reason_label, reason_note
     visit.out_at = datetime.utcnow()
@@ -834,7 +906,7 @@ def mark_out(db: Session, visit: GateVisit, *, actor: str) -> GateVisit:
     if visit.status == "OUT":
         return visit
     if visit.status != "IN":
-        raise HTTPException(status_code=409, detail=f"{visit.visit_no} is {STATUS_WORDS.get(visit.status, visit.status).lower()}; only a visitor inside can go out.")
+        raise HTTPException(status_code=409, detail=f"{visit.visit_no} is {VISIT_STATUS_WORDS.get(visit.status, visit.status).lower()}; only a visitor inside can go out.")
     visit.status, visit.out_at, visit.out_by = "OUT", datetime.utcnow(), actor
     visit.version = int(visit.version or 1) + 1
     db.flush()
@@ -860,7 +932,7 @@ def host_reply(db: Session, visit: GateVisit, *, reply: str, current_user: dict)
     if not may_reply(visit, current_user):
         raise HTTPException(status_code=403, detail="Only the person or department the visitor came to meet can reply.")
     if visit.status not in ("ARRIVED", "IN"):
-        raise HTTPException(status_code=409, detail=f"{visit.visitor_name} has already left ({STATUS_WORDS.get(visit.status, visit.status).lower()}).")
+        raise HTTPException(status_code=409, detail=f"{visit.visitor_name} is no longer inside ({VISIT_STATUS_WORDS.get(visit.status, visit.status).lower()}).")
     visit.host_reply, visit.host_reply_by, visit.host_reply_at = value, actor_of(current_user), datetime.utcnow()
     visit.version = int(visit.version or 1) + 1
     db.flush()
@@ -870,7 +942,7 @@ def host_reply(db: Session, visit: GateVisit, *, reply: str, current_user: dict)
 def visit_payload(visit: GateVisit, *, gate: Optional[Gate], visitor: Optional[GateVisitor], private: bool,
                   settings: Optional[GateSettings] = None, now: Optional[datetime] = None) -> dict[str, Any]:
     payload = {
-        "id": str(visit.id), "visit_no": visit.visit_no, "status": visit.status, "status_label": STATUS_WORDS.get(visit.status, visit.status),
+        "id": str(visit.id), "visit_no": visit.visit_no, "status": visit.status, "status_label": VISIT_STATUS_WORDS.get(visit.status, visit.status),
         "gate_id": str(visit.gate_id), "gate_name": gate.name if gate else None, "visitor_name": visit.visitor_name,
         "company": visit.company, "purpose_code": visit.purpose_code, "purpose_label": visit.purpose_label, "purpose_note": visit.purpose_note,
         "host_user_id": visit.host_user_id, "host_name": visit.host_name, "host_department": visit.host_department,
@@ -906,7 +978,7 @@ def public_pass_payload(db: Session, visit: GateVisit) -> dict[str, Any]:
     """What the visitor's own phone shows: no host contact details, no phone number."""
     gate = db.get(Gate, visit.gate_id)
     return {
-        "visit_no": visit.visit_no, "status": visit.status, "status_label": STATUS_WORDS.get(visit.status, visit.status),
+        "visit_no": visit.visit_no, "status": visit.status, "status_label": VISIT_STATUS_WORDS.get(visit.status, visit.status),
         "visitor_name": visit.visitor_name, "company": visit.company, "purpose_label": visit.purpose_label,
         "host_words": _host_words(visit), "people": int(visit.people or 1), "gate_name": gate.name if gate else None,
         "arrived_at": iso(visit.arrived_at), "in_at": iso(visit.in_at), "out_at": iso(visit.out_at),
@@ -976,7 +1048,6 @@ def desk(db: Session, plant_id: str, gate: Gate, current_user: dict, now: Option
     vehicles = [entry for entry in entries_today if entry.kind == "BILL_IN" and entry.vehicle_no]
     waiting_payload = visits_payload(db, waiting, private=private, settings=settings)
     inside_payload = visits_payload(db, inside, private=private, settings=settings)
-    leaving = leaving_today(db, plant_id, now=now)
     # Goods out today whose Tally bill / challan photo is not in the vault yet (the truck was not held for it).
     goods_out_today = [entry for entry in mine_entries if entry.kind == "GOODS_OUT"]
     missing = goods_out_photos_missing(db, plant_id, [(entry.id, entry.dispatch_ref) for entry in goods_out_today])
@@ -986,7 +1057,10 @@ def desk(db: Session, plant_id: str, gate: Gate, current_user: dict, now: Option
         "gate": gate_payload(gate), "settings": settings_payload(settings),
         "counts": {"waiting": len(waiting), "inside": len(inside), "people_inside": sum(int(v.people or 1) for v in inside),
                    "overstay": sum(1 for row in inside_payload if row["overstay"]), "bills_today": sum(1 for e in entries_today if e.kind == "BILL_IN"),
-                   "vehicles_today": len(vehicles), "leaving": sum(1 for row in leaving if not row["out"]),
+                   "vehicles_today": len(vehicles),
+                   # Goods out today whose photos Stores has not linked to a challan yet ("leaving" kept for old phones).
+                   "to_link": sum(1 for e in entries_today if e.kind == "GOODS_OUT" and e.status == "WITH_STORES"),
+                   "leaving": sum(1 for e in entries_today if e.kind == "GOODS_OUT" and e.status == "WITH_STORES"),
                    "out_today": sum(1 for e in entries_today if e.kind == "GOODS_OUT")},
         "photos_pending": photos_pending,
         "waiting": waiting_payload, "inside": inside_payload,
@@ -1018,11 +1092,10 @@ def dispatch_ref_of(txn: StockTransaction) -> Optional[str]:
     return value or None
 
 
-def leaving_today(db: Session, plant_id: str, *, now: Optional[datetime] = None) -> list[dict[str, Any]]:
-    """Dispatches of the last few days that have not gone out of the gate, and today's that have."""
-    today = plant_today(now)
+def dispatch_groups(db: Session, plant_id: str, since_day: date) -> dict[str, dict[str, Any]]:
+    """Live (not reversed) dispatches since a day, one group per challan (dispatch_ref) with its items."""
     groups: dict[str, dict[str, Any]] = {}
-    for txn, code, name, uom in _dispatch_rows(db, plant_id, today - timedelta(days=LEAVING_LOOKBACK_DAYS)):
+    for txn, code, name, uom in _dispatch_rows(db, plant_id, since_day):
         ref = dispatch_ref_of(txn)
         if not ref:
             continue
@@ -1033,6 +1106,13 @@ def leaving_today(db: Session, plant_id: str, *, now: Optional[datetime] = None)
         metadata = txn.movement_metadata if isinstance(txn.movement_metadata, dict) else {}
         if metadata.get("production_job_id"):
             group["job_card_ids"].add(str(metadata["production_job_id"]))
+    return groups
+
+
+def leaving_today(db: Session, plant_id: str, *, now: Optional[datetime] = None) -> list[dict[str, Any]]:
+    """Dispatches of the last few days with no linked gate-out photo yet, and today's that have one."""
+    today = plant_today(now)
+    groups = dispatch_groups(db, plant_id, today - timedelta(days=LEAVING_LOOKBACK_DAYS))
     if not groups:
         return []
     outs = {row.dispatch_ref: row for row in db.query(DispatchGateOut).filter(DispatchGateOut.plant_id == str(plant_id),
@@ -1085,6 +1165,8 @@ def _gate_out_row(db: Session, plant_id: str, dispatch_ref: str) -> Optional[Dis
 
 def set_tally(db: Session, plant_id: str, dispatch_ref: str, *, tally_bill_no: str, tally_bill_date: Optional[date], actor: str,
               expected_version: Optional[int] = None) -> DispatchGateOut:
+    """Store or the dispatch desk types the Tally bill no. on a challan (before or after it leaves). Never the
+    watchman (the route allows Store / Dispatch / PlantManager only)."""
     ref = clean_text(dispatch_ref, 100)
     if not ref or not dispatch_exists(db, plant_id, ref):
         raise HTTPException(status_code=404, detail="That dispatch is not in this plant (or it was cancelled).")
@@ -1095,58 +1177,206 @@ def set_tally(db: Session, plant_id: str, dispatch_ref: str, *, tally_bill_no: s
     if not row:
         row = DispatchGateOut(plant_id=str(plant_id), dispatch_ref=ref, version=0)
         db.add(row)
-    row.tally_bill_no, row.tally_bill_date = number, tally_bill_date
+    row.tally_bill_no, row.tally_bill_date = number, tally_bill_date or row.tally_bill_date
     row.tally_by, row.tally_at = actor, datetime.utcnow()
     row.version = int(row.version or 0) + 1
     db.flush()
     return row
 
 
-def goods_out(db: Session, *, plant_id: str, gate: Gate, dispatch_ref: str, tally_bill_no: str, tally_bill_date: Optional[date],
-              vehicle_no: Optional[str], actor: str, request_id: Optional[uuid.UUID]) -> tuple[GateEntry, DispatchGateOut, bool]:
-    ref = clean_text(dispatch_ref, 100)
-    if not ref:
-        raise HTTPException(status_code=422, detail="Pick the challan that is leaving, or scan its QR.")
+def _notify_goods_out(db: Session, entry: GateEntry) -> None:
+    href = f"/logistics/dispatch?gate_out={entry.id}"
+    vehicle = f" ({entry.vehicle_no})" if entry.vehicle_no else ""
+    notify(db, plant_id=entry.plant_id, event_type="GATE_GOODS_OUT_TO_LINK", title=f"Goods out at the gate · {entry.entry_no}",
+           message=(f"A truck{vehicle} left at {local_now(entry.created_at).strftime('%H:%M')}. The watchman took the Tally bill and challan "
+                    "photos. Open Dispatch register › Gone out at the gate, pick the challan(s) and add the Tally bill no."),
+           href=href, roles=["Store", "Dispatch"], entity_id=entry.id,
+           action={"kind": "GATE_ENTRY", "id": str(entry.id), "buttons": [{"key": "link", "label": "Link challan", "href": href, "tone": "primary"}]})
+
+
+def create_goods_out(db: Session, *, plant_id: str, gate: Gate, vehicle_no: Optional[str], actor: str,
+                     request_id: Optional[uuid.UUID]) -> tuple[GateEntry, bool]:
+    """The watchman's "+ Goods out": photos (sent next through the vault outbox) and the vehicle no. only.
+    The entry waits WITH_STORES until Store links it to the challan(s) with the Tally bill no."""
     if request_id:
         existing = db.query(GateEntry).filter(GateEntry.plant_id == str(plant_id), GateEntry.request_id == request_id).first()
         if existing:
-            if existing.kind != "GOODS_OUT" or existing.dispatch_ref != ref:
+            if existing.kind != "GOODS_OUT" or str(existing.gate_id) != str(gate.id):
                 raise HTTPException(status_code=409, detail="This request key was used for another gate entry. Reload and try again.")
-            row = db.query(DispatchGateOut).filter(DispatchGateOut.gate_entry_id == existing.id).first()
-            return existing, row, False
-    number = clean_tally_no(tally_bill_no)
+            return existing, False
     if gate.direction == "IN":
         raise HTTPException(status_code=409, detail=f"{gate.name} is an entry gate. Pick the gate the truck leaves from.")
-    if not dispatch_exists(db, plant_id, ref):
-        raise HTTPException(status_code=404, detail=f"Challan {ref} is not a dispatch of this plant (or it was cancelled). Check the challan.")
-    row = _gate_out_row(db, plant_id, ref)
-    if row and row.out_at:
-        entry = db.get(GateEntry, row.gate_entry_id) if row.gate_entry_id else None
-        when = local_now(row.out_at).strftime("%d %b %H:%M")
-        raise HTTPException(status_code=409, detail=f"Challan {ref} already went out at {when}{(' (' + entry.entry_no + ')') if entry else ''}.")
+    vehicle = clean_vehicle(vehicle_no)
+    if not vehicle:
+        raise HTTPException(status_code=422, detail="Type the vehicle number of the truck that is leaving.")
     entry = GateEntry(
         plant_id=str(plant_id), entry_no=next_series_no(db, plant_id, "GATE_ENTRY", "GE", GateEntry, GateEntry.entry_no),
         request_id=request_id, gate_id=gate.id, direction="OUT", kind="GOODS_OUT", category_code="DISPATCH", category_label="Goods out",
-        route="DISPATCH", status="OUT", vehicle_no=clean_vehicle(vehicle_no), dispatch_ref=ref, history=[], created_by=actor, version=1,
+        route="DISPATCH", status="WITH_STORES", vehicle_no=vehicle, history=[], created_by=actor, version=1,
     )
-    _history(entry, actor, "OUT", dispatch_ref=ref, tally_bill_no=number)
+    _history(entry, actor, "OUT", vehicle_no=vehicle)
     db.add(entry)
     db.flush()
-    if not row:
-        row = DispatchGateOut(plant_id=str(plant_id), dispatch_ref=ref, version=0)
-        db.add(row)
-    if row.tally_bill_no and row.tally_bill_no != number:
-        _history(entry, actor, "TALLY_CHANGED", **{"from": row.tally_bill_no, "to": number})
-    row.tally_bill_no = number
-    row.tally_bill_date = tally_bill_date or row.tally_bill_date
-    if not row.tally_by:
-        row.tally_by, row.tally_at = actor, datetime.utcnow()
-    row.vehicle_no = entry.vehicle_no
-    row.gate_entry_id = entry.id
-    row.out_at, row.out_by = datetime.utcnow(), actor
-    row.version = int(row.version or 0) + 1
+    _notify_goods_out(db, entry)
+    return entry, True
+
+
+@dataclass
+class ChallanLink:
+    dispatch_ref: str
+    tally_bill_no: str
+    tally_bill_date: Optional[date] = None
+
+
+def _entry_day(entry: GateEntry) -> date:
+    return local_now(entry.created_at).date() if entry.created_at else plant_today()
+
+
+def link_goods_out(db: Session, entry: GateEntry, *, links: list[ChallanLink], actor: str, expected_version: Optional[int] = None) -> GateEntry:
+    """Store links the watchman's goods-out photos to one or more challans, each with its Tally bill no.
+    Each challan gets its ``dispatch_gate_out`` row (out time and watchman from the entry, Store as linker);
+    the entry's photos are linked to every challan; the entry becomes LINKED."""
+    if entry.kind != "GOODS_OUT":
+        raise HTTPException(status_code=409, detail=f"{entry.entry_no} is not a goods-out entry.")
+    cleaned: list[ChallanLink] = []
+    for link in links:
+        ref = clean_text(link.dispatch_ref, 100)
+        if not ref:
+            raise HTTPException(status_code=422, detail="Pick the challan that went out on this truck.")
+        if ref in {row.dispatch_ref for row in cleaned}:
+            raise HTTPException(status_code=422, detail=f"Challan {ref} is picked twice.")
+        number = clean_tally_no(link.tally_bill_no)
+        when = link.tally_bill_date or _entry_day(entry)
+        if when > plant_today() + timedelta(days=1):
+            raise HTTPException(status_code=422, detail="The Tally bill date is in the future. Check the date on the Tally bill.")
+        cleaned.append(ChallanLink(ref, number, when))
+    if not cleaned:
+        raise HTTPException(status_code=422, detail="Pick at least one challan that went out on this truck.")
+    if entry.status in LINKED_STATES:
+        current = sorted(row.dispatch_ref for row in entry_links(db, entry.plant_id, [entry.id]).get(str(entry.id), []))
+        if current == sorted(row.dispatch_ref for row in cleaned):
+            return entry  # the same link sent twice (double tap, retry)
+        raise HTTPException(status_code=409, detail=f"{entry.entry_no} is already linked to {challan_words(current) or 'a challan'}. "
+                                                    "To change it, the plant head unlinks it first.")
+    _check_version(entry, expected_version)
+    if entry.status != "WITH_STORES":
+        raise HTTPException(status_code=409, detail=f"{entry.entry_no} is {STATUS_WORDS.get(entry.status, entry.status).lower()}; it cannot be linked.")
+    now = datetime.utcnow()
+    for link in cleaned:
+        if not dispatch_exists(db, entry.plant_id, link.dispatch_ref):
+            raise HTTPException(status_code=404, detail=f"Challan {link.dispatch_ref} is not a dispatch of this plant (or it was cancelled).")
+        row = _gate_out_row(db, entry.plant_id, link.dispatch_ref)
+        if row and row.out_at and row.gate_entry_id and row.gate_entry_id != entry.id:
+            other = db.get(GateEntry, row.gate_entry_id)
+            raise HTTPException(status_code=409, detail=f"Challan {link.dispatch_ref} is already linked to gate entry "
+                                                        f"{other.entry_no if other else ''} (out {local_now(row.out_at).strftime('%d %b %H:%M')}).".replace("entry  (", "entry ("))
+        if not row:
+            row = DispatchGateOut(plant_id=str(entry.plant_id), dispatch_ref=link.dispatch_ref, version=0)
+            db.add(row)
+        if row.tally_bill_no and row.tally_bill_no != link.tally_bill_no:
+            _history(entry, actor, "TALLY_CHANGED", dispatch_ref=link.dispatch_ref, **{"from": row.tally_bill_no, "to": link.tally_bill_no})
+        if row.tally_bill_no != link.tally_bill_no or not row.tally_by:
+            row.tally_by, row.tally_at = actor, now
+        row.tally_bill_no, row.tally_bill_date = link.tally_bill_no, link.tally_bill_date
+        row.vehicle_no = entry.vehicle_no
+        row.gate_entry_id = entry.id
+        row.out_at, row.out_by = entry.created_at or now, entry.created_by
+        row.linked_by, row.linked_at = actor, now
+        row.version = int(row.version or 0) + 1
+    entry.dispatch_ref = cleaned[0].dispatch_ref
+    entry.status = "LINKED"
+    entry.linked_by, entry.linked_at = actor, now
+    entry.reminded_at = None
+    entry.version = int(entry.version or 1) + 1
+    _history(entry, actor, "LINKED", challans=[{"dispatch_ref": row.dispatch_ref, "tally_bill_no": row.tally_bill_no} for row in cleaned])
     db.flush()
-    return entry, row, True
+    sync_entry_links(db, entry, actor)
+    # The vault search finds the photos by challan and Tally number too.
+    for document in entry_documents(db, entry):
+        ref_no = cleaned[0].tally_bill_no if document.kind == "TALLY_BILL" else cleaned[0].dispatch_ref if document.kind == "OUR_CHALLAN" else None
+        if ref_no and not document.ref_no:
+            changes: dict[str, Any] = {"ref_no": ref_no}
+            if document.kind == "TALLY_BILL" and not document.ref_date:
+                changes["ref_date"] = cleaned[0].tally_bill_date
+            vault.update_document(db, document, changes=changes, actor=actor, expected_version=int(document.version))
+    db.flush()
+    return entry
+
+
+def unlink_goods_out(db: Session, entry: GateEntry, *, reason_code: str, reason_label: str, actor: str, expected_version: Optional[int],
+                     dispatch_ref: Optional[str] = None) -> GateEntry:
+    """Plant head (or Owner / Admin) undoes a wrong link, with a GATE_OUT_UNLINK reason (logged on the entry).
+    One challan or all of them; with none left the entry goes back to Stores to link again."""
+    if entry.kind != "GOODS_OUT":
+        raise HTTPException(status_code=409, detail=f"{entry.entry_no} is not a goods-out entry.")
+    _check_version(entry, expected_version)
+    if entry.status not in LINKED_STATES:
+        raise HTTPException(status_code=409, detail=f"{entry.entry_no} is not linked to a challan.")
+    rows = entry_links(db, entry.plant_id, [entry.id]).get(str(entry.id), [])
+    ref = clean_text(dispatch_ref, 100)
+    chosen = [row for row in rows if not ref or row.dispatch_ref == ref]
+    if ref and not chosen:
+        raise HTTPException(status_code=404, detail=f"{entry.entry_no} is not linked to challan {ref}.")
+    documents = entry_documents(db, entry)
+    for row in chosen:
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": f"gate-out:{entry.plant_id}:{row.dispatch_ref}"})
+        for document in documents:
+            vault.unlink_document(db, document, "DISPATCH", row.dispatch_ref, actor)
+        row.gate_entry_id = None
+        row.out_at = row.out_by = None
+        row.linked_by = row.linked_at = None
+        row.vehicle_no = None
+        row.version = int(row.version or 0) + 1
+    left = [row for row in rows if row not in chosen]
+    if left:
+        entry.dispatch_ref = left[0].dispatch_ref
+    else:
+        entry.status = "WITH_STORES"
+        entry.dispatch_ref = None
+        entry.linked_by = entry.linked_at = None
+    entry.version = int(entry.version or 1) + 1
+    _history(entry, actor, "UNLINKED", challans=[row.dispatch_ref for row in chosen], reason_code=reason_code, reason=reason_label)
+    db.flush()
+    if not left:
+        _notify_goods_out(db, entry)
+    return entry
+
+
+def gone_out_to_link(db: Session, plant_id: str) -> list[GateEntry]:
+    """Goods-out photos the watchman took that no challan has yet (the "Gone out at the gate" strip)."""
+    return (db.query(GateEntry).filter(GateEntry.plant_id == str(plant_id), GateEntry.kind == "GOODS_OUT", GateEntry.status == "WITH_STORES")
+            .order_by(GateEntry.created_at.asc()).limit(200).all())
+
+
+def challans_to_link(db: Session, plant_id: str, *, q: Optional[str] = None, day: Optional[date] = None, limit: int = 60) -> list[dict[str, Any]]:
+    """Challans of the last 30 days not yet linked to a gate-out photo; the entry's own day first, then newest."""
+    today = plant_today()
+    groups = dispatch_groups(db, plant_id, today - timedelta(days=CHALLAN_LOOKBACK_DAYS))
+    if not groups:
+        return []
+    rows = {row.dispatch_ref: row for row in db.query(DispatchGateOut).filter(DispatchGateOut.plant_id == str(plant_id),
+                                                                              DispatchGateOut.dispatch_ref.in_(list(groups))).all()}
+    term = (q or "").strip().lower()
+    result = []
+    for ref, group in groups.items():
+        row = rows.get(ref)
+        if row and row.out_at:
+            continue
+        if term and term not in ref.lower() and not any(term in str(item["item_name"] or "").lower() or term in str(item["item_code"] or "").lower()
+                                                         for item in group["items"].values()):
+            continue
+        posted_day = group["effective_date"] or (local_now(group["posted_at"]).date() if group["posted_at"] else today)
+        result.append({
+            "dispatch_ref": ref, "items": list(group["items"].values()),
+            "qty_total": round(sum(item["qty"] for item in group["items"].values()), 3), "posted_at": iso(group["posted_at"]),
+            "posted_day": posted_day.isoformat() if posted_day else None, "same_day": bool(day and posted_day == day),
+            "tally_bill_no": row.tally_bill_no if row else None,
+            "tally_bill_date": row.tally_bill_date.isoformat() if row and row.tally_bill_date else None,
+            "version": int(row.version or 1) if row else None,
+        })
+    same = [item for item in result if item["same_day"]]
+    rest = sorted([item for item in result if not item["same_day"]], key=lambda item: item["posted_at"] or "", reverse=True)
+    return (sorted(same, key=lambda item: item["posted_at"] or "", reverse=True) + rest)[:limit]
 
 
 GOODS_OUT_PHOTOS = (("TALLY_BILL", "Tally bill"), ("OUR_CHALLAN", "Challan"))
@@ -1187,11 +1417,16 @@ def dispatch_status(db: Session, plant_id: str, refs: Iterable[str]) -> dict[str
     out: dict[str, dict[str, Any]] = {}
     rows = db.query(DispatchGateOut).filter(DispatchGateOut.plant_id == str(plant_id), DispatchGateOut.dispatch_ref.in_(wanted)).all()
     missing = goods_out_photos_missing(db, plant_id, [(row.gate_entry_id, row.dispatch_ref) for row in rows if row.out_at and row.gate_entry_id])
+    entry_ids = [row.gate_entry_id for row in rows if row.gate_entry_id]
+    entries = {str(entry.id): entry for entry in db.query(GateEntry).filter(GateEntry.id.in_(entry_ids)).all()} if entry_ids else {}
     for row in rows:
+        entry = entries.get(str(row.gate_entry_id)) if row.gate_entry_id else None
         out[row.dispatch_ref] = {"photos_missing": missing.get(str(row.gate_entry_id), []) if row.out_at and row.gate_entry_id else [],
                                  "tally_bill_no": row.tally_bill_no, "tally_bill_date": row.tally_bill_date.isoformat() if row.tally_bill_date else None,
                                  "out": bool(row.out_at), "out_at": iso(row.out_at), "vehicle_no": row.vehicle_no, "version": int(row.version or 1),
-                                 "gate_entry_id": str(row.gate_entry_id) if row.gate_entry_id else None}
+                                 "gate_entry_id": str(row.gate_entry_id) if row.gate_entry_id else None,
+                                 "gate_entry_no": entry.entry_no if entry else None, "gate_entry_version": int(entry.version or 1) if entry else None,
+                                 "linked": bool(row.out_at and row.gate_entry_id), "linked_by": row.linked_by, "linked_at": iso(row.linked_at)}
     return out
 
 
@@ -1230,7 +1465,7 @@ def history(db: Session, plant_id: str, *, date_from: date, date_to: date, gate_
         for visit, visitor in query.order_by(GateVisit.arrived_at.desc()).limit(cap).all():
             rows.append({"type": "VISITOR", "type_label": "Visitor", "id": str(visit.id), "no": visit.visit_no, "at": iso(visit.arrived_at),
                          "gate": gates[visit.gate_id].name if visit.gate_id in gates else None, "status": visit.status,
-                         "status_label": STATUS_WORDS.get(visit.status, visit.status), "name": visit.visitor_name, "company": visit.company,
+                         "status_label": VISIT_STATUS_WORDS.get(visit.status, visit.status), "name": visit.visitor_name, "company": visit.company,
                          "mobile": visitor.mobile if private else masked_mobile(visitor.mobile), "vehicle_no": visit.vehicle_no,
                          "detail": visit.purpose_label + (f" · {visit.purpose_note}" if visit.purpose_note else ""), "host": _host_words(visit),
                          "people": int(visit.people or 1), "in_at": iso(visit.in_at), "out_at": iso(visit.out_at),
@@ -1242,27 +1477,32 @@ def history(db: Session, plant_id: str, *, date_from: date, date_to: date, gate_
         if gate_key:
             query = query.filter(GateEntry.gate_id == gate_key)
         if status_value:
-            query = query.filter(GateEntry.status == status_value)
+            query = query.filter(GateEntry.status.in_(LINKED_STATES) if status_value == "LINKED" else GateEntry.status == status_value)
         if term:
-            query = query.outerjoin(DispatchGateOut, DispatchGateOut.gate_entry_id == GateEntry.id).filter(or_(
+            linked = db.query(DispatchGateOut.gate_entry_id).filter(DispatchGateOut.plant_id == str(plant_id), DispatchGateOut.gate_entry_id.isnot(None),
+                                                                   or_(DispatchGateOut.tally_bill_no.ilike(term), DispatchGateOut.dispatch_ref.ilike(term)))
+            query = query.filter(or_(
                 GateEntry.entry_no.ilike(term), GateEntry.party_text.ilike(term), GateEntry.vehicle_no.ilike(term),
-                GateEntry.bill_no.ilike(term), GateEntry.dispatch_ref.ilike(term), DispatchGateOut.tally_bill_no.ilike(term)))
+                GateEntry.bill_no.ilike(term), GateEntry.dispatch_ref.ilike(term), GateEntry.id.in_(linked)))
         entries = query.order_by(GateEntry.created_at.desc()).limit(cap).all()
-        tally = {row.gate_entry_id: row for row in db.query(DispatchGateOut).filter(
-            DispatchGateOut.gate_entry_id.in_([entry.id for entry in entries if entry.kind == "GOODS_OUT"])).all()} if entries else {}
+        tally = entry_links(db, plant_id, [entry.id for entry in entries if entry.kind == "GOODS_OUT"]) if entries else {}
         receipts = {row.id: row for row in db.query(PurchaseReceipt).filter(
             PurchaseReceipt.id.in_([entry.receipt_id for entry in entries if entry.receipt_id])).all()} if entries else {}
         photos = goods_out_photos_missing(db, plant_id, [(entry.id, entry.dispatch_ref) for entry in entries if entry.kind == "GOODS_OUT"])
         for entry in entries:
-            out = tally.get(entry.id)
+            outs = sorted(tally.get(str(entry.id), []), key=lambda row: row.dispatch_ref != entry.dispatch_ref)
             receipt = receipts.get(entry.receipt_id) if entry.receipt_id else None
-            reference = (f"Challan {entry.dispatch_ref} · Tally {out.tally_bill_no}" if entry.kind == "GOODS_OUT" and out
-                         else f"GRN {receipt.grn_no}" if receipt else (f"Bill {entry.bill_no}" if entry.bill_no else ""))
+            if entry.kind == "GOODS_OUT":
+                reference = ("; ".join(f"Challan {row.dispatch_ref} · Tally {row.tally_bill_no}" for row in outs) if outs
+                             else "With Stores to link" if entry.status == "WITH_STORES" else (f"Challan {entry.dispatch_ref}" if entry.dispatch_ref else ""))
+            else:
+                reference = f"GRN {receipt.grn_no}" if receipt else (f"Bill {entry.bill_no}" if entry.bill_no else "")
             rows.append({"type": entry.kind, "type_label": "Bill in" if entry.kind == "BILL_IN" else "Goods out", "id": str(entry.id),
                          "no": entry.entry_no, "at": iso(entry.created_at), "gate": gates[entry.gate_id].name if entry.gate_id in gates else None,
-                         "status": entry.status, "status_label": STATUS_WORDS.get(entry.status, entry.status), "name": entry.party_text,
+                         "status": "LINKED" if entry.kind == "GOODS_OUT" and entry.status == "OUT" else entry.status,
+                         "status_label": status_label(entry, [row.dispatch_ref for row in outs]), "name": entry.party_text,
                          "company": None, "mobile": None, "vehicle_no": entry.vehicle_no, "detail": entry.category_label,
-                         "host": None, "people": None, "in_at": None, "out_at": iso(out.out_at) if out else None,
+                         "host": None, "people": None, "in_at": None, "out_at": iso(entry.created_at) if entry.kind == "GOODS_OUT" else None,
                          "reference": reference, "by": entry.created_by,
                          "photos_missing": photos.get(str(entry.id), []) if entry.kind == "GOODS_OUT" else [],
                          "amount": float(entry.bill_amount) if entry.bill_amount is not None else None})
@@ -1357,10 +1597,33 @@ def dispatch_not_out(db: Session, plant_id: str, now: Optional[datetime] = None)
     refs = ", ".join(row["dispatch_ref"] for row in pending[:10]) + (f" and {len(pending) - 10} more" if len(pending) > 10 else "")
     notify(db, plant_id=plant_id, event_type="DISPATCH_NOT_OUT",
            title=f"{len(pending)} challan{'s' if len(pending) != 1 else ''} posted today did not go out of the gate",
-           message=f"Not out of the gate yet: {refs}. If the truck left, ask the watchman to record it (Gate › Goods out) with the Tally bill.",
-           href="/logistics/dispatch", roles=["Dispatch"], entity_id=f"not-out:{today.isoformat()}",
+           message=(f"No gate photo is linked yet to: {refs}. If the truck left, the watchman takes the Tally bill and challan photos at the "
+                    "gate (Gate › Goods out) and Stores links them on Dispatch register › Gone out at the gate."),
+           href="/logistics/dispatch", roles=["Dispatch", "Store"], entity_id=f"not-out:{today.isoformat()}",
            action={"kind": "GATE_DIGEST", "id": today.isoformat(), "buttons": [{"key": "open", "label": "Open list", "href": "/logistics/dispatch"}]})
     return len(pending)
+
+
+def goods_out_unlinked(db: Session, plant_id: str, now: Optional[datetime] = None) -> int:
+    """After the gate close time, once a day: goods-out photos that Stores has not linked to a challan yet."""
+    if not after_close(db, plant_id, now):
+        return 0
+    rows = (db.query(GateEntry).filter(GateEntry.plant_id == plant_id, GateEntry.kind == "GOODS_OUT", GateEntry.status == "WITH_STORES")
+            .order_by(GateEntry.created_at.asc()).limit(200).all())
+    today = plant_today(now)
+    if not rows or not _once(db, plant_id, "GOODS_OUT_UNLINKED", today):
+        return 0
+    words = ", ".join(f"{entry.entry_no} ({entry.vehicle_no or 'no vehicle no.'}, {local_now(entry.created_at).strftime('%d %b %H:%M')})"
+                      for entry in rows[:8]) + (f" and {len(rows) - 8} more" if len(rows) > 8 else "")
+    stamp = local_now(now)
+    for entry in rows:
+        entry.reminded_at = stamp.astimezone(timezone.utc).replace(tzinfo=None)
+    notify(db, plant_id=plant_id, event_type="GATE_GOODS_OUT_UNLINKED",
+           title=f"{len(rows)} goods-out photo set{'s' if len(rows) != 1 else ''} not linked to a challan",
+           message=f"Trucks went out but no challan is linked yet: {words}. Open Dispatch register › Gone out at the gate, pick the challan(s) and add the Tally bill no.",
+           href="/logistics/dispatch", roles=["Store", "PlantManager"], entity_id=f"goods-out-unlinked:{today.isoformat()}",
+           action={"kind": "GATE_DIGEST", "id": today.isoformat(), "buttons": [{"key": "open", "label": "Link now", "href": "/logistics/dispatch", "tone": "primary"}]})
+    return len(rows)
 
 
 def _purged_jpeg() -> bytes:

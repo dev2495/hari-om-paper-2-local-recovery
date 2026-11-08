@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils"
 const STATUSES: Record<string, Array<{ value: string; label: string }>> = {
   VISITOR: [{ value: "ARRIVED", label: "Waiting at gate" }, { value: "IN", label: "Inside" }, { value: "OUT", label: "Out" }, { value: "DENIED", label: "Denied" }, { value: "NO_SHOW", label: "Did not come in" }],
   BILL_IN: [{ value: "WITH_STORES", label: "With Stores" }, { value: "WITH_ACCOUNTS", label: "With Accounts" }, { value: "LINKED", label: "Linked to GRN" }, { value: "FILED", label: "Filed" }],
-  GOODS_OUT: [{ value: "OUT", label: "Out of gate" }],
+  GOODS_OUT: [{ value: "WITH_STORES", label: "With Stores (to link)" }, { value: "LINKED", label: "Linked to challan" }],
 }
 const daysAgo = (days: number) => { const d = new Date(`${businessDate()}T00:00:00`); d.setDate(d.getDate() - days); return d.toISOString().slice(0, 10) }
 const PAGE = 100

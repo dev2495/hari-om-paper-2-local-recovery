@@ -3,9 +3,10 @@
 /**
  * Watchman desk (6 Nov 2026, plan §4–§5). Phone first. The gate is picked at shift start and remembered on
  * this device. Tabs: Inside now · + Visitor · + Bill in · + Goods out · Today. Refreshes every 15 s.
+ * The gate only takes photos (bills in and goods out); Stores and Accounts link them to the records.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { AlertTriangle, ArrowRightLeft, Camera, CheckCircle2, Clock3, DoorOpen, FileText, LogIn, LogOut, PackageCheck, Plus, RefreshCw, ScanLine, Truck, UserPlus, UserRound, X } from "lucide-react"
+import { AlertTriangle, ArrowRightLeft, Camera, Clock3, DoorOpen, FileText, LogIn, LogOut, PackageCheck, Plus, RefreshCw, Truck, UserPlus, UserRound, X } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
 
@@ -19,9 +20,9 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { RoleGate } from "@/components/workspace/role-gate"
 import { useAuth } from "@/context/AuthContext"
 import { useDocumentOutbox } from "@/hooks/use-documents"
-import { dispatchRefFromScan, gateApi, GATE_STORAGE_KEY, MATERIAL_CATEGORY, passTokenFromScan, type Gate, type GateEntry, type GateVisit, type LeavingRow } from "@/lib/api-gate"
+import { gateApi, GATE_STORAGE_KEY, MATERIAL_CATEGORY, passTokenFromScan, type Gate, type GateEntry, type GateVisit } from "@/lib/api-gate"
 import { queueDocumentFiles, startOutbox, UploadRefused } from "@/lib/doc-upload"
-import { errorText, plural, timeText } from "@/lib/stock-format"
+import { errorText, plural } from "@/lib/stock-format"
 import { cn } from "@/lib/utils"
 
 type Tab = "inside" | "visitor" | "bill" | "out" | "today"
@@ -62,6 +63,7 @@ function GateDesk() {
   const concrete = Boolean(activePlant && activePlant !== "ALL")
   const gates = useQuery({ queryKey: ["gate", "gates", activePlant], enabled: concrete, queryFn: () => gateApi.gates() })
   const { gate, choose } = useGateChoice(gates.data)
+  // A challan QR scanned with the phone camera (/gate?out=…) opens + Goods out; the watchman picks no challan.
   const scannedOut = params.get("out")
   const [tab, setTab] = useState<Tab>(scannedOut ? "out" : ((params.get("tab") as Tab) || "inside"))
   const outbox = useDocumentOutbox()
@@ -97,7 +99,7 @@ function GateDesk() {
           <CountTile label="Waiting" value={counts.waiting} tone={counts.waiting ? "amber" : "slate"} onClick={() => setTab("inside")} />
           <CountTile label="Inside" value={counts.people_inside} tone={counts.overstay ? "rose" : counts.inside ? "cyan" : "slate"} onClick={() => setTab("inside")} />
           <CountTile label="Bills today" value={counts.bills_today} onClick={() => setTab("today")} />
-          <CountTile label="To go out" value={counts.leaving} tone={counts.leaving ? "amber" : "slate"} onClick={() => setTab("out")} />
+          <CountTile label="Out today" value={counts.out_today} onClick={() => setTab("today")} />
         </div>
       ) : null}
       <nav className="sticky top-0 z-20 flex gap-1 rounded-2xl border border-border bg-card/95 p-1 shadow-sm backdrop-blur" role="tablist" aria-label="Gate desk">
@@ -114,7 +116,7 @@ function GateDesk() {
       {desk.data?.photos_pending?.length ? (
         <Message tone="warning">
           {desk.data.photos_pending.length === 1 ? "1 truck went out" : `${desk.data.photos_pending.length} trucks went out`} without both photos in the vault:{" "}
-          {desk.data.photos_pending.map((row) => `challan ${row.dispatch_ref} (${row.missing.join(", ").toLowerCase()})`).join("; ")}. Keep this phone on the network so they upload. If a photo was lost, the dispatch desk adds it in the Doc Vault and links it to the challan.
+          {desk.data.photos_pending.map((row) => `${row.entry_no} (${row.missing.join(", ").toLowerCase()})`).join("; ")}. Keep this phone on the network so they upload. If a photo was lost, tell Stores; they add it in the Doc Vault.
         </Message>
       ) : null}
       {entryId ? <EntryFocus id={entryId} onClose={() => router.replace("/gate")} /> : null}
@@ -122,7 +124,7 @@ function GateDesk() {
       {tab === "inside" ? <InsideNow desk={desk.data} loading={desk.isLoading} focusVisit={params.get("visit")} onNotice={setNotice} /> : null}
       {tab === "visitor" ? <WalkIn gate={gate} onDone={(text) => { setNotice({ tone: "ok", text }); setTab("inside") }} /> : null}
       {tab === "bill" ? <BillIn gate={gate} onNotice={setNotice} /> : null}
-      {tab === "out" ? <GoodsOut gate={gate} scanned={scannedOut} onNotice={setNotice} /> : null}
+      {tab === "out" ? <GoodsOut gate={gate} onNotice={setNotice} /> : null}
       {tab === "today" ? <Today desk={desk.data} /> : null}
     </div>
   )
@@ -211,6 +213,15 @@ function InsideNow({ desk, loading, focusVisit, onNotice }: { desk?: Awaited<Ret
   )
 }
 
+/** What the time line says for each visit state; only a visitor still at the gate is "waiting". */
+function visitTiming(visit: GateVisit): string {
+  if (visit.status === "IN") return ` · in ${clock(visit.in_at)} · ${since(visit.in_at)}`
+  if (visit.status === "OUT") return ` · in ${clock(visit.in_at)} · left ${clock(visit.out_at)}`
+  if (visit.status === "DENIED") return ` · denied${visit.deny_label ? ` (${visit.deny_label})` : ""}`
+  if (visit.status === "NO_SHOW") return " · did not come in"
+  return ` · waiting ${since(visit.arrived_at)}`
+}
+
 function VisitRow({ visit, actions, focus }: { visit: GateVisit; actions?: React.ReactNode; focus?: boolean }) {
   const [photo, setPhoto] = useState(false)
   const reply = visit.host_reply
@@ -224,7 +235,7 @@ function VisitRow({ visit, actions, focus }: { visit: GateVisit; actions?: React
         <div className="min-w-0 flex-1">
           <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[15.5px] font-semibold text-foreground">{visit.visitor_name}{visit.people > 1 ? <Chip tone="slate">{visit.people} people</Chip> : null}{visit.overstay ? <Chip tone="rose" icon={AlertTriangle}>After closing</Chip> : null}</p>
           <p className="text-[13px] text-muted-foreground">{[visit.company, visit.purpose_label + (visit.purpose_note ? ` · ${visit.purpose_note}` : "")].filter(Boolean).join(" · ")}</p>
-          <p className="text-[13px] text-foreground/85">For <strong>{visit.host_words}</strong>{visit.status === "IN" ? ` · in ${clock(visit.in_at)} · ${since(visit.in_at)}` : ` · waiting ${since(visit.arrived_at)}`}{visit.vehicle_no ? ` · ${visit.vehicle_no}` : ""}</p>
+          <p className="text-[13px] text-foreground/85">For <strong>{visit.host_words}</strong>{visitTiming(visit)}{visit.vehicle_no ? ` · ${visit.vehicle_no}` : ""}</p>
           <p className="text-[12px] text-muted-foreground">{visit.visit_no}{visit.mobile ? ` · ${visit.mobile}` : ""}{visit.source === "DESK" ? " · entered at the desk" : ""}</p>
           {reply ? <p data-testid="gate-host-reply" className={cn("mt-1.5 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12.5px] font-semibold", reply === "SEND_IN" ? "bg-signal-emerald-soft text-signal-emerald-ink" : reply === "WAIT" ? "bg-signal-amber-soft text-signal-amber-ink" : "bg-signal-rose-soft text-signal-rose-ink")}>Host: {visit.host_reply_label} · {clock(visit.host_reply_at)}</p>
             : visit.status === "IN" ? <p className="mt-1 text-[12px] text-muted-foreground">Host told; no reply yet.</p> : null}
@@ -388,83 +399,49 @@ function BillIn({ gate, onNotice }: { gate: Gate; onNotice: (n: { tone: "ok" | "
 }
 
 // ── Goods out ──────────────────────────────────────────────────────────────────────────────────
-function GoodsOut({ gate, scanned, onNotice }: { gate: Gate; scanned: string | null; onNotice: (n: { tone: "ok" | "error"; text: string } | null) => void }) {
+/**
+ * Truck leaving (owner rule, 8 Nov 2026): the watchman only photographs the Tally bill and our challan and
+ * types the vehicle no. No challan pick, no Tally no.: Stores links the photos to the challan(s) and adds the
+ * Tally bill no. on the dispatch register ("Gone out at the gate").
+ */
+function GoodsOut({ gate, onNotice }: { gate: Gate; onNotice: (n: { tone: "ok" | "error"; text: string } | null) => void }) {
   const { activePlant } = useAuth()
   const client = useQueryClient()
-  const leaving = useQuery({ queryKey: ["gate", "leaving", activePlant], queryFn: () => gateApi.leavingToday(), refetchInterval: 30_000 })
-  const [picked, setPicked] = useState<string | null>(scanned)
-  const row = leaving.data?.find((item) => item.dispatch_ref === picked) || null
-  const waiting = (leaving.data || []).filter((item) => !item.out)
-  const done = (leaving.data || []).filter((item) => item.out)
-  if (picked) return <GoodsOutForm gate={gate} dispatchRef={picked} row={row} loading={leaving.isLoading} onBack={() => setPicked(null)}
-    onDone={(text) => { onNotice({ tone: "ok", text }); setPicked(null); client.invalidateQueries({ queryKey: ["gate"] }) }} onError={(text) => onNotice({ tone: "error", text })} plantId={activePlant} />
-  return (
-    <section className="space-y-3" data-testid="gate-goods-out">
-      <QrScanner onScan={(value) => { const ref = dispatchRefFromScan(value); if (ref) setPicked(ref) }} label="Scan the challan QR" title="Scan the challan" hint="Point the camera at the QR printed on our delivery challan." className={cn(bigSecondary, "w-full")} />
-      <h2 className="flex items-center gap-2 text-[15px] font-semibold">Leaving today <Chip tone={waiting.length ? "amber" : "slate"}>{waiting.length}</Chip></h2>
-      {leaving.isLoading ? <p className="text-muted-foreground">Loading challans…</p> : null}
-      {leaving.isError ? <Message tone="error">Challans could not load: {errorText(leaving.error)}</Message> : null}
-      {!leaving.isLoading && !waiting.length ? <p className="rounded-xl border border-dashed border-border px-4 py-3 text-[13.5px] text-muted-foreground">No challan is waiting to go out. A challan shows here once Dispatch seals it.</p> : null}
-      {waiting.map((item) => <LeavingCard key={item.dispatch_ref} row={item} onPick={() => setPicked(item.dispatch_ref)} />)}
-      {done.length ? <><h3 className="pt-2 text-[13.5px] font-semibold text-muted-foreground">Out today</h3>{done.map((item) => <LeavingCard key={item.dispatch_ref} row={item} />)}</> : null}
-    </section>
-  )
-}
-
-function LeavingCard({ row, onPick }: { row: LeavingRow; onPick?: () => void }) {
-  const Tag = onPick ? "button" : "div"
-  return (
-    <Tag type={onPick ? "button" : undefined} onClick={onPick} data-testid="gate-leaving-row" className={cn("block w-full rounded-2xl border bg-card p-3 text-left shadow-sm", onPick ? "border-border transition hover:border-primary active:scale-[.99]" : "border-signal-emerald-line bg-signal-emerald-soft/40")}>
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-[15.5px] font-semibold text-foreground">Challan {row.dispatch_ref}</p>
-          <p className="text-[13px] text-muted-foreground">{row.items.map((item) => `${item.item_name} · ${Number(item.qty).toLocaleString("en-IN")} ${item.uom === "PCS" ? "pcs" : item.uom.toLowerCase()}`).join(" · ")}</p>
-          <p className="text-[12px] text-muted-foreground">Sealed {timeText(row.posted_at)}{row.carried_over ? " · from an earlier day" : ""}</p>
-        </div>
-        {row.out ? <Chip tone="emerald" icon={CheckCircle2}>Out {clock(row.out_at)}</Chip> : row.tally_bill_no ? <Chip tone="blue">Tally {row.tally_bill_no}</Chip> : <Chip tone="amber">Tally no. needed</Chip>}
-      </div>
-    </Tag>
-  )
-}
-
-function GoodsOutForm({ gate, dispatchRef, row, loading, onBack, onDone, onError, plantId }: {
-  gate: Gate; dispatchRef: string; row: LeavingRow | null; loading: boolean; onBack: () => void; onDone: (text: string) => void; onError: (text: string) => void; plantId: string | null
-}) {
   const [tally, setTally] = useState<File[]>([])
   const [challan, setChallan] = useState<File[]>([])
-  const [tallyNo, setTallyNo] = useState(row?.tally_bill_no || "")
-  const [vehicle, setVehicle] = useState(row?.vehicle_no || "")
+  const [vehicle, setVehicle] = useState("")
   const [touched, setTouched] = useState(false)
   const requestId = useRef(newKey())
-  useEffect(() => { if (row?.tally_bill_no) setTallyNo((current) => current || row.tally_bill_no || "") }, [row?.tally_bill_no])
-  const problems = [!tally.length ? "Take a photo of the Tally bill." : "", !challan.length ? "Take a photo of our challan." : "", !tallyNo.trim() ? "Type the Tally bill number." : ""].filter(Boolean)
+  const photos = tally.length + challan.length
+  const problems = [!tally.length ? "Take a photo of the Tally bill." : "", !challan.length ? "Take a photo of our challan." : "", vehicle.trim().length < 4 ? "Type the vehicle number." : ""].filter(Boolean)
   const out = useMutation({
     mutationFn: async () => {
-      const result = await gateApi.goodsOut({ request_id: requestId.current, gate_id: gate.id, dispatch_ref: dispatchRef, tally_bill_no: tallyNo.trim(), vehicle_no: vehicle.trim() || undefined })
-      await queueDocumentFiles(tally, { kind: "TALLY_BILL", source: "GATE", ref_no: tallyNo.trim(), link_entity_type: "GATE_ENTRY", link_entity_id: result.entry.id }, { plantId })
-      await queueDocumentFiles(challan, { kind: "OUR_CHALLAN", source: "GATE", ref_no: dispatchRef, link_entity_type: "GATE_ENTRY", link_entity_id: result.entry.id }, { plantId })
+      const result = await gateApi.goodsOut({ request_id: requestId.current, gate_id: gate.id, vehicle_no: vehicle.trim() })
+      await queueDocumentFiles(tally, { kind: "TALLY_BILL", source: "GATE", link_entity_type: "GATE_ENTRY", link_entity_id: result.entry.id }, { plantId: activePlant })
+      await queueDocumentFiles(challan, { kind: "OUR_CHALLAN", source: "GATE", link_entity_type: "GATE_ENTRY", link_entity_id: result.entry.id }, { plantId: activePlant })
       startOutbox()
       return result
     },
-    onSuccess: (result) => onDone(`Challan ${dispatchRef} out of the gate (${result.entry.entry_no}) with Tally ${tallyNo.trim().toUpperCase()}. Photos uploading.`),
-    onError: (error) => onError(errorText(error)),
+    onSuccess: (result) => {
+      onNotice({ tone: "ok", text: `${result.entry.entry_no} · ${result.entry.vehicle_no} gone out at ${clock(result.entry.created_at)}. ${plural(photos, "photo")} uploading. Stores links this to the challan and adds the Tally bill no.` })
+      requestId.current = newKey()
+      setTally([]); setChallan([]); setVehicle(""); setTouched(false)
+      client.invalidateQueries({ queryKey: ["gate", "desk"] })
+    },
+    onError: (error) => onNotice({ tone: "error", text: error instanceof UploadRefused ? error.message : `${errorText(error)} Nothing is lost: tap Gone out again.` }),
   })
-  if (row?.out) return <Message tone="info">Challan {dispatchRef} already went out at {clock(row.out_at)}. <button className="underline" onClick={onBack}>Back</button></Message>
   return (
     <section className="space-y-4 rounded-2xl border border-border bg-card p-4 shadow-sm" data-testid="gate-goods-out-form" data-enter-scope onKeyDown={nextOnEnter}>
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <h2 className="text-[16px] font-semibold">Challan {dispatchRef}</h2>
-          <p className="text-[13px] text-muted-foreground">{row ? row.items.map((item) => `${item.item_name} · ${Number(item.qty).toLocaleString("en-IN")} ${item.uom === "PCS" ? "pcs" : item.uom.toLowerCase()}`).join(" · ") : loading ? "Loading…" : "Not in today's list; the server checks the challan when you tap Out."}</p>
-        </div>
-        <button className={cn(smallButton, "border border-border")} onClick={onBack}>Back</button>
+      <div>
+        <h2 className="text-[16px] font-semibold">Truck going out</h2>
+        <p className="text-[13px] text-muted-foreground">Photos only. A bill or challan with more pages, or two challans: tap Add page. Stores links this to the challan and adds the Tally bill no.</p>
       </div>
       <PhotoPages title="Tally bill" files={tally} onChange={setTally} required testId="gate-out-tally-photo" />
       <PhotoPages title="Our challan" files={challan} onChange={setChallan} required testId="gate-out-challan-photo" />
-      <div><Label hint={row?.tally_bill_no ? "from the dispatch desk" : "required"}>Tally bill no.</Label><input className={cn(input, "uppercase")} value={tallyNo} onChange={(event) => setTallyNo(event.target.value.toUpperCase())} placeholder="T-1189" data-testid="gate-out-tally-no" /></div>
-      <div><Label hint="optional">Vehicle no.</Label><input className={cn(input, "uppercase")} value={vehicle} onChange={(event) => setVehicle(event.target.value.toUpperCase())} placeholder="GJ 01 AB 1234" data-testid="gate-out-vehicle" /></div>
+      <div><Label hint="required">Vehicle no.</Label><input className={cn(input, "uppercase")} value={vehicle} onChange={(event) => setVehicle(event.target.value.toUpperCase())} placeholder="GJ 01 AB 1234" autoCapitalize="characters" data-testid="gate-out-vehicle" /></div>
       {touched && problems.length ? <p role="alert" className="rounded-xl border border-signal-rose-line bg-signal-rose-soft px-3.5 py-2.5 text-[13.5px] text-signal-rose-ink">{problems.join(" ")}</p> : null}
-      <button className={bigPrimary} disabled={out.isPending} data-testid="gate-out-submit" onClick={() => { setTouched(true); if (!problems.length) out.mutate() }}><Truck className="h-5 w-5" />{out.isPending ? "Saving…" : "Out of gate"}</button>
+      <button className={bigPrimary} disabled={out.isPending} data-testid="gate-out-submit" onClick={() => { setTouched(true); if (!problems.length) out.mutate() }}><Truck className="h-5 w-5" />{out.isPending ? "Saving…" : "Gone out"}</button>
+      <p className="text-center text-[12px] text-muted-foreground">The time is taken now. The truck is never held for the upload.</p>
     </section>
   )
 }
@@ -496,8 +473,8 @@ function EntryRow({ entry }: { entry: GateEntry }) {
     <article className="rounded-2xl border border-border bg-card p-3 shadow-sm" data-testid="gate-entry-row">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-[15px] font-semibold text-foreground">{entry.kind === "GOODS_OUT" ? `Goods out · challan ${entry.dispatch_ref}` : entry.category_label || "Bill in"}{entry.party_text ? <span className="font-normal text-muted-foreground"> · {entry.party_text}</span> : null}</p>
-          <p className="text-[12.5px] text-muted-foreground">{entry.entry_no} · {clock(entry.created_at)}{entry.vehicle_no ? ` · ${entry.vehicle_no}` : ""}{entry.grn_no ? ` · GRN ${entry.grn_no}` : ""}</p>
+          <p className="text-[15px] font-semibold text-foreground">{entry.kind === "GOODS_OUT" ? `Goods out${entry.vehicle_no ? ` · ${entry.vehicle_no}` : ""}` : entry.category_label || "Bill in"}{entry.party_text ? <span className="font-normal text-muted-foreground"> · {entry.party_text}</span> : null}</p>
+          <p className="text-[12.5px] text-muted-foreground">{entry.entry_no} · {clock(entry.created_at)}{entry.vehicle_no && entry.kind !== "GOODS_OUT" ? ` · ${entry.vehicle_no}` : ""}{entry.grn_no ? ` · GRN ${entry.grn_no}` : ""}{entry.kind === "GOODS_OUT" && entry.status === "WITH_STORES" ? " · Stores links the challan" : ""}</p>
         </div>
         <Chip tone={tone as any}>{entry.status_label}</Chip>
       </div>

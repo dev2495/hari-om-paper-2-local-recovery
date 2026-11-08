@@ -25,6 +25,8 @@ export const HANDBOOK_CHAPTERS: HandbookChapter[] = [
   { id: "ch-27", num: 27, title: "Reports", group: "Stock control, reports and setup", file: "S27_reports" },
   { id: "ch-28", num: 28, title: "Masters", group: "Stock control, reports and setup", file: "S28_masters" },
   { id: "ch-29", num: 29, title: "System, audit, production season and the guide", group: "Stock control, reports and setup", file: "S29_system-and-audit" },
+  { id: "ch-31", num: 31, title: "Gate desk and visitors", group: "Gate and documents", file: "S31_gate-desk-and-visitors" },
+  { id: "ch-32", num: 32, title: "Doc Vault", group: "Gate and documents", file: "S32_doc-vault" },
 ]
 export const HANDBOOK_EXTRAS: { file: string; title: string }[] = [
   { file: "S90_glossary_statuses_and_numbering", title: "Hari Om TubeOS glossary: words you will see in the system" },

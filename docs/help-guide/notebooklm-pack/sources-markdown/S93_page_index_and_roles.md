@@ -44,20 +44,21 @@ Owner and Admin can open every page. A page with no roles listed is open to all 
 
 ## Sidebar group: Stores & inventory
 
-- **Goods inward** (address /purchase/inward): Manual or approved-PO receipt with individual reel and coil labels. Roles that see it: Owner, Admin, Store, PlantManager, GRN (plus Owner and Admin).
-- **GRN register & labels** (address /purchase/receipts): Saved receipts, pending invoices, QC and label reprints. Roles that see it: Owner, Admin, Store, PlantManager, Accounts, GRN, InwardQC (plus Owner and Admin).
-- **Reel & coil issue** (address /inventory/reels/issue): Issue reels and coils to the floor by shift; each reel gets a slitting card. Roles that see it: Owner, Admin, Store, PlantManager, RMIssue (plus Owner and Admin).
-- **Material issue** (address /inventory/production-issue): Issue adhesive, parchment and packing to the floor by shift. Roles that see it: Owner, Admin, Store, PlantManager, RMIssue (plus Owner and Admin).
-- **Issue history** (address /inventory/issue-history): Every issue to the floor: shift, material, reel or lot, who issued it and the rack. CSV. Roles that see it: Owner, Admin, Store, PlantManager, RMIssue, Planner, GRN (plus Owner and Admin).
-- **Stock counts & book** (address /inventory/stock-control): Spot and month-end counts, corrections, the stock book and locations with rack labels. Roles that see it: all signed-in users (plus Owner and Admin).
-- **Opening stock** (address /inventory/opening-stock): Go-live stock already in the plant: reels and lots with new labels, in batches on the go-live date. Roles that see it: Owner, Admin (plus Owner and Admin).
-- **Inventory** (address /inventory): Raw material inward, reel issue, balances, and valuation. Roles that see it: Owner, Admin, Store, Planner, PlantManager, GRN, RMIssue (plus Owner and Admin).
-- **Genealogy** (address /inventory/genealogy): Reel lineage, slit children, issue scans, and trace exceptions. Roles that see it: Owner, Admin, Store, Planner, PlantManager, Dispatch, GRN, RMIssue (plus Owner and Admin).
-- **Manual FG** (address /inventory/fg-inward): Rework yield, returns, and adjustments — manual FG inward outside the job-close flow. Roles that see it: Owner, Admin, PlantManager (plus Owner and Admin).
-- **Stock alert policies** (address /inventory/stock-alert-policies): Set material stock thresholds, lead times and replenishment rules. Roles that see it: Owner, Admin, PlantManager (plus Owner and Admin).
-- **Stock Alerts** (address /inventory/stock-alerts): Policy-driven stock breach inbox, ownership, and recovery. Roles that see it: Owner, Admin, Store, Planner, PlantManager (plus Owner and Admin).
-- **RM Costing** (address /inventory/rm-costing): Owner and Admin standard-cost versions, impact, and audit history. Roles that see it: Owner, Admin (plus Owner and Admin).
-- **Dispatch** (address /logistics/dispatch): Packing handoff, challans, and finished-goods release. Roles that see it: Owner, Admin, Dispatch, Sales, Store (plus Owner and Admin).
+- **Goods inward** (address /purchase/inward): Receive paper and materials against a PO or by hand, print reel labels; saved GRNs, invoices pending and label reprints. Roles that see it: Owner, Admin, Store, PlantManager, GRN, Accounts, InwardQC (plus Owner and Admin).
+- **Issue to floor** (address /inventory/reels/issue): Issue reels, coils, adhesive, parchment and packing to the floor by shift, and the history of every issue. Roles that see it: Owner, Admin, Store, PlantManager, RMIssue, Planner, GRN (plus Owner and Admin).
+- **Stock overview** (address /inventory): What is in stock, what is held and where; the materials list and reel trace. Roles that see it: Owner, Admin, Store, Planner, PlantManager, GRN, RMIssue, Dispatch (plus Owner and Admin).
+- **Stock counts & book** (address /inventory/stock-control): Spot and month-end counts, corrections, the stock book, rack locations and go-live opening stock. Roles that see it: all signed-in users (plus Owner and Admin).
+- **Stock alerts** (address /inventory/stock-alerts): Materials running low, and the reorder levels that raise the alerts. Roles that see it: Owner, Admin, Store, Planner, PlantManager (plus Owner and Admin).
+- **RM costing** (address /inventory/rm-costing): Standard cost versions of raw materials, their impact and history. Roles that see it: Owner, Admin (plus Owner and Admin).
+- **Doc Vault** (address /documents): Every bill, challan and photo: search, view, link to GRNs, void. Roles that see it: Owner, Admin, PlantManager, Accounts, Store, GRN, InwardQC, QC, Dispatch (plus Owner and Admin).
+
+## Sidebar group: Dispatch
+
+- **Dispatch** (address /logistics/dispatch): Packing handoff, boxes, challans and finished-goods release; FG in without a job card. Roles that see it: Owner, Admin, Dispatch, Sales, Store, PlantManager (plus Owner and Admin).
+
+## Sidebar group: Gate
+
+- **Gate** (address /gate): Visitors in and out, bills and challans coming in, goods going out with the Tally bill. Roles that see it: Owner, Admin, Watchman, PlantManager, Accounts (plus Owner and Admin).
 
 ## Sidebar group: Design
 
@@ -87,3 +88,8 @@ Owner and Admin can open every page. A page with no roles listed is open to all 
 - **Masters** (address /masters/papers): Papers, mandrels, parchments, customers, and supporting masters. Roles that see it: Owner, Admin (plus Owner and Admin).
 - **System** (address /system/users): Users, roles, plants, machine setup and background jobs. Roles that see it: Owner, Admin (plus Owner and Admin).
 - **Audit** (address /system/audit): Who did what — login, mutation, permission and report trail. Roles that see it: Owner, Admin (plus Owner and Admin).
+
+## Pages inside the Gate group
+
+
+A login with only the Watchman role opens the Gate desk and nothing else. The Doc Vault (address /documents) shows each role only its kinds of documents.

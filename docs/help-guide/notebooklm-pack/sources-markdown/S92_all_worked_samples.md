@@ -1,5 +1,5 @@
 # Hari Om TubeOS: all worked samples and examples (collected from every chapter)
-Accurate as of 31 October 2026. Values are examples, not real customers.
+Accurate as of 8 November 2026. Values are examples, not real customers.
 
 
 ## From chapter 00: Welcome to Hari Om TubeOS: the big picture
@@ -149,13 +149,22 @@ QC on run P#2: I.D. 76.5 and 76.9 mm against band 76.2–76.5. The second readin
 
 ## From chapter 14: Quality
 
-Bharat Paper Mills delivers 6 reels of Kraft 300 GSM (P/26/014). The paper band is GSM at least 291 (from the master line) and moisture 6–9 %.
+Bharat Paper Mills delivers 2 reels of Kraft 300 GSM on GRN P/26/021 (bill VPI/1686/2026-27, PO RP-PM/68, ₹50/kg). QC weighs them:
 
-| Reel | GSM | Moisture | Decision | Result |
+| Reel | Bill kg | Actual kg | Diff | Decision |
 |---|---|---|---|---|
-| R1 | 302 | 7.1 | By readings | Released |
-| R2 | 298 | 6.8 | By readings | Released |
-| R3 | 285 | 7.4 | By readings, reason "GSM low on two sheets" | Held |
+| AIT 06283 | 400 | 385 | −15 | Accept |
+| AIT 06284 | 150 | 135 | −15 | Accept |
+
+Both reels are issuable at once. The bill is 30 kg short (₹1,500): between 20 and 50 kg, so the Owner gets "Weight short 30 kg · Bill VPI/1686/2026-27" with **Make debit note** and **Skip…**. The stock stays 550 kg.
+
+Another delivery, 6 reels on P/26/014, where QC also measures GSM (band at least 291) and moisture (6–9 %):
+
+| Reel | Actual kg | GSM | Moisture | Result |
+|---|---|---|---|---|
+| R1 | 1,182 | 302 | 7.1 | Accepted, issuable |
+| R2 | 1,204 | 298 | 6.8 | Accepted, issuable |
+| R3 | 1,190 | 285 | 7.4 | Held (GSM out of band, reason IQ-GSM) |
 
 R3 is on hold. The plant head grants a concession with CN-NON-CRITICAL, note "use on outer plies"; the FAIL stays on record. Later, card 26/10/315 has a Process I.D. reading of 76.9 mm against 76.2–76.5: flagged, not held; it appears in In-process QC under I.D., High, and the two boxes holding that run's pcs show **QC flagged**. They ship on the next challan. A week later the customer reports soft tubes in box B2610315-003; Sales records a complaint with CC-MOISTURE.
 
@@ -221,6 +230,14 @@ Bharat Paper Mills delivers Kraft 230 GSM on GRN P/26/021 against RP-PM/54. PO r
 | Status | Open |
 
 The Plant Manager (not the Store user who made the GRN) ticks the row and clicks **Open debit note**: **DN-261106-001**, Draft, ₹1,509. He clicks **Submit**; Accounts clicks **Approve** and **Issue immutable note**. On 20 Nov the vendor gives a credit of ₹1,509; Accounts types 1509 and clicks **Record settlement**. The note shows "₹1,509 / ₹1,509 / ₹0" and status **Settled**.
+
+Weight example: Bharat Paper Mills' bill VPI/1686/2026-27 (GRN P/26/021, PO RP-PM/68 raised by Kiran) has 2 reels billed 550 kg. QC weighs 520 kg: 30 kg short, ₹1,500 at the invoice rate ₹50/kg. Between 20 and 50 kg, so the Owner gets **Make debit note** / **Skip…**. He clicks **Make debit note**: a draft DN with reason DN-WEIGHT-SHORT for ₹1,500. The plant head submits, Accounts approves and issues it, the PDF goes to the Doc Vault and Kiran gets "Follow up with Bharat Paper Mills". Had the bill been 64 kg short, the case and draft would have been made automatically; 12 kg short would only be recorded.
+
+| Short kg on the bill | Band | What happens |
+|---|---|---|
+| 0 to 20 | Within limit | Recorded only |
+| above 20 to 50 | Owner decides | Make debit note or Skip… (reason) |
+| above 50 | Debit note | Case and draft made automatically |
 
 
 ## From chapter 23: Goods inward, GRN register and labels
@@ -312,3 +329,26 @@ The count is sent to the Owner on 31 Oct. The Owner chooses **Leave as used** fo
 **Who changed the access?** Next week Ramesh suddenly cannot open Incoming QC. On **Audit** the Owner sets **7 days**, picks Module **Users & access** and searches "ramesh". The user-updated event shows under **What changed** that the Inward QC role was removed, by whom and when. The Owner opens the user, ticks Inward QC again and saves; Ramesh signs in again with the role back.
 
 **Monsoon switch.** On 1 Jun the Owner clicks Monsoon. The preview shows 41 specifications ready, 3 requiring attention ("Approved season recipe missing") and 18 released cards keeping their contracts. The Owner ticks the acknowledgement, types "Monsoon from 1 June as per QC" and confirms. New releases now use the Monsoon recipes and QC bands; the 3 blocked specs cannot be released until QC and Design finish their monsoon setup.
+
+
+## From chapter 31: Gate desk and visitors
+
+Saturday, Main gate, watchman Ramesh.
+- 11:43 Bharat Paper Mills' truck GJ 01 AB 1234 brings invoice BPM/2241 (2 pages). Ramesh takes 2 photos, taps **Material (stores)**, picks the vendor and saves: **GE-2611-020 · sent to Stores**. Store gets "Material at the gate". At 14:10 Store picks it under **At the gate** on Goods inward and posts GRN P/26/031; the entry becomes **Linked to GRN** and the bill photo is on the GRN and on each of the 8 reels.
+- 11:44 the electricity bill arrives by hand. One photo, **Electricity**, saved as **GE-2611-021 · sent to Accounts**. On Monday the plant head files it: party "Electricity board", bill 77810 3346, 8 Nov 2026, ₹48,620, cost head **CO-UTILITIES**.
+- 11:44 Anil Mehta of Mehta Engineering Works scans the poster and gets pass **V-2611-014**, for Stores. Ramesh checks his ID and taps **Let in**. Store replies **Send in** from the notification. At 12:30 Ramesh scans the pass: **Out**.
+- 16:20 our truck GJ 06 TT 4410 leaves with challan DC/26/V-1189 and Tally bill T-1189. Ramesh photographs both, types the vehicle number and taps **Gone out** (GE-2611-030). Store picks it under **Gone out at the gate**, ticks challan DC/26/V-1189, types T-1189 from the Tally bill photo and clicks **Link challan**; the dispatch register shows **Out · Tally T-1189 ✓** and the entry **Linked to challan**.
+
+| Number | What | Status at day end |
+|---|---|---|
+| GE-2611-020 | Material bill, Bharat Paper Mills | Linked to GRN (P/26/031) |
+| GE-2611-021 | Electricity bill | With Accounts (filed Monday) |
+| V-2611-014 | Anil Mehta, Meeting, Stores | Out |
+| GE-2611-030 | Goods out, GJ 06 TT 4410 | Linked to challan DC/26/V-1189 |
+
+
+## From chapter 32: Doc Vault
+
+Store wants the invoice of reel AIT 06283. In **Doc Vault** she types "AIT 06283". One card shows: Vendor bill DV-2611-0012, Bharat Paper Mills, linked to GRN P/26/021 and to reels AIT 06283 and AIT 06284. She opens it, zooms into the reel list on page 2 and downloads the page for the vendor.
+
+Later the plant head sees two identical photos of one challan in **Unlinked**. He asks the Admin, who voids the second with **DV-DUPLICATE**. The first is linked to GRN P/26/021 with **Link to a GRN**.

@@ -227,6 +227,12 @@ CATEGORIES: list[dict[str, Any]] = [
          [("GD-NO-ID", "No ID shown"), ("GD-HOST-NA", "Host not available"), ("GD-NO-APPOINTMENT", "No appointment"),
           ("GD-NOT-ALLOWED", "Not allowed in the plant"), ("GD-SAFETY", "Safety rule not met"),
           ("GD-OTHER", "Other (write a note)")]),
+    # Goods out (8 Nov 2026): Store links the watchman's photos to the challans; the plant head may undo a
+    # wrong link with one of these (logged on the gate entry).
+    _cat("GATE_OUT_UNLINK", "Goods-out photo unlinked", "Gate",
+         ["Dispatch register › Gone out at the gate › Unlink"],
+         [("GU-WRONG-CHALLAN", "Linked to the wrong challan"), ("GU-WRONG-TRUCK", "Photos are of another truck"),
+          ("GU-TALLY-WRONG", "Wrong Tally bill"), ("GU-OTHER", "Other (write a note)")]),
     # ── Purchase ───────────────────────────────────────────────────────────
     _cat("PURCHASE_REJECT", "Purchase approval rejected", "Purchase",
          ["Purchase › Approvals › Reject PO", "Requisitions › Reject", "Purchase plans › Reject"],

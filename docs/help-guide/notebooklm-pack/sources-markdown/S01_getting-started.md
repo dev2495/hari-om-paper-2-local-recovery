@@ -1,5 +1,5 @@
 HARI OM TUBEOS HELP GUIDE - Chapter 01: Getting started
-Section: Start here, sales and design. Accurate as of 31 October 2026. Hari Om TubeOS is the ERP for a paper tube plant (sales orders, planning, shop floor, quality, purchasing, stores, reports).
+Section: Start here, sales and design. Accurate as of 8 November 2026. Hari Om TubeOS is the ERP for a paper tube plant (sales orders, planning, shop floor, quality, purchasing, stores, reports).
 Screenshots named in this file are in the visual handbook (Hari-Om-TubeOS-Help-Guide.html or .pdf), chapter 01.
 
 # Getting started
@@ -146,24 +146,26 @@ Stock, purchases, receipts, planning and approvals belong to one plant. When the
 | GRN / Goods Receipt | Goods inward |
 | Raw Material Issue | Reel & coil issue |
 | Operator | Dashboard ("My work") |
+| Watchman (gate) | Gate desk (the only page this login opens) |
 
 ### Which roles see which sidebar pages
-Every role sees **Dashboard**, **Inbox**, **Guide**, **Purchase requisitions** and **Stock counts & book**. The Owner and Admin see every page; **Production season** is the Owner's only. The other roles see these pages as well:
+Every role except Watchman sees **Dashboard**, **Inbox**, **Guide**, **Purchase requisitions** and **Stock counts & book**. A **Watchman** login sees only the **Gate** desk. The Owner and Admin see every page; **Production season** is the Owner's only. The other roles see these pages as well:
 
 | Role | Extra sidebar pages |
 |---|---|
 | Sales | Orders, Job Cards, QC desk, Holds & inspections, Customer complaints, Dispatch, Intelligence, Sales pulse, Customer 360, Dispatch & SLA |
 | Planner | Orders, Job Cards, Job card manager, Planner, Log output, Purchase orders, RM inward calendar, Expected arrivals, Create purchase order, Purchase reports, Issue history, Inventory, Genealogy, Stock Alerts, Intelligence, Operations command, Throughput, Planning performance, Plan vs actual, Employee performance, Inventory intelligence, Slitting report |
-| Plant Manager | Orders, Job Cards, Job card manager, Planner, Log output, Log QC, Month-end close, QC desk, In-process QC, Holds & inspections, Customer complaints, Purchase orders, RM inward calendar, Expected arrivals, Create purchase order, Invoice differences, Debit notes, Purchase reports, Goods inward, GRN register & labels, Reel & coil issue, Material issue, Issue history, Inventory, Genealogy, Manual FG, Stock alert policies, Stock Alerts, Intelligence, Operations command, Throughput, Planning performance, Plan vs actual, Employee performance, Sales pulse, Inventory intelligence, Supplier & reels, Slitting report, Quality analytics, Tooling ledger |
+| Plant Manager | Orders, Job Cards, Job card manager, Planner, Log output, Log QC, Month-end close, QC desk, In-process QC, Holds & inspections, Customer complaints, Purchase orders, RM inward calendar, Expected arrivals, Create purchase order, Invoice differences, Debit notes, Purchase reports, Goods inward, GRN register & labels, Doc Vault, Gate (Gate desk, Bills inbox, Gate register), Reel & coil issue, Material issue, Issue history, Inventory, Genealogy, Manual FG, Stock alert policies, Stock Alerts, Intelligence, Operations command, Throughput, Planning performance, Plan vs actual, Employee performance, Sales pulse, Inventory intelligence, Supplier & reels, Slitting report, Quality analytics, Tooling ledger |
 | Operator | Job Cards, Log output, Log QC |
-| Quality Control | Job Cards, Log QC, QC desk, Incoming QC, In-process QC, Holds & inspections, Customer complaints, Material standards, Process stage rules, Intelligence, Quality analytics |
-| Inward QC | QC desk, Incoming QC, Holds & inspections, Material standards, GRN register & labels, Quality analytics |
+| Quality Control | Job Cards, Log QC, Doc Vault, QC desk, Incoming QC, In-process QC, Holds & inspections, Customer complaints, Material standards, Process stage rules, Intelligence, Quality analytics |
+| Inward QC | QC desk, Incoming QC, Holds & inspections, Material standards, GRN register & labels, Doc Vault, Quality analytics |
 | In-process QC | Job Cards, Log QC, QC desk, In-process QC, Holds & inspections, Quality analytics |
-| Store | QC desk, Holds & inspections, Customer complaints, Purchase orders, RM inward calendar, Expected arrivals, Create purchase order, Invoice differences, Purchase reports, Goods inward, GRN register & labels, Reel & coil issue, Material issue, Issue history, Inventory, Genealogy, Manual FG, Stock Alerts, Dispatch, Intelligence, Inventory intelligence, Supplier & reels, Slitting report |
-| GRN / Goods Receipt | RM inward calendar, Expected arrivals, Goods inward, GRN register & labels, Issue history, Inventory, Genealogy |
+| Store | QC desk, Holds & inspections, Customer complaints, Purchase orders, RM inward calendar, Expected arrivals, Create purchase order, Invoice differences, Purchase reports, Goods inward, GRN register & labels, Doc Vault, Reel & coil issue, Material issue, Issue history, Inventory, Genealogy, Manual FG, Stock Alerts, Dispatch, Intelligence, Inventory intelligence, Supplier & reels, Slitting report |
+| GRN / Goods Receipt | RM inward calendar, Expected arrivals, Goods inward, GRN register & labels, Doc Vault, Issue history, Inventory, Genealogy |
 | Raw Material Issue | Reel & coil issue, Material issue, Issue history, Inventory, Genealogy, Slitting report |
-| Dispatch | Orders, Job Cards, QC desk, Holds & inspections, Customer complaints, Genealogy, Dispatch, Intelligence, Dispatch & SLA |
-| Owner, Admin | Everything (plus Specifications, Packing setup, Masters, System, Audit, PO approvals, Opening stock, RM Costing, Owner daily pack, Employee performance) |
+| Dispatch | Orders, Job Cards, QC desk, Holds & inspections, Customer complaints, Genealogy, Dispatch, Doc Vault, Intelligence, Dispatch & SLA |
+| Watchman (gate) | Gate desk only |
+| Owner, Admin | Everything (plus Gates & QR posters, Specifications, Packing setup, Masters, System, Audit, PO approvals, Opening stock, RM Costing, Owner daily pack, Employee performance) |
 
 Seeing a page does not always mean you can change everything on it. For example, Sales can open Dispatch but only the Owner, Admin and Dispatch make a challan.
 

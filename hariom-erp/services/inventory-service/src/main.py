@@ -882,6 +882,18 @@ def ensure_incoming_bill_qc_schema() -> None:
 ensure_incoming_bill_qc_schema()
 
 
+def ensure_gate_goods_out_schema() -> None:
+  """Goods out linked by Store (8 Nov 2026, alembic 016_gate_goods_out_link); see src/schema_gate.py."""
+  from .schema_gate import GATE_GOODS_OUT_SCHEMA_STATEMENTS
+
+  with engine.begin() as connection:
+    for statement in GATE_GOODS_OUT_SCHEMA_STATEMENTS:
+      connection.execute(text(statement))
+
+
+ensure_gate_goods_out_schema()
+
+
 def backfill_fail_accept_concession_eligibility() -> dict[str, int]:
     """Classify pre-existing FAIL+ACCEPT inspections that never got a concession.
 

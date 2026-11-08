@@ -9,7 +9,9 @@ Stores                       GET /at-the-gate · POST /entries/{id}/link-receipt
 Accounts                     GET /bills · POST /entries/{id}/file
 Visitors                     POST /visits (walk-in) · POST /visits/{id}/in|out|deny|reply|photo · POST /visits/scan-out
                              GET /visits/{id}/photo · GET /hosts (BFF fills from auth)
-Goods out                    POST /goods-out · GET /dispatch-status?refs= · PUT /dispatch/tally
+Goods out (watchman)         POST /goods-out (photos + vehicle no. only; never a challan or a Tally no.)
+Goods out (Store links)      GET /gone-out · GET /gone-out/challans?entry_id=&q= · POST /gone-out/{id}/link
+                             POST /gone-out/{id}/unlink (plant head, reason) · GET /dispatch-status?refs= · PUT /dispatch/tally
 History                      GET /history[.csv]
 Public (internal token)      GET /public/gates/{token} · POST /public/gates/{token}/lookup · POST /public/gates/{token}/visits
                              GET /public/visits/{pass} · POST /public/visits/{pass}/photo
@@ -47,6 +49,9 @@ accounts_user = require_role(svc.ACCOUNTS_ROLES)
 recategorise_user = require_role(svc.RECATEGORISE_ROLES)
 history_user = require_role(svc.HISTORY_ROLES)
 dispatch_user = require_role(svc.DISPATCH_DESK_ROLES)
+goods_out_linker = require_role(svc.GOODS_OUT_LINK_ROLES)
+tally_user = require_role(svc.TALLY_ROLES)
+goods_out_unlinker = require_role(svc.GOODS_OUT_UNLINK_ROLES)
 admin_user = require_role([])  # Owner and Admin only (require_role lets them through)
 MAX_PUBLIC_PHOTO_BYTES = 6 * 1024 * 1024
 
@@ -165,7 +170,8 @@ def get_desk(gate_id: str, db: Session = Depends(get_db), plant_id: str = Depend
 
 
 @router.get("/leaving-today")
-def get_leaving_today(db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(desk_user)):
+def get_leaving_today(db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(goods_out_linker)):
+    """Challans of the last days with no linked gate-out photo (Store / Dispatch; the watchman picks no challan)."""
     return {"items": svc.leaving_today(db, plant_id)}
 
 
@@ -239,7 +245,7 @@ def get_entry(entry_id: str, db: Session = Depends(get_db), plant_id: str = Depe
     entry = svc.get_entry(db, plant_id, entry_id)
     if svc.is_watchman_only(current_user) and entry.created_by != svc.actor_of(current_user):
         raise HTTPException(status_code=403, detail="A watchman sees only the entries they made.")
-    if entry.status == "LINKED" and svc.sync_entry_links(db, entry, "system:gate-sync"):
+    if entry.status in svc.LINKED_STATES and svc.sync_entry_links(db, entry, "system:gate-sync"):
         db.commit()
     return svc.entry_payload(db, entry, access=vault.access_for(current_user))
 
@@ -491,31 +497,95 @@ def get_visit_photo(visit_id: str, db: Session = Depends(get_db), plant_id: str 
 
 
 # ── Goods out ──────────────────────────────────────────────────────────────────────────────────
-class GoodsOut(Strict):
+NOT_AT_THE_GATE = "The gate only takes photos. Stores links the challan and adds the Tally bill no. on the dispatch register."
+
+
+class GoodsOut(BaseModel):
+    """The watchman's "+ Goods out": the vehicle no.; the Tally bill and our challan photos follow through the
+    vault outbox linked GATE_ENTRY → the returned id. ``dispatch_ref`` / ``tally_bill_no`` are accepted only
+    to refuse them (phones still on the 7 Nov screen): linking is Store's job."""
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     request_id: uuid.UUID
     gate_id: uuid.UUID
-    dispatch_ref: str = Field(min_length=1, max_length=100)
-    tally_bill_no: str = Field(min_length=1, max_length=60)
-    tally_bill_date: Optional[date] = None
     vehicle_no: Optional[str] = Field(default=None, max_length=30)
+    dispatch_ref: Optional[str] = Field(default=None, max_length=100)
+    tally_bill_no: Optional[str] = Field(default=None, max_length=60)
+    tally_bill_date: Optional[date] = None
 
 
 @router.post("/goods-out")
 def post_goods_out(payload: GoodsOut, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(desk_user)):
-    """Challan leaving: Tally bill no. required; the Tally bill and our challan photos follow through the
-    vault outbox linked to the returned entry (and to the dispatch)."""
+    """Truck leaving: photos and the vehicle no. only. The entry waits WITH_STORES; Store is told."""
+    if payload.dispatch_ref or payload.tally_bill_no or payload.tally_bill_date:
+        raise HTTPException(status_code=403, detail=NOT_AT_THE_GATE)
+    existing = db.query(GateEntry).filter(GateEntry.plant_id == str(plant_id), GateEntry.request_id == payload.request_id).first()
+    if existing and existing.kind == "GOODS_OUT":
+        return {"created": False, "entry": svc.entry_payload(db, existing, access=vault.access_for(current_user)), "document_kinds": ["TALLY_BILL", "OUR_CHALLAN"]}
     gate = svc.get_gate(db, plant_id, payload.gate_id, active_only=True)
-    entry, row, created = svc.goods_out(db, plant_id=plant_id, gate=gate, dispatch_ref=payload.dispatch_ref, tally_bill_no=payload.tally_bill_no,
-                                        tally_bill_date=payload.tally_bill_date, vehicle_no=payload.vehicle_no, actor=svc.actor_of(current_user),
-                                        request_id=payload.request_id)
+    entry, created = svc.create_goods_out(db, plant_id=plant_id, gate=gate, vehicle_no=payload.vehicle_no, actor=svc.actor_of(current_user),
+                                          request_id=payload.request_id)
     db.commit()
-    return {"created": created, "entry": svc.entry_payload(db, entry, access=vault.access_for(current_user)),
-            "dispatch": svc.dispatch_status(db, plant_id, [entry.dispatch_ref]).get(entry.dispatch_ref)}
+    return {"created": created, "entry": svc.entry_payload(db, entry, access=vault.access_for(current_user)), "document_kinds": ["TALLY_BILL", "OUR_CHALLAN"]}
+
+
+@router.get("/gone-out")
+def get_gone_out(db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(goods_out_linker)):
+    """Goods-out photos not yet linked to a challan (Dispatch register › "Gone out at the gate")."""
+    return {"items": svc.entries_payload(db, svc.gone_out_to_link(db, plant_id), vault.access_for(current_user))}
+
+
+@router.get("/gone-out/challans")
+def get_challans_to_link(entry_id: Optional[str] = Query(default=None, max_length=40), q: Optional[str] = Query(default=None, max_length=80),
+                         db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(goods_out_linker)):
+    """Challans of the last 30 days with no gate-out photo linked; the entry's own day first."""
+    day = svc._entry_day(svc.get_entry(db, plant_id, entry_id)) if entry_id else svc.plant_today()
+    return {"items": svc.challans_to_link(db, plant_id, q=q, day=day), "day": day.isoformat()}
+
+
+class ChallanLinkIn(Strict):
+    dispatch_ref: str = Field(min_length=1, max_length=100)
+    tally_bill_no: str = Field(min_length=1, max_length=60)
+    tally_bill_date: Optional[date] = None
+
+
+class GoneOutLink(Strict):
+    expected_version: Optional[int] = Field(default=None, ge=1)
+    links: list[ChallanLinkIn] = Field(min_length=1, max_length=20)
+
+
+@router.post("/gone-out/{entry_id}/link")
+def link_gone_out(entry_id: str, payload: GoneOutLink, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant),
+                  current_user: dict = Depends(goods_out_linker)):
+    """Store links the gate photos to the challan(s) that went out on that truck, each with its Tally bill no."""
+    entry = svc.get_entry(db, plant_id, entry_id, for_update=True)
+    links = [svc.ChallanLink(row.dispatch_ref, row.tally_bill_no, row.tally_bill_date) for row in payload.links]
+    svc.link_goods_out(db, entry, links=links, actor=svc.actor_of(current_user), expected_version=payload.expected_version)
+    db.commit()
+    return svc.entry_payload(db, entry, access=vault.access_for(current_user))
+
+
+class GoneOutUnlink(Strict):
+    expected_version: int = Field(ge=1)
+    reason_code: str = Field(min_length=1, max_length=60)
+    reason_note: Optional[str] = Field(default=None, max_length=300)
+    dispatch_ref: Optional[str] = Field(default=None, max_length=100)
+
+
+@router.post("/gone-out/{entry_id}/unlink")
+def unlink_gone_out(entry_id: str, payload: GoneOutUnlink, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant),
+                    current_user: dict = Depends(goods_out_unlinker)):
+    """Plant head (Owner / Admin) undoes a wrong link with a GATE_OUT_UNLINK reason; logged on the entry."""
+    reason = _reason("GATE_OUT_UNLINK", payload.reason_code, payload.reason_note, plant_id, current_user, "why the link is undone")
+    entry = svc.get_entry(db, plant_id, entry_id, for_update=True)
+    svc.unlink_goods_out(db, entry, reason_code=reason.code, reason_label=_words(reason), actor=svc.actor_of(current_user),
+                         expected_version=payload.expected_version, dispatch_ref=payload.dispatch_ref)
+    db.commit()
+    return svc.entry_payload(db, entry, access=vault.access_for(current_user))
 
 
 @router.get("/dispatch-status")
 def get_dispatch_status(refs: str = Query(min_length=1, max_length=12000), db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant),
-                        current_user: dict = Depends(require_role(["Dispatch", "PlantManager", "Sales", "Store", "Watchman"]))):
+                        current_user: dict = Depends(require_role(["Dispatch", "PlantManager", "Sales", "Store"]))):
     return {"items": svc.dispatch_status(db, plant_id, refs.split(","))}
 
 
@@ -527,8 +597,8 @@ class TallyIn(Strict):
 
 
 @router.put("/dispatch/tally")
-def put_tally(payload: TallyIn, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(dispatch_user)):
-    """The dispatch desk types the Tally bill number on the dispatch register (the watchman sees it prefilled)."""
+def put_tally(payload: TallyIn, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(tally_user)):
+    """Store or the dispatch desk types the Tally bill no. on a challan (it prefills Store's link screen)."""
     svc.set_tally(db, plant_id, payload.dispatch_ref, tally_bill_no=payload.tally_bill_no, tally_bill_date=payload.tally_bill_date,
                   actor=svc.actor_of(current_user), expected_version=payload.expected_version)
     db.commit()

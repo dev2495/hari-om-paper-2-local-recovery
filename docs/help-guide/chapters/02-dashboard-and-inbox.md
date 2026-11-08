@@ -9,6 +9,7 @@
 - Every tile and row is a link to the page behind the number. Fix the work there, then come back: the number moves.
 - A figure that could not be loaded shows **Not reported** ("Source unavailable — not shown as zero"). "…" means it is still loading. Never read either as zero.
 - The **Inbox** has your role's live counts on top and every notification below, filtered by **Everything / Needs action / Unread** and by area. **Mark all read** clears the unread count.
+- **Some notifications carry action buttons** you can press right in the Inbox or the bell: **Make debit note** / **Skip…** / **Open bill** (weight short), **Send in** / **Ask to wait** / **Not available** (a visitor for you), **Make GRN** (material at the gate), **Link challan** (goods out at the gate), **Open bill** (expense bill to file). The result of the button is written on the notification.
 - The **bell** is a small inbox you can open from any page.
 
 ## The flow
@@ -89,6 +90,15 @@ What you see:
 6. Press **Mark all read** (top right) to clear everything. It is greyed out when nothing is unread.
 7. Scroll to the bottom and press **Load older** to see more (up to 200 at a time). The list refreshes itself every 30 seconds.
 
+### How to use a notification's action buttons
+1. A notification with buttons shows them under its text. Buttons that do something (for example **Make debit note**, **Send in**) are filled or outlined; links that only open a page (**Open bill**, **Make GRN**, **Open list**) are underlined words.
+2. Press the button. A button that needs a reason (for example **Skip…**) first asks for the reason from its list, then **Skip**.
+3. The buttons are replaced by the result, for example "Debit note DN-261108-001 drafted" (green) or the reason it did not go through (red, with "Try … again"). The result is saved on the notification, so others see what was done.
+4. The server checks your role and plant. If someone already acted (for example the weight case was decided from the Weight differences page), the result says so.
+
+![Alt: Inbox notification Visitor for you with Send in, Ask to wait and Not available buttons](../screens/inbox-visitor-reply.jpg)
+*Figure: A "Visitor for you" notification in the Inbox: "Prakash Patel from Patel Roadways is at the gate for delivery. The watchman has let them in. Tell the gate what to do." with **Send in**, **Ask to wait** and **Not available**.*
+
 ### How to use the bell
 1. Click the bell. The pop-up shows "N unread · N urgent" or "You're all caught up".
 2. **Waiting on you · <role>** shows your first four work queue counts.
@@ -163,6 +173,10 @@ Monday 9:00, the Owner opens TubeOS:
 **Q: The Inbox says 2,000 unread. Do I have to open each?** A: No. Work the **Needs action** view, then press **Mark all read**.
 
 **Q: A notification has no button.** A: It is for information, or your role cannot do that action. Open it to read.
+
+**Q: I pressed Make debit note in the Inbox. Where is the debit note?** A: It is a draft in Purchasing › Debit notes. The notification shows its number. Submit, approve and issue it as usual.
+
+**Q: The button said it did not go through.** A: Read the red message (for example the case changed or your role may not do it). Use "Try … again" or open the page from the link.
 
 **Q: Purchase lanes say "Select a plant to see this queue".** A: You are in All Visible Plants. Choose Plant A or Plant B in the header.
 

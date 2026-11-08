@@ -1,6 +1,7 @@
 """Gate module (6 Nov 2026) on live PostgreSQL: public check-in and its limits, the pass, let in / out / deny,
 host reply, bill-in routing and re-categorise, the GRN link that carries the gate photos to every reel,
-goods out with the Tally bill number, the Accounts filing, history, sweeps, role and plant isolation."""
+goods out (the watchman photographs, Store links the challans and Tally numbers; 8 Nov 2026), the Accounts
+filing, history, sweeps, role and plant isolation."""
 import io
 import json
 import uuid
@@ -347,43 +348,203 @@ def _dispatch(db, plant=PLANT, ref=None):
     return ref
 
 
-def test_goods_out_needs_the_tally_number_and_happens_once_per_dispatch():
+def _goods_out(db, gate, user=WATCHMAN, plant=PLANT, vehicle="GJ 05 CD 9876", photos=True):
+    out = api.post_goods_out(api.GoodsOut(request_id=uuid.uuid4(), gate_id=gate.id, vehicle_no=vehicle), db=db, plant_id=plant, current_user=user)
+    if photos:
+        _photo(db, out["entry"]["id"], plant=plant, kind="TALLY_BILL")
+        _photo(db, out["entry"]["id"], plant=plant, kind="OUR_CHALLAN")
+    return out
+
+
+def _link(db, entry_id, *pairs, user=STORE, plant=PLANT, version=None):
+    body = api.GoneOutLink(expected_version=version, links=[api.ChallanLinkIn(dispatch_ref=ref, tally_bill_no=tally) for ref, tally in pairs])
+    return api.link_gone_out(entry_id, body, db=db, plant_id=plant, current_user=user)
+
+
+def test_watchman_goods_out_is_photos_and_vehicle_only():
+    """Owner correction (8 Nov 2026): the watchman photographs; no challan, no Tally no. Store is told."""
+    with SessionLocal() as db:
+        gate = _gate(db)
+        key = uuid.uuid4()
+        with pytest.raises(HTTPException) as no_vehicle:
+            api.post_goods_out(api.GoodsOut(request_id=key, gate_id=gate.id), db=db, plant_id=PLANT, current_user=WATCHMAN)
+        assert no_vehicle.value.status_code == 422
+        db.rollback()
+        out = api.post_goods_out(api.GoodsOut(request_id=key, gate_id=gate.id, vehicle_no="gj 05 cd 9876"), db=db, plant_id=PLANT, current_user=WATCHMAN)
+        entry = out["entry"]
+        assert out["created"] and entry["kind"] == "GOODS_OUT" and entry["direction"] == "OUT" and entry["status"] == "WITH_STORES"
+        assert entry["status_label"] == "With Stores" and entry["dispatch_ref"] is None and entry["links"] == [] and entry["vehicle_no"] == "GJ 05 CD 9876"
+        assert out["document_kinds"] == ["TALLY_BILL", "OUR_CHALLAN"]
+        replay = api.post_goods_out(api.GoodsOut(request_id=key, gate_id=gate.id, vehicle_no="GJ 05 CD 9876"), db=db, plant_id=PLANT, current_user=WATCHMAN)
+        assert replay["created"] is False and replay["entry"]["id"] == entry["id"]
+        [notice] = _outbox(db, "GATE_GOODS_OUT_TO_LINK", entry["id"])
+        assert set(notice["notify"]["recipient_roles"]) == {"Store", "Dispatch"} and "/logistics/dispatch?gate_out=" in notice["notify"]["href"]
+        # A phone still on the old screen sending a challan or a Tally no. is refused: linking is Store's job.
+        ref = _dispatch(db)
+        for extra in ({"dispatch_ref": ref}, {"tally_bill_no": "T-1189"}):
+            with pytest.raises(HTTPException) as old_shape:
+                api.post_goods_out(api.GoodsOut(request_id=uuid.uuid4(), gate_id=gate.id, vehicle_no="GJ 05 CD 9876", **extra), db=db, plant_id=PLANT, current_user=WATCHMAN)
+            assert old_shape.value.status_code == 403 and "Stores links the challan" in old_shape.value.detail
+        # The watchman can never link, set or change a Tally no., unlink, or read the challan list.
+        for roles in (svc.GOODS_OUT_LINK_ROLES, svc.TALLY_ROLES, svc.GOODS_OUT_UNLINK_ROLES):
+            with pytest.raises(HTTPException) as denied:
+                require_role(roles)(current_user=WATCHMAN)
+            assert denied.value.status_code == 403
+        assert require_role(svc.TALLY_ROLES)(current_user=STORE) is STORE and require_role(svc.TALLY_ROLES)(current_user=DISPATCH) is DISPATCH
+        with pytest.raises(HTTPException) as planner:
+            require_role(svc.TALLY_ROLES)(current_user=PLANNER)
+        assert planner.value.status_code == 403
+        # An entry-only gate cannot record goods out.
+        entry_gate = _gate(db, direction="IN")
+        with pytest.raises(HTTPException) as wrong_gate:
+            api.post_goods_out(api.GoodsOut(request_id=uuid.uuid4(), gate_id=entry_gate.id, vehicle_no="GJ 05 CD 9876"), db=db, plant_id=PLANT, current_user=WATCHMAN)
+        assert wrong_gate.value.status_code == 409
+        db.rollback()
+        # The desk shows it "With Stores".
+        desk = svc.desk(db, PLANT, gate, WATCHMAN)
+        mine = next(row for row in desk["today"]["entries"] if row["id"] == entry["id"])
+        assert mine["status_label"] == "With Stores" and desk["counts"]["to_link"] >= 1
+
+
+def test_store_links_one_entry_to_two_challans_with_a_tally_number_each():
+    with SessionLocal() as db:
+        gate = _gate(db)
+        first, second = _dispatch(db), _dispatch(db)
+        out = _goods_out(db, gate)
+        entry_id = out["entry"]["id"]
+        assert entry_id in {row["id"] for row in api.get_gone_out(db=db, plant_id=PLANT, current_user=STORE)["items"]}
+        # Store opens the photos (Tally bill and challan kinds are open to Store since 8 Nov).
+        docked = next(row for row in api.get_gone_out(db=db, plant_id=PLANT, current_user=STORE)["items"] if row["id"] == entry_id)
+        assert {document["kind"] for document in docked["documents"]} == {"TALLY_BILL", "OUR_CHALLAN"}
+        # The dispatch desk typed the first Tally no. earlier: the challan list prefills it; same-day challans first.
+        api.put_tally(api.TallyIn(dispatch_ref=first, tally_bill_no="t-1189"), db=db, plant_id=PLANT, current_user=DISPATCH)
+        challans = api.get_challans_to_link(entry_id=entry_id, q=None, db=db, plant_id=PLANT, current_user=STORE)["items"]
+        by_ref = {row["dispatch_ref"]: row for row in challans}
+        assert by_ref[first]["tally_bill_no"] == "T-1189" and by_ref[first]["same_day"] and by_ref[second]["tally_bill_no"] is None
+        assert [row["dispatch_ref"] for row in api.get_challans_to_link(entry_id=None, q=second[-6:].lower(), db=db, plant_id=PLANT, current_user=STORE)["items"]] == [second]
+        # Tally no. is required for every challan.
+        entry = db.get(GateEntry, uuid.UUID(entry_id))
+        with pytest.raises(HTTPException) as blank:
+            svc.link_goods_out(db, entry, links=[svc.ChallanLink(first, "T-1189"), svc.ChallanLink(second, "  ")], actor="store@example.com")
+        assert blank.value.status_code == 422
+        db.rollback()
+        linked = _link(db, entry_id, (first, "T-1189"), (second, "t-1190"), version=out["entry"]["version"])
+        assert linked["status"] == "LINKED" and linked["status_label"] == f"Linked to challan {first} + 1 more"
+        assert {(row["dispatch_ref"], row["tally_bill_no"]) for row in linked["links"]} == {(first, "T-1189"), (second, "T-1190")}
+        assert linked["linked_by"] == "store@example.com"
+        status = api.get_dispatch_status(refs=f"{first},{second}", db=db, plant_id=PLANT, current_user=DISPATCH)["items"]
+        for ref in (first, second):
+            row = status[ref]
+            assert row["linked"] and row["out"] and row["photos_missing"] == [] and row["gate_entry_no"] == linked["entry_no"]
+            assert row["linked_by"] == "store@example.com" and row["vehicle_no"] == "GJ 05 CD 9876"
+        gate_out = db.query(DispatchGateOut).filter(DispatchGateOut.plant_id == PLANT, DispatchGateOut.dispatch_ref == second).one()
+        assert gate_out.out_by == "gate1@example.com" and gate_out.out_at == entry.created_at and gate_out.tally_bill_date == svc.plant_today()
+        # The photos are on both challans; the Tally photo carries the Tally no. for the vault search.
+        for document in svc.entry_documents(db, entry):
+            assert {("DISPATCH", first), ("DISPATCH", second)} <= {(link.entity_type, link.entity_id) for link in document.links}
+            if document.kind == "TALLY_BILL":
+                assert document.ref_no == "T-1189"
+        # Same link again is a no-op; a different one is refused until the plant head unlinks.
+        assert _link(db, entry_id, (second, "T-1190"), (first, "T-1189"))["status"] == "LINKED"
+        with pytest.raises(HTTPException) as changed:
+            _link(db, entry_id, (first, "T-1189"))
+        assert changed.value.status_code == 409 and "plant head unlinks" in changed.value.detail
+        db.rollback()
+        # dispatch_ref is unique: another truck's photos cannot take a linked challan.
+        other = _goods_out(db, gate, vehicle="GJ 06 ZZ 1111")
+        with pytest.raises(HTTPException) as taken:
+            _link(db, other["entry"]["id"], (first, "T-1189"))
+        assert taken.value.status_code == 409 and linked["entry_no"] in taken.value.detail
+        db.rollback()
+        assert db.query(DispatchGateOut).filter(DispatchGateOut.plant_id == PLANT, DispatchGateOut.dispatch_ref == first).count() == 1
+        # Off the strip and off the challan list; the desk and the register say where it went.
+        assert entry_id not in {row["id"] for row in api.get_gone_out(db=db, plant_id=PLANT, current_user=STORE)["items"]}
+        remaining = {row["dispatch_ref"] for row in api.get_challans_to_link(entry_id=None, q=None, db=db, plant_id=PLANT, current_user=STORE)["items"]}
+        assert first not in remaining and second not in remaining
+        desk = svc.desk(db, PLANT, gate, WATCHMAN)
+        assert next(row for row in desk["today"]["entries"] if row["id"] == entry_id)["status_label"].startswith(f"Linked to challan {first}")
+        leaving = {row["dispatch_ref"]: row for row in api.get_leaving_today(db=db, plant_id=PLANT, current_user=STORE)["items"]}
+        assert leaving[first]["out"] and leaving[second]["out"]
+        # A Dispatch login may link too; the plant head as well (Owner / Admin bypass).
+        third = _dispatch(db)
+        assert _link(db, other["entry"]["id"], (third, "T-2001"), user=DISPATCH)["status"] == "LINKED"
+        # Another plant's challan cannot be linked.
+        foreign = _dispatch(db, plant=OTHER)
+        late = _goods_out(db, gate, vehicle="GJ 07 AA 2222")
+        with pytest.raises(HTTPException) as cross:
+            _link(db, late["entry"]["id"], (foreign, "T-9"))
+        assert cross.value.status_code == 404
+        db.rollback()
+
+
+def test_unlink_is_plant_head_only_with_a_reason_and_logged():
+    with SessionLocal() as db:
+        gate = _gate(db)
+        first, second = _dispatch(db), _dispatch(db)
+        out = _goods_out(db, gate)
+        entry_id = out["entry"]["id"]
+        linked = _link(db, entry_id, (first, "T-31"), (second, "T-32"))
+        for user in (STORE, DISPATCH, WATCHMAN):
+            with pytest.raises(HTTPException) as denied:
+                require_role(svc.GOODS_OUT_UNLINK_ROLES)(current_user=user)
+            assert denied.value.status_code == 403
+        one = api.unlink_gone_out(entry_id, api.GoneOutUnlink(expected_version=linked["version"], reason_code="GU-WRONG-CHALLAN", dispatch_ref=second),
+                                  db=db, plant_id=PLANT, current_user=HEAD)
+        assert one["status"] == "LINKED" and one["dispatch_refs"] == [first]
+        row = db.query(DispatchGateOut).filter(DispatchGateOut.plant_id == PLANT, DispatchGateOut.dispatch_ref == second).one()
+        assert row.out_at is None and row.gate_entry_id is None and row.tally_bill_no == "T-32"  # the Tally no. stays on the challan
+        entry = db.get(GateEntry, uuid.UUID(entry_id))
+        assert all(("DISPATCH", second) not in {(l.entity_type, l.entity_id) for l in d.links} for d in svc.entry_documents(db, entry))
+        with pytest.raises(HTTPException) as stale:
+            api.unlink_gone_out(entry_id, api.GoneOutUnlink(expected_version=linked["version"], reason_code="GU-WRONG-TRUCK"), db=db, plant_id=PLANT, current_user=HEAD)
+        assert stale.value.status_code == 409
+        db.rollback()
+        back = api.unlink_gone_out(entry_id, api.GoneOutUnlink(expected_version=one["version"], reason_code="GU-WRONG-TRUCK"), db=db, plant_id=PLANT, current_user=HEAD)
+        assert back["status"] == "WITH_STORES" and back["dispatch_refs"] == [] and back["linked_by"] is None
+        unlinked = [step for step in back["history"] if step["action"] == "UNLINKED"]
+        assert [step["reason_code"] for step in unlinked] == ["GU-WRONG-CHALLAN", "GU-WRONG-TRUCK"] and unlinked[0]["by"] == "plant.head@example.com"
+        assert len(_outbox(db, "GATE_GOODS_OUT_TO_LINK", entry_id)) == 2  # Stores is told again
+        # Relink to the right challan.
+        relinked = _link(db, entry_id, (second, "T-32"))
+        assert relinked["dispatch_refs"] == [second]
+
+
+def test_old_goods_out_rows_keep_working_and_show_linked():
+    """Rows the 7 Nov release made (the watchman picked the challan and typed the Tally no.): status OUT, one
+    dispatch_gate_out row. The startup step makes them LINKED; before it runs they already read as linked."""
+    from src.main import ensure_gate_goods_out_schema
+
     with SessionLocal() as db:
         gate = _gate(db)
         ref = _dispatch(db)
-        assert ref in {row["dispatch_ref"] for row in api.get_leaving_today(db=db, plant_id=PLANT, current_user=WATCHMAN)["items"]}
-        with pytest.raises(HTTPException) as blank:
-            svc.goods_out(db, plant_id=PLANT, gate=gate, dispatch_ref=ref, tally_bill_no="  ", tally_bill_date=None, vehicle_no=None,
-                          actor="gate1@example.com", request_id=uuid.uuid4())
-        assert blank.value.status_code == 422
-        db.rollback()
-        # The dispatch desk types the Tally number first; the watchman's form is prefilled.
-        tally = api.put_tally(api.TallyIn(dispatch_ref=ref, tally_bill_no="t-1189"), db=db, plant_id=PLANT, current_user=DISPATCH)
-        assert tally["tally_bill_no"] == "T-1189" and tally["out"] is False
-        row = next(row for row in api.get_leaving_today(db=db, plant_id=PLANT, current_user=WATCHMAN)["items"] if row["dispatch_ref"] == ref)
-        assert row["tally_bill_no"] == "T-1189"
-        key = uuid.uuid4()
-        out = api.post_goods_out(api.GoodsOut(request_id=key, gate_id=gate.id, dispatch_ref=ref, tally_bill_no="T-1189", vehicle_no="GJ 05 CD 9876"),
-                                 db=db, plant_id=PLANT, current_user=WATCHMAN)
-        assert out["created"] and out["entry"]["kind"] == "GOODS_OUT" and out["dispatch"]["out"] is True
-        replay = api.post_goods_out(api.GoodsOut(request_id=key, gate_id=gate.id, dispatch_ref=ref, tally_bill_no="T-1189"),
-                                    db=db, plant_id=PLANT, current_user=WATCHMAN)
-        assert replay["created"] is False and replay["entry"]["id"] == out["entry"]["id"]
-        with pytest.raises(HTTPException) as twice:
-            api.post_goods_out(api.GoodsOut(request_id=uuid.uuid4(), gate_id=gate.id, dispatch_ref=ref, tally_bill_no="T-1190"),
-                               db=db, plant_id=PLANT, current_user=WATCHMAN)
-        assert twice.value.status_code == 409 and "already went out" in twice.value.detail
-        db.rollback()
-        assert db.query(DispatchGateOut).filter(DispatchGateOut.plant_id == PLANT, DispatchGateOut.dispatch_ref == ref).count() == 1
+        when = datetime.utcnow() - timedelta(hours=20)
+        entry = GateEntry(plant_id=PLANT, entry_no=f"GE-OLD-{uuid.uuid4().hex[:5]}", gate_id=gate.id, direction="OUT", kind="GOODS_OUT",
+                          category_code="DISPATCH", category_label="Goods out", route="DISPATCH", status="OUT", dispatch_ref=ref,
+                          vehicle_no="GJ 01 AB 1234", history=[], created_by="gate1@example.com", created_at=when, version=1)
+        db.add(entry)
+        db.flush()
+        db.add(DispatchGateOut(plant_id=PLANT, dispatch_ref=ref, tally_bill_no="T-700", tally_by="gate1@example.com", tally_at=when,
+                               gate_entry_id=entry.id, out_at=when, out_by="gate1@example.com", vehicle_no="GJ 01 AB 1234", version=1))
+        db.commit()
+        before = svc.entry_payload(db, entry)
+        assert before["status"] == "LINKED" and before["status_label"] == f"Linked to challan {ref}"
+        db.commit()  # release this session's table locks: the startup step runs ALTER TABLE on its own connection
+        ensure_gate_goods_out_schema()
+        ensure_gate_goods_out_schema()  # idempotent
+        db.expire_all()
+        assert entry.status == "LINKED" and entry.linked_by == "gate1@example.com" and entry.linked_at == when
+        row = db.query(DispatchGateOut).filter(DispatchGateOut.plant_id == PLANT, DispatchGateOut.dispatch_ref == ref).one()
+        assert row.linked_at == when and row.linked_by == "gate1@example.com" and row.tally_bill_no == "T-700"
         status = api.get_dispatch_status(refs=ref, db=db, plant_id=PLANT, current_user=DISPATCH)["items"][ref]
-        assert status["out"] and status["vehicle_no"] == "GJ 05 CD 9876"
-        # An unknown or other-plant dispatch cannot go out from here.
-        other_ref = _dispatch(db, plant=OTHER)
-        with pytest.raises(HTTPException) as foreign:
-            api.post_goods_out(api.GoodsOut(request_id=uuid.uuid4(), gate_id=gate.id, dispatch_ref=other_ref, tally_bill_no="T-1"),
-                               db=db, plant_id=PLANT, current_user=WATCHMAN)
-        assert foreign.value.status_code == 404
-        db.rollback()
+        assert status["linked"] and status["tally_bill_no"] == "T-700" and status["gate_entry_no"] == entry.entry_no
+        rows = svc.history(db, PLANT, date_from=svc.plant_today() - timedelta(days=2), date_to=svc.plant_today(), gate_id=None, kind="GOODS_OUT",
+                           status="LINKED", q="T-700", private=True)["items"]
+        assert [r["id"] for r in rows] == [str(entry.id)] and rows[0]["reference"] == f"Challan {ref} · Tally T-700"
+        # The unique key on gate_entry_id is gone: one entry may now hold two challans.
+        constraints = {name for (name,) in db.execute(text("SELECT conname FROM pg_constraint WHERE conrelid = 'dispatch_gate_out'::regclass"))}
+        assert "uq_dispatch_gate_out_entry" not in constraints and "uq_dispatch_gate_out_plant_ref" in constraints
+        # Not on the Store strip.
+        assert str(entry.id) not in {r["id"] for r in api.get_gone_out(db=db, plant_id=PLANT, current_user=STORE)["items"]}
 
 
 def test_end_of_day_dispatch_not_out_and_overstay_digest_send_once():
@@ -398,12 +559,18 @@ def test_end_of_day_dispatch_not_out_and_overstay_digest_send_once():
         db.add(GatePlantSetting(plant_id=plant, gate_close_time=time(0, 0), visitor_retention_days=365, version=1))
         db.commit()
         assert svc.dispatch_not_out(db, plant) == 1 and svc.dispatch_not_out(db, plant) == 0
+        # Goods-out photos still not linked after close: one reminder a day to Store and the plant head.
+        unlinked = _goods_out(db, gate, plant=plant, photos=False)
+        assert svc.goods_out_unlinked(db, plant) == 1 and svc.goods_out_unlinked(db, plant) == 0
+        db.commit()
+        [reminder] = [row for row in _outbox(db, "GATE_GOODS_OUT_UNLINKED") if row["plant_id"] == plant]
+        assert set(reminder["notify"]["recipient_roles"]) == {"Store", "PlantManager"} and unlinked["entry"]["entry_no"] in reminder["notify"]["message"]
         assert svc.overstay_digest(db, plant) == 1 and svc.overstay_digest(db, plant) == 0
         db.commit()
         [digest] = [row for row in _outbox(db, "GATE_OVERSTAY_DIGEST") if row["plant_id"] == plant]
         assert digest["notify"]["recipient_roles"] == ["Owner"]
         [notice] = [row for row in _outbox(db, "DISPATCH_NOT_OUT") if row["plant_id"] == plant]
-        assert notice["notify"]["recipient_roles"] == ["Dispatch"]
+        assert notice["notify"]["recipient_roles"] == ["Dispatch", "Store"]
         desk = svc.desk(db, plant, gate, WATCHMAN)
         assert desk["counts"]["overstay"] == 1 and desk["inside"][0]["overstay"] is True
 
@@ -445,7 +612,8 @@ def test_history_lists_all_three_types_and_exports_csv():
                                     purpose_label="Meeting", purpose_note=None, host=svc.HostChoice(department_key="SALES"), people=2, vehicle_no=None,
                                     source="DESK", actor="gate1@example.com", request_id=uuid.uuid4())
         ref = _dispatch(db, plant=plant)
-        api.post_goods_out(api.GoodsOut(request_id=uuid.uuid4(), gate_id=gate.id, dispatch_ref=ref, tally_bill_no="T-55"), db=db, plant_id=plant, current_user=WATCHMAN)
+        out = _goods_out(db, gate, plant=plant, photos=False)
+        _link(db, out["entry"]["id"], (ref, "T-55"), plant=plant)
         db.commit()
         result = api.get_history(date_from=None, date_to=None, gate_id=None, type=None, status=None, q=None, limit=100, offset=0, db=db, plant_id=plant, current_user=HEAD)
         assert result["counts"] == {"VISITOR": 1, "BILL_IN": 1, "GOODS_OUT": 1}
@@ -533,9 +701,9 @@ def test_goods_out_photos_missing_is_shown_not_blocking_and_a_known_file_still_l
     with SessionLocal() as db:
         gate = _gate(db)
         ref = _dispatch(db)
-        out = api.post_goods_out(api.GoodsOut(request_id=uuid.uuid4(), gate_id=gate.id, dispatch_ref=ref, tally_bill_no="T-77"),
-                                 db=db, plant_id=PLANT, current_user=WATCHMAN)
+        out = _goods_out(db, gate, photos=False)
         entry_id = out["entry"]["id"]
+        _link(db, entry_id, (ref, "T-77"))
         status = api.get_dispatch_status(refs=ref, db=db, plant_id=PLANT, current_user=DISPATCH)["items"][ref]
         assert status["out"] and status["photos_missing"] == ["Tally bill", "Challan"]
         rows = svc.history(db, PLANT, date_from=svc.plant_today(), date_to=svc.plant_today(), gate_id=None, kind="GOODS_OUT",
@@ -563,3 +731,38 @@ def test_goods_out_photos_missing_is_shown_not_blocking_and_a_known_file_still_l
         assert status["photos_missing"] == []
         entry = svc.entries_payload(db, [db.get(GateEntry, uuid.UUID(entry_id))], vault.access_for(WATCHMAN))[0]
         assert entry["photo_count"] == 2
+
+
+def test_bills_in_watchman_only_photographs_store_and_accounts_link():
+    """Re-check (8 Nov 2026): the watchman saves photos on its own gate entry; linking to a GRN, a challan or
+    any other record (vault link endpoint, upload with a link) and filing or re-categorising is refused."""
+    from starlette.datastructures import UploadFile as StarletteUpload
+    from src.routers.documents import LinkRequest, add_link, upload_document
+
+    for roles in (svc.STORE_LINK_ROLES, svc.ACCOUNTS_ROLES, svc.RECATEGORISE_ROLES):
+        with pytest.raises(HTTPException) as denied:
+            require_role(roles)(current_user=WATCHMAN)
+        assert denied.value.status_code == 403
+    with SessionLocal() as db:
+        gate = _gate(db)
+        entry = _bill(db, gate, "GB-MATERIAL")["entry"]
+        document = _photo(db, entry["id"])
+        ref = _dispatch(db)
+        with pytest.raises(HTTPException) as link:
+            add_link(str(document.id), LinkRequest(entity_type="DISPATCH", entity_id=ref), db=db, plant_id=PLANT, current_user=WATCHMAN)
+        assert link.value.status_code == 403
+        db.rollback()
+
+        def upload(link_type, link_id, user=WATCHMAN):
+            return upload_document(file=StarletteUpload(io.BytesIO(_jpeg()), filename="p.jpg"), kind="VENDOR_BILL", source=None, category=None,
+                                   party_type=None, party_id=None, party_name=None, ref_no=None, ref_date=None, amount=None, note=None,
+                                   request_id=str(uuid.uuid4()), link_entity_type=link_type, link_entity_id=link_id,
+                                   db=db, plant_id=PLANT, current_user=user)
+
+        with pytest.raises(HTTPException) as other_record:
+            upload("DISPATCH", ref)
+        assert other_record.value.status_code == 403
+        db.rollback()
+        assert upload("GATE_ENTRY", entry["id"])["created"]
+        # Store links its own material photo to the challan-free record it may see (no change for Store).
+        assert add_link(str(document.id), LinkRequest(entity_type="GATE_ENTRY", entity_id=entry["id"]), db=db, plant_id=PLANT, current_user=STORE)["created"] is False

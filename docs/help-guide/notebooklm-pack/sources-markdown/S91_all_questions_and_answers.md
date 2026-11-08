@@ -1,5 +1,5 @@
 # Hari Om TubeOS: all common questions and answers (collected from every chapter)
-Accurate as of 31 October 2026.
+Accurate as of 8 November 2026.
 
 
 ## From chapter 00: Welcome to Hari Om TubeOS: the big picture
@@ -55,6 +55,10 @@ Accurate as of 31 October 2026.
 **Q: The Inbox says 2,000 unread. Do I have to open each?** A: No. Work the **Needs action** view, then press **Mark all read**.
 
 **Q: A notification has no button.** A: It is for information, or your role cannot do that action. Open it to read.
+
+**Q: I pressed Make debit note in the Inbox. Where is the debit note?** A: It is a draft in Purchasing › Debit notes. The notification shows its number. Submit, approve and issue it as usual.
+
+**Q: The button said it did not go through.** A: Read the red message (for example the case changed or your role may not do it). Use "Try … again" or open the page from the link.
 
 **Q: Purchase lanes say "Select a plant to see this queue".** A: You are in All Visible Plants. Choose Plant A or Plant B in the header.
 
@@ -237,7 +241,15 @@ Accurate as of 31 October 2026.
 
 ## From chapter 14: Quality
 
-**Q: Why can't Store issue this reel?** A: Its lot is held: a reading was out of band. QC must re-check, the plant head concede, or Store return it.
+**Q: Why can't Store issue this reel?** A: Either QC has not weighed and accepted it yet, or it is held (Hold, Reject, or a reading out of band). QC must weigh and accept it, re-check it, the plant head concede it, or Store return it.
+
+**Q: Do I have to enter GSM, moisture and the other checks?** A: No. Every check is optional now. Only the actual weight is needed, and only to Accept. If you do enter a reading and it is out of band, the reel is held.
+
+**Q: I typed 11750 instead of 1175 and saved.** A: Click the pencil (**Re-weigh**), type 1175, pick WC-TYPO and save. The bill's weight check is worked out again.
+
+**Q: The scale shows 30 kg less than the bill. Does stock go down?** A: No. Stock, labels and month close stay on the bill weight. The difference goes to the bill's weight check, and from there to the Owner or a debit note.
+
+**Q: A reel received last week is still on hold. Why can't I release it?** A: Lots received before go-live of weighing (7 Nov 2026) must be weighed too. Type its actual weight and accept it.
 
 **Q: A floor reading is out of band. Must I hold the card?** A: No. It is flagged, not held, and the boxes still ship. Place a hold only if you decide the material must stop.
 
@@ -276,6 +288,14 @@ Accurate as of 31 October 2026.
 
 
 ## From chapter 16: Dispatch
+
+**Q: The watchman says the truck left, but the challan still says Not out of gate.** A: The goods-out entry is waiting under **Gone out at the gate**. Store picks it, ticks the challan, confirms the Tally bill number and clicks **Link challan**.
+
+**Q: I linked the wrong challan or typed the wrong Tally number.** A: Ask the plant head, Owner or Admin to **Unlink** it with a reason, then link it again correctly.
+
+**Q: Does the watchman type the Tally bill number?** A: No. He only photographs the Tally bill and our challan and types the vehicle number. Store (or Dispatch) types or confirms the Tally number when linking.
+
+**Q: The chip says Photos missing.** A: The gate phone has not finished uploading. Ask the watchman to keep the phone on the network. If the photo was lost on the phone, tell the plant head.
 
 **Q: Why is there no Make challan button on my card?** A: Read the state: "Packing boxes" with no box in stock yet, "Waiting for the stock posting" or "On QC hold". The button appears only when boxes can ship and your role can prepare challans.
 
@@ -340,9 +360,17 @@ Accurate as of 31 October 2026.
 
 ## From chapter 22: Invoice differences, debit notes and purchase reports
 
+**Q: QC weighed the bill 30 kg short. Does stock go down by 30 kg?** A: No. Stock stays on the bill weight. Only the difference is claimed, through a debit note.
+
+**Q: I skipped a weight debit note by mistake.** A: A skipped bill no longer shows **Make debit note**; the skip and its reason stay on the case. Speak to the Owner or Admin.
+
+**Q: Why does the weight case say "Waits for invoice"?** A: The GRN was posted with the invoice pending. The debit-note draft is made as soon as the invoice is attached in the GRN register.
+
+**Q: Can I change the 20 and 50 kg limits?** A: Only the Owner, in System › Plants (Weight check of a bill). The limits saved on a bill when it was weighed stay with that bill.
+
 **Q: The vendor's rate is ₹0.10 higher. Do I really need a case?** A: Yes. Any rate difference opens a case. Accept it with a reason code (for example ID-TAX for GST rounding) if the extra is agreed.
 
-**Q: Why is the Claim box greyed out on my row?** A: Only positive **Rate** or **Quality** rows that are still open and have the invoice attached can be claimed. Rows with "Invoice pending" become claimable after the invoice is attached in the GRN register.
+**Q: Why is the Claim box greyed out on my row?** A: Only positive **Rate**, **Quantity** or **Quality** rows that are still open and have the invoice attached can be claimed. Rows with "Invoice pending" become claimable after the invoice is attached in the GRN register.
 
 **Q: Can the reels be used while the rate case is open?** A: Yes, once incoming QC passes them. Invoice and rate questions never hold paper back.
 
@@ -378,6 +406,12 @@ Accurate as of 31 October 2026.
 **Q: Why does the GSM on the label equal the variety?** A: No GSM was measured at incoming QC yet, so the label prints the variety number, as the plant always has. Once QC measures it, a reprint shows the measured GSM.
 
 **Q: Can I find a reel by typing its serial?** A: Yes. Type it any way (ait 6243, AIT-06243, AIT 6243-2); the search reads it as AIT 06243 or AIT 06243-2.
+
+**Q: The bill was photographed at the gate. Do I still type the challan and invoice?** A: Yes. Pick the bill under **At the gate** and read the numbers from the photo beside the form. The photo is linked when you post.
+
+**Q: The At the gate card says "Vendor not given".** A: The watchman did not pick a vendor. Pick the vendor on the form yourself.
+
+**Q: Why does my GRN say No gate photo?** A: It was posted without a gate entry. If the watchman photographed the bill, click **Link gate entry** on the GRN.
 
 **Q: Can the reels go to the floor before QC?** A: No. They show **Waiting for QC** until incoming QC passes them. Rate and invoice questions never hold them, but QC does.
 
@@ -509,6 +543,10 @@ Accurate as of 31 October 2026.
 
 **Q: I changed a person's role but they still see the old screens.** A: Saving signs them out. Ask them to sign in again.
 
+**Q: Where do I change the 20 kg and 50 kg weight limits?** A: System › Plants, on the plant card, **Weight check of a bill**. Owner only.
+
+**Q: The watchman can see other pages.** A: Check his login has only the **Watchman (gate)** role. With any other role added, he is no longer gate-only.
+
 **Q: Can a user have two roles?** A: Yes. Tick both. Access adds up, and they can switch role from the top bar.
 
 **Q: Why can't I tick "Allow all plants" for a Plant Manager?** A: All-plant access is only for Owner and Admin. Tick each plant they need under **Allowed plants** instead.
@@ -528,3 +566,41 @@ Accurate as of 31 October 2026.
 **Q: Our hand-printed labels reached AIT 06279. How do we carry on?** A: The Owner or Admin opens System > Plants, clicks **Set next number** on the plant card, types 6280 with a reason and saves. The next reel received gets AIT 06280.
 
 **Q: Can we start the AIT series again mid-year?** A: No. After reels of the year have numbers, the next number can only go up. The series restarts at AIT 00001 by itself on 1 April.
+
+
+## From chapter 31: Gate desk and visitors
+
+**Q: Do I have to type the bill number or the Tally bill number at the gate?** A: No. The watchman only takes photos, taps the kind and (for goods out) types the vehicle number. Store reads the numbers from the photo later.
+
+**Q: The network is down. Can the truck go?** A: Yes. Save the entry; the photos stay on the phone and upload when the network is back. Keep the phone on and on the network. The desk shows what is still to upload.
+
+**Q: The visitor has no smartphone.** A: Use **+ Visitor** and fill the form for them, then **Check in and let in**.
+
+**Q: Must the host approve before I let the visitor in?** A: No. You let them in after checking the ID; the host is told and can reply Send in, Ask to wait or Not available.
+
+**Q: I picked Electricity but it was a material bill.** A: Ask Store or the plant head to use **Wrong type? Move it** in the Bills inbox. The bill then goes to Stores for the GRN.
+
+**Q: The card says "Photo saved · Stores and Accounts open it". Why can't I see it?** A: The same file was already in the vault, or it is a kind your login may not open. The photo is safe.
+
+**Q: Why is a visitor shown in red?** A: They are still inside after the gate close time. Mark them out when they leave; the Owner gets a daily list.
+
+**Q: Who sees the visitors' phone numbers?** A: Only the watchman, the plant head, the Owner and the Admin. Others see them masked (98xxxxxx22).
+
+**Q: The QR poster was posted on social media.** A: The Owner or Admin taps **New QR** in System › Gates and prints the new poster. The old QR stops working at once.
+
+**Q: Can a watchman open the Doc Vault or other pages?** A: No. A watchman login opens only the gate desk, and sees only the photos they took today.
+
+
+## From chapter 32: Doc Vault
+
+**Q: Can I delete a photo I took by mistake?** A: No document is ever deleted. Ask the Owner or Admin to void it with a reason.
+
+**Q: I took the photo but it does not show yet.** A: It is still on your phone waiting to upload. Keep the phone on the network; the strip at the top shows what is waiting.
+
+**Q: Why can't I see the electricity bill?** A: Expense bills are seen by the plant head, Owner and Admin. Store sees material bills and challans; Dispatch sees outward papers.
+
+**Q: The bill has three pages. Do I make three documents?** A: No. Take the first photo, then add the others with **Add page** at the gate, or **Photo of next page** in the viewer.
+
+**Q: What is the Unlinked tab?** A: Vendor bills and challans not tied to a GRN yet. Link each one to its GRN.
+
+**Q: Where are the debit note PDFs?** A: Each issued debit note's PDF is saved in the vault automatically and shows under **Documents** on the note.

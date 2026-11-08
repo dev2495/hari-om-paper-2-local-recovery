@@ -193,7 +193,8 @@ def test_who_sees_what_by_role():
         mine = {str(d.id) for d in (bill, tally, expense, own, old)}
         assert mine <= seen(HEAD) and mine <= seen(OWNER)
         store = seen(STORE) & mine
-        assert str(bill.id) in store and str(old.id) in store and str(tally.id) not in store and str(expense.id) not in store
+        # Store links the goods-out photos to challans (8 Nov 2026), so it sees the Tally bill too; not expenses.
+        assert str(bill.id) in store and str(old.id) in store and str(tally.id) in store and str(expense.id) not in store
         assert seen(DISPATCH) & mine == {str(tally.id)}
         # The watchman sees only what they saved today.
         assert seen(WATCHMAN) & mine == {str(own.id)}

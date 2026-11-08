@@ -1,5 +1,5 @@
 HARI OM TUBEOS HELP GUIDE - Chapter 14: Quality
-Section: Production, quality and dispatch. Accurate as of 31 October 2026. Hari Om TubeOS is the ERP for a paper tube plant (sales orders, planning, shop floor, quality, purchasing, stores, reports).
+Section: Production, quality and dispatch. Accurate as of 8 November 2026. Hari Om TubeOS is the ERP for a paper tube plant (sales orders, planning, shop floor, quality, purchasing, stores, reports).
 Screenshots named in this file are in the visual handbook (Hari-Om-TubeOS-Help-Guide.html or .pdf), chapter 14.
 
 # Quality
@@ -9,7 +9,8 @@ Screenshots named in this file are in the visual handbook (Hari-Om-TubeOS-Help-G
 > **Where:** Sidebar > Quality > QC desk (/quality), Incoming QC (/quality/incoming), In-process QC (/quality/stage), Holds & inspections (/quality/results), Customer complaints (/quality/returns), Material standards (/quality/material-standards), Process stage rules (/quality/stage-rules), Quality analytics (/reports/quality)
 
 ## At a glance
-- **Incoming lots are held when out of band.** A GRN lot with every reading inside its band is released and can be issued at once. Any reading outside its band holds the lot until QC decides.
+- **Incoming QC works by bill.** One card per bill or challan holds every reel and lot of that bill. QC weighs each reel on the scale and types the **Actual kg** beside the bill weight. **Accept needs the actual weight** on every path; Hold and Reject do not. Every other check is optional, but a reading that is entered and out of band still holds the lot.
+- **Stock stays on the bill weight.** The actual weight is a record only. When every lot of a bill is weighed, the bill's weight check runs: short up to 20 kg is recorded, 20 to 50 kg goes to the Owner (Make debit note or Skip), above 50 kg a debit-note draft is made automatically (limits per plant, see Invoice differences).
 - **Job card QC never holds or rejects.** On Winding, Oven, Process and final QC a reading outside its band is saved and flagged on the run, the batch, the box and the card; the run moves on and dispatch is never blocked by it. In-process QC traces every flag.
 - **2 readings per required check** make a run "QC done" (moisture optional). The next stage takes only QC-done runs.
 - **QC lists the checks; Masters set the inward bands; QC keeps the seasonal stage rules.** Every change is a new version; lots and cards keep the version they started with.
@@ -18,9 +19,10 @@ Screenshots named in this file are in the visual handbook (Hari-Om-TubeOS-Help-G
 
 ## The flow
 
-Flow diagram: Incoming lot (GRN)
-Steps: 1. GRN saved (done by Store/GRN) -> 2. Lot waits for QC - 24 h -> 3. Enter readings (done by Inward QC) -> 4. All in band -> 5. Released to issue desk
-If it goes wrong after 'Enter readings': 1. Out of band -> 2. Lot held (done by Inward QC) -> 3. Re-check (done by QC) -> 4. Released to issue desk
+Flow diagram: Incoming bill (GRN)
+Steps: 1. GRN posted (done by Store/GRN) -> 2. Bill card in To weigh - 24 h -> 3. Weigh each reel, type Actual kg (done by Inward QC) -> 4. Accept - needs the weight -> 5. Save weighed rows -> 6. Released to issue desk
+If it goes wrong after 'Save weighed rows': 1. Last lot weighed -> 2. Weight check of the bill - 20 / 50 kg -> 3. Owner decides or debit note drafted
+If it goes wrong after 'Weigh each reel, type Actual kg': 1. Optional reading out of band, or Hold / Reject -> 2. Lot held (done by Inward QC) -> 3. Re-check (done by QC) -> 4. Released to issue desk
 If it goes wrong after 'Lot held': 1. Concession (done by Plant head/Owner/Admin) -> 2. Released for limited use
 If it goes wrong after 'Lot held': 1. Return to supplier (done by Store) - written out of stock
 
@@ -51,18 +53,35 @@ What you see:
 3. **Held — waiting for a decision**: inward lots (re-inspect, concession by the plant head, or return by Store) and job-card holds (holds placed on purpose, and older holds made before floor readings were flagged instead of held; released, reworked or scrapped by the plant head, Owner or Admin). Each row shows lot, material, supplier, GRN, qty, days waiting and **Decide**.
 4. Further down: **Incoming lots** (oldest due first, **Inspect**), **Runs waiting for QC readings** (**Log QC**), **Latest flagged readings**, **Latest checks**, and links to standards and analytics.
 
-[Screenshot "qc-incoming": Incoming inspection page with four tiles, the inward list and the three-step help panel]
-*Figure: Incoming inspection. Tiles for To inspect, Overdue, Failed · on hold and Rejected; the inward list on the left; on the right a three-step guide until an entry is picked, and "Checked recently" below.*
+[Screenshot "qc-incoming": Incoming inspection page with tabs To weigh, Part done, Owner decision, a list of bill cards and the three-step panel]
+*Figure: Incoming inspection: "One card per bill or challan. Weigh every reel, type the actual weight and decide. Stock stays on the bill weight; a shortage beyond the plant's limit goes to the Owner or straight to a debit note." Left: tabs To weigh 66, Part done 4, Owner decision 0 (Done today and Held further right), a search box and bill cards such as "Bill INV-129bd8 · Challan dc 0872f", Navkar Paper Board, 27 Oct 2026, GRN P/26/002, PO RP-PM/05, Paper reels, "0 of 1 weighed", 450 kg, with a red **Overdue** chip. Right: "Pick a bill from the list" with 1. Weigh each reel, 2. Decide, 3. Issue to floor; below, Checked recently.*
 
 What you see:
 
-1. **Tiles**: **To inspect** (inspect within 24 h of inward), **Overdue** (past the 24 h window), **Failed · on hold** (re-check, concede or return), **Rejected** (return to supplier).
-2. **List tabs**: **To inspect**, **Failed · on hold**, **Rejected**. Search: "Scan the label, or search reel, inward no., supplier, PO…" (a label QR can be scanned here). Material chips: **All material**, **Adhesive**, **Finished goods**, **Packing**, **Paper reels**.
-3. **Inward rows**: material, supplier, type, inward no. (for example P/26/014), qty and an **Overdue 3 d** or **Due in 5 h** chip.
-4. **Right panel**: "Pick an inward entry from the list" with the three steps **1. Enter readings**, **2. Decide per lot**, **3. Issue to floor**. Picking an entry opens one sheet for all reels, coils or batches that came in together.
-5. **Checked recently** and **Concessions** ("A measured FAIL stays FAIL; a concession only allows a limited use").
+1. **Tabs**: **To weigh** (nothing weighed yet), **Part done** (some lots still to weigh), **Owner decision** (weight short: the Owner decides; red count), **Done today** (every lot weighed), **Held** (on hold or rejected).
+2. **Search**: bill, challan, GRN, AIT no., vendor reel no. or vendor. A lot label can be scanned into it to find its bill.
+3. **Bill cards**: bill and challan numbers ("Challan … · bill to follow" when the invoice is pending), vendor, date received, chips for GRN, PO and material, "N of M weighed" with a bar, the bill weight, and chips **Overdue** (past 24 h), **Opening stock** (go-live lots, no weighing needed) or the weight result (for example "−30 kg · Owner decides").
+4. **Checked recently** and **Concessions** further down.
 
-The inspection sheet (words only): one row per reel, coil or batch; for each check the **Allowed** band, the **Reading** box and the **Result** (**In band**, **Out of band**, **Not valid**, **Recorded** for checks without a band). Per lot a **Decision**: **By readings** (released only if every check is in band), **Hold** (keep out of issue for review), **Reject**. An out-of-band lot needs **Reason (required)**, typed in words, for example "Why GSM is out of band" (the inspection result itself is a reading, not a reason code). Then **Save N inspections**. The **Resolve a failed lot** box offers re-check, concession ("Why it is still fit for use", list **Concession**: CN-MINOR, CN-URGENT, CN-CUST-OK, CN-NON-CRITICAL, CN-SUPPLIER-CREDIT, CN-OTHER) or return ("Reason for the return", list **Incoming material rejected / returned**: RM-GSM, RM-MOISTURE, RM-DAMAGED, RM-WRONG-ITEM, RM-WEIGHT, RM-STRENGTH, RM-NO-DOCS, RM-OTHER).
+[Screenshot "qc-incoming-saved": One bill open with the Owner decides banner, bill photos, four tiles and the reel grid with actual weights saved]
+*Figure: Bill VPI/1686/2026-27 · Challan CH-2525 open (Bharat Paper Mills, PO RP-PM/68, GRN P/26/021). A red banner: "Short 30 kg (limit 20 kg–50 kg): the Owner decides to make a debit note or skip it." with a link Weight differences. **Weigh & decide**: "Bill weight is read-only. * Actual weight is needed to Accept; every other check is optional, and a reading out of band still holds the reel." Bill photos (tap to read the reel list). Tiles: Bill weight 550 kg, Weighed so far (2) 520 kg, Difference −30 kg (₹1,500 at ₹50/kg), Ready for issue 2. Toolbar: scan box, Camera, Accept all weighed, More checks (7). Grid: AIT 06283, vendor reel 65686, Kraft 300 GSM, Bill 400, Actual 385 with a pencil (Re-weigh), Diff −15, Accept; AIT 06284, 150 / 135, −15. "Every lot of this bill is weighed. Use Re-weigh to fix a typo."*
+
+What you see:
+
+1. **Bill header**: vendor, PO, GRN, challan, invoice and date received. **Invoice to follow** when the invoice is pending.
+2. **Weight banner** (once the last lot is weighed or rejected): the band and who acts next, for example "Short 12 kg, within the 20 kg limit: recorded only", "the Owner decides…", "Case raised for 64 kg; the debit note drafts as soon as the invoice is attached to the GRN", or "Debit note DN-… (draft) for ₹…".
+3. **Bill photos**: the bill and challan photos taken at the gate and at inward. Tap one to read the vendor's reel list beside the sheet.
+4. **Tiles**: **Bill weight** (lots counted; rejected lots are left out), **Weighed so far**, **Difference** (with the rupee value at the bill rate), **Ready for issue**.
+5. **Toolbar**: **Scan the AIT label or type the reel / lot no.** (jumps to that row; if the reel is on another bill it says so with **Open it**), **Camera**, **Accept all weighed** (accepts every weighed row with no out-of-band reading), **More checks (N)** (shows the optional template checks such as GSM and moisture).
+6. **Reel grid**: **AIT / lot**, **Vendor reel**, **Item**, **Bill kg** (read-only), **Actual kg *** (type the scale weight; Enter goes to the next reel), **Diff**, **Decision** (**Accept**, **Hold**, **Reject**) and **Status** (Waiting, Issuable, Held, Rejected, Concession, Returned to supplier). A saved weight shows a pencil: **Re-weigh**.
+7. **Save weighed rows (N)**: saves every changed row. Each row saves on its own: a red row was not saved and says why.
+
+[Screenshot "qc-typo-guard": The reel grid with two weights far from the bill weight and the Check tick boxes]
+*Figure: The typo guard. AIT 06283 has bill 400 kg and 260 typed, AIT 06284 bill 150 kg and 260 typed. Under each: "Check: 260 kg vs bill 400 kg: it is right" with a tick box. The footer says "2 rows to save · 2 need attention".*
+
+On a phone the grid becomes one card per reel: the bill weight, a large **Weigh and type** box, the difference, the decision buttons, **More checks (optional)** and **Next reel**.
+
+The **Resolve a held or rejected lot** box (under the sheet) offers re-check in the sheet, concession ("Why it is still fit for use", list **Concession**: CN-MINOR, CN-URGENT, CN-CUST-OK, CN-NON-CRITICAL, CN-SUPPLIER-CREDIT, CN-OTHER) or return ("Reason for the return", list **Incoming material rejected / returned**: RM-GSM, RM-MOISTURE, RM-DAMAGED, RM-WRONG-ITEM, RM-WEIGHT, RM-STRENGTH, RM-NO-DOCS, RM-OTHER). Hold, Reject and an out-of-band row need a reason from the list **Incoming QC out of band / hold / reject** (IQ-DAMAGED, IQ-GSM, IQ-MOISTURE, IQ-NO-DOCS, IQ-RECHECK-OK, IQ-SIZE, IQ-STRENGTH, IQ-WEIGHT, IQ-WRONG-ITEM, IQ-OTHER).
 
 [Screenshot "qc-stage": In-process QC with Flagged readings tab, period and stage filters, tiles and charts]
 *Figure: In-process QC, Flagged readings tab, last 30 days. 66 flagged readings on 40 runs of 27 cards, shown by stage and by check.*
@@ -119,14 +138,26 @@ What you see:
 
 ## Step by step
 
-### How to inspect a GRN lot
-Roles: QC, Inward QC, Owner, Admin (Store and Plant Manager can open the page).
+### How to weigh and decide a bill
+Roles: QC, Inward QC, Owner, Admin (Store and Plant Manager can open the page and see the sheet read-only).
 
-1. Open **Incoming QC**. Scan the lot label or pick the inward entry (oldest first; mind the 24 h deadline).
-2. Type each reading. Cells turn green in band and red out of band; Enter moves down.
-3. Leave **By readings** for normal lots. Choose **Hold** to keep a lot out of issue, or **Reject**.
-4. For an out-of-band lot, write the reason.
-5. Click **Save N inspections**. In band: "Saved: … It can be issued to the floor now." Out of band: "It stays out of issue."
+1. Open **Incoming QC**. Pick the bill under **To weigh** (oldest due first; mind the 24 h deadline), or scan a reel label into the search.
+2. Read the bill photo if you need the vendor's reel list (tap a thumbnail under **Bill photos**).
+3. Put the first reel on the scale. Type the scale weight in **Actual kg** and press Enter: the cursor goes to the next reel. Or scan the reel's AIT label in the scan box to jump to its row.
+4. If a weight is more than 15 % away from the bill weight, the row asks "Check: 11,750 kg vs bill 1,182 kg". Correct the typo, or tick "it is right" if the scale really says so.
+5. Leave **Accept** for good reels (it is the default once the weight is typed), or click **Accept all weighed**. Choose **Hold** or **Reject** (with a reason) for a reel you do not want issued; these need no weight.
+6. Optional: open **More checks** and type readings such as GSM or moisture. Leave them empty if you do not measure them.
+7. Click **Save weighed rows (N)**. "2 rows saved." Accepted reels with no out-of-band reading are issuable at once.
+8. When the last lot is weighed or rejected, the message and the banner say what happens next, for example "Weight short: the Owner decides." Nothing more is needed from QC.
+
+### How to fix a weight typo (Re-weigh)
+1. Click the pencil beside the saved weight (**Re-weigh**).
+2. Type the **Corrected weight**, pick **Why it is corrected** (list **Weight correction**: WC-TYPO Typing mistake, WC-REWEIGHED Weighed again on the scale, WC-SCALE Scale was not zeroed, WC-WRONG-LOT Weight entered on the wrong reel or lot, WC-OTHER with a note) and click **Save correction**.
+3. "AIT 06283 re-weighed: 385 kg. The weight check of the bill is updated." Stock stays on the bill weight.
+
+### How to release a lot that was held before go-live
+1. Lots received before 7 Nov 2026 that are still on QC hold need their actual weight before they can be released.
+2. Open the bill under **Held**, type the actual weight of each lot, choose **Accept** and save.
 
 ### How to resolve a held lot
 1. Open the lot (**Decide** on the QC desk or Holds & inspections).
@@ -173,7 +204,11 @@ Roles: QC, Owner, Admin.
 4. For one customer or spec: **Customer / spec overrides**, pick the target and season (**Both seasons**, **Rest of year**, **Monsoon**), tick the rules, edit, **Save override draft**. A possibly wider rule needs an Owner or Admin to publish it.
 
 ## Rules the system enforces
-- **Inward: out of band holds the lot**; all in band releases it. A numeric check with no band is recorded only. A held lot cannot be issued. (Blocks issue.)
+- **Inward: Accept needs the actual weight.** No path can release a purchase lot for issue before QC types its actual weight: the bill sheet, the scan, the QC desk, closing holds, concession release and the GRN refresh after an invoice is attached. Opening-stock lots and customer returns are exempt. Hold and Reject never need a weight. ("Weigh it first: Accept needs the actual weight".) (Blocks.)
+- **Inward checks are optional.** Only the actual weight is needed, and only for Accept. A reading that is entered and out of band still holds the lot; a numeric check with no band is recorded only. A held lot cannot be issued. (Blocks issue.)
+- **Stock stays on the bill weight.** The actual weight never changes the stock, the ledger, the labels or month close. It only feeds the bill's weight check (see Invoice differences). (Automatic.)
+- **Typo guard**: a weight more than 15 % from the bill weight must be confirmed. **Re-weigh** needs a **Weight correction** reason. (Blocks until confirmed.)
+- **Each row saves on its own**; a row that fails says why and the others are kept. Saving twice does not save twice. (Automatic.)
 - **Inward deadline**: 24 hours from inward; late lots show **Overdue**. (Warns.)
 - **Concession** only by plant head, Owner or Admin, never the inspector; not for critical checks; the FAIL stays on record. (Blocks others.)
 - **Job card QC: out of band is flagged, never held or rejected** (in-process and final QC, old-form cards too). The inspection keeps FAIL and a flag; FAIL with the minimum readings counts as QC done. No automatic hold is ever made on a job card, and dispatch no longer needs a passed final QC. (Flag only.)
@@ -188,18 +223,35 @@ Roles: QC, Owner, Admin.
 **Roles in short.** **QC** works all pages and edits standards and stage rules. **Inward QC** inspects GRN lots and edits material checks. **In-process QC** logs floor QC, sees flags and waiting runs, and can raise job-card holds but not release them. **Plant Manager** (plant head) releases holds and grants concessions. **Store** returns lots to suppliers and records complaints. **Sales** and **Dispatch** see holds and record complaints.
 
 ## Sample
-Bharat Paper Mills delivers 6 reels of Kraft 300 GSM (P/26/014). The paper band is GSM at least 291 (from the master line) and moisture 6–9 %.
+Bharat Paper Mills delivers 2 reels of Kraft 300 GSM on GRN P/26/021 (bill VPI/1686/2026-27, PO RP-PM/68, ₹50/kg). QC weighs them:
 
-| Reel | GSM | Moisture | Decision | Result |
+| Reel | Bill kg | Actual kg | Diff | Decision |
 |---|---|---|---|---|
-| R1 | 302 | 7.1 | By readings | Released |
-| R2 | 298 | 6.8 | By readings | Released |
-| R3 | 285 | 7.4 | By readings, reason "GSM low on two sheets" | Held |
+| AIT 06283 | 400 | 385 | −15 | Accept |
+| AIT 06284 | 150 | 135 | −15 | Accept |
+
+Both reels are issuable at once. The bill is 30 kg short (₹1,500): between 20 and 50 kg, so the Owner gets "Weight short 30 kg · Bill VPI/1686/2026-27" with **Make debit note** and **Skip…**. The stock stays 550 kg.
+
+Another delivery, 6 reels on P/26/014, where QC also measures GSM (band at least 291) and moisture (6–9 %):
+
+| Reel | Actual kg | GSM | Moisture | Result |
+|---|---|---|---|---|
+| R1 | 1,182 | 302 | 7.1 | Accepted, issuable |
+| R2 | 1,204 | 298 | 6.8 | Accepted, issuable |
+| R3 | 1,190 | 285 | 7.4 | Held (GSM out of band, reason IQ-GSM) |
 
 R3 is on hold. The plant head grants a concession with CN-NON-CRITICAL, note "use on outer plies"; the FAIL stays on record. Later, card 26/10/315 has a Process I.D. reading of 76.9 mm against 76.2–76.5: flagged, not held; it appears in In-process QC under I.D., High, and the two boxes holding that run's pcs show **QC flagged**. They ship on the next challan. A week later the customer reports soft tubes in box B2610315-003; Sales records a complaint with CC-MOISTURE.
 
 ## Common questions
-**Q: Why can't Store issue this reel?** A: Its lot is held: a reading was out of band. QC must re-check, the plant head concede, or Store return it.
+**Q: Why can't Store issue this reel?** A: Either QC has not weighed and accepted it yet, or it is held (Hold, Reject, or a reading out of band). QC must weigh and accept it, re-check it, the plant head concede it, or Store return it.
+
+**Q: Do I have to enter GSM, moisture and the other checks?** A: No. Every check is optional now. Only the actual weight is needed, and only to Accept. If you do enter a reading and it is out of band, the reel is held.
+
+**Q: I typed 11750 instead of 1175 and saved.** A: Click the pencil (**Re-weigh**), type 1175, pick WC-TYPO and save. The bill's weight check is worked out again.
+
+**Q: The scale shows 30 kg less than the bill. Does stock go down?** A: No. Stock, labels and month close stay on the bill weight. The difference goes to the bill's weight check, and from there to the Owner or a debit note.
+
+**Q: A reel received last week is still on hold. Why can't I release it?** A: Lots received before go-live of weighing (7 Nov 2026) must be weighed too. Type its actual weight and accept it.
 
 **Q: A floor reading is out of band. Must I hold the card?** A: No. It is flagged, not held, and the boxes still ship. Place a hold only if you decide the material must stop.
 

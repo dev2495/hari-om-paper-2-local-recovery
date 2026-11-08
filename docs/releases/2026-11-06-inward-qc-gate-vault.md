@@ -50,7 +50,8 @@ on desktop and a 390 px phone).
 - Each role sees its own kinds:
   - Owner, Admin, PlantManager and Accounts: everything.
   - Store, GRN, QC and InwardQC: material bills and challans.
-  - Dispatch: outward documents.
+  - Dispatch: outward documents. Store also sees the Tally bill and our-challan photos (8 Nov), because Store
+    links the goods-out photos to the challans.
   - Watchman: only their own uploads of today.
 
 **Gate** (`/gate`, a phone-first desk; new role **Watchman**, a gate-only login)
@@ -64,17 +65,45 @@ on desktop and a 390 px phone).
   Stores and appear as **At the gate** on Goods inward. Electricity, maintenance and other bills go to
   the Accounts inbox (`/gate/bills`), filed with a COST_HEAD.
 - Posting a GRN with the gate entry links all its photos to the GRN and every reel.
-- *+ Goods out*: pick the challan that is leaving (or scan its QR), type the Tally bill no. and take the
-  Tally bill and challan photos. The truck is never held for the photos. Until both photos are in the
-  vault:
-  - the dispatch register shows "Photos missing: …";
-  - the gate register shows "Photos missing";
-  - the desk shows a banner listing the pending uploads.
+- *+ Goods out* (owner correction, 8 Nov): **the watchman only takes photos**, as for bills coming in.
+  Two photo slots, Tally bill and our challan (more pages allowed), plus the vehicle no. (required).
+  "Gone out" saves a GOODS_OUT entry, direction OUT, status *With Stores*, out time = now. The watchman
+  picks no challan, types no Tally no. and scans no challan QR. The server refuses a challan or Tally no.
+  from the gate login (403), and the watchman cannot reach the link, Tally or challan-list calls (403).
+  Store and Dispatch get `GATE_GOODS_OUT_TO_LINK`.
+- **Store links goods out** on the dispatch register (`/logistics/dispatch`), in a **Gone out at the gate (n)**
+  strip that looks and works like *At the gate* on Goods inward:
+  - Pick an entry. Its photos dock beside the form. Choose the challan(s) from the dispatches not yet
+    linked (search, same day first, optional challan QR scan). Type the Tally bill no. for each challan
+    (required, prefilled from the dispatch desk or from the first challan) and the Tally date (default:
+    the day it went out). Then Link.
+  - One entry may cover several challans. Each challan gets its own `dispatch_gate_out` row:
+    `dispatch_ref` is unique per plant, the out time and watchman come from the entry, and linked by/at
+    is the Store user. The entry's photos are linked to every challan, and the entry becomes *Linked to
+    challan …*.
+  - A dispatch row also has **Link gate photo**: pick a waiting entry and the panel opens with that challan
+    already picked.
+  - Store, Dispatch and PlantManager may link and set the Tally no. (Owner and Admin always can).
+    `PUT /dispatch/tally` stays for the dispatch desk, limited to the same roles.
+  - **Unlink** is for PlantManager, Owner and Admin, with a `GATE_OUT_UNLINK` reason. The Tally no. stays on
+    the challan, the unlink is logged on the entry, and Stores is told again.
+- Dispatch register chips: "Not out of gate" (with "Tally T-…" if already typed), "Out · Tally T-… ✓",
+  and "Photos missing: …" while the Tally bill or challan photo is not in the vault. The truck is never
+  held for the photos. The gate desk *Today* tab shows goods out as *With Stores* until it is linked.
 - *Today* tab, **Gate register** (`/gate/history`, CSV) and **System › Gates** (gates, QR poster, token
   rotation, close time, visitor-photo retention).
-- The sweeps send 24 h reminders for unlinked material bills, the after-close overstay digest and
-  "dispatch not out", mark no-shows, and blank visitor photos after the retention period.
-- The dispatch register and challan print show the Tally no., Out of gate and the gate QR.
+- The sweeps do the following:
+  - send 24 h reminders for unlinked material bills;
+  - send the after-close overstay digest;
+  - send "dispatch not out" (`DISPATCH_NOT_OUT`, Dispatch + Store) for challans with no linked gate photo;
+  - send `GATE_GOODS_OUT_UNLINKED` (Store + PlantManager, once a day after gate close) for goods-out photos
+    still not linked;
+  - mark no-shows;
+  - blank visitor photos after the retention period.
+- The challan print still carries the challan QR.
+- The watchman's own photo uploads may only be linked to the gate entry or visit. The vault link endpoint and
+  an upload linked to any other record are refused for the gate login (re-checked 8 Nov: Stores and
+  Accounts link and file bills in).
 
 **Notifications**
 - Action buttons in the inbox (Owner decision, host reply).
@@ -85,7 +114,19 @@ on desktop and a 390 px phone).
 ## 2. Schema and start-up changes (all reach live by a normal release)
 
 Everything runs at inventory-service start (`src/main.py`) and is idempotent. Alembic files `013_incoming_bill_qc`
-(down `012_supplier_history`) → `014_doc_vault` → `015_gate` mirror it for alembic-managed databases (single head).
+(down `012_supplier_history`) → `014_doc_vault` → `015_gate` → `016_gate_goods_out_link` mirror it for
+alembic-managed databases (single head).
+
+- **Goods out linked by Store (8 Nov, `src/schema_gate.py`, alembic `016_gate_goods_out_link`):**
+  - `dispatch_gate_out` gains `linked_by` and `linked_at`.
+  - Its unique key on `gate_entry_id` is dropped and replaced by a plain index, because one truck may now
+    carry several challans.
+  - Rows of the 7 Nov release, where the watchman picked the challan and typed the Tally no., are already
+    linked. Their entries move from OUT to LINKED, and linked by/at is filled from the entry.
+  - Nothing else changes, and a second run does nothing.
+  - Tested on the local season DB: 8 old rows became LINKED, and the old challan and Tally no. still show.
+- **New reason list** `GATE_OUT_UNLINK` (masterdata `reason_catalog.py`). It is seeded into every plant at
+  masterdata start.
 
 - **New tables (`create_all`):**
   - `plant_settings`, `purchase_weight_variances`, `incoming_qc_entry_keys`

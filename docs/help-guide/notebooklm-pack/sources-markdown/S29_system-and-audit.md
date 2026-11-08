@@ -1,5 +1,5 @@
 HARI OM TUBEOS HELP GUIDE - Chapter 29: System, audit, production season and the guide
-Section: Stock control, reports and setup. Accurate as of 31 October 2026. Hari Om TubeOS is the ERP for a paper tube plant (sales orders, planning, shop floor, quality, purchasing, stores, reports).
+Section: Stock control, reports and setup. Accurate as of 8 November 2026. Hari Om TubeOS is the ERP for a paper tube plant (sales orders, planning, shop floor, quality, purchasing, stores, reports).
 Screenshots named in this file are in the visual handbook (Hari-Om-TubeOS-Help-Guide.html or .pdf), chapter 29.
 
 # System, audit, production season and the guide
@@ -13,6 +13,8 @@ Screenshots named in this file are in the visual handbook (Hari-Om-TubeOS-Help-G
 - **Plant access is part of the login.** A user works only in their allowed plants. Only Owner and Admin can have **Allow all plants**.
 - **Owner and Admin always see every screen.** Give these roles only to managers. The system always keeps at least one active Owner or Admin.
 - **The audit trail records who did what, when, to which record, and what changed field by field.** It can be filtered and exported to CSV.
+- **Each plant card also holds two Owner settings from 7 Nov 2026:** the **Weight check of a bill** limits (default 20 kg and 50 kg) and the **Gate** settings (gate close time, default 19:00, and how long visitor photos are kept, default 365 days). Gates and their QR posters are in **System › Gates**.
+- **Watchman** is a gate-only role: a Watchman login opens only the gate desk.
 - **The production season (Rest of year or Monsoon) is global.** Only the Owner switches it, after a readiness check. Released job cards keep the season and tolerances they were released with.
 
 ## The flow
@@ -59,7 +61,7 @@ The roles and where they land:
 | Planner | Release queue, machine and shift planning, RM inward calendar | Planning board |
 | Operator | QR scan, assigned job card and simple floor input | My work |
 
-The Quality group (Quality Control, Inward QC, In-process QC) and the Stores group (Store, GRN, RM issue) follow the same layout further down. Below the cards, the **Screen access matrix** shows which screens each role opens (**Show all roles** expands it), and **Giving someone extra access** explains that roles add up.
+The Quality group (Quality Control, Inward QC, In-process QC) and the Stores group (Store, GRN, RM issue, Watchman (gate)) follow the same layout further down. **Watchman (gate)** is for the gate desk only (visitors in and out, photos of bills coming in and of goods going out) and lands on the **Gate desk**. Below the cards, the **Screen access matrix** shows which screens each role opens (**Show all roles** expands it), and **Giving someone extra access** explains that roles add up.
 
 [Screenshot "system-plants": Plants page with challan details per plant]
 *Figure: The Plants page with an **Add plant** button. Each plant card shows its code and name, Legal name, Address, GSTIN with state, the number of users, and a chip: "Ready for challan" (Plant A: AMIGO UNIT - II, Plot 41, GIDC Phase 2, Vapi, Gujarat - 396195, GSTIN 24AABCA1234K1Z5 · Gujarat, 40 users) or "Challan details missing" with "Add the address and GSTIN so challans from this plant can be sealed." Each card has **Edit plant**.*
@@ -153,6 +155,27 @@ Do this once per plant, before the first reel of the year is received in the sys
 4. Click **Save next number**. The card now says "Next new reel gets AIT 06280". The next reel received (GRN, receipt without PO or opening stock) gets it.
 5. Later, the number can only be raised above the highest given, never lowered, so no number is used twice in a year. On 1 April the series starts again at AIT 00001 by itself.
 
+[Screenshot "system-weight-limits": Weight check of a bill box on the plant card with the two kg limits]
+*Figure: The **Weight check of a bill** box on a plant card: "Bill weight against the scale weight at incoming QC. Stock always stays on the bill weight." Two fields: **Owner decides above (kg short)** 20 and **Debit note made automatically above (kg short)** 50, with the note that between them the Owner gets Make debit note / Skip, above it a draft is made automatically, and for items not in kg the Owner is told.*
+
+[Screenshot "system-gate-settings": Gate box on the plant card with gate close time and visitor photo days]
+*Figure: The **Gate** box on a plant card: a link to System › Gates, **Gate closes at** 19:00 and **Keep visitor photos (days)** 365, with the note "Visitors still inside after 19:00 turn red on the gate desk and the Owner gets one list a day; challans not out by then are told to Dispatch." and **Save gate settings** (Owner only).*
+
+### How to change the weight limits of a plant (Owner)
+1. Open **System** > **Plants**, find the plant card and its **Weight check of a bill** box.
+2. Type **Owner decides above (kg short)** (default 20) and **Debit note made automatically above (kg short)** (default 50). The second must be at least the first; neither can be below zero.
+3. Save. New bills use the new limits; a bill already weighed keeps the limits it was checked with (shown on its weight case).
+
+### How to set the gate close time and visitor photo days (Owner)
+1. On the plant card, in the **Gate** box, set **Gate closes at** (for example 19:00) and **Keep visitor photos (days)** (30 to 3,650).
+2. Click **Save gate settings**. Other roles see the values but "Only the Owner changes these."
+3. Gates themselves (code, name, In / Out / Both, QR poster, New QR) are set up in **System › Gates**; see the Gate desk chapter.
+
+### How to create a Watchman login
+1. **System** > **Users** > **Add New User**: name, login, password, role **Watchman (gate)** only, and the plant of that gate.
+2. The person signs in on the gate phone and lands on the **Gate desk**. Any other page sends them back to it.
+3. Give the watchman no other role: a login with Watchman plus another role is not gate-only any more.
+
 ### How to add or edit a machine
 1. Open **System** > **Machines** and click **Add machine** (or **Edit**).
 2. Fill **Machine Code**, **Machine Name** and **Process**, and choose the **Machine State**.
@@ -198,6 +221,9 @@ Owner or Admin.
 - **Machines**: capacity is per shift and the daily figure is calculated for two shifts (automatic). Where capacity and load units differ, reports say "Not comparable" (WARNS).
 - **Production season**: only an Owner with all-plant access can preview, switch or read the history (BLOCKS). A reason is required ("Season switch note is required"). If the specs changed after you opened the preview, the switch is refused ("Season preview changed; review it again"). If specs are blocked, the switch needs the acknowledgement (BLOCKS). After the switch, new releases using a blocked spec are refused until its seasonal recipe and QC setup are ready. Released cards keep their season (automatic).
 - **Audit** records sign-ins, changes and approvals across modules; it is read-only.
+- **Weight limits**: only the Owner changes them; the auto limit cannot be below the Owner limit ("The auto debit-note limit cannot be below the Owner-decides limit") (BLOCKS).
+- **Gate settings**: only the Owner changes the close time and photo days; photos are kept 30 to 3,650 days (BLOCKS). Gates and QR posters: Owner and Admin (BLOCKS others).
+- **Watchman-only login**: opens only /gate; the server refuses every other page for it (BLOCKS).
 
 ## Sample
 **New store keeper.** The Admin adds Ramesh Patel: login ramesh.store@hariom.com, a 14-character password with upper and lower case letters, a number and a symbol, roles **Store** and **Inward QC**, primary plant Plant A, allowed plants Plant A. Ramesh signs in and lands on his Store work page. He can raise stock corrections and inspect incoming lots, but he cannot see System or approve counts.
@@ -208,6 +234,10 @@ Owner or Admin.
 
 ## Common questions
 **Q: I changed a person's role but they still see the old screens.** A: Saving signs them out. Ask them to sign in again.
+
+**Q: Where do I change the 20 kg and 50 kg weight limits?** A: System › Plants, on the plant card, **Weight check of a bill**. Owner only.
+
+**Q: The watchman can see other pages.** A: Check his login has only the **Watchman (gate)** role. With any other role added, he is no longer gate-only.
 
 **Q: Can a user have two roles?** A: Yes. Tick both. Access adds up, and they can switch role from the top bar.
 

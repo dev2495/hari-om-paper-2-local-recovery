@@ -1,5 +1,5 @@
 HARI OM TUBEOS HELP GUIDE - Chapter 06: A day in the life
-Section: Start here, sales and design. Accurate as of 31 October 2026. Hari Om TubeOS is the ERP for a paper tube plant (sales orders, planning, shop floor, quality, purchasing, stores, reports).
+Section: Start here, sales and design. Accurate as of 8 November 2026. Hari Om TubeOS is the ERP for a paper tube plant (sales orders, planning, shop floor, quality, purchasing, stores, reports).
 Screenshots named in this file are in the visual handbook (Hari-Om-TubeOS-Help-Guide.html or .pdf), chapter 06.
 
 # A day in the life
@@ -94,15 +94,15 @@ Morning: your start page shows **Your work**: **Log output**, **Job cards**, **L
 Avoid: logging on a card from memory instead of scanning it; skipping the second reading (the stage cannot close and the next stage cannot take the run); typing rejected pieces by hand (the system works them out).
 
 ### Inward QC
-Morning: **Incoming QC** (start page). Lots waiting are listed by GRN.
+Morning: **Incoming QC** (start page), tab **To weigh**. One card per bill.
 
-1. **Incoming QC** › **Inspect** each lot; reels of one line can be entered reel by reel.
-2. A reading outside the band holds that reel; inside every band releases it.
-3. **Holds & inspections**: held lots and their decisions (re-inspect, concession, return to supplier).
-4. **GRN register & labels**: receipts still waiting for QC.
+1. Open a bill, put each reel on the scale and type the **Actual kg** (Enter goes to the next reel, or scan the AIT label). Accept needs the weight; Hold and Reject do not.
+2. Other checks (GSM, moisture…) are optional under **More checks**; a reading you enter that is out of band holds the reel. **Save weighed rows**.
+3. A typo? Use **Re-weigh** with a reason. When a bill is weighed short, the banner says who acts next (Owner or debit note); QC does nothing more.
+4. **Holds & inspections**: held lots and their decisions (re-inspect, concession, return to supplier). Old held lots need their weight before release.
 5. **Material standards**: the checks per material type.
 
-Avoid: passing a reel to "help production" when a reading is out of band; worrying about invoice questions (they go to Accounts and never hold material).
+Avoid: accepting a reel without putting it on the scale; passing a reel to "help production" when a reading is out of band; worrying about invoice questions (they go to Accounts and never hold material).
 
 ### In-process QC
 Morning: **QC desk**, then **In-process QC**.
@@ -117,14 +117,14 @@ Avoid: expecting a flagged reading to stop the card (it does not; tell the plant
 ### Store and GRN
 Morning: GRN starts on **Goods inward**; Store on **Inventory** (stock overview).
 
-1. **Expected arrivals**: what is due today; **Make GRN** opens Goods inward for that PO line.
-2. **Goods inward**: supplier challan number, invoice (or invoice pending), net kg and width per reel; post once.
+1. **Goods inward** › **At the gate**: bills the watchman photographed. Pick one to make its GRN with the photo beside the form (or **Make GRN** on the "Material at the gate" notification). **Expected arrivals** shows what is due today.
+2. **Goods inward**: supplier challan number, invoice (or invoice pending), net kg and width per reel from the bill; post once. The gate photo is linked to the GRN and every reel.
 3. Print the reel labels (one per reel or coil) and put them on before the reel leaves the dock.
 4. **GRN register & labels**: attach invoices, reprint labels with a reason.
 5. **Stock counts & book**: rack and spot counts; **Locations** for rack labels.
-6. Store also: **Purchase orders** (send scheduled drafts), **Dispatch** (view).
+6. Store also: **Purchase orders** (send scheduled drafts); **Dispatch** › **Gone out at the gate**: link each truck the watchman photographed going out to its challan(s), confirm the Tally bill number and click **Link challan**; **Doc Vault** › **Unlinked** for bills with no GRN.
 
-Avoid: weighing several reels together (one reel = one lot = one label); receiving more than the PO open quantity without a written reason.
+Avoid: leaving a gate bill without a GRN for more than a day (a reminder goes out); weighing several reels together (one reel = one lot = one label); receiving more than the PO open quantity without a written reason.
 
 ### RM issue
 Morning: **Reel & coil issue** (start page). Tiles: Ready for the floor, Not cleared yet, Slitting cards to write.
@@ -141,11 +141,23 @@ Morning: **Dispatch** desk (start page). Check **Ready to dispatch**.
 
 1. Pick a job card with **Boxes ready for a challan** (Process may still be running; no manual hold).
 2. **Make challan from boxes**: scan each box label (or tick boxes, or **Select all ready**), then vehicle, transporter, LR. Net weight comes from the spec and can be edited.
-3. Seal once; print the challan. It lists every box code, the box count, pcs per box and total pcs.
+3. Seal once; print the challan. It lists every box code, the box count, pcs per box and total pcs. Type the Tally bill number with **Add Tally no.** if you have it.
 4. After Process closes, ship the part box with the last boxes, or keep leftover boxes with **Retain surplus FG** and a reason code.
 5. **Orders** › **Partly dispatched** to see balances still to send.
+6. Check that sealed challans show **Out · Tally … ✓**; a challan still **Not out of gate** in the evening is in the daily notice.
 
 Avoid: opening a box to ship part of it (boxes ship whole); shipping a card with an active hold; sealing twice for a retry (the system does not post stock twice, but check the list first).
+
+### Watchman (gate)
+Shift start: sign in on the gate phone; it opens the **Gate desk**. Tap your gate.
+
+1. **Inside now**: visitors waiting (from the QR poster) and inside. Check the ID, **Let in** or **Deny** with a reason; **Out** or scan the pass when they leave.
+2. **+ Visitor** for someone without a smartphone.
+3. **+ Bill in**: photograph every page of each bill or challan, tap the kind (Material or the expense type), vehicle no., **Save**.
+4. **+ Goods out**: photograph the Tally bill and our challan, type the vehicle no., **Gone out**.
+5. **Today**: check every entry has its photo; keep the phone on the network until uploads finish.
+
+Avoid: typing bill or Tally numbers (Store reads them from the photo); holding a truck for the upload; leaving a visitor inside after closing without marking them out.
 
 ### Purchase accounts work (Plant Manager, Owner, Admin)
 Invoice checks and debit notes are handled by the Plant Manager, Owner or Admin logins.
@@ -154,6 +166,7 @@ Invoice checks and debit notes are handled by the Plant Manager, Owner or Admin 
 2. **GRN register & labels** › **Invoice pending**: attach invoices; the invoice rate stays editable while pending.
 3. **Debit notes**: create one per vendor for positive rate differences, approve, settle.
 4. **Purchase reports**: Excel registers.
+5. **Gate › Bills inbox**: file the expense bills photographed at the gate (party, bill no., date, amount, cost head).
 
 Avoid: holding material for a price question (QC is the only gate for issue); deciding a difference on a GRN you made.
 
@@ -161,7 +174,7 @@ Avoid: holding material for a price question (QC is the only gate for issue); de
 Owner morning: **Dashboard** › **Action center**. Admin morning: **System health**.
 
 1. Approve sales orders, **PO approvals** (POs and requisitions) and **RM arrivals** on the RM inward calendar.
-2. **Quality holds** and **Blocked & overdue job cards** lanes.
+2. **Quality holds** and **Blocked & overdue job cards** lanes. Owner: answer **Weight short** notifications with **Make debit note** or **Skip…** (or Purchasing › Invoice differences › Weight differences).
 3. **Specifications**: approve new specs and seasonal revisions; Owner switches the **Production season**.
 4. **Stock counts & book**: approve counts and corrections (Owner).
 5. **Month-end close**: close the month (Owner) after the count is approved and notes are in.

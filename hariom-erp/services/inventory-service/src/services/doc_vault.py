@@ -65,7 +65,8 @@ MATERIAL_KINDS = frozenset({"VENDOR_BILL", "VENDOR_CHALLAN"})
 OUTWARD_KINDS = frozenset({"TALLY_BILL", "OUR_CHALLAN"})
 GATE_UPLOAD_KINDS = frozenset({"VENDOR_BILL", "VENDOR_CHALLAN", "EXPENSE_BILL", "TALLY_BILL", "OUR_CHALLAN", "VISITOR_PHOTO", "OTHER"})
 ROLE_KINDS: dict[str, frozenset[str]] = {
-    "Store": MATERIAL_KINDS,
+    # Store links the watchman's goods-out photos (Tally bill, our challan) to the challans (8 Nov 2026).
+    "Store": MATERIAL_KINDS | OUTWARD_KINDS,
     "GRN": MATERIAL_KINDS,
     "InwardQC": MATERIAL_KINDS,
     "QC": MATERIAL_KINDS,

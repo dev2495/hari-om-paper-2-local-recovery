@@ -23,19 +23,20 @@ PACK = ROOT / "notebooklm-pack"
 DIST_WEB = ROOT / "dist-web"
 WEB = False  # True: images are files next to index.html (for the app); False: embedded in one file
 LAYOUT = ROOT.parent.parent / "apps/web-ui/app/(dashboard)/layout.tsx"
-AS_OF = "31 October 2026"
+AS_OF = "8 November 2026"
 TITLE = "Hari Om TubeOS Help Guide"
 
 GROUPS = [
     ("start", "Start here, sales and design", range(0, 10), "#2563eb"),
     ("make", "Production, quality and dispatch", range(10, 20), "#0f766e"),
     ("buy", "Purchasing, stores and inward", range(20, 25), "#d97706"),
-    ("run", "Stock control, reports and setup", range(25, 40), "#7c3aed"),
+    ("run", "Stock control, reports and setup", range(25, 30), "#7c3aed"),
+    ("gate", "Gate and documents", range(30, 40), "#be123c"),
 ]
 ROLE_COLORS = {
     "sales": "#2563eb", "owner": "#7c3aed", "admin": "#7c3aed", "planner": "#0f766e", "operator": "#d97706",
     "qc": "#e11d48", "inward qc": "#e11d48", "in-process qc": "#e11d48", "store": "#16a34a", "grn": "#16a34a",
-    "dispatch": "#ea580c", "accounts": "#0891b2", "plant manager": "#4f46e5", "rm issue": "#65a30d", "system": "#64748b",
+    "dispatch": "#ea580c", "accounts": "#0891b2", "watchman": "#be123c", "visitor": "#64748b", "host": "#64748b", "plant manager": "#4f46e5", "rm issue": "#65a30d", "system": "#64748b",
 }
 
 
@@ -334,7 +335,7 @@ def build_html(chapters):
         body.append(f'<article class="chapter" id="{cid}" style="--gc:{color}">{title_html}{rendered.split("</h1>", 1)[1]}</article>')
     cards.append("</div>")
     hero = f"""<header class="hero"><div style="opacity:.8;font-size:13px;letter-spacing:.12em;text-transform:uppercase">Paper tube manufacturing ERP</div>
-<h1>{TITLE}</h1><p>Everything you need to run orders, planning, the shop floor, quality, purchasing, stores and reports in TubeOS. Written in plain words, with the real screens, flow diagrams and worked samples.</p>
+<h1>{TITLE}</h1><p>Everything you need to run orders, planning, the shop floor, quality, purchasing, stores, the gate, the Doc Vault and reports in TubeOS. Written in plain words, with the real screens, flow diagrams and worked samples.</p>
 <div class="chips"><span>{len(chapters)} chapters</span><span>Real screenshots</span><span>Flow diagrams</span><span>Worked samples</span><span>As of {AS_OF}</span></div></header>
 <div class="how"><div><b>Find it fast</b><p>Press <code>/</code> or Ctrl/Cmd+K and type a word, such as <i>reject</i>, <i>GRN</i> or <i>Split plan</i>.</p></div>
 <div><b>Start with your job</b><p>Open <a href="#ch-06">A day in the life</a> for your role, then follow its links.</p></div>
@@ -386,7 +387,7 @@ def nav_index():
            "Owner and Admin can open every page. A page with no roles listed is open to all signed-in users.\n"]
     for block in re.split(r'\n\s*title:\s*"', src)[1:]:
         group = block.split('"', 1)[0]
-        if group not in {"Overview", "Operations", "Quality", "Purchasing", "Stores & inventory", "Design", "Reports", "Foundation"}:
+        if group not in {"Overview", "Operations", "Quality", "Purchasing", "Stores & inventory", "Dispatch", "Gate", "Design", "Reports", "Foundation"}:
             continue
         out.append(f"\n## Sidebar group: {group}\n")
         for obj in re.findall(r"\{[^{}]*?name:\s*\"[^\"]+\"[^{}]*?href:\s*\"[^\"]+\"[^{}]*?\}", block):
@@ -398,6 +399,19 @@ def nav_index():
             if "ownerOnly" in obj:
                 roles = "Owner only"
             out.append(f"- **{n}** (address {h}): {d.group(1) if d else ''} Roles that see it: {roles} (plus Owner and Admin).")
+    nav = ROOT.parent.parent / "apps/web-ui/lib/module-navigation.ts"
+    if nav.exists():
+        m = re.search(r'"/gate":\s*\[(.*?)\]', nav.read_text(encoding="utf-8"), re.S)
+        if m:
+            out.append("\n## Pages inside the Gate group\n")
+            for obj in re.findall(r"\{[^{}]*\}", m.group(1)):
+                n = re.search(r'name:\s*"([^"]+)"', obj)
+                h = re.search(r'href:\s*"([^"]+)"', obj)
+                r = re.search(r"roles:\s*\[(.*?)\]", obj)
+                if n and h:
+                    roles = ", ".join(re.findall(r'"([^"]+)"', r.group(1))) if r else "all signed-in users"
+                    out.append(f"- **{n.group(1)}** (address {h.group(1)}): roles that see it: {roles} (plus Owner and Admin).")
+    out.append("\nA login with only the Watchman role opens the Gate desk and nothing else. The Doc Vault (address /documents) shows each role only its kinds of documents.")
     return "\n".join(out) + "\n"
 
 
@@ -432,6 +446,11 @@ def build_notebook(chapters):
                 if sec:
                     extra += f"\n\n## {name} (from chapter 00)\n\n{sec}\n"
         (srcdir / "S90_glossary_statuses_and_numbering.md").write_text(gl.read_text(encoding="utf-8") + extra, encoding="utf-8")
+    # Add-ons (for example S30) live in addons/ as markdown + PDF; keep their markdown backup in the pack.
+    for pdf in sorted((ROOT / "addons").glob("S*_addon-*.pdf")):
+        md = ROOT / "addons" / (pdf.stem.split("_addon-", 1)[1] + ".md")
+        if md.exists():
+            shutil.copy(md, srcdir / f"{pdf.stem}.md")
     words = sum(len(p.read_text(encoding="utf-8").split()) for p in srcdir.glob("*.md"))
     print(f"NotebookLM sources: {len(list(srcdir.glob('*.md')))} files, {words:,} words -> {srcdir}")
 

@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, useState } from "react"
+import { Suspense, useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { ClipboardCheck, Factory, Truck } from "lucide-react"
@@ -14,6 +14,8 @@ import { usePlants } from "@/hooks/use-system"
 import { errorText } from "@/lib/season-api"
 import { RetainSurplusButton } from "@/components/production/RetainSurplusButton"
 import { DispatchGateChips, useDispatchGateStatus } from "@/components/gate/dispatch-gate-chips"
+import { GoneOutLinkPanel, GoneOutStrip, PickGoneOutDialog, useGoneOut, useGoodsOutRoles } from "@/components/gate/gone-out-strip"
+import type { GateEntry } from "@/lib/api-gate"
 
 const handoffLabels: Record<string, string> = { AWAITING_PACKING: "Waiting for Process to close", AWAITING_QC: "Waiting for Process to close", AWAITING_FG: "Waiting for the stock posting", QC_HOLD: "On QC hold", REJECTED_QC: "Nothing accepted at final QC", RETAINED_FG: "Extra pieces kept in stock", UNSEALED: "Ready for a challan", SEALED: "Challan sealed", BOXES_READY: "Boxes ready for a challan", PACKING: "Packing boxes" }
 const STAGE_WORDS: Record<string, string> = { SLITTING: "Slitting", WINDER: "Winding", OVEN: "Oven", PROCESS: "Process", PACKING: "Packing", QC: "Final QC", DISPATCH: "Dispatch", DONE: "Done" }
@@ -66,7 +68,10 @@ export default function DispatchSelectionPage() {
 
 function DispatchRegister() {
     const router = useRouter()
-    const cardFilter = useSearchParams()?.get("card") || ""
+    const searchParams = useSearchParams()
+    const cardFilter = searchParams?.get("card") || ""
+    // ?gate_out=<gate entry id> (the GATE_GOODS_OUT_TO_LINK notification) opens that truck's link panel.
+    const gateOutParam = searchParams?.get("gate_out") || ""
     const { activePlant, user } = useAuth()
     const canRetain = (user?.roles || []).some(role => ["Owner", "Admin", "Dispatch"].includes(role))
     // Sales sees the register and prints sealed challans; making a challan is for the dispatch desk.
@@ -83,6 +88,22 @@ function DispatchRegister() {
     const [shown, setShown] = useState(PAGE_SIZE)
     // Gate (2026-11-06): Tally bill no. and out-of-gate state of each sealed challan.
     const gateStatus = useDispatchGateStatus((readyJobs || []).flatMap((job: any) => (job.shipments || []).map((shipment: any) => String(shipment.dispatch_ref || ""))))
+    // Goods out (8 Nov 2026): the watchman photographs; Store links the photos to the challan(s) here.
+    const { canLink: canLinkGateOut } = useGoodsOutRoles()
+    const goneOut = useGoneOut(canLinkGateOut)
+    const [gateOutPick, setGateOutPick] = useState<{ entry: GateEntry; presetRef?: string | null } | null>(null)
+    const [pickFor, setPickFor] = useState<string | null>(null)
+    const [gateNotice, setGateNotice] = useState("")
+    useEffect(() => {
+        if (!gateOutParam || gateOutPick) return
+        const entry = goneOut.data?.find((row) => row.id === gateOutParam)
+        if (entry) setGateOutPick({ entry })
+    }, [gateOutParam, goneOut.data, gateOutPick])
+    const pickGateOut = (entry: GateEntry | null, presetRef?: string | null) => {
+        setGateNotice("")
+        setGateOutPick(entry ? { entry, presetRef } : null)
+        if (entry && typeof window !== "undefined") window.requestAnimationFrame(() => document.getElementById("gone-out-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }))
+    }
 
     if (!activePlant || isLoading || customersQuery.isLoading) {
         return <div className="p-6 text-muted-foreground">Loading ready dispatches...</div>
@@ -173,6 +194,16 @@ function DispatchRegister() {
                 </div>
                 <Button variant="outline" className="min-h-11 sm:min-h-0" onClick={() => { setFilterCustomer(""); setFilterJobNo(""); setFilterStatus(""); if (cardFilter) router.replace("/logistics/dispatch") }}>Clear</Button>
             </div>
+            <GoneOutStrip picked={gateOutPick?.entry || null} onPick={(entry) => pickGateOut(entry)} />
+            {gateNotice ? <p role="status" className="rounded-xl border border-signal-emerald-line bg-signal-emerald-soft px-4 py-2.5 text-sm text-signal-emerald-ink" data-testid="gone-out-notice">{gateNotice}</p> : null}
+            {gateOutPick ? (
+                <div id="gone-out-panel" className="scroll-mt-4">
+                    <GoneOutLinkPanel key={`${gateOutPick.entry.id}:${gateOutPick.presetRef || ""}`} entry={gateOutPick.entry} presetRef={gateOutPick.presetRef}
+                        onClose={() => { setGateOutPick(null); if (gateOutParam) router.replace("/logistics/dispatch") }}
+                        onLinked={(entry) => { setGateOutPick(null); setGateNotice(`${entry.entry_no} (${entry.vehicle_no || "truck"}) linked: ${(entry.links || []).map((row) => `challan ${row.dispatch_ref} · Tally ${row.tally_bill_no}`).join("; ")}.`); if (gateOutParam) router.replace("/logistics/dispatch") }} />
+                </div>
+            ) : null}
+            <PickGoneOutDialog dispatchRef={pickFor} onClose={() => setPickFor(null)} onPick={(entry) => { const ref = pickFor; setPickFor(null); pickGateOut(entry, ref) }} />
             {cardFilter ? (
                 <p className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-muted px-4 py-2.5 text-sm" data-testid="dispatch-card-filter">
                     <span>{filteredJobs.length ? "Showing one job card." : "This job card is not on the dispatch register of this plant. Check the plant at the top, or it has nothing packed yet."}</span>
@@ -202,7 +233,7 @@ function DispatchRegister() {
                                     <FlaggedChip job={job} />
                                 </div>
                             ) : <p className="mt-1.5 text-xs text-muted-foreground">{pcs(job.dispatchable_qty)} accepted · {pcs(job.dispatched_qty)} shipped · {pcs(maxShipQty)} pcs can ship now</p>}
-                            {(job.shipments || []).map((shipment: any, index: number) => <div key={shipment.id} className="mt-1"><Link href={`/logistics/dispatch/${job.id}/print?dispatch_id=${shipment.id}`} className="flex min-h-11 items-center text-sm text-signal-teal-ink underline">Challan {job.shipments.length - index}: {pcs(shipment.qty)} pcs</Link><DispatchGateChips dispatchRef={shipment.dispatch_ref} status={gateStatus.data?.[shipment.dispatch_ref]} /></div>)}
+                            {(job.shipments || []).map((shipment: any, index: number) => <div key={shipment.id} className="mt-1"><Link href={`/logistics/dispatch/${job.id}/print?dispatch_id=${shipment.id}`} className="flex min-h-11 items-center text-sm text-signal-teal-ink underline">Challan {job.shipments.length - index}: {pcs(shipment.qty)} pcs</Link><DispatchGateChips dispatchRef={shipment.dispatch_ref} status={gateStatus.data?.[shipment.dispatch_ref]} onLinkPhoto={setPickFor} /></div>)}
                             {canPrepare && maxShipQty > 0 && canStartChallan(job) ? <Button asChild className="mt-2 min-h-11 w-full"><Link href={`/logistics/dispatch/new?job_card_id=${job.id}`}>{job.dispatch_status === "DRAFT" ? "Edit draft challan" : job.box_mode ? "Make challan from boxes" : "Make challan"}</Link></Button> : !latestShipment ? <p className="mt-2 text-xs text-muted-foreground">{handoffLabels[job.handoff_state] || "Not ready to ship"}</p> : null}
                             {canRetain && canRetainBoxes(job) && <RetainSurplusButton job={job} />}
                         </li>
@@ -298,7 +329,7 @@ function DispatchRegister() {
                                                 {job.current_stage && !["DISPATCH", "DONE"].includes(String(job.current_stage).toUpperCase()) ? <p className="mt-1 text-xs text-muted-foreground">Now at {STAGE_WORDS[String(job.current_stage).toUpperCase()] || String(job.current_stage).toLowerCase()}</p> : null}
                                             </td>
                                             <td className="px-4 py-3 align-top text-right">
-                                                {(job.shipments || []).map((shipment: any, index: number) => <div key={shipment.id} className="mb-1"><Link href={`/logistics/dispatch/${job.id}/print?dispatch_id=${shipment.id}`} className="mr-3 block text-xs text-signal-teal-ink underline">Challan {job.shipments.length - index}: {pcs(shipment.qty)} pcs</Link><DispatchGateChips dispatchRef={shipment.dispatch_ref} status={gateStatus.data?.[shipment.dispatch_ref]} /></div>)}
+                                                {(job.shipments || []).map((shipment: any, index: number) => <div key={shipment.id} className="mb-1"><Link href={`/logistics/dispatch/${job.id}/print?dispatch_id=${shipment.id}`} className="mr-3 block text-xs text-signal-teal-ink underline">Challan {job.shipments.length - index}: {pcs(shipment.qty)} pcs</Link><DispatchGateChips dispatchRef={shipment.dispatch_ref} status={gateStatus.data?.[shipment.dispatch_ref]} onLinkPhoto={setPickFor} /></div>)}
                                                 {canPrepare && maxShipQty > 0 && canStartChallan(job) ? <Button asChild size="sm"><Link href={`/logistics/dispatch/new?job_card_id=${job.id}`}>{job.dispatch_status === "DRAFT" ? "Edit draft challan" : job.box_mode ? "Make challan from boxes" : "Make challan"}</Link></Button> : latestShipment ? <Button asChild size="sm" variant="outline"><Link href={`/logistics/dispatch/${job.id}/print?dispatch_id=${latestShipment.id}`}>View challan</Link></Button> : null}
                                                 {canRetain && !job.box_mode && job.entry_model === "V2" && job.remaining_qty > 0 && job.dispatched_qty >= job.shipping_allowance && job.handoff_state === "UNSEALED" && <RetainSurplusButton job={job} />}
                                                 {canRetain && canRetainBoxes(job) && <RetainSurplusButton job={job} />}

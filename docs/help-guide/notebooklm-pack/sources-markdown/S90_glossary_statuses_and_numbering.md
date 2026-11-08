@@ -1,6 +1,6 @@
 # Hari Om TubeOS glossary: words you will see in the system
 
-Accurate as of 1 November 2026. Hari Om TubeOS is the ERP of a paper tube plant. The words below are used on its screens. Look here first if a word is unfamiliar. The full status lists and number formats follow after the glossary.
+Accurate as of 8 November 2026. Hari Om TubeOS is the ERP of a paper tube plant. The words below are used on its screens. Look here first if a word is unfamiliar. The full status lists and number formats follow after the glossary.
 
 ## Everyday words
 
@@ -49,10 +49,10 @@ Accurate as of 1 November 2026. Hari Om TubeOS is the ERP of a paper tube plant.
 
 ## Quality words
 
-- **QC**: quality control. **Incoming QC** checks raw material that arrives. **In-process QC** checks tubes at Winding, Oven and Process.
+- **QC**: quality control. **Incoming QC** checks raw material that arrives, one bill at a time: QC weighs every reel, and Accept needs the actual weight; other checks are optional. **In-process QC** checks tubes at Winding, Oven and Process.
 - **Band**: the allowed range for a reading, for example I.D. 76.2 to 76.5 mm. A reading inside the band is green; outside is amber with a flag.
 - **Flagged**: a reading outside the band at job card QC (in-process or final). It is saved and flagged on the run, the box and the card for managers. It does **not** stop the card and never blocks dispatch.
-- **Held / hold**: a lot or card that cannot move on. Incoming material outside its band is held automatically and cannot be issued. On job cards, only holds placed on purpose by QC, the plant head, Owner or Admin exist; they stop the next stage and dispatch until the plant head, Owner or Admin releases them.
+- **Held / hold**: a lot or card that cannot move on. Incoming material that is held, rejected, outside its band, or not yet weighed and accepted cannot be issued. On job cards, only holds placed on purpose by QC, the plant head, Owner or Admin exist; they stop the next stage and dispatch until the plant head, Owner or Admin releases them.
 - **Two-reading rule**: each check needs at least 2 readings (S1 and S2) before a stage can close, before the next stage takes the run, and before its Process pcs are boxed.
 - **QC-cleared**: a run whose readings are done (2 per required check), in band or not.
 - **Concession**: the plant head accepts a failed lot anyway, with a reason.
@@ -96,6 +96,31 @@ Accurate as of 1 November 2026. Hari Om TubeOS is the ERP of a paper tube plant.
 - **Operator (floor log)**: the employee named on a run or QC entry. Only active employees whose department in Masters › Employees is the stage (WINDER, OVEN, PROCESS) can be picked.
 - **Employee performance**: the report of runs, made, good, rejected, reject %, flagged QC readings and shifts worked per operator.
 
+## Gate, weighing and Doc Vault words (from 7 Nov 2026)
+
+- **Gate desk**: the watchman's phone page (/gate) with the tabs Inside now, + Visitor, + Bill in, + Goods out and Today.
+- **Watchman (gate)**: a gate-only role. The login opens only the gate desk and sees only its own entries of the day.
+- **Gate entry (GE-)**: one bill in or one goods out recorded at the gate, numbered GE-YYMM-NNN, for example GE-2611-020. Statuses: At the gate, With Stores (material bill waiting for its GRN, or goods out waiting to be linked), With Accounts, Linked to GRN, Linked to challan, Filed, Void.
+- **Visit / visitor pass (V-)**: one visitor at the gate, numbered V-YYMM-NNN, for example V-2611-014. Statuses: Waiting at gate, Inside, Out, Denied, Did not come in.
+- **QR poster**: the A4 poster at each gate. Visitors scan it with their own phone to check themselves in (no login). New QR makes the old poster stop working.
+- **Host reply**: the answer of the person a visitor came to meet: Send in, Ask to wait or Not available. The watchman lets the visitor in first; the host is told, not asked.
+- **After closing**: a visitor still inside after the plant's gate close time (default 19:00). Shown in red; the Owner gets one list a day.
+- **At the gate**: the strip on Goods inward listing material bills the watchman photographed that have no GRN yet. Store picks one to make its GRN.
+- **Gone out at the gate**: the strip on the dispatch register listing trucks the watchman photographed going out. Store (or Dispatch, or the plant head) links each to its challan(s) with **Link challan** and types or confirms the Tally bill number. The plant head, Owner or Admin can Unlink a wrong link with a reason.
+- **Tally bill no.**: the number of our sales invoice printed from Tally (for example T-1189), shown on the challan chip as "Out · Tally T-1189 ✓".
+- **Bills inbox**: Gate › Bills inbox, where expense bills photographed at the gate (electricity, maintenance, courier, other) are filed with party, bill number, date, amount and a cost head. Nothing goes to stock or the ledger.
+- **Cost head**: the reason list used to file an expense bill (Utilities, Electrical, Mechanical, Civil, Housekeeping, Transport & courier, Office & admin, Other).
+- **Bill weight / Actual kg**: the bill weight is the net kg entered at the GRN (what the vendor billed); the actual kg is what QC's scale shows. Stock always stays on the bill weight; the actual kg is a record that feeds the weight check.
+- **Weight check of a bill**: worked out when every lot of a bill is weighed. Short up to 20 kg: Within limit (recorded). 20 to 50 kg: Owner decides (Make debit note or Skip with a reason). Above 50 kg: a debit note is drafted automatically. Limits are per plant (System › Plants).
+- **Weighed short**: the chip on a debit note or invoice-difference case made by the weight check.
+- **PO raiser**: the person who made the purchase order. They get the follow-up notice when a bill on their PO is weighed short.
+- **Re-weigh**: correcting a saved actual weight on the bill sheet; needs a Weight correction reason.
+- **Typo guard**: a weight more than 15 % away from the bill weight must be confirmed ("Check: … it is right").
+- **Doc Vault**: the store of every bill, challan, photo and issued debit-note PDF (/documents). Documents are numbered DV-YYMM-NNNN and never deleted; the Owner or Admin can void one with a reason.
+- **Void (document)**: hidden from the vault and the record pages, but kept with its history. Not a delete.
+- **Unlinked**: the Doc Vault tab of vendor bills and challans not yet tied to a GRN.
+- **Action buttons (notification)**: buttons on a notification that do the work from the Inbox, for example Make debit note / Skip… or Send in / Ask to wait / Not available. The result is written on the notification.
+
 
 ## Status cheat sheet (from chapter 00)
 
@@ -130,6 +155,14 @@ Accurate as of 1 November 2026. Hari Om TubeOS is the ERP of a paper tube plant.
 
 **GRN line, incoming QC**: **Waiting for QC**, **QC passed**, **QC failed**, **Cleared** (no inspection needed, for example go-live opening stock). Stock words: **On QC hold**, **Usable**. Commercial words on the GRN: "rates match the PO", "invoice to follow", "differs from the PO · goes to Accounts", "manual GRN · goes to Accounts".
 
+**Incoming QC by bill**: tabs **To weigh**, **Part done**, **Owner decision**, **Done today**, **Held**; reel status **Waiting**, **Issuable**, **Held**, **Rejected**, **Concession**, **Returned to supplier**. **Weight check of a bill** (band, with the code the system keeps): **Within limit** (WITHIN: short up to 20 kg, recorded only), **Owner decides** (OWNER_DECIDES: above 20 up to 50 kg), **Debit note** (AUTO_DEBIT: above 50 kg, drafted automatically), **Short on count** (OWNER_INFO: items not billed in kg), **Over the bill** (EXCESS). The 20 and 50 kg limits are per plant. Case status: **So far**, **Within limit**, **Owner told**, **Owner decides**, **Skipped**, **Case raised**, **Waits for invoice**, **Debit note drafted**, **Closed**.
+
+**Gate entry** (GE-): **At the gate**, **With Stores** (a material bill waiting for its GRN, or a goods out waiting for Store to link its challan), **With Accounts** (expense bill waiting to be filed), **Linked to GRN**, **Linked to challan**, **Filed**, **Void** (goods out recorded before 8 Nov 2026 show **Gone out**). Dispatch chips: **Not out of gate**, **Out · Tally T-1189 ✓**, **Photos missing**.
+
+**Visit** (V-): **Waiting at gate**, **Inside**, **Out**, **Denied**, **Did not come in** (still waiting after 12 hours). **After closing** marks someone inside after the gate close time.
+
+**Doc Vault document** (DV-): active, or **Void** (hidden, kept in history).
+
 **In-process QC**: "Still needs QC" (run without its readings), "needs more readings" (fewer than 2 per check), **Flagged QC · N runs** (reading outside the band, saved and flagged).
 
 **Specification**: **Draft**, **Review**, **Trial**, **Approved**, **Obsolete**; each season's recipe shows **Ready** or **Needs attention**.
@@ -145,3 +178,7 @@ Accurate as of 1 November 2026. Hari Om TubeOS is the ERP of a paper tube plant.
 | GRN (inward) | P/YY/NNN, A/YY/NNN, IN/YY/NNN | P/26/001 | P paper, A adhesive, IN everything else. Restarts on 1 April: P/26/… is financial year 2026-27, so January to March 2027 is still P/26/…; 1 April 2027 starts P/27/001. |
 | Reel / coil label | AIT serial | AIT 06243; coil AIT 06243-1 | One series per plant and financial year, restarting at AIT 00001 on 1 April. Printed at inward; reprints never create stock. Older reels keep AT-yymmdd-nnn numbers. |
 | Finished-goods box | B + card number + 3 digits | B2610315-001 | One per box packed on a job card; the part box is the last one. Label reprints never create stock. |
+| Gate entry | GE-YYMM-NNN | GE-2611-020 | Every bill in and goods out at the gate; per plant, restarts every month (India time). |
+| Visitor pass | V-YYMM-NNN | V-2611-014 | Every visit; per plant, restarts every month. |
+| Doc Vault document | DV-YYMM-NNNN | DV-2611-0019 | Every bill, challan, photo and saved debit-note PDF; per plant, restarts every month. |
+| Debit note | DN-YYMMDD-NNN | DN-261107-003 | Numbered by the date it is made. |

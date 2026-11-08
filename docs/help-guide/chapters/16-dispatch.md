@@ -1,14 +1,15 @@
 # Dispatch
 
 > **What it is:** The dispatch register of job cards with finished goods, and the delivery challan: pick the boxes, make a draft, seal it (stock goes out and the sales order counts the delivery), and print it.
-> **Who uses it:** Dispatch (makes and seals challans), Store, Plant Manager, Supervisor and Logistics (save drafts), Sales (views and prints sealed challans), Owner and Admin.
-> **Where:** Sidebar > Stores & inventory > Dispatch (/logistics/dispatch). A new challan opens at /logistics/dispatch/new?job_card_id=<card>; a sealed challan prints at /logistics/dispatch/<card>/print.
+> **Who uses it:** Dispatch (makes and seals challans), Store, Plant Manager, Supervisor and Logistics (save drafts), Sales (views and prints sealed challans), Owner and Admin. Store (also Dispatch and the plant head) links the watchman's goods-out photos to the challans.
+> **Where:** Sidebar > Dispatch > Dispatch (/logistics/dispatch). A new challan opens at /logistics/dispatch/new?job_card_id=<card>; a sealed challan prints at /logistics/dispatch/<card>/print.
 
 ## At a glance
 - **The box is the dispatch unit.** On batch-entry cards, Process good pcs are packed into boxes of the spec's qty per box, each with a box code and a QR label. A challan is a set of whole boxes; a box is never split.
 - **Ship while Process is still running.** A card appears on the register as soon as its first box is packed and posted to stock. Each challan ships some of its boxes (partial dispatch). The pcs left when Process closes go into a **part box**, which ships like any other box.
 - **Build the challan by scanning or ticking boxes.** The challan lists every box code with its pcs, the box count, pcs per box and total pcs, and a packing block from the spec.
 - **Sealing** takes the boxes out of stock and counts their pcs as dispatched on the sales order. Sealing is done by **Dispatch, Owner or Admin**. Others with access can save a draft.
+- **Leaving the gate is recorded by photo.** When the truck leaves, the watchman only photographs the Tally bill and our challan, types the vehicle number and taps **Gone out**. **Store** (or Dispatch, or the plant head) then links that gate entry to the challan(s) on the register's **Gone out at the gate** strip (**Link challan**) and types or confirms the Tally bill number. Each challan shows **Not out of gate**, **Out · Tally T-1189 ✓** or **Photos missing**.
 - **Only a hold placed on purpose blocks sealing.** QC flags never do: a box marked **QC flagged** ships like any other box.
 
 ## The flow
@@ -24,6 +25,12 @@ title: Finishing a card
 Process closed [Plant Manager] (part box packed) -> Ship the last boxes [Dispatch] -> All boxes done (card Done)
 after Process closed: Leftover boxes (do not fit) -> Retain surplus FG [Dispatch/Owner/Admin] (reason code) -> Boxes kept as surplus (card Done)
 ```
+```flow
+title: Truck out of the gate
+Challan sealed [Dispatch] (Not out of gate) -> Add Tally no. (optional, early) [Dispatch/Store] -> Truck leaves: Tally bill and challan photographed, Gone out [Watchman] -> Gone out at the gate strip [Store/Dispatch] -> Pick the entry, tick the challan(s), type or confirm the Tally no. -> Link challan (Out · Tally T-1189 ✓)
+after Link challan: Wrong challan or Tally no. -> Unlink with a reason [Plant head/Owner/Admin] -> Link again [Store]
+```
+
 The card completes when Process is closed and every box has shipped or has been kept as surplus. When boxes are kept as surplus, any released quantity that was not shipped goes back to the sales order.
 
 Cards whose finished goods were posted the old way, in one lot at Process close (before boxes existed), still ship by typed quantity, as described under "Cards without boxes".
@@ -83,7 +90,46 @@ What you see on the challan:
 
 **Cards without boxes** (finished goods posted in one lot at Process close, before boxes existed) show a **Shipment** section instead of the box picker: **Shipment quantity (pcs)** ("Up to 893 pcs"), **Pieces per bundle** ("9 bundles; the last one may hold fewer"), **Net weight (kg)** ("893 pcs × 33.78 g (spec) = 30.166 kg", with **Use 30.166 kg** to put the worked-out value back), and a packing table (Description, Units, PCS/Unit, Total PCS, Net weight (kg), Remarks).
 
+![Alt: Dispatch register with the Gone out at the gate strip, a goods-out entry picked, its Tally bill photo docked and the link form with one challan ticked and Tally bill no. T-1189](../screens/dispatch-gone-out-link.jpg)
+*Figure: The Dispatch register with **Gone out at the gate (2)**: cards GJ 05 VF 8462 (GE-2611-027) and GJ 06 TT 4410 (GE-2611-030, picked; "Linking GE-2611-030. Its photos are beside the form."). Left: **Gate photos · GE-2611-030** with tabs **Tally bill** and **Our challan** and the viewer. Right: **Link GE-2611-030 to its challan**: "Truck GJ 06 TT 4410 went out 8 Nov, 12:08 pm · photographed by … Pick every challan on this truck and type its Tally bill no. from the photo." **Scan challan QR**, the list **Challans not yet out of the gate** with a search box, "Sealed on 8 Nov (the day it went out)" (Challan DC/26/V-104512 ticked) and **Earlier challans**; **Tally bill no. for each challan** with Tally bill no. T-1189 and Tally date 08/11/2026 and **Remove**; "Linking puts the photos on each challan. The out time stays the gate time." **Cancel** and **Link challan**.*
+
+What you see:
+1. **Gone out at the gate (N)**: trucks the watchman photographed going out that are not yet linked. Each card: photo, vehicle number (or "No vehicle no."), GE- number, gate, out time and number of photos. Click one to pick it (x to unpick).
+2. **Gate photos**: the Tally bill and our challan photos docked beside the form, with zoom, rotate and pages.
+3. **Challans not yet out of the gate**: tick every challan that went on this truck. Search the challan number or item, or **Scan challan QR** (the QR printed on our challan). Challans sealed on the day the truck went out come first, then **Earlier challans** (last 30 days).
+4. **Tally bill no. for each challan** (required) and **Tally date**: filled in when the dispatch desk already typed it ("From the dispatch desk"); for a second challan the first number is copied ("Same as the first; type over if different").
+5. **Link challan** (or **Link 2 challans**). The message says, for example, "GE-2611-030 (GJ 06 TT 4410) linked: challan DC/26/V-104512 · Tally T-1189."
+
+![Alt: Dispatch register rows with gate chips Out Tally with tick and Unlink, Not out of gate with Link gate photo and Add Tally no.](../screens/dispatch-gate-chips.jpg)
+*Figure: The register after linking. Rows show per challan: **Out · Tally T-243208-2 ✓** with **Unlink** (plant head, Owner, Admin), or **Not out of gate** with **Link gate photo** and **Add Tally no.**; above, **Gone out at the gate (1)** still has GJ 05 VF 8462.*
+
+What you see on each challan row:
+1. **Not out of gate** (amber) until a goods-out entry is linked.
+2. **Out · Tally T-1189 ✓** once linked with its Tally bill number. **Photos missing** when it is linked but a photo has not reached the vault yet.
+3. **Link gate photo**: the same link from the challan's side: pick the truck the watchman photographed with this challan, then type the Tally bill no.
+4. **Add Tally no.** (Store, Dispatch, Plant Manager, Owner, Admin): type the Tally bill number before the truck leaves; Store then only confirms it when linking.
+5. **Unlink** (plant head, Owner, Admin): undoes a wrong link with a reason from the list **Goods-out photo unlinked** (GU-WRONG-CHALLAN Linked to the wrong challan, GU-WRONG-TRUCK Photos are of another truck, GU-TALLY-WRONG Wrong Tally bill, GU-OTHER with a note). The entry goes back to **Gone out at the gate**. A wrong Tally number on a linked challan is corrected by unlinking and linking again.
+
 ## Step by step
+
+### How to link a truck that went out to its challan(s)
+Roles: Store, Dispatch, Plant Manager, Owner, Admin.
+1. Store and Dispatch get "Goods out at the gate · GE-…". Open **Dispatch** and look at **Gone out at the gate (N)** above the register.
+2. Click the entry. Its photos (Tally bill and our challan) open beside the form.
+3. Tick the challan(s) that went on that truck: read the challan number on the photo, search it, or tap **Scan challan QR** and scan the printed challan.
+4. Type the **Tally bill no.** of each challan from the Tally bill photo (and the **Tally date** if different), or confirm the number the dispatch desk already typed.
+5. Click **Link challan** (**Link 2 challans** for two). The challans show **Out · Tally T-1189 ✓**, the entry becomes **Linked to challan**, and the photos are on each challan (Doc Vault, Outward). The out time stays the time the watchman tapped Gone out.
+6. From a challan row you can do the same with **Link gate photo**.
+
+### How to undo a wrong link
+Roles: Plant Manager, Owner, Admin.
+1. On the challan row, click **Unlink**, pick the reason (for example GU-WRONG-CHALLAN) and confirm.
+2. The challan is **Not out of gate** again and the entry goes back to **Gone out at the gate**. Link it to the right challan, or with the right Tally number.
+
+### How to type the Tally bill number before the truck leaves
+Roles: Store, Dispatch, Plant Manager, Owner, Admin.
+1. On the challan row, click **Add Tally no.**, type the number (for example T-1189) and **Save**.
+2. When the truck's photos are linked, the number is filled in ("From the dispatch desk"); Store only confirms it.
 
 ### How to make and seal a challan from boxes
 Roles: drafts by Dispatch, Store, Plant Manager, Supervisor, Logistics, Owner, Admin; sealing by Dispatch, Owner, Admin.
@@ -141,6 +187,9 @@ If the connection dropped while sealing, the challan shows "This shipment was in
 - **Safe retry**: a retry of the same seal never posts a box twice. (AUTOMATIC.)
 - **Retain surplus on a box card** is refused while Process is open ("Close Process before keeping surplus boxes"), while a hold is open ("Release the hold on this card before keeping surplus boxes"), while a shipment is unfinished, or while a box still fits ("Box B2610315-007 (7 pcs) still fits in the 50 pcs of released quantity left: ship it first"). It needs a **Surplus kept** code. (BLOCKS.)
 - **Card done** when Process is closed and no box is left packed. (AUTOMATIC.)
+- **Out of the gate**: a challan is **Not out of gate** until Store links the watchman's goods-out entry to it with its Tally bill number. The truck is never held for the photos; **Photos missing** shows until both photos are in the vault. (NEVER BLOCKS.)
+- **Not out by close time**: after the plant's gate close time, Dispatch and Store get one notice a day listing challans sealed today that are not out of the gate, and Store and the plant head get one notice of goods-out photos still not linked. (AUTOMATIC.)
+- **Linking**: each challan needs its Tally bill number; one challan goes out of the gate once; only the plant head, Owner or Admin can unlink, with a **Goods-out photo unlinked** reason. (BLOCKS.)
 
 ## Sample
 Card 26/10/315 for Sharma Tubes Pvt Ltd: 400 pcs released, Winding closed short (100 pcs back to the order), Process target 300 pcs, 48 pcs per box, tube weight 33.78 g.
@@ -153,6 +202,14 @@ Card 26/10/315 for Sharma Tubes Pvt Ltd: 400 pcs released, Winding closed short 
 Process closed with 295 good pcs, so 5 more pcs went back to the order. Total shipped 295 pcs in 7 boxes. The order line SO/26/10/412 shows 295 pcs delivered and 105 pcs unreleased (100 + 5), which Sales releases again or short closes. Challan 2 prints "Boxes on this challan (3)", the three codes with "part" on -007, and "Packed as 2 boxes × 48 + part box 7 = 103 pcs".
 
 ## Common questions
+**Q: The watchman says the truck left, but the challan still says Not out of gate.** A: The goods-out entry is waiting under **Gone out at the gate**. Store picks it, ticks the challan, confirms the Tally bill number and clicks **Link challan**.
+
+**Q: I linked the wrong challan or typed the wrong Tally number.** A: Ask the plant head, Owner or Admin to **Unlink** it with a reason, then link it again correctly.
+
+**Q: Does the watchman type the Tally bill number?** A: No. He only photographs the Tally bill and our challan and types the vehicle number. Store (or Dispatch) types or confirms the Tally number when linking.
+
+**Q: The chip says Photos missing.** A: The gate phone has not finished uploading. Ask the watchman to keep the phone on the network. If the photo was lost on the phone, tell the plant head.
+
 **Q: Why is there no Make challan button on my card?** A: Read the state: "Packing boxes" with no box in stock yet, "Waiting for the stock posting" or "On QC hold". The button appears only when boxes can ship and your role can prepare challans.
 
 **Q: Can I ship before Process is closed?** A: Yes. Every box that is packed and in stock can ship. The last pcs follow in the part box after Process closes.
@@ -174,6 +231,7 @@ Process closed with 295 good pcs, so 5 more pcs went back to the order. Total sh
 **Q: The net weight is empty.** A: The spec has no tube weight. Type the net weight in kg.
 
 ## Related chapters
+- Gate desk and visitors
 - Job cards (boxes, box labels, box page)
 - Quality
 - Sales orders

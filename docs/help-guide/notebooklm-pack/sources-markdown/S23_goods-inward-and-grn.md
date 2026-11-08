@@ -1,5 +1,5 @@
 HARI OM TUBEOS HELP GUIDE - Chapter 23: Goods inward, GRN register and labels
-Section: Purchasing, stores and inward. Accurate as of 31 October 2026. Hari Om TubeOS is the ERP for a paper tube plant (sales orders, planning, shop floor, quality, purchasing, stores, reports).
+Section: Purchasing, stores and inward. Accurate as of 8 November 2026. Hari Om TubeOS is the ERP for a paper tube plant (sales orders, planning, shop floor, quality, purchasing, stores, reports).
 Screenshots named in this file are in the visual handbook (Hari-Om-TubeOS-Help-Guide.html or .pdf), chapter 23.
 
 # Goods inward, GRN register and labels
@@ -14,6 +14,8 @@ Screenshots named in this file are in the visual handbook (Hari-Om-TubeOS-Help-G
 - **The reel label matches the plant's own printed label**, with a QR added: plant heading, MILL NAME, invoice number, date, PLYBOND, VARIETY, GSM, ROLL NO., the AIT serial in very large letters, and WEIGHT.
 - **The inward number is automatic** and restarts every financial year on 1 April: **P/26/021** for paper, **A/26/005** for adhesive, **IN/26/030** for everything else or a mix (26 = 2026-27).
 - **Everything received waits for incoming QC.** New lots show **Waiting for QC** and cannot be issued until QC passes them. An invoice that is pending or a rate that differs never holds them.
+- **At the gate first.** The watchman photographs the bill or challan when the truck arrives. It shows on Goods inward under **At the gate**. Pick it to make its GRN with the photo docked beside the form; posting links the photos to the GRN and every reel. A GRN without a gate photo is still allowed; the register shows **No gate photo**.
+- **Everything received is weighed again at incoming QC.** QC types the actual weight of each reel; stock stays on the net kg you entered here (the bill weight).
 - **Validate, then post once.** **Validate receipt** checks everything first; **Post goods inward** saves it once, even if you click twice or the line drops.
 
 ## The flow
@@ -22,6 +24,12 @@ Flow diagram: Truck to store
 Steps: 1. Truck arrives (done by GRN/Store) -> 2. Make GRN or Goods inward - PO filled in -> 3. Enter challan, invoice, reels (done by GRN/Store) -> 4. Validate receipt -> 5. Post goods inward - P/26/021, AIT serials -> 6. Print reel labels (done by GRN/Store) -> 7. Incoming QC (done by QC) -> 8. Usable for issue
 If it goes wrong after 'Enter challan, invoice, reels': 1. Invoice pending - challan only -> 2. Attach invoice later (done by Store) - GRN register
 If it goes wrong after 'Post goods inward': 1. Rate differs from PO -> 2. Rate case (done by Plant Manager/Accounts) - does not hold the reels
+
+
+
+Flow diagram: Bill photographed at the gate
+Steps: 1. Watchman photographs the bill (done by Watchman) - GE-2611-020 -> 2. At the gate on Goods inward (done by Store/GRN) -> 3. Pick it - photo docked, vendor filled -> 4. Enter challan, invoice, reels -> 5. Post goods inward -> 6. Photos linked to the GRN and every reel - Linked to GRN
+If it goes wrong after 'At the gate on Goods inward': 1. GRN already posted without it -> 2. Link gate entry on the GRN (done by Store/GRN)
 
 
 
@@ -49,6 +57,18 @@ What you see:
 9. For bulk materials (adhesive, boxes, plastic): **Received quantity** (filled with the PO's open quantity; change it to what came) and **Batch number · optional**.
 10. **Add another material**, the **More than the PO** panel (when needed), the **Validation result**, and the sticky bottom bar with the totals, value, "Each physical unit gets one QR label", **Validate receipt** and **Post goods inward**.
 
+[Screenshot "goods-inward-at-the-gate": Goods inward with the At the gate strip of photographed bills and the gate photo docked beside the GRN form]
+*Figure: Goods inward with a gate bill picked. A blue note: "Making the GRN for gate entry GE-2611-001 (Sample Paper Mills). Posting links its photos to this GRN and every reel. Pick the vendor: the name from the gate is not in the vendor master." **At the gate (7)**: cards with a photo thumbnail, vendor, GE- number and vehicle, time and "over 24 h · 1 photo" in amber. On the right, **Gate photo · GE-2611-001** (Main gate, time, vehicle, vendor) with page, zoom, fit, rotate, open and download buttons and the bill page.*
+
+What you see (At the gate):
+
+1. **At the gate (N)**: material bills the watchman photographed that have no GRN yet, oldest first. Each card: photo thumbnail (or "photo uploading"), vendor ("Vendor not given"), GE- number, vehicle, time, number of photos. A card older than 24 hours is amber with "over 24 h".
+2. **Pick a card** to make its GRN: the card is outlined, the note says which entry you are working on, and the vendor is filled when its name matches the vendor master. Click it again (x) to unpick.
+3. **Gate photo** panel beside the form: one tab per bill (Bill 1, Bill 2 · 2 pages), with the viewer, so you can read the challan number, invoice number and reel list while you type. "The photos are still uploading from the gate phone" when they have not arrived yet.
+
+[Screenshot "grn-register-gate-chips": GRN register rows with gate chips GE-2611-016 and No gate photo]
+*Figure: The GRN register with gate chips under the inward number: P/26/027 with **GE-2611-016**, P/26/026 with GE-2611-014, and P/26/024 and P/26/023 with **No gate photo**.*
+
 [Screenshot "grn-register": GRN register listing receipts with inward number, vendor, source, challan, invoice, lots and commercial state]
 *Figure: The GRN register ("GRNs, invoices & lot labels"). A search box and an "All receipts" filter sit above the Receipt register: 60 matching receipts, with Full Excel, Print register, Previous and Next. Rows such as IN/26/029, 30 Oct 2026, GoLive Test Paper Vendor with GSTIN, source RP-PM/65, challan DC-GL-B1A6, invoice Pending, 3 lots, commercial "Invoice pending", with Open and Inspect buttons.*
 
@@ -68,9 +88,10 @@ What you see:
 2. **Header**: **Inward no.**, **Received**, **Supplier challan no.**, **Invoice** (number and date, or Pending), **Vendor** (with place) and **Vendor GSTIN** (from the PO, else the vendor master).
 3. **Manual receipt reason** (manual GRNs only).
 4. **Material lines**: code and name, quantity, PO rate, challan or invoice rate; a rate-case link when the rate differs; a QC badge (**Waiting for QC**, **QC passed**, **QC failed**, **Cleared**) and a button **Inspect in incoming QC**, **View in incoming QC** or **See QC result**.
-5. **Commercial review reason**, **Approve manual purchase and invoice rates** (manual receipts under review), **Review invoice differences** and **Approval history**.
-6. **Attach supplier invoice** (while pending): **Invoice number**, **Invoice date**, and for each line its invoice quantity and invoice rate (filled from the challan rate), then **Attach and validate invoice**.
-7. **Label printing** (further down): **Label sheet** (A4 · 8 labels per sheet, or Thermal · 4 × 2 inch), **Copies** (1 to 20), **Reprint reason** ("if printed before"), **Prepare N labels**, then **Open A4 sheet PDF · print at actual size**. The label previews show under it.
+5. **Gate entry** panel: the gate chip (**GE-…**, or **No gate photo**) and **Link gate entry** (Store, GRN, Plant Manager, Owner, Admin). Below it the **Documents** panel: the vendor's bill and challan photos linked to this GRN, with a type picker, **Take photo** and **Photo or PDF**. See the Doc Vault chapter.
+6. **Commercial review reason**, **Approve manual purchase and invoice rates** (manual receipts under review), **Review invoice differences** and **Approval history**.
+7. **Attach supplier invoice** (while pending): **Invoice number**, **Invoice date**, and for each line its invoice quantity and invoice rate (filled from the challan rate), then **Attach and validate invoice**.
+8. **Label printing** (further down): **Label sheet** (A4 · 8 labels per sheet, or Thermal · 4 × 2 inch), **Copies** (1 to 20), **Reprint reason** ("if printed before"), **Prepare N labels**, then **Open A4 sheet PDF · print at actual size**. The label previews show under it.
 
 [Screenshot "reel-label": Reel label in the plant layout with the AIT serial in large letters and a QR]
 *Figure: A printed reel label. One bordered label: the heading AMIGO INDUSTRIES UNIT II across the top; a row with MILL NAME (AKSHAT), the invoice number and the date 28-Oct-26; a row of headers PLYBOND, VARIETY, GSM with 400, 351, 351 under them; ROLL NO. 65686; the serial AIT 06243 in very large bold letters; WEIGHT 1161; and the QR code at the side.*
@@ -92,6 +113,20 @@ Roles: GRN, Store, Plant Manager, Owner, Admin.
 10. Click **Validate receipt** and read the **Validation result** (each line with its quantity and reels, and words such as "rates match the PO", "invoice to follow" or "differs from the PO · goes to Accounts"). Warnings such as a reused challan number appear in amber; you can still post if it is a different delivery.
 11. Click **Post goods inward**. The message gives the inward number: "Inward P/26/021 saved (challan BPM/2231). 12 lots recorded. Incoming QC decides when the lots can be issued." Each reel gets the next AIT serial of the year (for example AIT 06281, AIT 06282…).
 12. Print the labels (next task), then click **Start next receipt**.
+
+### How to make the GRN of a bill photographed at the gate
+Roles: GRN, Store, Plant Manager, Owner, Admin.
+
+1. You get "Material at the gate · GE-2611-020" in the Inbox with **Make GRN**, or open **Goods inward** and look at **At the gate**.
+2. Click the card (or **Make GRN** on the notification). The gate photo opens beside the form and the vendor is filled if its name is in the vendor master; otherwise pick the vendor.
+3. Fill the GRN as usual from the photo: PO, supplier challan number, invoice number and date (or invoice pending), and the reels.
+4. Validate and post. The gate entry becomes **Linked to GRN** and its photos are linked to the GRN and to every reel and lot (QC sees them on the bill sheet).
+5. A material bill not made into a GRN in 24 hours sends a reminder to Store, GRN and the plant head.
+
+### How to link a gate photo to a GRN posted without it
+1. Open the GRN from the register. The **Gate entry** panel says "This GRN was posted without a gate photo."
+2. Click **Link gate entry** and pick the bill from the list of bills at the gate. The chip shows the GE- number.
+3. If the watchman put the bill under the wrong kind (for example Electricity), ask for **Wrong type? Move it** in the Bills inbox first; only material bills can be linked.
 
 ### How to make a manual GRN (no PO)
 Roles: GRN, Store, Plant Manager.
@@ -151,6 +186,8 @@ Roles: QC and Inward QC enter readings; Store and the Plant Manager can view.
 - **BLOCKS:** **Post goods inward** works only after **Validate receipt**, and only if nothing changed since ("Receipt details changed. Validate them again before posting."). Posting is saved once even if repeated.
 - **BLOCKS:** a manual GRN needs a **Receipt without PO** code, cannot be used for tools or other items (they need a requisition and PO), and is approved by someone other than its maker, after the invoice is attached.
 - **BLOCKS:** reprinting labels already printed needs a reprint reason ("A reprint reason is required for previously printed lots"). Copies are 1 to 20.
+- **BLOCKS:** a gate entry can be linked to one GRN only, and only if it is a material bill ("… is already linked to GRN …", "… is not a material bill. Re-categorise it as Material first, or post the GRN without it.").
+- **NEVER BLOCKS:** a GRN without a gate photo is allowed; the register shows **No gate photo**.
 - **WARNS:** a challan number this vendor already used on another inward: "Challan … was already used by this supplier on P/26/018 (30 Oct 2026). Check this is not the same delivery entered twice." It does not block.
 - **AUTOMATIC:** inward number per plant and financial year (P, A or IN series; Jan–Mar 2027 stay under 26, and 1 April 2027 starts P/27/001); AIT serial per reel (one series per plant and financial year, restarting at AIT 00001 on 1 April; the Owner or Admin sets the next number once in System › Plants; numbers are never given twice in a year); coils slit later get the parent serial plus -1, -2; QC hold and an incoming QC task for every lot; PO balance and dated delivery rows updated (oldest date first); rate, quantity and specification cases opened; the plant head and Accounts notified of rate cases.
 
@@ -188,6 +225,12 @@ Total 2,012 kg of Kraft 230 GSM; PO open 2,000 kg, so the strip shows "more than
 
 **Q: Can I find a reel by typing its serial?** A: Yes. Type it any way (ait 6243, AIT-06243, AIT 6243-2); the search reads it as AIT 06243 or AIT 06243-2.
 
+**Q: The bill was photographed at the gate. Do I still type the challan and invoice?** A: Yes. Pick the bill under **At the gate** and read the numbers from the photo beside the form. The photo is linked when you post.
+
+**Q: The At the gate card says "Vendor not given".** A: The watchman did not pick a vendor. Pick the vendor on the form yourself.
+
+**Q: Why does my GRN say No gate photo?** A: It was posted without a gate entry. If the watchman photographed the bill, click **Link gate entry** on the GRN.
+
 **Q: Can the reels go to the floor before QC?** A: No. They show **Waiting for QC** until incoming QC passes them. Rate and invoice questions never hold them, but QC does.
 
 ## Related chapters
@@ -195,5 +238,7 @@ Total 2,012 kg of Kraft 230 GSM; PO open 2,000 kg, so the strip shows "more than
 - RM inward calendar and expected arrivals
 - Invoice differences, debit notes and purchase reports
 - Incoming QC
+- Gate desk and visitors
+- Doc Vault
 - Issue to the floor (reels, coils and materials)
 - Stock counts, stock book, locations and opening stock

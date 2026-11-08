@@ -88,6 +88,10 @@ def _optional_amount(value: Optional[str]) -> Optional[Decimal]:
     return amount.quantize(Decimal("0.01"))
 
 
+# What a login without edit rights (the watchman) may link its own uploads to.
+GATE_DESK_LINKS = frozenset({"GATE_ENTRY", "VISIT"})
+
+
 @router.post("")
 def upload_document(
     file: UploadFile = File(...),
@@ -114,6 +118,10 @@ def upload_document(
         raise HTTPException(status_code=403, detail=f"Your role cannot save a {vault.KIND_WORDS.get(kind_value, kind_value).lower()}.")
     if bool(link_entity_type) != bool(link_entity_id):
         raise HTTPException(status_code=422, detail="Say both the record type and the record to link the document to.")
+    if link_entity_type and not access.can_edit and link_entity_type.strip().upper() not in GATE_DESK_LINKS:
+        # The gate desk only photographs (owner rule, 8 Nov 2026): its photos go to its own gate entry or visit;
+        # Store / Accounts link them to the GRN, the challan or the bill.
+        raise HTTPException(status_code=403, detail="The gate desk saves photos on its own gate entry. Stores or Accounts link them to the record.")
     data = _read_upload(file)
     document, created = vault.create_document(
         db, plant_id=plant_id, data=data, filename=file.filename, kind=kind_value, actor=access.actor, source=source,
@@ -333,6 +341,8 @@ def add_link(
     current_user: dict = Depends(vault_user),
 ):
     access = _access(current_user)
+    if not access.can_edit:
+        raise HTTPException(status_code=403, detail="The gate desk only takes photos. Stores or Accounts link them to the record.")
     document = vault.get_document(db, document_id, [plant_id])
     if not access.sees(document):
         raise HTTPException(status_code=404, detail="Document not found")
