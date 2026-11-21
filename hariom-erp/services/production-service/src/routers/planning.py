@@ -1114,6 +1114,31 @@ def _post_box_packaging_theory(
     return "added"
 
 
+def _clean_denier(value: Any) -> str:
+    """Denier as typed (\"75D/36F\", \"150\"): trimmed, single spaces, at most 40 characters."""
+    return re.sub(r"\s+", " ", str(value or "")).strip()[:40]
+
+
+def _apply_release_denier(db: Session, job_card: JobCard, denier: Any, current_user: dict, plant_uuid: uuid.UUID) -> None:
+    """Keep the optional denier typed at release on the card's frozen snapshot (client 2026-11-21).
+
+    A replay with no denier never clears one already saved; a different denier on a replay is
+    recorded like an edit (audit row with before/after)."""
+    text = _clean_denier(denier)
+    snapshot = dict(job_card.spec_snapshot or {})
+    before = str(snapshot.get("denier") or "")
+    if not text or text == before:
+        return
+    snapshot["denier"] = text
+    job_card.spec_snapshot = snapshot
+    db.flush()
+    _record_audit_event(
+        db=db, plant_id=plant_uuid, entity_type="job_card", entity_id=job_card.id, action="denier_set",
+        actor_id=current_user.get("sub"), actor_role=",".join(current_user.get("roles", [])), job_card_id=job_card.id,
+        payload={"denier": text, "source": "release"}, before_payload={"denier": before or None},
+    )
+
+
 def _record_audit_event(
     *,
     db: Session,
@@ -2898,6 +2923,7 @@ def _build_document_snapshot(
             "required_cs": _snapshot_float(spec_snapshot.get("required_cs")),
             "pcs_per_bamboo": pcs_per_bamboo,
             "parchment_paper": exact_parchment or "WITHOUT PARCHMENT",
+            "denier": str(spec_snapshot.get("denier") or ""),
             "target_bamboo_count": material_plan_snapshot.get("target_bamboo_count") or target_bamboo_count,
             "selected_bamboo_length_mm": selected_bamboo_length,
             "usable_length_mm": usable_length,
@@ -6447,6 +6473,7 @@ def sync_released_sales_order(
                 current_user=current_user,
                 parchment_color=requested_row.parchment_color,
             )
+            _apply_release_denier(db, job_card, requested_row.denier, current_user, plant_uuid)
             line_results.append(
                 ReleaseSyncLineResult(
                     sales_order_line_id=job_card.sales_order_line_id,

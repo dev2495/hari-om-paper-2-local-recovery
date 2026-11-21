@@ -2806,6 +2806,7 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
       notes: form.notes,
       signOff: optionValue(form.dynamicValues.sign_off_note),
       qcStages: qcPrintStageRows(specDocument?.spec?.qc_profile || qcProfile),
+      notch: computedNotchDiagram,
     }
     return <SpecSheetPrint enabled data={printData} embedded={embedded} />
   }

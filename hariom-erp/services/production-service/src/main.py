@@ -5,6 +5,7 @@ from . import entry_models
 from .routers import packing_refresh
 from .routers import card_history, dispatch, dispatch_surplus, jobs, lifecycle, operations, plan_actual, planning, planning_overview, quality, reconciliation, reel_issue, reports, entries
 from .routers import boxes_api
+from .routers import box_label_prints
 
 Base.metadata.create_all(bind=engine)
 
@@ -214,6 +215,7 @@ app = FastAPI(
 app.include_router(packing_refresh.router)  # Packing setup (spec packing amendment -> open cards)
 app.include_router(entries.router)
 app.include_router(boxes_api.router)
+app.include_router(box_label_prints.router)  # Box labels before packing (2026-11-21)
 app.include_router(jobs.router)
 app.include_router(lifecycle.router)
 app.include_router(planning.router)

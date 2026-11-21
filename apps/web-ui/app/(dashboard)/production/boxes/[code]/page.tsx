@@ -67,7 +67,7 @@ export default function BoxPage() {
       return (
         <div className="space-y-4" data-testid="box-page-missing">
           <BackLink href="/production/job-cards">Job cards</BackLink>
-          <EmptyBlock icon={Package} title={`No box ${code} in this plant`} message="Check the plant at the top, or scan the label again." action={<Link href="/scan" className="erp-btn-secondary !h-11">Scan again</Link>} testId="box-missing" />
+          <EmptyBlock icon={Package} title={`No box ${code} in this plant`} message="Box labels are printed before packing: this box shows here once Process packs it. If it should be packed already, check the plant at the top or scan the label again." action={<Link href="/scan" className="erp-btn-secondary !h-11">Scan again</Link>} testId="box-missing" />
         </div>
       )
     }

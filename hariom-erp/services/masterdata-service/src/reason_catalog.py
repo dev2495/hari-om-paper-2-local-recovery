@@ -185,7 +185,7 @@ CATEGORIES: list[dict[str, Any]] = [
           ("MV-SPEC", "Spec weight differs from actual"), ("MV-TRIAL", "Trial or sample runs"),
           ("MV-OTHER", "Other (write a note)")]),
     _cat("LABEL_REPRINT", "Label reprint", "Stores and stock",
-         ["GRN / receipt › Print labels again"],
+         ["GRN / receipt › Print labels again", "Production › Box labels › Print a label again"],
          [("LR-DAMAGED", "Label damaged or torn"), ("LR-LOST", "Label lost / fell off"), ("LR-PRINTER", "Printer jam or bad print"),
           ("LR-WRONG", "Wrong label stuck"), ("LR-EXTRA-COPY", "Extra copy needed"), ("LR-OTHER", "Other (write a note)")]),
     _cat("REEL_SERIAL", "Reel serial number set", "Stores and stock",

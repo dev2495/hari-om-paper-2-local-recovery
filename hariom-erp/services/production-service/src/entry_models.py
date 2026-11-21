@@ -147,3 +147,33 @@ class FgBox(Base):
     packed_at = Column(DateTime, default=datetime.utcnow)
     row_version = Column(Integer, nullable=False, default=1)
     __table_args__ = (UniqueConstraint("job_card_id","seq_no",name="uq_fg_box_seq"),CheckConstraint("qty>0","ck_fg_box_qty_positive"),CheckConstraint("status IN ('PACKED','DISPATCHED','RETAINED','VOID')","ck_fg_box_status"))
+
+
+class BoxLabelPrint(Base):
+    """One print of a job card's box labels from Box labels (client 2026-11-21).
+
+    Labels are printed before packing, in series 1..N (+ spare), each with the box code the packing
+    will give that box (``B<card>-<seq>``), so the QR stuck on box 7 opens box 7 once it is packed.
+    Every print is kept here (who, when, which serials); a second print of a serial is a reprint and
+    needs the reason code from the Reason codes master. Printing never creates stock or boxes."""
+    __tablename__ = "box_label_prints"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    job_card_id = Column(UUID(as_uuid=True), ForeignKey("job_cards.id"), nullable=False, index=True)
+    job_card_no = Column(String(40))
+    from_seq = Column(Integer, nullable=False)
+    to_seq = Column(Integer, nullable=False)
+    label_count = Column(Integer, nullable=False)
+    planned_boxes = Column(Integer, nullable=False)
+    spare_labels = Column(Integer, nullable=False, default=0)
+    qty_per_box = Column(Integer)
+    released_qty = Column(Integer)
+    is_reprint = Column(Boolean, nullable=False, default=False)
+    reason_code = Column(String(40))
+    reason_note = Column(Text)
+    label_size = Column(String(20))
+    printed_by = Column(String(200))
+    printed_by_name = Column(String(200))
+    printed_by_roles = Column(String(300))
+    printed_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    __table_args__ = (CheckConstraint("from_seq>=1 AND to_seq>=from_seq", "ck_box_label_print_range"),)

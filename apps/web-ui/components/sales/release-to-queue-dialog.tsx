@@ -48,6 +48,8 @@ type ReleaseDraftRow = {
   authorized_winders: ReleaseMachine[]
   compatibility_warning: string | null
   blocker: string | null
+  /** Optional yarn denier for this card (client 2026-11-21), printed in the job card header. */
+  denier: string
 }
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`
@@ -102,6 +104,7 @@ function newRow(line: any, overrides: Partial<ReleaseDraftRow> = {}): ReleaseDra
     authorized_winders: [],
     compatibility_warning: null,
     blocker: null,
+    denier: "",
     ...overrides,
   }
 }
@@ -167,6 +170,8 @@ export function ReleaseToQueueDialog({
   const { data: parchments } = useParchments()
   const [rows, setRows] = useState<ReleaseDraftRow[]>([])
   const [hydrated, setHydrated] = useState(false)
+  // Denier is optional (client 2026-11-21) but a card released without one is confirmed once.
+  const [denierAck, setDenierAck] = useState(false)
   const [outcome, setOutcome] = useState<{ winderMachineId: string; lotIds: string[]; syncPending: boolean; syncError?: string | null; syncPayload?: any } | null>(null)
 
   const masterColors = useMemo(
@@ -302,6 +307,10 @@ export function ReleaseToQueueDialog({
       showToast(Array.from(problems.values())[0] || "Nothing to release.", "error")
       return
     }
+    if (missingDenier > 0 && !denierAck) {
+      setDenierAck(true)
+      return
+    }
     // One request: every row's lot is created or none is. Each row keeps its own lot id, so
     // pressing Release again after a lost response returns the same lots instead of new ones.
     let lots: any[] = []
@@ -338,6 +347,7 @@ export function ReleaseToQueueDialog({
         winder_machine_id: row.winder_machine_id,
         product_code: row.product_code || null,
         parchment_color: row.color || null,
+        denier: row.denier.trim() || null,
       })),
     }
     const { pending: syncPending, error: syncError } = await runSync(syncPayload)
@@ -348,6 +358,7 @@ export function ReleaseToQueueDialog({
     showToast(syncPending ? `Release recorded — planning sync pending: ${syncError}` : `${plural(persisted.length, "job card")} created in the winder queue.`, syncPending ? "error" : "success")
   }
 
+  const missingDenier = rows.filter((row) => Number(row.release_qty || 0) > 0 && !row.denier.trim()).length
   const totalQty = rows.reduce((sum, row) => sum + Number(row.release_qty || 0), 0)
   const winders = useMemo(() => {
     const map = new Map<string, ReleaseMachine>()
@@ -421,7 +432,7 @@ export function ReleaseToQueueDialog({
                           ) : null}
                         </div>
                       </div>
-                      <div className={cn("mt-3 grid grid-cols-[minmax(0,1fr)] gap-3", row.parchment_required ? "md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)]" : "md:grid-cols-2")}>
+                      <div className={cn("mt-3 grid grid-cols-[minmax(0,1fr)] gap-3", row.parchment_required ? "md:grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)_minmax(0,0.8fr)_minmax(0,1fr)]" : "md:grid-cols-3")}>
                         {row.parchment_required ? (
                           <label className="min-w-0 space-y-1">
                             <span className="text-[12px] font-medium text-muted-foreground">Parchment colour <span className="text-signal-rose-ink" aria-hidden="true">*</span></span>
@@ -473,6 +484,20 @@ export function ReleaseToQueueDialog({
                             )}
                           </label>
                         ) : null}
+                        <label className="min-w-0 space-y-1">
+                          <span className="text-[12px] font-medium text-muted-foreground">Denier <span className="font-normal">(optional)</span></span>
+                          <input
+                            type="text"
+                            aria-label="Denier"
+                            maxLength={40}
+                            value={row.denier}
+                            placeholder="e.g. 75D/36F"
+                            onChange={(event) => { setDenierAck(false); update(row.key, { denier: event.target.value }) }}
+                            className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm font-semibold"
+                            data-testid={tid("release-denier")}
+                          />
+                          <span className="block text-[11.5px] text-muted-foreground">Printed on the job card header</span>
+                        </label>
                         <label className="space-y-1">
                           <span className="text-[12px] font-medium text-muted-foreground">Qty (pcs)</span>
                           <input
@@ -567,6 +592,12 @@ export function ReleaseToQueueDialog({
                 {!hydrated ? "Loading lines…" : <>{fmt(totalQty)} pcs · {plural(rows.length, "job card")} ·{" "}
                 {problems.size ? <span className="font-medium text-signal-amber-ink">{problems.size === 1 ? "1 thing to fix" : `${problems.size} things to fix`}</span> : "ready"}</>}
               </span>
+              {denierAck && missingDenier > 0 ? (
+                <p className="flex w-full items-start gap-1.5 rounded-lg border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-[13px] text-signal-amber-ink" data-testid={tid("release-denier-confirm")}>
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>{missingDenier === 1 ? "1 job card has" : `${missingDenier} job cards have`} no denier. The Denier box on the card will print empty (it can be added later from the card&apos;s print page). Press <strong>Release without denier</strong> to go on, or type the denier above.</span>
+                </p>
+              ) : null}
               <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
                 <button type="button" onClick={() => onOpenChange(false)} className="erp-btn-secondary !h-11 sm:!h-9">Cancel</button>
                 <button
@@ -580,7 +611,7 @@ export function ReleaseToQueueDialog({
                   className="erp-btn-primary !h-11 disabled:opacity-50 sm:!h-9"
                 >
                   <CheckCircle2 className="h-4 w-4" />
-                  Release to queue
+                  {denierAck && missingDenier > 0 ? "Release without denier" : "Release to queue"}
                 </button>
               </div>
             </div>

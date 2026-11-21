@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { DoorOpen, CalendarRange, ClipboardPen, Scissors, LockKeyhole, AlertTriangle, BarChart3, Boxes, CheckCircle2, Inbox, TrendingUp, Users, Wrench, ChevronRight, ClipboardList, Factory, FileText, Gauge, Info, Layers, LineChart, LogOut, Menu, Package, PanelLeftClose, PanelLeftOpen, BookOpen, ScrollText, Search, ShieldCheck, Sparkles, Truck, X, CircleDot, CornerDownLeft, Undo2, CalendarCheck2, ClipboardCheck, CalendarClock, BookCheck } from "lucide-react"
+import { Tag, DoorOpen, CalendarRange, ClipboardPen, Scissors, LockKeyhole, AlertTriangle, BarChart3, Boxes, CheckCircle2, Inbox, TrendingUp, Users, Wrench, ChevronRight, ClipboardList, Factory, FileText, Gauge, Info, Layers, LineChart, LogOut, Menu, Package, PanelLeftClose, PanelLeftOpen, BookOpen, ScrollText, Search, ShieldCheck, Sparkles, Truck, X, CircleDot, CornerDownLeft, Undo2, CalendarCheck2, ClipboardCheck, CalendarClock, BookCheck } from "lucide-react"
 import { Suspense, useEffect, useMemo, useRef, useState } from "react"
 import { PlantSwitcher } from "@/components/PlantSwitcher"
 import { BooksLockedChip } from "@/components/workspace/books-locked-chip"
@@ -94,6 +94,13 @@ const navigationUnits: NavGroup[] = [
         icon: Scissors,
         description: "Split into a new card, edit qty / colour, force close, emergency insert, cancel — with a preview and a reason.",
         roles: ["Owner", "Admin", "Planner", "PlantManager"],
+      },
+      {
+        name: "Box labels",
+        href: "/production/box-labels",
+        icon: Tag,
+        description: "Print every open job card's box stickers before packing: series 1..N + 5 spare, lot = job card, QR per box; every print recorded.",
+        roles: ["Owner", "Admin", "Store", "Planner", "PlantManager"],
       },
       {
         name: "Planner",

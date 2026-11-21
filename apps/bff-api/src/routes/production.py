@@ -35,6 +35,28 @@ async def box_labels_printed(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/boxes/labels/printed", request, token)
 
 
+@router.get("/box-labels/queue")
+async def box_label_queue(request: Request, token: str = Depends(get_token)):
+    """Open job cards with their box-label plan and print record (Store, Planner, supervisor)."""
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/box-labels/queue", request, token)
+
+
+@router.get("/box-labels/cards/{card_id}")
+async def box_label_card(card_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/box-labels/cards/{card_id}", request, token)
+
+
+@router.post("/box-labels/cards/{card_id}/prints")
+async def box_label_print(card_id: str, request: Request, token: str = Depends(get_token)):
+    """Record a box-label print (a reprint needs a LABEL_REPRINT reason) before the browser prints it."""
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/box-labels/cards/{card_id}/prints", request, token)
+
+
+@router.put("/job-cards/{card_id}/denier")
+async def job_card_denier(card_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{card_id}/denier", request, token)
+
+
 @router.get("/boxes/by-code/{box_code}")
 async def box_by_code(box_code: str, request: Request, token: str = Depends(get_token)):
     """The box page behind a box label's QR code."""

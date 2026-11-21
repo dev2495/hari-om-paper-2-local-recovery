@@ -709,6 +709,8 @@ class ReleaseSyncRowPayload(BaseModel):
     winder_machine_id: UUID
     product_code: Optional[str] = None
     parchment_color: Optional[str] = None
+    # Optional yarn denier typed at release (client 2026-11-21); printed in the card header.
+    denier: Optional[str] = Field(default=None, max_length=40)
 
 
 class ReleaseSyncPayload(BaseModel):

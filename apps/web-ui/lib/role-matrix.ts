@@ -64,6 +64,7 @@ export const MATRIX_SCREENS: Array<{ area: string; screen: string; href: string;
   { area: "Production", screen: "Planning board", href: "/planning/board", access: { Planner: "work", PlantManager: "work" } },
   { area: "Production", screen: "Job cards & stage entry", href: "/production/job-cards", access: { PlantManager: "work", Operator: "work", Planner: "view", QC: "view", InProcessQC: "view" } },
   { area: "Production", screen: "Job card manager (split, edit, force close)", href: "/production/job-cards/manage", access: { PlantManager: "work", Planner: "work" } },
+  { area: "Production", screen: "Box labels before packing (print record kept)", href: "/production/box-labels", access: { Store: "work", Planner: "work", PlantManager: "work" } },
   { area: "Production", screen: "Log output and QC (floor)", href: "/production/entry", access: { Operator: "work", PlantManager: "work", QC: "work", InProcessQC: "work" } },
   { area: "Production", screen: "Month-end close (notes; the Owner closes)", href: "/production/reconciliation", access: { PlantManager: "work" } },
   { area: "Production", screen: "Usage limits (Owner and Admin edit)", href: "/production/reconciliation/limits", access: { PlantManager: "view" } },

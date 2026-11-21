@@ -68,7 +68,26 @@ export const boxesApi = {
   byCode: (code: string) => api.get(`/api/production/boxes/by-code/${encodeURIComponent(code)}`),
   labels: (params: { job_card_id?: string; codes?: string }) => api.get("/api/production/boxes/labels", { params }),
   printed: (boxIds: string[]) => api.post("/api/production/boxes/labels/printed", { box_ids: boxIds }),
+  /** Box labels before packing (2026-11-21): open cards, one card's label plan, record a print. */
+  labelQueue: () => api.get("/api/production/box-labels/queue"),
+  labelPlan: (cardId: string) => api.get(`/api/production/box-labels/cards/${cardId}`),
+  recordLabelPrint: (cardId: string, body: { from_seq: number; to_seq: number; label_size: string; reason_code?: string | null; reason_note?: string | null }) =>
+    api.post(`/api/production/box-labels/cards/${cardId}/prints`, body),
 }
+
+export type LabelPlanRow = { seq: number; box_code: string; qty: number | null; kind: "FULL" | "PART" | "SPARE" | "PACKED"; printed: number; box_status: string | null }
+export type LabelPrintRecord = {
+  id: string; from_seq: number; to_seq: number; label_count: number; is_reprint: boolean; reason_code: string | null; reason_note: string | null
+  label_size: string | null; printed_by: string | null; printed_by_name: string | null; printed_at: string; planned_boxes: number; qty_per_box: number | null
+}
+export type LabelCardHeader = {
+  job_card_id: string; job_card_no: string | null; lot_no: string | null; customer: string | null; product_code: string | null; size_label: string | null
+  colour: string | null; sales_order_no: string | null; customer_po: string | null; status: string; current_stage: string | null; box_master_code: string | null
+  denier: string; public_origin?: string; released_qty: number; qty_per_box: number | null; planned_boxes: number; spare_labels: number; labels_total: number
+  printed_serials: number; boxes_packed: number; missing_qty_per_box: boolean
+}
+export type LabelQueueRow = LabelCardHeader & { print_count: number; reprint_count: number; created_at: string; last_printed_at: string | null; last_printed_by: string | null }
+export type LabelPlan = LabelCardHeader & { labels: LabelPlanRow[]; prints: LabelPrintRecord[] }
 
 const BOX_CODE = /^B[A-Z0-9]{2,40}-\d{3,}$/
 const BOX_PATH = /\/production\/boxes\/([A-Za-z0-9-]+)(?:[/?#]|$)/

@@ -21,6 +21,7 @@ export const WORKSPACE_JUMP_ITEMS: WorkspaceJumpItem[] = [
   { name: "Pending Orders", href: "/sales-orders?unreleased=1", description: "Sales register filtered to orders with unreleased or undelivered qty.", group: "Operations" },
   { name: "Job Cards", href: "/production/job-cards", description: "Release truth, execution packets, and printable cards.", group: "Operations" },
   { name: "Planner", href: "/planning/board", description: "Machine queues, shift scheduling, and stage balancing.", group: "Operations" },
+  { name: "Box labels", href: "/production/box-labels", description: "Print box stickers for open job cards before packing, with QR and print record.", group: "Operations", keywords: ["label", "sticker", "box", "qr", "packing"] },
   { name: "Job card manager", href: "/production/job-cards/manage", description: "Split a card, edit qty or colour, emergency insert, force close, cancel.", group: "Operations", keywords: ["split", "force close"] },
   { name: "Log output", href: "/production/entry", description: "Scan or pick a job card and log a run.", group: "Operations", keywords: ["entry", "scan", "qr"] },
   { name: "Log QC", href: "/production/entry?mode=qc", description: "QC readings of a run, at least 2 per check.", group: "Operations", keywords: ["qc", "readings"] },

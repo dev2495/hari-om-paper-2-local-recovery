@@ -181,6 +181,7 @@ OVERRIDE_RIGHTS = [
     {"key": "qc", "label": "Quality control rights", "roles": ["QC"]},
     {"key": "store", "label": "Inventory and stock-close rights", "roles": ["Store"]},
     {"key": "dispatch", "label": "Dispatch rights", "roles": ["Dispatch"]},
+    {"key": "box_labels", "label": "Box label printing (before packing)", "roles": ["Store", "Planner", "PlantManager"]},
     {"key": "inward_qc", "label": "Inward QC rights", "roles": ["InwardQC"]},
     {"key": "in_process_qc", "label": "In-process QC rights", "roles": ["InProcessQC"]},
     {"key": "grn", "label": "Goods receipt (GRN) rights", "roles": ["GRN"]},

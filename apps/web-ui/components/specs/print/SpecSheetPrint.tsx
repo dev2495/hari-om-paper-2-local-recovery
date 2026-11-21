@@ -3,6 +3,7 @@
 import { Printer } from "lucide-react"
 import Image from "next/image"
 
+import { NotchDiagramPanel } from "@/components/specs/NotchDiagramPanel"
 import { allocateAdhesivePlies } from "@/lib/spec-print"
 
 export type SpecSheetPrintData = {
@@ -42,6 +43,15 @@ export type SpecSheetPrintData = {
   signOff: string
   /** Approved stage QC tolerances, one compact row per stage (standalone spec print only). */
   qcStages?: Array<{ label: string; value: string }>
+  /** Notch geometry for the big drawing on the job card back (client 2026-11-21). */
+  notch?: { tubeLengthMm?: number; notchDistanceMm?: number; notchDepthMm?: number; notchType?: string; tubeDirection?: string; outerDiameterMm?: number }
+}
+
+/** "OD110P45-L2200 · 110.00 mm" → "OD110 · 110.00 mm": the pitch / length suffix is a system code. */
+function floorMandrel(value: string) {
+  const [code, ...rest] = String(value || "").split(" · ")
+  const short = code.trim().replace(/(?:[-\s]?P\d+(?:\.\d+)?)?(?:[-\s]?L\d+(?:\.\d+)?)?$/i, "").trim() || code.trim()
+  return [short, ...rest].filter(Boolean).join(" · ")
 }
 
 type SpecSheetPrintProps = {
@@ -143,6 +153,124 @@ export function SpecSheetPrint({ enabled, data, embedded = false }: SpecSheetPri
         </button>
       </div>}
 
+      {embedded ? (
+        <article className="spec-print-sheet spec-back" aria-label="Production specification (job card back)" data-testid="spec-back">
+          <section className="spec-print-geometry" aria-label="Finished tube production targets">
+            {data.geometry.map((item, index) => (
+              <div key={item.label}><span>{item.label}</span><strong>{valueOrDash(index === 0 ? floorMandrel(item.value) : item.value)}</strong></div>
+            ))}
+          </section>
+          <div className="spec-back-grid">
+            <section className="spec-print-panel spec-back-combo" data-print-section="paper-adhesive">
+              <div className="spec-print-section-title">
+                <strong>Current paper combination</strong>
+                <span>{data.recipe.length} paper(s) · {totalPlies} plies · combined GSM {combinedGsm.toFixed(0)}</span>
+              </div>
+              <div className="spec-back-combo-body">
+                <div className={`spec-print-recipe ${data.recipe.length > 8 ? "spec-print-compact" : ""}`} data-testid="spec-back-paper">
+                  <div className="spec-print-subheading"><strong>Paper</strong><span>{data.totals.paper.toFixed(2)} g</span></div>
+                  <table>
+                    <thead><tr><th>Code</th><th>Variety</th><th>GSM</th><th>Plybond</th><th>Bulk</th><th>Weight</th><th>Ply</th></tr></thead>
+                    <tbody>
+                      {data.recipe.map((row, index) => (
+                        <tr key={`${row.code}-${index}`}>
+                          <td><strong>{valueOrDash(row.code)}</strong></td>
+                          <td>{valueOrDash(row.variety)}</td>
+                          <td>{row.gsm.toFixed(0)}</td>
+                          <td>{row.plyBond.toFixed(2)}</td>
+                          <td>{row.bulk.toFixed(2)}</td>
+                          <td><strong>{row.weight.toFixed(2)} g</strong></td>
+                          <td><strong>{row.plies}</strong></td>
+                        </tr>
+                      ))}
+                      <tr className="spec-print-total">
+                        <td colSpan={2}>Total paper</td>
+                        <td>{combinedGsm.toFixed(0)}</td>
+                        <td colSpan={2}></td>
+                        <td>{data.totals.paper.toFixed(2)} g</td>
+                        <td>{totalPlies}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div className={`spec-print-adhesive ${data.adhesive.length > 5 ? "spec-print-compact" : ""}`} data-testid="spec-back-adhesive">
+                  <div className="spec-print-subheading"><strong>Adhesive</strong><span>Parts total 100%</span></div>
+                  <table>
+                    <thead><tr><th>Code</th><th>Ply</th><th>Part</th><th>Weight</th></tr></thead>
+                    <tbody>
+                      {data.adhesive.map((row, index) => (
+                        <tr key={`${row.code}-${index}`}>
+                          <td><strong>{valueOrDash(row.code)}</strong></td>
+                          <td><strong>{adhesivePlyCounts[index]}</strong></td>
+                          <td>{row.ratio.toFixed(2)}%</td>
+                          <td><strong>{row.weight.toFixed(2)} g</strong></td>
+                        </tr>
+                      ))}
+                      <tr className="spec-print-total">
+                        <td>Total adhesive</td><td>{totalPlies}</td>
+                        <td>{data.adhesive.reduce((sum, row) => sum + row.ratio, 0).toFixed(2)}%</td>
+                        <td>{data.totals.adhesive.toFixed(2)} g</td>
+                      </tr>
+                      <tr className="spec-print-parchment">
+                        <td>Parchment</td><td>—</td><td>Dry basis</td><td><strong>{data.totals.parchment.toFixed(2)} g</strong></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+
+            <section className="spec-print-panel spec-print-bamboo-release spec-back-bamboo" data-print-section="bamboo">
+              <div className="spec-print-section-title"><strong>Wet / dry bamboo targets</strong><span>Whole wound bamboo</span></div>
+              <table className="spec-print-bamboo-table">
+                <thead><tr><th>State</th>{data.bamboo.wet.map((item) => <th key={item.label}>{item.label}</th>)}</tr></thead>
+                <tbody>
+                  <tr><td><strong>Wet</strong></td>{data.bamboo.wet.map((item) => <td key={item.label}>{valueOrDash(item.value)}</td>)}</tr>
+                  <tr><td><strong>Dry</strong></td>{data.bamboo.dry.map((item) => <td key={item.label}>{valueOrDash(item.value)}</td>)}</tr>
+                </tbody>
+              </table>
+              <div className="spec-print-subheading"><strong>Bamboo allowance</strong><span>Cut, yield and trim control</span></div>
+              <div className="spec-print-allowance-grid spec-back-allowance">
+                {data.bamboo.allowance.map((item) => (
+                  <div key={item.label}><span>{item.label}</span><strong>{valueOrDash(item.value)}</strong></div>
+                ))}
+              </div>
+            </section>
+
+            <section className="spec-print-panel spec-back-notch" data-print-section="notch-drawing" data-testid="spec-back-notch">
+              <div className="spec-print-section-title">
+                <strong>Notch drawing</strong>
+                <span>{[
+                  data.tooling.find((row) => row.label === "Notch type")?.value,
+                  data.tooling.find((row) => row.label === "Direction")?.value,
+                  data.notch?.notchDistanceMm ? `distance ${Number(data.notch.notchDistanceMm).toFixed(1)} mm` : "",
+                  data.notch?.notchDepthMm ? `depth ${Number(data.notch.notchDepthMm).toFixed(1)} mm` : "",
+                  data.notch?.tubeLengthMm ? `tube ${Number(data.notch.tubeLengthMm).toFixed(1)} mm` : "",
+                ].filter((value) => value && value !== "—" && value !== "-").join(" · ")}</span>
+              </div>
+              <div className="spec-back-notch-body">
+                <NotchDiagramPanel className="!border-0 !p-0 !shadow-none" data={{
+                  tubeLengthMm: Number(data.notch?.tubeLengthMm || 0),
+                  notchDistanceMm: Number(data.notch?.notchDistanceMm || 0),
+                  notchDepthMm: Number(data.notch?.notchDepthMm || 0),
+                  notchType: data.notch?.notchType || "",
+                  tubeDirection: data.notch?.tubeDirection || "",
+                  outerDiameterMm: Number(data.notch?.outerDiameterMm || 0),
+                }} />
+              </div>
+            </section>
+
+            <section className="spec-print-panel spec-print-operations" data-print-section="operations">
+              <DetailTable title="Notch & tooling" rows={data.tooling} />
+              <DetailTable title="Packing" rows={data.packing} />
+            </section>
+          </div>
+          <footer className="spec-print-footer">
+            <span>Controlled production specification · {valueOrDash(data.reference)} · {valueOrDash(data.version)}</span>
+            <strong>{valueOrDash(data.status)}</strong>
+          </footer>
+        </article>
+      ) : (
       <article className="spec-print-sheet" aria-label="Production specification sheet">
         <header className="spec-print-header">
           <div className="spec-print-brand">
@@ -265,6 +393,7 @@ export function SpecSheetPrint({ enabled, data, embedded = false }: SpecSheetPri
           <strong>{valueOrDash(data.status)}</strong>
         </footer>
       </article>
+      )}
 
       <style jsx global>{`
         .spec-print-preview {
@@ -406,6 +535,46 @@ export function SpecSheetPrint({ enabled, data, embedded = false }: SpecSheetPri
           line-height: 1.08;
           overflow-wrap: anywhere;
         }
+        /* Job card back (client 2026-11-21): no title block; paper + adhesive side by side, the notch
+           drawing big under it, bamboo targets where the adhesive box was, tooling and packing below. */
+        .spec-back-grid {
+          display: grid;
+          min-height: 0;
+          flex: 1;
+          grid-template-columns: 1.62fr 1fr;
+          grid-template-rows: minmax(0, 1.08fr) minmax(0, .92fr);
+          gap: 1.8mm;
+          margin-top: 1.8mm;
+        }
+        .spec-back-combo { display: flex; flex-direction: column; }
+        .spec-back-combo-body { display: grid; flex: 1; min-height: 0; grid-template-columns: 1.5fr 1fr; }
+        .spec-back-combo-body > div { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+        .spec-back-combo-body > div + div { border-left: 1px solid #263740; }
+        .spec-back-combo-body .spec-print-subheading { border-top: 0; }
+        .spec-back-combo-body table { flex: 0 0 auto; }
+        .spec-print-sheet .spec-back-combo table { font-size: 7.6pt; }
+        .spec-back-combo .spec-print-recipe th:nth-child(1) { width: 19%; }
+        .spec-back-combo .spec-print-recipe th:nth-child(2) { width: 19%; }
+        .spec-back-combo .spec-print-recipe th:nth-child(3) { width: 10%; }
+        .spec-back-combo .spec-print-recipe th:nth-child(4) { width: 13%; }
+        .spec-back-combo .spec-print-recipe th:nth-child(5) { width: 11%; }
+        .spec-back-combo .spec-print-recipe th:nth-child(6) { width: 17%; }
+        .spec-back-combo .spec-print-recipe th:nth-child(7) { width: 11%; }
+        .spec-back-combo .spec-print-adhesive th:first-child { width: 44%; }
+        .spec-back-combo .spec-print-adhesive th:nth-child(2) { width: 11%; }
+        .spec-back-combo .spec-print-adhesive th:nth-child(3) { width: 20%; }
+        .spec-back-combo .spec-print-adhesive td:first-child { overflow-wrap: normal; word-break: break-word; }
+        .spec-print-sheet .spec-back-bamboo table { font-size: 6.9pt; }
+        .spec-back-bamboo .spec-print-bamboo-table th:first-child { width: 13%; }
+        .spec-back-bamboo .spec-back-allowance { grid-template-columns: repeat(3, 1fr); }
+        .spec-back-bamboo .spec-back-allowance div:nth-child(3n) { border-right: 0; }
+        .spec-back-notch { display: flex; flex-direction: column; }
+        .spec-back-notch-body { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 1mm 3mm; background: #fff; color: #000; }
+        .spec-back-notch-body > * { width: 100%; }
+        .spec-back-notch-body svg { width: 100%; height: auto !important; max-height: 64mm; }
+        .spec-back-notch-body figcaption,
+        .spec-back-notch-body dl { display: none !important; }
+        .spec-back-notch .spec-print-section-title { flex: 0 0 auto; }
         .spec-print-four-grid {
           display: grid;
           min-height: 0;
