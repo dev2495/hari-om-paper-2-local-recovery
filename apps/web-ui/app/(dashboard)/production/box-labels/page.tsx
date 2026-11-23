@@ -28,7 +28,7 @@ import { errorText } from "@/lib/api-stock"
 import { resolveAppBaseUrl } from "@/lib/app-url"
 import { boxesApi, type LabelPlan, type LabelPlanRow, type LabelQueueRow } from "@/lib/boxes"
 import { personLabel } from "@/lib/people"
-import { labelHeading } from "@/lib/reel-label"
+import { labelHeading, labelPlantTag } from "@/lib/reel-label"
 import { cn } from "@/lib/utils"
 
 const BOX_LABEL_ROLES = ["Owner", "Admin", "Store", "Planner", "PlantManager"]
@@ -84,6 +84,11 @@ const LABEL_CSS = `
 .pl-table .pl-blank { color: #fff; }
 .pl-code { margin-top: 1cqw; display: flex; justify-content: space-between; gap: 2cqw; font-size: 3.4cqw; font-weight: 800; white-space: nowrap; }
 .pl-code span:last-child { overflow: hidden; text-overflow: ellipsis; }
+/* Plant (client 2026-11-23): a boxed tag above the box number. */
+.pl-plant { display: table; margin-bottom: 1.4cqw; border: 0.45mm solid #000; border-radius: 1.2cqw; padding: .5cqw 1.6cqw; font-size: 4.6cqw; font-weight: 900; letter-spacing: .02em; text-transform: none; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.pl-plant em { font-style: normal; font-size: 3cqw; font-weight: 800; margin-right: 1.2cqw; }
+/* A long customer name wraps to two lines in a smaller size instead of being cut. */
+.pl-table .pl-fit { white-space: normal !important; font-size: 4.4cqw !important; line-height: 1.05 !important; display: -webkit-box !important; -webkit-line-clamp: 2; -webkit-box-orient: vertical; text-overflow: clip !important; }
 .pl-part { background: #000; color: #fff; padding: 0 1.4cqw; border-radius: 1cqw; }
 .pl-print { display: none; }
 @media print {
@@ -98,7 +103,7 @@ const LABEL_CSS = `
 `
 const pageCss = (size: Size) => `@media print { @page { size: ${size === "100x100" ? "100mm 100mm" : "A4 portrait"}; margin: ${size === "100x100" ? "2mm" : "8mm"}; } }`
 
-function PackLabel({ row, plan, heading, origin }: { row: LabelPlanRow; plan: LabelPlan; heading: string; origin: string }) {
+function PackLabel({ row, plan, heading, plantTag, origin }: { row: LabelPlanRow; plan: LabelPlan; heading: string; plantTag: string; origin: string }) {
   const url = `${origin}/production/boxes/${encodeURIComponent(row.box_code)}`
   return (
     <article className="pl-label" data-testid="pack-label" data-seq={row.seq}>
@@ -107,11 +112,11 @@ function PackLabel({ row, plan, heading, origin }: { row: LabelPlanRow; plan: La
       <div className="pl-tag">{TAGLINE}</div>
       <div className="pl-mail">Email :- {EMAIL}</div>
       <div className="pl-top">
-        <div className="pl-serial">Box no.<b data-testid="pack-label-serial">{row.seq}</b><small>of {plan.planned_boxes}{row.kind === "SPARE" ? " · spare" : ""}</small></div>
+        <div className="pl-serial">{plantTag ? <span className="pl-plant" data-testid="pack-label-plant"><em>PLANT</em>{plantTag}</span> : null}Box no.<b data-testid="pack-label-serial">{row.seq}</b><small>of {plan.planned_boxes}{row.kind === "SPARE" ? " · spare" : ""}</small></div>
         <div className="pl-qr"><QRCodeSVG value={url} size={180} level="M" bgColor="#ffffff" fgColor="#000000" /></div>
       </div>
       <div className="pl-table">
-        <div>TO</div><div>{plan.customer || ""}</div>
+        <div>TO</div><div className={cn(String(plan.customer || "").length > 18 && "pl-fit")}>{plan.customer || ""}</div>
         <div>SIZE</div><div>{plan.size_label || ""}</div>
         <div>COLOR</div><div>{plan.colour || ""}</div>
         <div>Qty.</div><div className={cn("pl-big", row.qty == null && "pl-blank")}>{row.qty == null ? "—" : fmt(row.qty)}</div>
@@ -160,6 +165,7 @@ function BoxLabelsScreen() {
   }, [queue.data, filter, show])
   const plant = (Array.isArray(plants.data) ? plants.data : []).find((row: any) => String(row.id) === String(activePlant) || String(row.code) === String(activePlant))
   const heading = labelHeading(plant)
+  const plantTag = labelPlantTag(plant)
   const pick = (id: string) => {
     const next = new URLSearchParams(search.toString())
     if (id) next.set("card", id)
@@ -224,7 +230,7 @@ function BoxLabelsScreen() {
             </ul>
           )}
         </section>
-        {selected ? <CardLabels key={selected} cardId={selected} heading={heading} onClose={() => pick("")} /> : (
+        {selected ? <CardLabels key={selected} cardId={selected} heading={heading} plantTag={plantTag} onClose={() => pick("")} /> : (
           <section className="erp-panel rounded-xl p-4">
             <EmptyBlock icon={Package} title="Choose a job card" message="Its labels, the serials already printed and the print record show here." testId="box-labels-pick" />
           </section>
@@ -234,7 +240,7 @@ function BoxLabelsScreen() {
   )
 }
 
-function CardLabels({ cardId, heading, onClose }: { cardId: string; heading: string; onClose: () => void }) {
+function CardLabels({ cardId, heading, plantTag, onClose }: { cardId: string; heading: string; plantTag: string; onClose: () => void }) {
   const queryClient = useQueryClient()
   const { activePlant } = useAuth()
   const [size, setSize] = useState<Size>("100x100")
@@ -383,7 +389,7 @@ function CardLabels({ cardId, heading, onClose }: { cardId: string; heading: str
             <div>
               <p className="mb-2 text-[12.5px] font-semibold text-foreground">Preview{chosen.length > preview.length ? ` · first ${preview.length} of ${chosen.length}` : ""}</p>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3" data-testid="box-labels-preview">
-                {preview.map((row) => <PackLabel key={row.seq} row={row} plan={plan} heading={heading} origin={origin} />)}
+                {preview.map((row) => <PackLabel key={row.seq} row={row} plan={plan} heading={heading} plantTag={plantTag} origin={origin} />)}
               </div>
             </div>
           ) : null}
@@ -429,7 +435,7 @@ function CardLabels({ cardId, heading, onClose }: { cardId: string; heading: str
 
       {mounted && printRows.length ? createPortal(
         <div className="pl-print" data-size={size} aria-hidden="true">
-          {pages.map((page, index) => <div key={index} className="pl-page">{page.map((row) => <PackLabel key={row.seq} row={row} plan={plan} heading={heading} origin={origin} />)}</div>)}
+          {pages.map((page, index) => <div key={index} className="pl-page">{page.map((row) => <PackLabel key={row.seq} row={row} plan={plan} heading={heading} plantTag={plantTag} origin={origin} />)}</div>)}
         </div>,
         document.body,
       ) : null}

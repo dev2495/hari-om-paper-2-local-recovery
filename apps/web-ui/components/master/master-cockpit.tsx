@@ -20,8 +20,9 @@ import { Fragment, type ReactNode, useEffect, useId, useMemo, useRef, useState }
 import { createPortal } from "react-dom"
 import { usePathname } from "next/navigation"
 import { MastersNav } from "@/components/master/masters-nav"
-import { ArrowDown, ArrowUp, Mail, Phone, Plus, Search, Star, Trash2, X } from "lucide-react"
+import { Mail, Phone, Plus, Search, Star, Trash2, X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { ColumnFilterSummary, useColumnFilters, type FilterColumn } from "@/components/common/column-filter"
 
 // ──────────────────────────────────────────────────────────────────────────
 // CockpitShell — page shell (hero + KPI strip + filter spine + body slot)
@@ -231,34 +232,13 @@ export function DataGrid<T extends { id: string }>({
   onToggleSelectAll?: (next: boolean) => void
   emptyHint?: string
 }) {
-  const [sortKey, setSortKey] = useState<string | null>(null)
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc")
-
-  const sortedRows = useMemo(() => {
-    if (!sortKey) return rows
-    const col = columns.find((c) => c.key === sortKey)
-    if (!col?.sortAccessor) return rows
-    const copy = [...rows]
-    copy.sort((a, b) => {
-      const av = col.sortAccessor!(a)
-      const bv = col.sortAccessor!(b)
-      if (av == null && bv == null) return 0
-      if (av == null) return 1
-      if (bv == null) return -1
-      const cmp = typeof av === "number" && typeof bv === "number" ? av - bv : String(av).localeCompare(String(bv))
-      return sortDir === "asc" ? cmp : -cmp
-    })
-    return copy
-  }, [rows, sortKey, sortDir, columns])
-
-  const setSort = (key: string) => {
-    if (sortKey === key) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"))
-    } else {
-      setSortKey(key)
-      setSortDir("asc")
-    }
-  }
+  // Sort and filter on every column (client 2026-11-23): numbers low/high + min/max, text A–Z + pick list.
+  const filterColumns = useMemo<FilterColumn<T>[]>(
+    () => columns.map((c) => ({ key: c.key, label: c.label, disabled: !String(c.label || "").trim(), value: (row: T) => (c.sortAccessor ? c.sortAccessor(row) ?? c.render(row) : c.render(row)) })),
+    [columns],
+  )
+  const columnFilter = useColumnFilters(rows, filterColumns)
+  const sortedRows = columnFilter.rows
 
   const allSelected = rows.length > 0 && rows.every((r) => selection.has(r.id))
   return (
@@ -276,24 +256,17 @@ export function DataGrid<T extends { id: string }>({
                   aria-label="Select all rows"
                 />
               </th>
-              {columns.map((c) => {
-                const isSorted = sortKey === c.key
-                return (
-                  <th
-                    key={c.key}
-                    style={{ width: c.width, textAlign: c.align || "left" }}
-                    className={cn("py-2 pr-3 align-middle", c.sortAccessor && "cursor-pointer hover:text-foreground")}
-                    onClick={() => c.sortAccessor && setSort(c.key)}
-                  >
-                    <span className="inline-flex items-center gap-1">
-                      {c.label}
-                      {isSorted ? (
-                        sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
-                      ) : null}
-                    </span>
-                  </th>
-                )
-              })}
+              {columns.map((c) => (
+                <th
+                  key={c.key}
+                  scope="col"
+                  aria-sort={columnFilter.ariaSort(c.key)}
+                  style={{ width: c.width, textAlign: c.align || "left" }}
+                  className="py-1 pr-2 align-middle"
+                >
+                  {columnFilter.header(c.key)}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -340,6 +313,7 @@ export function DataGrid<T extends { id: string }>({
           </tbody>
         </table>
       </div>
+      <ColumnFilterSummary shown={sortedRows.length} total={rows.length} activeCount={columnFilter.activeCount} sorted={Boolean(columnFilter.sorted)} onClear={columnFilter.clearAll} />
     </div>
   )
 }

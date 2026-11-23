@@ -20,6 +20,7 @@ import { useAuth } from "@/context/AuthContext"
 import { MastersNav } from "@/components/master/masters-nav"
 import { QcBandDialog, type QcBandTarget } from "@/components/qc/QcBandDialog"
 import { cn } from "@/lib/utils"
+import { ColumnFilterSummary, useColumnFilters, type FilterColumn } from "@/components/common/column-filter"
 
 interface Column {
     header: string
@@ -132,6 +133,16 @@ export function CrudTable({
             ),
         [data, search, status],
     )
+
+    // Column sort and filter on every column (client 2026-11-23).
+    const filterColumns = useMemo<FilterColumn<any>[]>(() => columns.map((col, i) => ({
+        key: `${i}:${col.accessorKey}`,
+        label: col.header,
+        disabled: !String(col.header || "").trim(),
+        value: (row: any) => col.render ? col.render(row[col.accessorKey], row) : row[col.accessorKey],
+    })), [columns])
+    const columnFilter = useColumnFilters(filteredData, filterColumns)
+    const shownData = columnFilter.rows
 
     const subtitle = describeDataset(title)
     const workspace = datasetWorkspace(title)
@@ -264,8 +275,8 @@ export function CrudTable({
                         <thead className="bg-muted/60 text-[11.5px] uppercase tracking-[0.06em] text-muted-foreground">
                         <tr className="border-b border-border">
                             {columns.map((col, i) => (
-                                <th key={i} className="h-10 px-4 text-left align-middle font-semibold">
-                                    {col.header}
+                                <th key={i} scope="col" aria-sort={columnFilter.ariaSort(`${i}:${col.accessorKey}`)} className="h-10 px-3 text-left align-middle font-semibold">
+                                    {columnFilter.header(`${i}:${col.accessorKey}`)}
                                 </th>
                             ))}
                             <th className="h-10 px-4 text-right align-middle font-semibold">
@@ -280,17 +291,17 @@ export function CrudTable({
                                     <LoadingState label={`Loading ${title.toLowerCase()}…`} />
                                 </td>
                             </tr>
-                        ) : filteredData.length === 0 ? (
+                        ) : shownData.length === 0 ? (
                             <tr>
                                 <td colSpan={columns.length + 1} className="p-4">
                                     <EmptyQueryState
                                         title={data.length ? `No ${status === "DISABLED" ? "disabled " : status === "ACTIVE" ? "active " : ""}${title.toLowerCase()} match.` : `No ${title.toLowerCase()} yet.`}
-                                        message={data.length ? "Clear the search or switch between Active / Disabled / All." : "Use the Add button to create the first record."}
+                                        message={data.length ? "Clear the search or the column filters, or switch between Active / Disabled / All." : "Use the Add button to create the first record."}
                                     />
                                 </td>
                             </tr>
                         ) : (
-                            filteredData.map((row, i) => {
+                            shownData.map((row, i) => {
                                 const rowActive = isActive(row)
                                 const band = qcBand ? qcBand(row) : null
                                 return (
@@ -356,6 +367,7 @@ export function CrudTable({
                     </tbody>
                 </table>
             </div>
+                <ColumnFilterSummary shown={shownData.length} total={filteredData.length} activeCount={columnFilter.activeCount} sorted={Boolean(columnFilter.sorted)} onClear={columnFilter.clearAll} />
                 <p className="border-t border-border bg-muted/30 px-5 py-2.5 text-[12px] text-muted-foreground">
                     Records are never deleted. Disabling hides a record from new dropdowns; old orders, specs, job cards and ledgers keep their references.
                 </p>

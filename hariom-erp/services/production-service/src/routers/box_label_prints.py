@@ -41,10 +41,7 @@ CLOSED_STATUSES = ("COMPLETED", "CLOSED", "CANCELLED", "SHORT_CLOSED", "FORCE_CL
 LABEL_SIZES = ("100x100", "a4-6")
 
 
-def clean_colour(value: Any) -> str:
-    """The colour without the supplier after " / " ("BLACK ZIG ZAG / SAGAR POLYFILMS" → "BLACK ZIG ZAG")."""
-    text = re.sub(r"\s+", " ", str(value or "")).strip()
-    return text.split(" / ")[0].strip() if " / " in text else text
+clean_colour = box_rules.clean_colour
 
 
 def _int(value: Any) -> int:

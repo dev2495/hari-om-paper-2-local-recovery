@@ -6,6 +6,15 @@ import Link from "next/link"
 import { Building2, Mail, Phone, Search, Users } from "lucide-react"
 
 import { useContactDirectory } from "@/hooks/use-master-data"
+import { ColumnFilterSummary, useColumnFilters, type FilterColumn } from "@/components/common/column-filter"
+
+const CONTACT_COLUMNS: FilterColumn<any>[] = [
+  { key: "type", label: "Type", value: (c: any) => (c.entity_type === "CUSTOMER" ? "Customer" : "Vendor") },
+  { key: "master", label: "Master", value: (c: any) => c.entity_name },
+  { key: "name", label: "Contact Name", value: (c: any) => c.contact_name },
+  { key: "number", label: "Number", value: (c: any) => c.contact_phone },
+  { key: "email", label: "Email", value: (c: any) => c.contact_email },
+]
 
 function matches(row: any, query: string, filter: string) {
   const typeMatch = filter === "ALL" || row.entity_type === filter
@@ -23,6 +32,9 @@ export default function ContactDirectoryPage() {
   const [filter, setFilter] = useState("ALL")
   const rows = useMemo(() => (Array.isArray(directoryQuery.data) ? directoryQuery.data : []), [directoryQuery.data])
   const visibleRows = useMemo(() => rows.filter((row: any) => matches(row, search, filter)), [rows, search, filter])
+  // Sort and filter on every column (client 2026-11-23).
+  const columnFilter = useColumnFilters(visibleRows, CONTACT_COLUMNS)
+  const shownRows = columnFilter.rows
   const customerCount = rows.filter((row: any) => row.entity_type === "CUSTOMER").length
   const vendorCount = rows.filter((row: any) => row.entity_type === "VENDOR").length
 
@@ -81,15 +93,15 @@ export default function ContactDirectoryPage() {
           <table className="w-full text-left text-sm">
             <thead className="bg-muted text-[11.5px] text-muted-foreground">
               <tr>
-                <th className="px-4 py-3">Type</th>
-                <th className="px-4 py-3">Master</th>
-                <th className="px-4 py-3">Contact Name</th>
-                <th className="px-4 py-3">Number</th>
-                <th className="px-4 py-3">Email</th>
+                <th scope="col" aria-sort={columnFilter.ariaSort("type")} className="px-3 py-2">{columnFilter.header("type")}</th>
+                <th scope="col" aria-sort={columnFilter.ariaSort("master")} className="px-3 py-2">{columnFilter.header("master")}</th>
+                <th scope="col" aria-sort={columnFilter.ariaSort("name")} className="px-3 py-2">{columnFilter.header("name")}</th>
+                <th scope="col" aria-sort={columnFilter.ariaSort("number")} className="px-3 py-2">{columnFilter.header("number")}</th>
+                <th scope="col" aria-sort={columnFilter.ariaSort("email")} className="px-3 py-2">{columnFilter.header("email")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {visibleRows.map((contact: any) => (
+              {shownRows.map((contact: any) => (
                 <tr key={contact.id} className="hover:bg-muted">
                   <td className="px-4 py-3">
                     <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${contact.entity_type === "CUSTOMER" ? "bg-signal-cyan-soft text-signal-cyan-ink" : "bg-muted text-foreground"}`}>
@@ -116,7 +128,7 @@ export default function ContactDirectoryPage() {
                   </td>
                 </tr>
               ))}
-              {!directoryQuery.isLoading && visibleRows.length === 0 ? (
+              {!directoryQuery.isLoading && shownRows.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-4 py-12 text-center text-muted-foreground">No contacts found.</td>
                 </tr>
@@ -124,6 +136,7 @@ export default function ContactDirectoryPage() {
             </tbody>
           </table>
         </div>
+        <ColumnFilterSummary shown={shownRows.length} total={visibleRows.length} activeCount={columnFilter.activeCount} sorted={Boolean(columnFilter.sorted)} onClear={columnFilter.clearAll} />
       </section>
 
       <div className="flex flex-wrap gap-2">

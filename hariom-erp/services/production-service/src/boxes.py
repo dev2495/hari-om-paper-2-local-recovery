@@ -261,6 +261,21 @@ def _tube_size(snap: dict) -> Optional[str]:
     return " x ".join(parts) + " mm"
 
 
+def clean_colour(value: Any) -> str:
+    """The colour without the supplier after " / " ("BLACK ZIG ZAG / SAGAR POLYFILMS" → "BLACK ZIG ZAG")."""
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    return text.split(" / ")[0].strip() if " / " in text else text
+
+
+def master_size_label(snap: dict) -> Optional[str]:
+    """ID x OD x L from the tube master, exact, the same text the job card prints (client 2026-11-23: no rounding)."""
+    from .routers.planning import _size_label  # late import: planning imports this module
+
+    text = _size_label(snap or {})
+    parts = [part.strip() for part in str(text or "").split(" x ")]
+    return text if len(parts) == 3 and all(part and part != "-" for part in parts) else None
+
+
 def label_fields(job: JobCard) -> dict[str, Any]:
     snap = job.spec_snapshot or {}
     return {
@@ -268,7 +283,7 @@ def label_fields(job: JobCard) -> dict[str, Any]:
         "customer": snap.get("customer_name_snapshot") or snap.get("customer_name"),
         "product_code": snap.get("product_code") or snap.get("sales_order_line_product_code"),
         "spec_reference": snap.get("spec_reference"),
-        "size_label": snap.get("sales_order_line_size_label") or _tube_size(snap),
+        "size_label": master_size_label(snap) or snap.get("sales_order_line_size_label") or _tube_size(snap),
         "colour": job.parchment_color or snap.get("sales_order_line_parchment_color") or snap.get("parchment_color"),
         "sales_order_no": snap.get("sales_order_order_no"),
         "customer_po": snap.get("sales_order_po_number"),

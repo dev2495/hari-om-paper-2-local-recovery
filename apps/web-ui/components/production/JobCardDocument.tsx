@@ -802,6 +802,11 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
       ]),
     )
   }, [mandrelsQuery.data])
+  // Mandrel OD in mm from the master (client 2026-11-23: the job card shows the mandrel size, not its code).
+  const mandrelOdMap = useMemo(() => {
+    const rows = Array.isArray(mandrelsQuery.data) ? mandrelsQuery.data : []
+    return new Map(rows.filter((row: any) => Number(row.outer_diameter_mm) > 0).map((row: any) => [String(row.id), Number(row.outer_diameter_mm)]))
+  }, [mandrelsQuery.data])
 
   // Old-form drafts on the device (client 2026-10-28: "auto draft save at the time of job card filling"): what
   // is typed in a stage is kept per card and stage until that stage is saved, and comes back after a reload,
@@ -914,6 +919,14 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
     documentSnapshot?.setup_tooling?.mandrel_label ||
     (mandrelId ? mandrelLabelMap.get(mandrelId) : null) ||
     "-"
+  // "125.55 mm": the master OD, else read from the code, where P is the decimal point ("OD125P55-L1600" → 125.55).
+  const mandrelSize = (() => {
+    const fromMaster = mandrelId ? mandrelOdMap.get(String(mandrelId)) : undefined
+    if (fromMaster) return `${Number(fromMaster.toFixed(3))} mm`
+    const match = String(mandrelLabel || "").match(/OD\s*(\d+)(?:P(\d+))?/i)
+    if (match) return `${Number(`${match[1]}.${match[2] || 0}`)} mm`
+    return mandrelLabel
+  })()
   const currentStage = (materialPreparationOnly ? "SLITTING" : card?.current_stage || "WINDER") as StageName
   const seasonalCard = card?.spec_snapshot?.entry_model === "V2" && !materialPreparationOnly
   // Seasonal cards: the printed card rows are the saved batch entries (one row per run, one reading row per sample).
@@ -3873,11 +3886,6 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
     const flagged = (run: any) => (run?.details?.unscheduled_entry || run?.details?.machine_changed || run?.details?.material_prep_pending ? " †" : "")
 
     // Header values (client 2026-11-21): no system codes, no supplier in the colour, lot = job card no.
-    const shortMandrel = (value: any) => {
-      const text = String(blankDash(value) || "").trim()
-      // "OD110P45-L2200" → "OD110": the pitch and length suffixes are system codes, not what the floor reads.
-      return text.replace(/(?:[-\s]?P\d+(?:\.\d+)?)?(?:[-\s]?L\d+(?:\.\d+)?)?$/i, "").trim() || text
-    }
     const cleanColour = (value: any) => {
       const text = String(blankDash(value) || "").replace(/\s+/g, " ").trim()
       return text.includes(" / ") ? text.split(" / ")[0].trim() : text
@@ -3888,7 +3896,7 @@ export default function JobCardDocument({ jobCardId, mode, materialPreparationOn
     const headerFields: [string, string, any][] = [
       ["Date", "तारीख", jobDate ? dateOnly(jobDate) : ""],
       ["Customer", "कस्टमर का नाम", customerName],
-      ["Mandrel", "मैंड्रिल", shortMandrel(mandrelLabel)],
+      ["Mandrel OD", "मैंड्रिल साइज़", mandrelSize],
       ["Job Card / Lot No.", "जॉब कार्ड / लॉट नंबर", jobCardNumber],
       ["Size", "साइज़", blankDash(header.product_size_label || "")],
       ["Colour", "रंग", jobColor || cleanColour(header.parchment_paper || parchmentFamily || "")],

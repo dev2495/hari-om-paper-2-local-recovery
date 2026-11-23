@@ -1135,6 +1135,16 @@ def get_ready_jobs_for_dispatch(
             "planned_qty": jc.planned_qty, "customer_id": so.customer_id,
             "created_at": jc.created_at, "entry_model": (jc.spec_snapshot or {}).get("entry_model"),
             "shipments": [], "draft": None})
+        if "sales_order_no" not in entry:
+            # Register columns (client 2026-11-23): order, PO, due date, the label's size and colour, so the desk
+            # can tell cards apart without opening them. Display only; the seal checks do not read these.
+            snap = jc.spec_snapshot or {}
+            fields = box_rules.label_fields(jc)
+            entry.update({"sales_order_no": fields.get("sales_order_no"), "customer_po": fields.get("customer_po"),
+                          "customer_name": fields.get("customer"), "size_label": fields.get("size_label"),
+                          "colour": box_rules.clean_colour(fields.get("colour")),
+                          "due_date": snap.get("sales_order_line_due_date") or (so.due_date.isoformat() if so.due_date else None),
+                          "priority": so.priority or snap.get("priority")})
         if dispatch and dispatch.status == "SEALED":
             # dispatch_ref / challan_no (gate, 6 Nov 2026): the register shows "Tally T-… ✓" / "Not out of gate" per challan.
             entry["shipments"].append({"id": str(dispatch.id), "qty": float((dispatch.dispatch_snapshot or {}).get("dispatch_qty") or (dispatch.dispatch_snapshot or {}).get("qty") or 0), "created_at": dispatch.created_at,
@@ -1180,6 +1190,8 @@ def get_ready_jobs_for_dispatch(
                               "ready": len(ready), "ready_pcs": float(sum(b.qty for b in ready)), "dispatched": sum(1 for b in card_boxes if b.status == "DISPATCHED"),
                               "retained": sum(1 for b in card_boxes if b.status == "RETAINED"), "flagged": sum(1 for b in card_boxes if b.qc_flagged),
                               "qty_per_box": box_rules.qty_per_box(jobs[key])}
+            per_box = entry["boxes"]["qty_per_box"]
+            entry["boxes"]["planned"] = math.ceil(entry["released_qty"] / per_box) if per_box and entry["released_qty"] else 0
             entry["packed_qty"] = boxed
             entry["dispatchable_qty"] = boxed
             entry["shipping_allowance"] = shipping_allowance(jobs[key], boxed, dispatch_stages.get(key))

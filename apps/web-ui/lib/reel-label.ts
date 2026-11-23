@@ -36,6 +36,14 @@ export function isPlantReelFacts(value: unknown): value is PlantReelFacts {
 
 type PlantRow = { id?: string; code?: string; name?: string | null; legal_name?: string | null; label_heading?: string | null; label_heading_effective?: string | null }
 
+/** Plant tag on box labels (client 2026-11-23): the plant name without the company heading, "Amigo Industries Unit-02" → "UNIT-02". */
+export function labelPlantTag(plant: PlantRow | null | undefined): string {
+  const heading = labelHeading(plant)
+  const name = String(plant?.name || "").replace(/\s+/g, " ").trim().toUpperCase()
+  const short = heading && name.startsWith(heading) ? name.slice(heading.length).replace(/^[\s,:·–-]+/, "").trim() : name
+  return short || String(plant?.code || "").trim().toUpperCase()
+}
+
 /** The label heading: the plant's own, else its legal name, else its name, in capitals. */
 export function labelHeading(plant: PlantRow | null | undefined): string {
   const text = String(plant?.label_heading_effective || plant?.label_heading || plant?.legal_name || plant?.name || "").trim()
