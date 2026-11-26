@@ -20,6 +20,25 @@ stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 work="/opt/hariom/releases/$stamp-$release"
 mkdir -p "$work/source"
 compose() { docker compose --env-file "$deploy/.env" --project-directory "$deploy" "$@"; }
+# Disk housekeeping (26 Nov 2026: the 40 GB disk filled with one ~2.4 GB rollback image per release and the
+# build cache; the 23 Nov release died mid-build and the site was down). Keeps the newest two rollback images,
+# drops the build cache and untagged layers, and keeps the newest five release folders. Never touches
+# volumes, backups or the running image (rmi without -f only removes a tag still in use).
+free_gb() { df -BG --output=avail / | tail -n 1 | tr -dc '0-9'; }
+housekeeping() {
+  docker images --format '{{.Repository}}:{{.Tag}}' hariom-rollback | sort -r | tail -n +3 | xargs -r docker rmi >/dev/null 2>&1 || true
+  docker builder prune -af >/dev/null 2>&1 || true
+  docker image prune -f >/dev/null 2>&1 || true
+  ls -1dt /opt/hariom/releases/*/ 2>/dev/null | tail -n +6 | xargs -r rm -rf || true
+}
+# A build needs several GB. Check before anything changes, so a full disk stops the release cleanly
+# instead of taking the site down halfway.
+if (( $(free_gb) < 12 )); then
+  echo "Only $(free_gb) GB free; cleaning old release images and build cache first"
+  housekeeping
+fi
+(( $(free_gb) >= 10 )) || { echo "Not enough disk: $(free_gb) GB free, 10 GB needed. Nothing was changed; free space and retry." >&2; exit 1; }
+echo "Disk free before release: $(free_gb) GB"
 old_container="$(compose ps -q erp-app)"
 old_image="$(docker inspect --format '{{.Image}}' "$old_container")"
 # The repository:tag compose runs erp-app under (e.g. hariom-release:<tag>); rollback must retag this name.
@@ -188,4 +207,7 @@ bash "$deploy/publish_health_metrics.sh"
 restore_schedules
 printf '%s\n' "$release" > /opt/hariom/DEPLOYED_COMMIT
 trap - ERR INT TERM
+# After acceptance only: this release's rollback image is the newest one, so it is always kept.
+housekeeping
+echo "Disk free after clean-up: $(free_gb) GB"
 echo "Release accepted: $release; evidence=$work; rollback=hariom-rollback:$stamp"
